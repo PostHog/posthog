@@ -34,7 +34,7 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
@@ -1122,7 +1122,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                 }
                 groupTypes.forEach((groupType) => {
-                    const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
+                    const name = escapePropertyAsHogQLIdentifier(groupType.group_type)
                     query.select.push(
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )

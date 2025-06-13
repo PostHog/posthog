@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     metrics_consts::{
-        CACHE_CONSUMED, ISSUE_FAILED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
+        ISSUE_FAILED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
         V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, V2_EVENT_DEFS_BATCH_SIZE,
         V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED, V2_EVENT_PROPS_BATCH_ATTEMPT,
         V2_EVENT_PROPS_BATCH_CACHE_TIME, V2_EVENT_PROPS_BATCH_ROWS_AFFECTED,
@@ -242,11 +242,6 @@ pub async fn process_batch_v2(
     pool: &PgPool,
     batch: Vec<Update>,
 ) {
-    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
-    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
-
-    // TODO(eli): implement v1-style delay while cache is warming?
-
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);

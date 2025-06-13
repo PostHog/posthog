@@ -1831,6 +1831,7 @@ class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
     ALL = "all"
     PRODUCT = "product"
     COHORT = "cohort"
+    COUNTRY = "country"
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
@@ -1981,7 +1982,7 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
-    LOGS = "logs"
+    LOG_ATTRIBUTES = "log_attributes"
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
@@ -10135,9 +10136,9 @@ class LogsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[OrderBy1] = None
-    resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
+    serviceNames: list[str]
     severityLevels: list[LogSeverityLevel]
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 

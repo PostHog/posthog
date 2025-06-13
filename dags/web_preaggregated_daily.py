@@ -5,6 +5,7 @@ import os
 import dagster
 from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
+import chdb
 from dags.common import JobOwners
 from dags.web_preaggregated_utils import (
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
@@ -20,6 +21,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
+    get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
@@ -161,6 +163,8 @@ def export_web_analytics_data(
         s3_path=s3_path,
     )
 
+    context.log.info(f"{export_query}")
+
     sync_execute(export_query)
 
     context.log.info(f"Successfully exported {table_name} to S3: {s3_path}")
@@ -170,6 +174,50 @@ def export_web_analytics_data(
         metadata={
             "s3_path": s3_path,
             "table_name": table_name,
+        },
+    )
+
+
+def partition_web_analytics_data_by_team(
+    context: dagster.AssetExecutionContext,
+    source_s3_path: str,
+) -> dagster.Output[list]:
+    config = context.op_config
+    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
+
+    successfully_team_ids = []
+    failed_team_ids = []
+
+    for team_id in team_ids:
+        team_s3_path = f"{source_s3_path.replace('.native', '')}/{team_id}/data.native"
+
+        partition_query = f"""
+        INSERT INTO FUNCTION s3({get_s3_function_args(team_s3_path)})
+        SELECT *
+        FROM s3({get_s3_function_args(source_s3_path)})
+        WHERE team_id = {team_id}
+        SETTINGS s3_truncate_on_insert=true
+        """
+
+        try:
+            context.log.info(f"Partitioning data for team {team_id}")
+            context.log.info(f"Query: {partition_query}")
+
+            chdb.query(partition_query)
+
+            successfully_team_ids.append(team_s3_path)
+            context.log.info(f"Successfully partitioned data for team {team_id} to: {team_s3_path}")
+
+        except Exception as e:
+            context.log.exception(f"Failed to partition data for team {team_id}: {str(e)}")
+            failed_team_ids.append(team_id)
+
+    return dagster.Output(
+        value=successfully_team_ids,
+        metadata={
+            "team_count": len(successfully_team_ids),
+            "team_ids": successfully_team_ids,
+            "failed_team_ids": failed_team_ids,
         },
     )
 
@@ -211,6 +259,38 @@ def web_bounces_daily_export(context: dagster.AssetExecutionContext) -> dagster.
         table_name="web_bounces_daily",
         sql_generator=WEB_BOUNCES_EXPORT_SQL,
         export_prefix="web_bounces_daily_export",
+    )
+
+
+@dagster.asset(
+    name="web_split_stats_export_by_team",
+    group_name="web_analytics",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_stats_export"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def split_stats_export_by_team(
+    context: dagster.AssetExecutionContext, web_analytics_stats_export: str
+) -> dagster.Output[list]:
+    return partition_web_analytics_data_by_team(
+        context=context,
+        source_s3_path=web_analytics_stats_export,
+    )
+
+
+@dagster.asset(
+    name="web_split_bounces_export_by_team",
+    group_name="web_analytics",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_bounces_export"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def split_bounces_export_by_team(
+    context: dagster.AssetExecutionContext, web_analytics_bounces_export: str
+) -> dagster.Output[list]:
+    return partition_web_analytics_data_by_team(
+        context=context,
+        source_s3_path=web_analytics_bounces_export,
     )
 
 

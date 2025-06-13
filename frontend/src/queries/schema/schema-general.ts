@@ -1887,7 +1887,7 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort'
+export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort' | 'country'
 
 export interface RevenueAnalyticsInsightsQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
@@ -2008,9 +2008,9 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     offset?: integer
     orderBy?: 'latest' | 'earliest'
     searchTerm?: string
-    resource?: string
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
+    serviceNames: string[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {

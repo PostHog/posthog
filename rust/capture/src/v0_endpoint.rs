@@ -198,21 +198,9 @@ async fn handle_legacy(
     // consumes the parent request, so it's no longer in scope to extract metadata from
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
-        Err(e) => {
-            // at the moment, the only way this can fail on RequestParsingError is
-            // when an unnamed event (no "event" attrib) is submitted to an
-            // endpoint other than /engage, or the whole payload is malformed
-            error!("event hydration from request failed: {}", e);
-            return Err(e);
-        }
+        Err(e) => return Err(e),
     };
     Span::current().record("batch_size", events.len());
-
-    if events.is_empty() {
-        warn!("rejected empty batch");
-        let err = CaptureError::EmptyBatch;
-        return Err(err);
-    }
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,
@@ -351,20 +339,9 @@ async fn handle_common(
     // consumes the parent request, so it's no longer in scope to extract metadata from
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
-        Err(e) => {
-            // at the moment, the only way this can fail on RequestParsingError is
-            // when an unnamed event (no "event" attrib) is submitted to an
-            // endpoint other than /engage, or the whole payload is malformed
-            error!("event hydration from request failed: {}", e);
-            return Err(e);
-        }
+        Err(e) => return Err(e),
     };
     Span::current().record("batch_size", events.len());
-
-    if events.is_empty() {
-        warn!("rejected empty batch");
-        return Err(CaptureError::EmptyBatch);
-    }
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,
@@ -444,6 +421,15 @@ pub async fn event_legacy(
             })
         }
 
+        Err(CaptureError::EmptyPayloadFiltered) => {
+            // as per legacy behavior, for now we'll silently accept these submissions
+            // when invalid event type filtering has resulted in an empty event payload
+            Ok(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            })
+        }
+
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
             error!("event_legacy: request payload processing error: {:?}", err);
@@ -515,6 +501,16 @@ pub async fn event(
                 quota_limited: None,
             })
         }
+
+        Err(CaptureError::EmptyPayloadFiltered) => {
+            // as per legacy behavior, for now we'll silently accept these submissions
+            // when invalid event type filtering has resulted in an empty event payload
+            Ok(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            })
+        }
+
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
             Err(err)
