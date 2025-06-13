@@ -2,7 +2,6 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from functools import cached_property
-from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel, field_validator
@@ -116,112 +115,6 @@ class TaxonomyAgentToolkit:
 
     def __init__(self, team: Team):
         self._team = team
-
-    @cached_property
-    def tools(self) -> list[ToolkitTool]:
-        return [
-            {
-                "name": tool["name"],
-                "signature": tool["signature"],
-                "description": dedent(tool["description"]),
-            }
-            for tool in self._get_tools()
-        ]
-
-    def _get_tools(self) -> list[ToolkitTool]:
-        return self._default_tools
-
-    @property
-    def _default_tools(self) -> list[ToolkitTool]:
-        stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
-        return [
-            {
-                "name": "retrieve_event_properties",
-                "signature": "(event_name: str)",
-                "description": """
-                    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-                    - **Try other events** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-
-                    Args:
-                        event_name: The name of the event that you want to retrieve properties for.
-                """,
-            },
-            {
-                "name": "retrieve_event_property_values",
-                "signature": "(event_name: str, property_name: str)",
-                "description": """
-                    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-
-                    Args:
-                        event_name: The name of the event that you want to retrieve values for.
-                        property_name: The name of the property that you want to retrieve values for.
-                """,
-            },
-            {
-                "name": "retrieve_action_properties",
-                "signature": "(action_id: int)",
-                "description": """
-                    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-                    - **Try other actions or events** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-
-                    Args:
-                        action_id: The ID of the action that you want to retrieve properties for.
-                """,
-            },
-            {
-                "name": "retrieve_action_property_values",
-                "signature": "(action_id: int, property_name: str)",
-                "description": """
-                    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-
-                    Args:
-                        action_id: The ID of the action that you want to retrieve values for.
-                        property_name: The name of the property that you want to retrieve values for.
-                """,
-            },
-            {
-                "name": f"retrieve_entity_properties",
-                "signature": f"(entity: Literal[{stringified_entities}])",
-                "description": """
-                    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-                    - **Infer the property groups from the user's request.**
-                    - **Try other entities** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-
-                    Args:
-                        entity: The type of the entity that you want to retrieve properties for.
-                """,
-            },
-            {
-                "name": "retrieve_entity_property_values",
-                "signature": f"(entity: Literal[{stringified_entities}], property_name: str)",
-                "description": """
-                    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-
-                    Args:
-                        entity: The type of the entity that you want to retrieve properties for.
-                        property_name: The name of the property that you want to retrieve values for.
-                """,
-            },
-            {
-                "name": "ask_user_for_help",
-                "signature": "(question: str)",
-                "description": """
-                    Use this tool to ask a question to the user. Your question must be concise and clear.
-
-                    Args:
-                        question: The question you want to ask.
-                """,
-            },
-        ]
 
     @property
     def _groups(self):
