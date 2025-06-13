@@ -43,11 +43,12 @@ import {
     ChartDisplayType,
     CyclotronJobInputSchemaType,
     CyclotronJobInputType,
+    CyclotronJobInvocationGlobals,
+    CyclotronJobInvocationGlobalsWithInputs,
     EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationContextId,
     HogFunctionConfigurationType,
-    HogFunctionInvocationGlobals,
     HogFunctionMappingType,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -196,7 +197,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
 export function convertToHogFunctionInvocationGlobals(
     event: EventType,
     person: PersonType
-): HogFunctionInvocationGlobals {
+): CyclotronJobInvocationGlobals {
     const team = teamLogic.findMounted()?.values?.currentTeam
     const projectUrl = `${window.location.origin}/project/${team?.id}`
     return {
@@ -311,7 +312,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
-        setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
+        setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
         sendBroadcast: true,
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
@@ -324,7 +325,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
-            null as HogFunctionInvocationGlobals | null,
+            null as CyclotronJobInvocationGlobals | null,
             {
                 setSampleGlobals: (_, { sampleGlobals }) => sampleGlobals,
             },
@@ -522,7 +523,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sampleGlobals: [
-            null as HogFunctionInvocationGlobals | null,
+            null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
                     if (!values.lastEventQuery) {
@@ -647,7 +648,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 if (!props.id || props.id === 'new') {
-                    const folder = await asyncSaveToModal({})
+                    const type = values.type
+                    const typeFolder =
+                        type === 'site_app'
+                            ? 'Site apps'
+                            : type === 'transformation'
+                            ? 'Transformations'
+                            : type === 'source_webhook'
+                            ? 'Sources'
+                            : type === 'broadcast'
+                            ? 'Broadcasts'
+                            : type === 'messaging_campaign'
+                            ? 'Campaigns'
+                            : 'Destinations'
+                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
                     if (typeof folder === 'string') {
                         payload._create_in_folder = folder
                     }
@@ -814,7 +828,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId],
-            (configuration, currentProject, groupTypes, contextId): HogFunctionInvocationGlobals => {
+            (configuration, currentProject, groupTypes, contextId): CyclotronJobInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -850,7 +864,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               },
                           }),
                 }
-                const globals: HogFunctionInvocationGlobals = {
+                const globals: CyclotronJobInvocationGlobals = {
                     event,
                     person:
                         contextId !== 'error-tracking'
@@ -895,11 +909,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         sampleGlobalsWithInputs: [
             (s) => [s.sampleGlobals, s.exampleInvocationGlobals, s.configuration],
-            (
-                sampleGlobals,
-                exampleInvocationGlobals,
-                configuration
-            ): Partial<HogFunctionInvocationGlobals> & { inputs?: Record<string, any> } => {
+            (sampleGlobals, exampleInvocationGlobals, configuration): CyclotronJobInvocationGlobalsWithInputs => {
                 const inputs: Record<string, any> = {}
                 for (const input of configuration?.inputs_schema || []) {
                     inputs[input.key] = input.type

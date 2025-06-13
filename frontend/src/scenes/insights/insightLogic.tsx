@@ -2,8 +2,9 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +14,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -123,6 +125,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         setAccessDeniedToInsight: true,
+        setMaxContext: true,
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -176,16 +179,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         return { ...values.insight, ...metadataUpdate }
                     }
 
-                    const beforeUpdates = {}
+                    const beforeUpdates: Record<string, any> = {}
                     for (const key of Object.keys(metadataUpdate)) {
-                        beforeUpdates[key] = values.savedInsight[key]
+                        beforeUpdates[key] = (values.savedInsight as any)[key]
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
                     await breakpoint(300)
 
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    dashboardsModel.actions.updateDashboardInsight(response)
+                    dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
                     refreshTreeItem('insight', values.insight.short_id)
@@ -196,7 +199,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             action: async () => {
                                 const response = await insightsApi.update(values.insight.id as number, beforeUpdates)
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
-                                dashboardsModel.actions.updateDashboardInsight(response)
+                                dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
                                 actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
                                 lemonToast.success('Insight change reverted')
                             },
@@ -321,6 +324,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             () => [router.selectors.location],
             ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
+        isInViewMode: [() => [router.selectors.location], ({ pathname }) => /\/insights\/[a-zA-Z0-9]+$/.test(pathname)],
         derivedName: [
             (s) => [s.query, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (query, aggregationLabel, cohortsById, mathDefinitions) =>
@@ -333,17 +337,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight, s.featureFlags],
-            (insight, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return insight.user_access_level
-                        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
-                        : true
-                }
-                return (
-                    insight.effective_privilege_level == undefined ||
-                    insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
-                )
+            (s) => [s.insight],
+            (insight) => {
+                return insight.user_access_level
+                    ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                    : true
             },
         ],
         insightChanged: [
@@ -427,7 +425,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
             })
 
-            dashboardsModel.actions.updateDashboardInsight(savedInsight)
+            dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 
             // reload dashboards with updated insight
             // since filters on dashboard might be different from filters on insight
@@ -503,6 +501,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 router.actions.push(urls.insightEdit(insight.short_id))
             }
         },
+        setMaxContext: () => {
+            // Set MaxAI context when insight changes
+            if (values.insight && values.insight.query) {
+                maxContextLogic.findMounted()?.actions.addOrUpdateActiveInsight(values.insight, values.isInViewMode)
+            }
+        },
     })),
     events(({ props, actions }) => ({
         afterMount: () => {
@@ -517,6 +521,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     props.variablesOverride
                 )
             }
+        },
+    })),
+    subscriptions(({ actions }) => ({
+        insight: () => {
+            actions.setMaxContext()
         },
     })),
 ])

@@ -427,6 +427,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_invite?: boolean
     metadata?: OrganizationMetadata
     member_count: number
+    default_experiment_stats_method: ExperimentStatsMethod
 }
 
 export interface OrganizationDomainType {
@@ -544,7 +545,6 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
     /** Whether the project is private. */
     access_control: boolean
-    access_control_version: 'v1' | 'v2'
 }
 
 export interface CorrelationConfigType {
@@ -5205,6 +5205,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
+    | 'messaging_campaign'
 
 export type HogFunctionKind = 'messaging_campaign' | null
 
@@ -5306,7 +5307,7 @@ export type HogFunctionStatus = {
     tokens: number
 }
 
-export type HogFunctionInvocationGlobals = {
+export type CyclotronJobInvocationGlobals = {
     project: {
         id: number
         name: string
@@ -5349,7 +5350,11 @@ export type HogFunctionInvocationGlobals = {
     }
 }
 
-export type HogFunctionTestInvocationResult = {
+export type CyclotronJobInvocationGlobalsWithInputs = Partial<CyclotronJobInvocationGlobals> & {
+    inputs?: Record<string, any>
+}
+
+export type CyclotronJobTestInvocationResult = {
     status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any

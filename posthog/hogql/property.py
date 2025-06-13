@@ -659,10 +659,12 @@ def property_to_expr(
 
 
 def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
-    if property.key == "product":
-        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
-    elif property.key == "amount":
+    if property.key == "amount":
         return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+    elif property.key == "product":
+        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
+    elif property.key == "country":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
     elif property.key == "cohort":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
     elif property.key == "source":

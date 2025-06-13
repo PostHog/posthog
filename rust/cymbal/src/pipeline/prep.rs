@@ -104,10 +104,14 @@ fn transform_event(
     person_mode: PersonMode,
     team: &Team,
 ) -> ClickHouseEvent {
-    // Fold the ip the event was sent from into the event properties
-    raw_event
-        .properties
-        .insert("$ip".to_string(), Value::String(outer.ip.clone()));
+    if team.anonymize_ips {
+        raw_event.properties.remove("$ip");
+    } else {
+        // Fold the ip the event was sent from into the event properties
+        raw_event
+            .properties
+            .insert("$ip".to_string(), Value::String(outer.ip.clone()));
+    }
 
     // Fold in $set and $set_once properties
     let set = raw_event.set;
