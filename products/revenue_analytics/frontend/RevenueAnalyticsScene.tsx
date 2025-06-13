@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
+import { ProductKey, SidePanelTab } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -158,7 +158,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
                             sideIcon={<IconDatabase />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                                router.actions.push(urls.dataWarehouseSourceNew('stripe'))
                             }}
                             data-attr="create-revenue-source"
                         >
@@ -188,7 +188,7 @@ const RevenueAnalyticsTables = (): JSX.Element => {
 
             <LemonDivider className="mt-6" />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <RevenueGrowthRateTile />
                 <TopCustomersTile />
             </div>

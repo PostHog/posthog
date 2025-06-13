@@ -4,7 +4,7 @@ import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSo
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable, SourceMap } from '~/queries/schema/schema-general'
-import { DataWarehouseSettingsTab, PipelineNodeTab, PipelineStage } from '~/types'
+import { DataWarehouseSettingsTab } from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
@@ -91,10 +91,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                                 name: table.fields[field].hogql_value,
                                 type: table.fields[field].type,
                             })),
-                            sourceUrl: urls.pipelineNode(
-                                PipelineStage.Source,
-                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`,
-                                isDataWarehouse ? PipelineNodeTab.Schemas : PipelineNodeTab.SourceConfiguration
+                            sourceUrl: urls.dataWarehouseSource(
+                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`
                             ),
                             external_type: tableType,
                             source_map: sourceMap,

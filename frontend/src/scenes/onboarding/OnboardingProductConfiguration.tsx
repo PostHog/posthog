@@ -1,7 +1,6 @@
 import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
-import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
 
 import { ProductKey } from '~/types'
 
@@ -39,9 +38,7 @@ export const OnboardingProductConfiguration = ({
     product?: ProductKey
 }): JSX.Element | null => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
-    const { pipelineDefaultEnabled } = useValues(pipelineDefaultEnabledLogic)
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
-    const { toggleEnabled } = useActions(pipelineDefaultEnabledLogic)
 
     const configOptionsRef = useRef(configOptions)
 
@@ -76,24 +73,7 @@ export const OnboardingProductConfiguration = ({
                     setConfigOptions(updatedConfigOptions)
                 },
             })),
-        ...pipelineDefaultEnabled
-            .filter((plugin) => {
-                return !(product && plugin?.productOnboardingDenyList?.includes(product))
-            })
-            .map((item) => {
-                return {
-                    title: item.title,
-                    description: item.description,
-                    type: 'plugin' as PluginType,
-                    value: item.enabled,
-                    onChange: (enabled: boolean) => {
-                        toggleEnabled({
-                            id: item.id,
-                            enabled: enabled,
-                        })
-                    },
-                }
-            }),
+        // TODO: Add back in default transforms??
     ]
 
     return combinedList.length > 0 ? (
@@ -103,10 +83,10 @@ export const OnboardingProductConfiguration = ({
                 {combinedList.map((item, idx) => (
                     <React.Fragment key={idx}>
                         <LemonDivider className="my-4" />
-                        <div className="grid gap-4 grid-cols-3">
+                        <div className="grid grid-cols-3 gap-4">
                             <div className="col-span-2">
                                 <label className="text-base font-semibold">{item.title}</label>
-                                <p className="prompt-text mt-2 mb-0 ">{item.description}</p>
+                                <p className="mt-2 mb-0 prompt-text">{item.description}</p>
                             </div>
                             <div className="flex justify-end">
                                 {item.type === 'toggle' ? (
@@ -124,7 +104,7 @@ export const OnboardingProductConfiguration = ({
                                         checked={item.value || false}
                                     />
                                 ) : (
-                                    <div className="flex justify-end items-center mb-1 gap-x-4">
+                                    <div className="flex gap-x-4 justify-end items-center mb-1">
                                         <LemonSelect
                                             dropdownMatchSelectWidth={false}
                                             onChange={item.onChange}

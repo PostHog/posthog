@@ -19,8 +19,6 @@ import {
     ExternalDataSourceType,
     manualLinkSources,
     ManualLinkSourceType,
-    PipelineStage,
-    PipelineTab,
     ProductKey,
     SourceConfig,
     SourceFieldConfig,
@@ -62,8 +60,7 @@ const StripeCaption = (): JSX.Element => (
     </>
 )
 
-export const getHubspotRedirectUri = (): string =>
-    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { source: 'Hubspot' })}`
+export const getHubspotRedirectUri = (): string => `${window.location.origin}${urls.dataWarehouseSourceNew('hubspot')}`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -1132,14 +1129,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: [Scene.Pipeline, 'sources'],
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
                     },
                     {
                         key: Scene.DataWarehouseSource,
@@ -1358,7 +1355,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-            router.actions.push(urls.pipeline(PipelineTab.Sources))
+            router.actions.push(urls.dataPipelines('sources'))
         },
         cancelWizard: () => {
             actions.onClear()
@@ -1491,7 +1488,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
         return {
             [urls.dataWarehouseSourceNew()]: handleUrlChange,
-            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
         }
     }),
 

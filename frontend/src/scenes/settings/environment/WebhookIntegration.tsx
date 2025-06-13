@@ -7,8 +7,6 @@ import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab } from '~/types'
-
 import { webhookIntegrationLogic } from './webhookIntegrationLogic'
 
 export function WebhookIntegration(): JSX.Element {
@@ -44,8 +42,8 @@ export function WebhookIntegration(): JSX.Element {
             <>
                 <p>
                     The Webhook integration has been replaced with our new{' '}
-                    <Link to={urls.pipeline(PipelineTab.Destinations)}>Pipeline Destinations</Link> allowing you to
-                    create multiple, highly customizable webhook triggers based off of Actions or Events.
+                    <Link to={urls.dataPipelines('destinations')}>Pipeline Destinations</Link> allowing you to create
+                    multiple, highly customizable webhook triggers based off of Actions or Events.
                 </p>
             </>
         )

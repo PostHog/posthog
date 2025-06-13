@@ -5,7 +5,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -47,13 +47,7 @@ export function ExternalDataSourceConfiguration({
                         title: 'Source',
                         render: (_, item: ExternalDataSource) => {
                             return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Source,
-                                        `managed-${item.id}`,
-                                        PipelineNodeTab.Schemas
-                                    )}
-                                >
+                                <Link to={urls.dataWarehouseSource(`managed-${item.id}`)}>
                                     {item.prefix || item.source_type}
                                 </Link>
                             )
@@ -81,11 +75,7 @@ export function ExternalDataSourceConfiguration({
                                 className="my-1"
                                 ref={buttonRef}
                                 type="primary"
-                                onClick={() => {
-                                    router.actions.push(
-                                        urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' })
-                                    )
-                                }}
+                                onClick={() => router.actions.push(urls.dataWarehouseSourceNew('stripe'))}
                             >
                                 Add new source
                             </LemonButton>

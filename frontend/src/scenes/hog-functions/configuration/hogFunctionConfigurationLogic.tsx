@@ -16,7 +16,6 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -53,8 +52,6 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
     PersonType,
-    PipelineNodeTab,
-    PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -285,7 +282,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         const baseKey = id ?? templateId ?? 'new'
         return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
-    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -296,7 +293,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
@@ -1220,11 +1216,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
@@ -1446,15 +1440,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             }
 
-            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
-            if (
-                !(
-                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
-                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
-                )
-            ) {
-                return true
-            }
+            // TODO: Fix this!!
+            // const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            // if (
+            //     !(
+            //         possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+            //         possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+            //     )
+            // ) {
+            //     return true
+            // }
 
             return false
         },

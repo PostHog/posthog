@@ -2,18 +2,12 @@ import { IconDatabase } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
-import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
-import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
-import { FunctionDestination, PipelineBackend } from 'scenes/pipeline/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportConfiguration, PipelineStage, PluginConfigWithPluginInfoNew } from '~/types'
+import { BatchExportConfiguration, PluginConfigWithPluginInfoNew } from '~/types'
 
-import { RenderApp } from '../../pipeline/utils'
+import { RenderApp } from '../../data-pipelines/legacy-plugins/utils'
 import type { exportsUnsubscribeTableLogicType } from './exportsUnsubscribeTableLogicType'
 
 export interface ItemToDisable {
@@ -31,15 +25,9 @@ export interface ItemToDisable {
 export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType>([
     path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
     connect(() => ({
-        values: [
-            pipelineAccessLogic,
-            ['canConfigurePlugins'],
-            userLogic,
-            ['user'],
-            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
-            ['paidHogFunctions'],
-        ],
-        actions: [pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['toggleNodeHogFunction']],
+        // TODO: BEN FIX THIS
+        values: [userLogic, ['user']],
+        // actions: [pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['toggleNodeHogFunction']],
     })),
 
     actions({
@@ -58,9 +46,6 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 disablePlugin: async ({ id }) => {
-                    if (!values.canConfigurePlugins) {
-                        return values.pluginConfigsToDisable
-                    }
                     const response = await api.update(`api/plugin_config/${id}`, { enabled: false, deleted: true })
                     return { ...values.pluginConfigsToDisable, [id]: response }
                 },
@@ -105,8 +90,8 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             },
         ],
         itemsToDisable: [
-            (s) => [s.pluginConfigsToDisable, s.batchExportConfigs, s.paidHogFunctions],
-            (pluginConfigsToDisable, batchExportConfigs, paidHogFunctions): ItemToDisable[] => {
+            (s) => [s.pluginConfigsToDisable, s.batchExportConfigs],
+            (pluginConfigsToDisable, batchExportConfigs): ItemToDisable[] => {
                 const pluginConfigs = Object.values(pluginConfigsToDisable).map((pluginConfig) => {
                     return {
                         plugin_config_id: pluginConfig.id,
@@ -115,7 +100,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                         description: pluginConfig.description,
                         icon: <RenderApp plugin={pluginConfig.plugin_info} imageSize="small" />,
                         disabled: !pluginConfig.enabled,
-                        url: urls.pipelineNode(PipelineStage.Destination, pluginConfig.id),
+                        url: urls.legacyPlugin(pluginConfig.id.toString()),
                     } satisfies ItemToDisable
                 })
                 const batchExports = Object.values(batchExportConfigs).map((batchExportConfig) => {
@@ -132,42 +117,42 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                             />
                         ),
                         disabled: batchExportConfig.paused,
-                        url: urls.pipelineNode(PipelineStage.Destination, batchExportConfig.id),
+                        url: urls.batchExport(batchExportConfig.id),
                     } satisfies ItemToDisable
                 })
-                const hogFunctions = paidHogFunctions.map((hogFunction) => {
-                    return {
-                        hog_function_id: hogFunction.id,
-                        team_id: getCurrentTeamId(),
-                        name: hogFunction.name,
-                        description: hogFunction.description,
-                        icon: <HogFunctionIcon src={hogFunction.icon_url} size="small" />,
-                        disabled: false,
-                        url: urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`),
-                    } satisfies ItemToDisable
-                })
-                return [...pluginConfigs, ...batchExports, ...hogFunctions]
+                // const hogFunctions = paidHogFunctions.map((hogFunction) => {
+                //     return {
+                //         hog_function_id: hogFunction.id,
+                //         team_id: getCurrentTeamId(),
+                //         name: hogFunction.name,
+                //         description: hogFunction.description,
+                //         icon: <HogFunctionIcon src={hogFunction.icon_url} size="small" />,
+                //         disabled: false,
+                //         url: urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`),
+                //     } satisfies ItemToDisable
+                // })
+                return [...pluginConfigs, ...batchExports]
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        disableHogFunction: ({ id }) => {
-            const hogFunction = (values.paidHogFunctions ?? []).find((f) => f.id === id)
-            if (hogFunction) {
-                actions.toggleNodeHogFunction(
-                    {
-                        name: hogFunction.name,
-                        enabled: true,
-                        stage: PipelineStage.Destination,
-                        interval: 'realtime',
-                        backend: PipelineBackend.HogFunction,
-                        id,
-                        hog_function: hogFunction,
-                    } as FunctionDestination,
-                    false
-                )
-            }
-        },
+    listeners(() => ({
+        // disableHogFunction: ({ id }) => {
+        //     const hogFunction = (values.paidHogFunctions ?? []).find((f) => f.id === id)
+        //     // if (hogFunction) {
+        //     //     actions.toggleNodeHogFunction(
+        //     //         {
+        //     //             name: hogFunction.name,
+        //     //             enabled: true,
+        //     //             stage: PipelineStage.Destination,
+        //     //             interval: 'realtime',
+        //     //             backend: PipelineBackend.HogFunction,
+        //     //             id,
+        //     //             hog_function: hogFunction,
+        //     //         } as FunctionDestination,
+        //     //         false
+        //     //     )
+        //     // }
+        // },
     })),
     afterMount(({ actions }) => {
         actions.loadPluginConfigs()
