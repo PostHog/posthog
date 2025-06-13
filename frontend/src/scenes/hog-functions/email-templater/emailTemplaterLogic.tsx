@@ -132,8 +132,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (!editor || !values.isEmailEditorReady) {
                     return
                 }
-                const htmlData = await new Promise<any>((res) => editor.exportHtml(res))
-                const textData = await new Promise<any>((res) => editor.exportPlainText(res))
+                const [htmlData, textData] = await Promise.all([
+                    new Promise<any>((res) => editor.exportHtml(res)),
+                    new Promise<any>((res) => editor.exportPlainText(res)),
+                ])
 
                 const finalValues = {
                     ...value,
