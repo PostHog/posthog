@@ -11288,6 +11288,7 @@ class MaxInsightContext(BaseModel):
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsInsightsQuery,
         RevenueAnalyticsOverviewQuery,
