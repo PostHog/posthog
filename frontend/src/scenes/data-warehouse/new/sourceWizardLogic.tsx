@@ -1456,13 +1456,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
             const source = values.connectors.find((s) => s.name.toLowerCase() === kind)
-            const manualSource = values.manualConnectors.find((s) => s.type.toLowerCase() === kind) as
-                | ManualLinkSourceType
-                | undefined
+            const manualSource = values.manualConnectors.find((s) => s.type.toLowerCase() === kind)
 
             if (manualSource) {
                 actions.toggleManualLinkFormVisible(true)
-                actions.setManualLinkingProvider(manualSource)
+                actions.setManualLinkingProvider(manualSource.type)
                 return
             }
 
