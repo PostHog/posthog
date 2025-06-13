@@ -168,6 +168,7 @@ export class HogFlowExecutorService {
                     result.finished = false
                     result.invocation.queueScheduledAt = actionResult.scheduledAt
                     // TODO: Do we also want to increment some meta context?
+                    // TODO: Add a log here to indicate it is scheduled for later
                     break
                 }
 
@@ -178,10 +179,13 @@ export class HogFlowExecutorService {
                         id: actionResult.goToActionId,
                         startedAt: DateTime.now(),
                     }
+                    result.finished = false // Nothing new here but just to be sure
+                    // TODO: Add a log here to indicate the outcome
                     break
                 }
 
                 // The action is finished so we move on
+                // TODO: Add a log here to indicate the action lead to the end of the flow
                 result.finished = true
                 break
             }
