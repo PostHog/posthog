@@ -15,7 +15,7 @@ function ModalDescription(): JSX.Element {
             </p>
             <p>
                 You're seeing this because you're using multiple environments per project. As we rollback the beta we're
-                moving environemtns back to a project-based approach, and we're offering a way to consolidate your
+                moving environments back to a project-based approach, and we're offering a way to consolidate your
                 environments.
             </p>
             <p className="font-bold">You will not lose any data.</p>
