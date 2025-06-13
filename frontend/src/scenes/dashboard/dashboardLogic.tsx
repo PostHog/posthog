@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import {
     actions,
     connect,
@@ -18,10 +19,9 @@ import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
@@ -30,6 +30,7 @@ import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -95,6 +96,8 @@ const QUERY_VARIABLES_KEY = 'query_variables'
  */
 const MAX_TILES_FOR_AUTOPREVIEW = 5
 
+const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+
 export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType<QueryBasedInsightModel>
@@ -112,6 +115,9 @@ export interface RefreshStatus {
 }
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
+
+// Helper function for exponential backoff
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * Run a set of tasks **in order** with a limit on the number of concurrent tasks.
@@ -206,7 +212,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic, maxContextLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -1137,18 +1143,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canEditDashboard: [
-            (s) => [s.dashboard, s.featureFlags],
-            (dashboard, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return dashboard?.user_access_level
-                        ? accessLevelSatisfied(
-                              AccessControlResourceType.Dashboard,
-                              dashboard.user_access_level,
-                              'editor'
-                          )
-                        : true
-                }
-                return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+            (s) => [s.dashboard],
+            (dashboard) => {
+                return dashboard?.user_access_level
+                    ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
+                    : true
             },
         ],
         canRestrictDashboard: [
@@ -1278,6 +1277,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
             }
+            // Clear dashboard context when unmounting
+            maxContextLogic.actions.clearActiveDashboard()
         },
     })),
     sharedListeners(({ values, props }) => ({
@@ -1433,54 +1434,73 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         true
                     )
 
+                    actions.abortAnyRunningQuery()
+                    cache.syncAbortController = new AbortController()
+                    const methodOptions: ApiMethodOptions = { signal: cache.syncAbortController.signal }
+
                     // Create an array of functions that fetch insights synchronously
                     const fetchSyncInsightFunctions = insightsToRefresh.map((insight) => async () => {
                         const queryId = uuid()
+                        const queryStartTime = performance.now()
                         const dashboardId: number = props.id
 
                         // Set insight as refreshing
                         actions.setRefreshStatus(insight.short_id, true, true)
 
-                        try {
-                            // Make a synchronous POST /query call
-                            const filtersOverride = action === 'preview' ? values.temporaryFilters : values.filters
-                            const variablesOverride =
-                                action === 'preview' ? values.temporaryVariables : values.insightVariables
+                        let attempt = 0
+                        const maxAttempts = 5
+                        const initialDelay = 1200
 
-                            await api.query(
-                                insight.query!,
-                                undefined,
-                                queryId,
-                                'blocking', // Use 'blocking' mode to leverage caching but calculate synchronously if stale
-                                filtersOverride,
-                                variablesOverride
-                            )
+                        while (attempt < maxAttempts) {
+                            try {
+                                const syncInsight = await getSingleInsight(
+                                    values.currentTeamId,
+                                    insight,
+                                    dashboardId,
+                                    queryId,
+                                    'blocking',
+                                    methodOptions,
+                                    action === 'preview' ? values.temporaryFilters : undefined,
+                                    action === 'preview' ? values.temporaryVariables : undefined
+                                )
 
-                            // Fetch the insight with the calculated result from cache
-                            const syncInsight = await getSingleInsight(
-                                values.currentTeamId,
-                                insight,
-                                dashboardId,
-                                queryId,
-                                'force_cache',
-                                undefined,
-                                filtersOverride,
-                                variablesOverride
-                            )
+                                if (syncInsight?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+                                    attempt++
+                                    if (attempt >= maxAttempts) {
+                                        lemonToast.error(
+                                            `Insight "${
+                                                insight.name || insight.derived_name || insight.short_id
+                                            }" failed to load after ${maxAttempts} attempts due to high load. Please try again later.`,
+                                            { toastId: `insight-concurrency-error-${insight.short_id}` }
+                                        )
+                                        actions.setRefreshError(insight.short_id)
+                                        break // Exit retry loop
+                                    }
+                                    const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
+                                    await wait(delay)
+                                    continue // Retry
+                                }
 
-                            if (action === 'preview' && syncInsight?.dashboard_tiles) {
-                                // If we're previewing, only update the insight on this dashboard
-                                syncInsight.dashboards = [dashboardId]
+                                if (action === 'preview' && syncInsight?.dashboard_tiles) {
+                                    syncInsight.dashboards = [dashboardId]
+                                }
+
+                                dashboardsModel.actions.updateDashboardInsight(syncInsight!)
+                                actions.setRefreshStatus(insight.short_id)
+                                break // Success, exit retry loop
+                            } catch (e: any) {
+                                if (shouldCancelQuery(e)) {
+                                    console.warn(
+                                        `Insight refresh cancelled for ${insight.short_id} due to abort signal:`,
+                                        e
+                                    )
+                                    actions.abortQuery({ queryId, queryStartTime })
+                                } else {
+                                    actions.setRefreshError(insight.short_id)
+                                    console.error('Error loading insight synchronously:', e)
+                                }
+                                break // Error, exit retry loop
                             }
-
-                            // Update the insight in the model
-                            dashboardsModel.actions.updateDashboardInsight(syncInsight!)
-
-                            // Update refresh status
-                            actions.setRefreshStatus(insight.short_id)
-                        } catch (e: any) {
-                            actions.setRefreshError(insight.short_id)
-                            console.error('Error loading insight synchronously:', e)
                         }
                     })
 
@@ -1679,6 +1699,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
+            // Set dashboard context for Max AI
+            maxContextLogic.actions.setActiveDashboard(values.dashboard)
+
             const { action, dashboardQueryId } = values.dashboardLoadTimerData
             actions.refreshAllDashboardItems({ action, dashboardQueryId })
 
@@ -1711,11 +1734,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController.abort()
                 cache.abortController = null
             }
+            if (cache.syncAbortController) {
+                cache.syncAbortController.abort()
+                cache.syncAbortController = null
+            }
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
-            const { currentTeamId } = values
+            const { currentTeamId, featureFlags } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}?dequeue_only=true`)
+                if (featureFlags[FEATURE_FLAGS.DASHBOARD_SYNC_INSIGHT_LOADING]) {
+                    await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
+                } else {
+                    await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
+                }
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

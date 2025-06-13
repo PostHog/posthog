@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 
-import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'

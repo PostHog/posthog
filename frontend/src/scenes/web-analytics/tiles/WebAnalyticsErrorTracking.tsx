@@ -39,7 +39,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
-    const aggregations = (record as ErrorTrackingIssue).aggregations
+    const aggregations = (record as ErrorTrackingIssue).aggregations!
     const count = aggregations[columnName as 'occurrences' | 'users']
     return <span className="text-lg font-medium">{humanFriendlyLargeNumber(count)}</span>
 }

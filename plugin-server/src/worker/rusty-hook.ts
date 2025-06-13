@@ -60,7 +60,7 @@ export class RustyHook {
         webhook.method ??= 'POST'
         webhook.headers ??= {}
 
-        if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
+        if (isProdEnv()) {
             await raiseIfUserProvidedUrlUnsafe(webhook.url)
         }
 

@@ -12,7 +12,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
             team=self.team,
             name="Test Template",
             description="Test description",
-            content={"subject": "Test Subject", "body": "Test Body"},
+            content={"email": {"subject": "Test Subject", "text": "Test Body"}},
             type="email",
         )
 
@@ -22,51 +22,51 @@ class TestMessageTemplatesAPI(APIBaseTest):
             team=self.other_team,
             name="Other Team Template",
             description="Other team template description",
-            content={"subject": "Other Team Subject", "body": "Other Team Body"},
+            content={"email": {"subject": "Other Team Subject", "text": "Other Team Body"}},
             type="email",
         )
 
     def test_list_message_templates(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
 
         template = response_data["results"][0]
-        self.assertEqual(template["id"], str(self.message_template.id))
-        self.assertEqual(template["name"], "Test Template")
-        self.assertEqual(template["description"], "Test description")
-        self.assertEqual(template["content"], {"subject": "Test Subject", "body": "Test Body"})
-        self.assertEqual(template["type"], "email")
+        assert template["id"] == str(self.message_template.id)
+        assert template["name"] == "Test Template"
+        assert template["description"] == "Test description"
+        assert template["content"] == {"email": {"subject": "Test Subject", "text": "Test Body"}}
+        assert template["type"] == "email"
 
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         template = response.json()
-        self.assertEqual(template["id"], str(self.message_template.id))
-        self.assertEqual(template["name"], "Test Template")
-        self.assertEqual(template["description"], "Test description")
-        self.assertEqual(template["content"], {"subject": "Test Subject", "body": "Test Body"})
-        self.assertEqual(template["type"], "email")
+        assert template["id"] == str(self.message_template.id)
+        assert template["name"] == "Test Template"
+        assert template["description"] == "Test description"
+        assert template["content"] == {"email": {"subject": "Test Subject", "text": "Test Body"}}
+        assert template["type"] == "email"
 
     def test_cannot_access_other_teams_templates(self):
         response = self.client.get(f"/api/environments/{self.other_team.id}/messaging_templates/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/messaging_templates/{self.other_team_template.id}/"
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_authentication_required(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_delete_operation_not_allowed(self):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/"
         )
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED

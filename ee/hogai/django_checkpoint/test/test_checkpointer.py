@@ -225,8 +225,8 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
             config=config,
         )
         self.assertEqual(len(ConversationCheckpoint.objects.all()), 4)
-        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 10)
-        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 6)
+        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 9)
+        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 5)
 
     def test_resuming(self):
         checkpointer = DjangoCheckpointer()
@@ -268,8 +268,8 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
 
         res = graph.invoke(None, config=config)
         self.assertEqual(len(ConversationCheckpoint.objects.all()), 5)
-        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 12)
-        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 9)
+        self.assertEqual(len(ConversationCheckpointBlob.objects.all()), 11)
+        self.assertEqual(len(ConversationCheckpointWrite.objects.all()), 8)
         self.assertEqual(len(list(checkpointer.list(config))), 5)
         self.assertEqual(res, {"val": 3})
         snapshot = graph.get_state(config)
@@ -372,7 +372,7 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertEqual(saved_state["messages"], ["hello", "world"])
 
         blobs = list(ConversationCheckpointBlob.objects.filter(thread=thread))
-        self.assertEqual(len(blobs), 7)
+        self.assertEqual(len(blobs), 6)
 
         # Set initial state
         self.assertEqual(blobs[0].channel, "__start__")
@@ -396,11 +396,11 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         )
 
         # Transition to node1
-        self.assertEqual(blobs[3].channel, "start:node1")
-        self.assertEqual(blobs[3].type, "msgpack")
+        self.assertEqual(blobs[3].channel, "branch:to:node1")
+        self.assertEqual(blobs[3].type, "null")
         self.assertEqual(
             checkpointer.serde.loads_typed((blobs[3].type, blobs[3].blob)),
-            "__start__",
+            None,
         )
 
         # Set new state for messages
@@ -412,14 +412,6 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         )
 
         # After setting a state
-        self.assertEqual(blobs[5].channel, "start:node1")
+        self.assertEqual(blobs[5].channel, "branch:to:node1")
         self.assertEqual(blobs[5].type, "empty")
         self.assertIsNone(blobs[5].blob)
-
-        # Set last step
-        self.assertEqual(blobs[6].channel, "node1")
-        self.assertEqual(blobs[6].type, "msgpack")
-        self.assertEqual(
-            checkpointer.serde.loads_typed((blobs[6].type, blobs[6].blob)),
-            "node1",
-        )

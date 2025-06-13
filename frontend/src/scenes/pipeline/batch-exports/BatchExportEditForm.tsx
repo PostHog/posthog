@@ -121,7 +121,9 @@ export function BatchExportsEditFields({
                                         { value: 'eu-south-1', label: 'Europe (Milan)' },
                                         { value: 'eu-west-3', label: 'Europe (Paris)' },
                                         { value: 'eu-north-1', label: 'Europe (Stockholm)' },
+                                        { value: 'me-east-1', label: 'Middle East (Dubai)' },
                                         { value: 'me-south-1', label: 'Middle East (Bahrain)' },
+                                        { value: 'me-central-1', label: 'Middle East (Riyadh)' },
                                         { value: 'sa-east-1', label: 'South America (São Paulo)' },
                                         { value: 'auto', label: 'Automatic (AUTO)' },
                                         { value: 'apac', label: 'Asia Pacific (APAC)' },
@@ -215,6 +217,24 @@ export function BatchExportsEditFields({
                             info={<>Only required if exporting to an S3-compatible blob storage (like MinIO)</>}
                         >
                             <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
+                        </LemonField>
+
+                        <LemonField
+                            name="use_virtual_style_addressing"
+                            label="Virtual style addressing"
+                            showOptional
+                            info={
+                                <>
+                                    Some non-AWS S3-compatible destinations may require this setting enabled. Check your
+                                    destination's documentation if "virtual hosted style" is required, otherwise leave
+                                    unchecked
+                                </>
+                            }
+                        >
+                            <LemonCheckbox
+                                bordered
+                                label={<span className="flex items-center gap-2">Use virtual style addressing</span>}
+                            />
                         </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Snowflake' ? (

@@ -21,6 +21,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }) => {
         return { shortId: id as string }
     },
+    settingSectionId: 'environment-replay',
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {

@@ -12,17 +12,17 @@ class MailjetResponse:
     data: list[dict]
     total: int
 
-    def __init__(self, count: int, data: list[dict], total: int):
-        self.count = count
-        self.data = data
-        self.total = total
+    def __init__(self, Count: int, Data: list[dict], Total: int):
+        self.count = Count
+        self.data = Data
+        self.total = Total
 
     def get_first_item(self) -> dict | None:
         return self.data[0] if self.data else None
 
 
 class MailjetConfig:
-    API_BASE_URL_V3: str = "https://api.mailjet.com/v3"
+    API_BASE_URL_V3: str = "https://api.mailjet.com/v3/REST"
 
     SENDER_ENDPOINT: str = "/sender"
     DNS_ENDPOINT: str = "/dns"
@@ -40,9 +40,9 @@ class MailjetProvider:
 
     @classmethod
     def get_api_key(cls) -> str:
-        api_key = settings.MAILJET_API_KEY
+        api_key = settings.MAILJET_PUBLIC_KEY
         if not api_key:
-            raise ValueError("MAILJET_API_KEY is not set in environment or settings")
+            raise ValueError("MAILJET_PUBLIC_KEY is not set in environment or settings")
         return api_key
 
     @classmethod
@@ -52,33 +52,33 @@ class MailjetProvider:
             raise ValueError("MAILJET_SECRET_KEY is not set in environment or settings")
         return api_secret
 
-    def _format_dns_records(self, dns_response: dict) -> tuple[str, list[dict]]:
+    def _format_dns_records(self, required_dns_records: dict, dns_status_response: dict) -> tuple[str, list[dict]]:
         formatted_dns_records = []
 
         # DKIM status possible values: "Not checked", "OK", "Error"
-        dkim_status = dns_response.get("DKIMStatus", "Not checked")
+        dkim_status = dns_status_response.get("DKIMStatus", "Not checked")
         # SPF status possible values: "Not checked", "Not found", "OK", "Error"
-        spf_status = dns_response.get("SPFStatus", "Not checked")
+        spf_status = dns_status_response.get("SPFStatus", "Not checked")
         overall_status = "success" if dkim_status == "OK" and spf_status == "OK" else "pending"
 
-        if "DKIMRecordName" in dns_response and "DKIMRecordValue" in dns_response:
+        if "DKIMRecordName" in required_dns_records and "DKIMRecordValue" in required_dns_records:
             formatted_dns_records.append(
                 {
                     "type": "dkim",
                     "recordType": "TXT",
-                    "recordHostname": dns_response.get("DKIMRecordName"),
-                    "recordValue": dns_response.get("DKIMRecordValue"),
+                    "recordHostname": required_dns_records.get("DKIMRecordName"),
+                    "recordValue": required_dns_records.get("DKIMRecordValue"),
                     "status": "success" if dkim_status == "OK" else "pending",
                 }
             )
 
-        if "SPFRecordValue" in dns_response:
+        if "SPFRecordValue" in required_dns_records:
             formatted_dns_records.append(
                 {
                     "type": "spf",
                     "recordType": "TXT",
                     "recordHostname": "@",
-                    "recordValue": dns_response.get("SPFRecordValue"),
+                    "recordValue": required_dns_records.get("SPFRecordValue"),
                     "status": "success" if spf_status == "OK" else "pending",
                 }
             )
@@ -110,7 +110,7 @@ class MailjetProvider:
         url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.DNS_ENDPOINT}/{domain}{MailjetConfig.DNS_CHECK_ENDPOINT}"
 
         try:
-            response = requests.get(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
+            response = requests.post(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
             response.raise_for_status()
             return MailjetResponse(**response.json()).get_first_item()
         except requests.exceptions.RequestException as e:
@@ -142,8 +142,15 @@ class MailjetProvider:
             response = requests.post(
                 url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS, json=payload
             )
+
+            if (
+                response.status_code == 400
+                and "There is an already existing inactive sender with the same email" in response.text
+            ):
+                # If the domain already exists, we can return without raising exception
+                return
+
             response.raise_for_status()
-            return MailjetResponse(**response.json()).get_first_item()
         except requests.exceptions.RequestException as e:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
@@ -152,6 +159,7 @@ class MailjetProvider:
         """
         Verify the email domain by checking DNS records status.
         """
-        dns_response = self._check_domain_dns_records(domain)
-        overall_status, formatted_dns_records = self._format_dns_records(dns_response)
+        required_dns_records = self._get_domain_dns_records(domain)
+        dns_status_response = self._check_domain_dns_records(domain)
+        overall_status, formatted_dns_records = self._format_dns_records(required_dns_records, dns_status_response)
         return {"status": overall_status, "dnsRecords": formatted_dns_records}

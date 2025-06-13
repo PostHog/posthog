@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils'
+import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -47,7 +48,7 @@ function AlwaysScheduleBanner({
                     seeing the survey very frequently.
                 </p>
                 <p className="font-normal">
-                    If this isn't intended, consider{' '}
+                    If this isn't intended, consider&nbsp;
                     <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
                         adding a wait period
                     </Link>
@@ -64,11 +65,11 @@ function AlwaysScheduleBanner({
                 persistently. Ensure this is the desired behavior.
             </p>
             <p className="font-normal">
-                If not, consider{' '}
+                If not, consider&nbsp;
                 <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
                     adding a wait period
-                </Link>{' '}
-                or changing its frequency.
+                </Link>
+                &nbsp; or changing its frequency.
             </p>
         </LemonBanner>
     )
@@ -87,7 +88,7 @@ function SurveyIterationOptions(): JSX.Element {
         <>
             <LemonField.Pure
                 info="Showing a survey every time the display conditions are met requires at least version 1.234.11 of posthog-js"
-                label={<h3 className="mb-0">How often should we show this survey?</h3>}
+                label={<h3 className="mb-0">How often should we show this survey to a person?</h3>}
             >
                 <LemonRadio
                     value={survey.schedule ?? SurveySchedule.Once}
@@ -97,7 +98,7 @@ function SurveyIterationOptions(): JSX.Element {
                             setSurveyValue('iteration_count', 0)
                             setSurveyValue('iteration_frequency_days', 0)
                         } else if (newValue === SurveySchedule.Recurring) {
-                            setSurveyValue('iteration_count', 1)
+                            setSurveyValue('iteration_count', 2)
                             setSurveyValue('iteration_frequency_days', 90)
                         }
                     }}
@@ -112,6 +113,57 @@ function SurveyIterationOptions(): JSX.Element {
                             label: 'Repeat on a schedule',
                             'data-attr': 'survey-iteration-frequency-days',
                             disabledReason: surveysRecurringScheduleDisabledReason,
+                            description: showSurveyRepeatSchedule ? (
+                                <div className="flex flex-row gap-2 items-center text-secondary">
+                                    Repeat this survey{' '}
+                                    <LemonField name="iteration_count">
+                                        {({ onChange, value }) => {
+                                            return (
+                                                <LemonInput
+                                                    type="number"
+                                                    data-attr="survey-iteration-count"
+                                                    size="small"
+                                                    min={1}
+                                                    // NB this is enforced in the API too
+                                                    max={500}
+                                                    value={value || 2}
+                                                    onChange={(newValue) => {
+                                                        if (newValue && newValue > 0) {
+                                                            onChange(newValue)
+                                                        } else {
+                                                            onChange(null)
+                                                        }
+                                                    }}
+                                                    className="w-16"
+                                                />
+                                            )
+                                        }}
+                                    </LemonField>{' '}
+                                    times, once every
+                                    <LemonField name="iteration_frequency_days">
+                                        {({ onChange, value }) => {
+                                            return (
+                                                <LemonInput
+                                                    type="number"
+                                                    data-attr="survey-iteration-frequency-days"
+                                                    size="small"
+                                                    min={1}
+                                                    value={value || 90}
+                                                    onChange={(newValue) => {
+                                                        if (newValue && newValue > 0) {
+                                                            onChange(newValue)
+                                                        } else {
+                                                            onChange(null)
+                                                        }
+                                                    }}
+                                                    className="w-16"
+                                                />
+                                            )
+                                        }}
+                                    </LemonField>{' '}
+                                    days
+                                </div>
+                            ) : undefined,
                         },
                         {
                             value: SurveySchedule.Always,
@@ -124,64 +176,12 @@ function SurveyIterationOptions(): JSX.Element {
                     <AlwaysScheduleBanner survey={survey} />
                 )}
             </LemonField.Pure>
-            {showSurveyRepeatSchedule && (
-                <div className="flex flex-row gap-2 items-center mt-2 ml-5">
-                    Repeat this survey{' '}
-                    <LemonField name="iteration_count">
-                        {({ onChange, value }) => {
-                            return (
-                                <LemonInput
-                                    type="number"
-                                    data-attr="survey-iteration-count"
-                                    size="small"
-                                    min={1}
-                                    // NB this is enforced in the API too
-                                    max={500}
-                                    value={value || 1}
-                                    onChange={(newValue) => {
-                                        if (newValue && newValue > 0) {
-                                            onChange(newValue)
-                                        } else {
-                                            onChange(null)
-                                        }
-                                    }}
-                                    className="w-16"
-                                />
-                            )
-                        }}
-                    </LemonField>{' '}
-                    times, once every
-                    <LemonField name="iteration_frequency_days">
-                        {({ onChange, value }) => {
-                            return (
-                                <LemonInput
-                                    type="number"
-                                    data-attr="survey-iteration-frequency-days"
-                                    size="small"
-                                    min={1}
-                                    value={value || 90}
-                                    onChange={(newValue) => {
-                                        if (newValue && newValue > 0) {
-                                            onChange(newValue)
-                                        } else {
-                                            onChange(null)
-                                        }
-                                    }}
-                                    className="w-16"
-                                />
-                            )
-                        }}
-                    </LemonField>{' '}
-                    days
-                </div>
-            )}
         </>
     )
 }
 
 export function SurveyRepeatSchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    const { setSelectedSection } = useActions(surveyLogic)
 
     const canSurveyBeRepeated = Boolean(
         survey.conditions?.events?.repeatedActivation && survey.conditions?.events?.values?.length > 0
@@ -191,15 +191,12 @@ export function SurveyRepeatSchedule(): JSX.Element {
         <div className="mt-4">
             {canSurveyBeRepeated ? (
                 <span className="font-medium">
-                    <h3 className="mb-0">How often should we show this survey?</h3>
-                    <IconInfo className="mr-0.5" /> This survey is displayed whenever the{' '}
-                    <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack>{' '}
+                    <h3 className="mb-0">How often should we show this survey to a person?</h3>
+                    <IconInfo className="mr-0.5" /> This survey is displayed whenever the&nbsp;
+                    <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack>&nbsp;
                     <span>{survey.conditions?.events?.values.length === 1 ? 'event is' : 'events are'}</span> triggered.
-                    So these settings are not applicable. If you want, remove the event targeting in the{' '}
-                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                        display conditions section
-                    </Link>
-                    .
+                    So these settings are not applicable. If you want, remove the event targeting in the&nbsp;
+                    <LinkToSurveyFormSection section={SurveyEditSection.DisplayConditions} />.
                 </span>
             ) : (
                 <SurveyIterationOptions />

@@ -179,7 +179,11 @@ export const convertTableValue = (
     return value
 }
 
-const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
+    if (!type) {
+        return 'UNKNOWN'
+    }
+
     if (type.indexOf('Array') !== -1) {
         return 'ARRAY'
     }

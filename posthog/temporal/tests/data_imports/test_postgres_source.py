@@ -16,7 +16,7 @@ from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource, PostgreSQLSourceConfig
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -24,9 +24,46 @@ pytestmark = pytest.mark.usefixtures("minio_client")
 POSTGRES_TABLE_NAME = "test_table"
 
 TEST_DATA = [
-    (1, "John Doe", "john@example.com", dt.datetime(2025, 1, 1, tzinfo=dt.UTC), 100),
-    (2, "Jane Smith", "jane@example.com", dt.datetime(2025, 1, 2, tzinfo=dt.UTC), 2000000),
-    (3, "Bob Wilson", "bob@example.com", dt.datetime(2025, 1, 3, tzinfo=dt.UTC), 3409892966),
+    (
+        1,
+        "John Doe",
+        "john@example.com",
+        dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+        100,
+        "[0,2)",
+        "[0.1,2.222)",
+        '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
+    ),
+    (
+        2,
+        "Jane Smith",
+        "jane@example.com",
+        dt.datetime(2025, 1, 2, tzinfo=dt.UTC),
+        2000000,
+        "[-4,-2)",
+        "[-4.4,-2.222)",
+        '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
+    ),
+    (
+        3,
+        "Bob Wilson",
+        "bob@example.com",
+        dt.datetime(2025, 1, 3, tzinfo=dt.UTC),
+        3409892966,
+        "[-6,-4)",
+        "[-6.66,-4.44)",
+        '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
+    ),
+    (
+        4,
+        "Wob Bilson",
+        "wob@example.com",
+        dt.datetime(2025, 1, 3, tzinfo=dt.UTC),
+        4,
+        "[5,7)",
+        "[5.5,7.777)",
+        None,
+    ),
 ]
 
 
@@ -75,16 +112,19 @@ async def postgres_source_table(
                 name VARCHAR(255),
                 email VARCHAR(255),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                big_int BIGINT
+                big_int BIGINT,
+                int_range INT4RANGE,
+                num_range NUMRANGE,
+                tstz_range TSTZRANGE NULL
             )
         """).format(full_table_name)
         )
 
         # Insert test data
         await cursor.executemany(
-            sql.SQL("INSERT INTO {} (id, name, email, created_at, big_int) VALUES (%s, %s, %s, %s, %s)").format(
-                full_table_name
-            ),
+            sql.SQL(
+                "INSERT INTO {} (id, name, email, created_at, big_int, int_range, num_range, tstz_range) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+            ).format(full_table_name),
             TEST_DATA,
         )
 
@@ -140,7 +180,152 @@ async def test_postgres_source_full_refresh(
         table_name=table_name,
         expected_rows_synced=expected_num_rows,
         expected_total_rows=expected_num_rows,
-        expected_columns=["id", "name", "email", "created_at", "big_int"],
+        expected_columns=["id", "name", "email", "created_at", "big_int", "int_range", "num_range", "tstz_range"],
     )
 
     assert res.results == TEST_DATA
+
+
+def test_postgresql__source_config_loads():
+    job_inputs = {
+        "host": "host.com",
+        "port": "5432",
+        "user": "Username",
+        "schema": "schema",
+        "database": "database",
+        "password": "password",
+    }
+    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 5432
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is None
+
+
+def test_postgresql_source_config_loads_int_port():
+    job_inputs = {
+        "host": "host.com",
+        "port": 5432,
+        "user": "Username",
+        "schema": "schema",
+        "database": "database",
+        "password": "password",
+    }
+    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 5432
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is None
+
+
+def test_postgresql_source_config_loads_with_ssh_tunnel():
+    job_inputs = {
+        "host": "host.com",
+        "port": "5432",
+        "user": "Username",
+        "schema": "schema",
+        "database": "database",
+        "password": "password",
+        "ssh_tunnel_host": "other-host.com",
+        "ssh_tunnel_enabled": "True",
+        "ssh_tunnel_port": "55550",
+        "ssh_tunnel_auth_type": "password",
+        "ssh_tunnel_auth_type_password": "password",
+        "ssh_tunnel_auth_type_username": "username",
+    }
+    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 5432
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.enabled is True
+    assert config.ssh_tunnel.port == 55550
+    assert config.ssh_tunnel.auth.type == "password"
+    assert config.ssh_tunnel.auth.username == "username"
+    assert config.ssh_tunnel.auth.password == "password"
+    assert config.ssh_tunnel.host == "other-host.com"
+
+
+def test_postgresql_source_config_loads_with_nested_dict_enabled_tunnel():
+    job_inputs = {
+        "host": "host.com",
+        "port": 5432,
+        "database": "database",
+        "user": "Username",
+        "password": "password",
+        "schema": "schema",
+        "ssh_tunnel": {
+            "host": "other-host.com",
+            "port": "55550",
+            "enabled": "True",
+            "auth": {
+                "type": "password",
+                "username": "username",
+                "password": "password",
+            },
+        },
+    }
+
+    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 5432
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.enabled is True
+    assert config.ssh_tunnel.host == "other-host.com"
+    assert config.ssh_tunnel.port == 55550
+    assert config.ssh_tunnel.auth.type == "password"
+    assert config.ssh_tunnel.auth.username == "username"
+    assert config.ssh_tunnel.auth.password == "password"
+
+
+def test_postgresql_source_config_loads_with_nested_dict_disabled_tunnel():
+    job_inputs = {
+        "host": "host.com",
+        "port": 5432,
+        "database": "database",
+        "user": "Username",
+        "password": "password",
+        "schema": "schema",
+        "ssh_tunnel": {
+            "host": None,
+            "port": None,
+            "enabled": False,
+            "auth": {
+                "type": None,
+                "username": None,
+                "password": None,
+                "private_key": None,
+                "passphrase": None,
+            },
+        },
+    }
+
+    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 5432
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.enabled is False
+    assert config.ssh_tunnel.host is None
+    assert config.ssh_tunnel.port is None
+    assert config.ssh_tunnel.auth.type is None
+    assert config.ssh_tunnel.auth.private_key is None
+    assert config.ssh_tunnel.auth.passphrase is None
+    assert config.ssh_tunnel.auth.username is None
+    assert config.ssh_tunnel.auth.password is None

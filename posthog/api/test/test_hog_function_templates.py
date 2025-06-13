@@ -1,11 +1,9 @@
 import json
 import os
-from unittest.mock import ANY, patch
-from inline_snapshot import snapshot
+from unittest.mock import patch
 from rest_framework import status
 
 from posthog.api.hog_function_template import HogFunctionTemplates
-from posthog.cdp.templates.hog_function_template import derive_sub_templates
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template
 from posthog.models import HogFunction
@@ -18,7 +16,6 @@ MOCK_NODE_TEMPLATES = json.loads(
 
 # NOTE: We check this as a sanity check given that this is a public API so we want to explicitly define what is exposed
 EXPECTED_FIRST_RESULT = {
-    "sub_templates": ANY,
     "free": template.free,
     "type": "destination",
     "status": template.status,
@@ -35,22 +32,6 @@ EXPECTED_FIRST_RESULT = {
     "icon_url": template.icon_url,
     "kind": template.kind,
 }
-
-
-class TestHogFunctionTemplatesMixin(APIBaseTest):
-    def test_derive_sub_templates(self):
-        # One sanity check test (rather than all of them)
-        sub_templates = derive_sub_templates([template])
-
-        # check overridden params
-        assert sub_templates[0].inputs_schema[-1]["key"] == "text"
-        assert sub_templates[0].inputs_schema[-1]["default"] == snapshot(
-            "*{person.name}* {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'"
-        )
-        assert sub_templates[0].filters == snapshot(
-            {"events": [{"id": "$feature_enrollment_update", "type": "events"}]}
-        )
-        assert sub_templates[0].type == "destination"
 
 
 class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -86,28 +67,10 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response5 = self.client.get("/api/projects/@current/hog_function_templates/?types=site_destination,destination")
         assert len(response5.json()["results"]) > 0
 
-    def test_filter_sub_templates(self):
-        response1 = self.client.get(
-            "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity-log"
-        )
-        assert response1.status_code == status.HTTP_200_OK, response1.json()
-        assert len(response1.json()["results"]) > 0
-
-        template = response1.json()["results"][0]
-
-        assert template["sub_templates"] is None
-        assert template["type"] == "internal_destination"
-        assert template["id"] == "template-slack-activity-log"
-
     def test_retrieve_function_template(self):
         response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["id"] == "template-slack"
-
-    def test_retrieve_function_sub_template(self):
-        response = self.client.get("/api/projects/@current/hog_function_templates/template-slack-activity-log")
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["id"] == "template-slack-activity-log"
 
     def test_public_list_function_templates(self):
         self.client.logout()
@@ -321,52 +284,4 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
         # Get the specific template via API - should 404 since it only exists in DB
         response_missing = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
-        assert response_missing.status_code == status.HTTP_404_NOT_FOUND
-
-    @patch("posthog.api.hog_function_template.get_hog_function_templates")
-    def test_db_templates_and_inmemory_subtemplate(self, mock_get_templates):
-        """Test that templates come from DB with db_templates=true, but sub_templates always come from in-memory"""
-        mock_get_templates.return_value.status_code = 200
-        mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
-
-        # Create a unique template in the DB
-        DBHogFunctionTemplate.objects.create(
-            template_id="unique-db-template",
-            sha="1.0.0",
-            name="Unique DB Template",
-            description="This template only exists in the database",
-            code="return event",
-            code_language="hog",
-            inputs_schema={},
-            type="destination",
-            status="stable",
-            category=["Testing"],
-            free=True,
-        )
-
-        # Should get the DB template (retrieve endpoint)
-        response = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template?db_templates=true")
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["name"] == "Unique DB Template"
-
-        # Should get the in-memory sub_template (list endpoint)
-        response_sub = self.client.get(
-            "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity-log"
-        )
-        assert response_sub.status_code == status.HTTP_200_OK, response_sub.json()
-        assert len(response_sub.json()["results"]) > 0
-        template = response_sub.json()["results"][0]
-        assert template["id"] == "template-slack-activity-log"
-
-        # Should get the in-memory sub_template (retrieve endpoint)
-        response_retrieve_sub = self.client.get(
-            "/api/projects/@current/hog_function_templates/template-slack-activity-log"
-        )
-        assert response_retrieve_sub.status_code == status.HTTP_200_OK, response_retrieve_sub.json()
-        assert response_retrieve_sub.json()["id"] == "template-slack-activity-log"
-
-        # Should 404 for a non-existent template
-        response_missing = self.client.get(
-            "/api/projects/@current/hog_function_templates/does-not-exist?db_templates=true"
-        )
         assert response_missing.status_code == status.HTTP_404_NOT_FOUND

@@ -5,15 +5,15 @@ import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
+import { shouldShowHogFunctionTemplate } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
+import { hogFunctionTypeToPipelineStage } from 'scenes/hog-functions/misc/urls'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, HogFunctionTemplateType, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from '../batch-exports/utils'
-import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
-import { shouldShowHogFunctionTemplate } from '../hogfunctions/list/hogFunctionTemplateListLogic'
-import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { NewDestinationItemType, PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -22,6 +22,10 @@ import type { newDestinationsLogicType } from './newDestinationsLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
+
+export const getDestinationDocPath = (url: string): string => {
+    return url.split('/').pop()?.replace('hog-', '') || ''
+}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),

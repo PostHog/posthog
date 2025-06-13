@@ -1,7 +1,9 @@
 // PasswordReset.stories.tsx
 import { Meta } from '@storybook/react'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
+import { urls } from 'scenes/urls'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -88,6 +90,27 @@ export const Throttled = (): JSX.Element => {
     useEffect(() => {
         passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
         passwordResetLogic.actions.setRequestPasswordResetManualErrors({ code: 'throttled' })
+    }, [])
+    return <PasswordReset />
+}
+
+export const WithEmailFromQuery = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: false,
+                realm: 'hosted-clickhouse',
+                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+                email_service_available: true,
+            },
+        },
+        post: {
+            '/api/reset': {},
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.passwordReset(), { email: 'user@example.com' })
     }, [])
     return <PasswordReset />
 }

@@ -1,7 +1,6 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     DashboardFilter,
@@ -17,6 +16,7 @@ import {
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
+    HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,
@@ -105,55 +105,20 @@ async function executeQuery<N extends DataNode>(
             refreshParam = refresh || 'blocking'
         }
 
-        if ((refreshParam === 'blocking' || refreshParam === 'force_blocking') && setPollResponse && queryId) {
-            const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
-            const timeoutId = setTimeout(() => {
-                void api.stream(`/api/environments/${currentTeamId}/query/${queryId}/progress/`, {
-                    onMessage: (event) => {
-                        try {
-                            const progressData = JSON.parse(event.data)
-                            if (progressData.error) {
-                                console.warn('Failed to poll query progress:', progressData.error)
-                                return
-                            }
-                            setPollResponse({
-                                id: queryId || '',
-                                team_id: 0,
-                                error: false,
-                                complete: false,
-                                query_async: true,
-                                error_message: null,
-                                query_progress: progressData,
-                            })
-                        } catch (e) {
-                            console.warn('Failed to parse progress data:', e)
-                        }
-                    },
-                    onError: (error) => {
-                        console.warn('Failed to poll query progress:', error)
-                    },
-                    signal: methodOptions?.signal,
-                })
-            }, 500) // Give the query time to start
-            methodOptions?.signal?.addEventListener('abort', () => {
-                clearTimeout(timeoutId)
-            })
-        }
-
-        const response = await api.query(
-            queryNode,
-            methodOptions,
-            queryId,
-            refreshParam,
+        const response = await api.query(queryNode, {
+            requestOptions: methodOptions,
+            clientQueryId: queryId,
+            refresh: refreshParam,
             filtersOverride,
-            variablesOverride
-        )
+            variablesOverride,
+        })
 
         if (response.detail) {
             throw new Error(response.detail)
         }
 
         if (!isAsyncResponse(response)) {
+            // Executed query synchronously or from cache
             return response
         }
 
@@ -238,7 +203,7 @@ export function getPersonsEndpoint(query: PersonsNode): string {
 }
 
 export async function hogqlQuery(
-    queryString: string,
+    queryString: HogQLQueryString,
     values?: Record<string, any>,
     refresh?: RefreshType
 ): Promise<HogQLQueryResponse> {

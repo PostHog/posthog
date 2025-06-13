@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -58,7 +59,7 @@ import {
     isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
-    isHogQlAggregation,
+    isHogQLAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
     isRevenueExampleEventsQuery,
@@ -135,6 +136,10 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
+
+    const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const usedWebAnalyticsPreAggregatedTables =
+        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables && response?.hogql
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -231,7 +236,7 @@ export function DataTable({
                                     // The actual query may or may not be an events query.
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const isOrderBy = source.orderBy?.[0] === key
                                     const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
                                     setQuery({
@@ -304,7 +309,7 @@ export function DataTable({
                                     ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery({
@@ -335,7 +340,7 @@ export function DataTable({
                                     ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery?.({
@@ -522,7 +527,6 @@ export function DataTable({
             secondRowRight.push(editorButton)
         }
     }
-
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -550,7 +554,9 @@ export function DataTable({
                     {showResultsTable && (
                         <LemonTable
                             data-attr={dataAttr}
-                            className="DataTable"
+                            className={clsx('DataTable', {
+                                'border border-dotted border-success': usedWebAnalyticsPreAggregatedTables,
+                            })}
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}
                             embedded={embedded}

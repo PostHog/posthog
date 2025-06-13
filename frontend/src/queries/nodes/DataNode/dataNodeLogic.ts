@@ -63,6 +63,7 @@ import {
     isPersonsNode,
     isTracesQuery,
 } from '~/queries/utils'
+import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
@@ -99,6 +100,17 @@ export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(1)
+const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(5)
+
+function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
+    if (
+        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables &&
+        [NodeKind.WebOverviewQuery, NodeKind.WebStatsTableQuery, NodeKind.InsightVizNode].includes(query.kind)
+    ) {
+        return webAnalyticsPreAggConcurrencyController
+    }
+    return concurrencyController
+}
 
 function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
     if (!modifiers) {
@@ -114,7 +126,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
     connect((props: DataNodeLogicProps) => ({
-        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeam', 'currentTeamId'], featureFlagLogic, ['featureFlags']],
         actions: [
             dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
             [
@@ -258,7 +270,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         signal: cache.abortController.signal,
                     }
                     try {
-                        const response = await concurrencyController.run({
+                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
                             debugTag: query.kind,
                             abortController,
                             priority: props.loadPriority,

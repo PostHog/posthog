@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 
 import { CdpRedis } from '../redis'
-import { HogFunctionInvocation } from '../types'
+import { CyclotronJobInvocationHogFunction } from '../types'
 import { execHog } from './hog-executor.service'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
@@ -20,7 +20,7 @@ type MaskContext = {
     threshold: number | null
 }
 
-type HogInvocationContextWithMasker = HogFunctionInvocation & {
+type HogInvocationContextWithMasker = CyclotronJobInvocationHogFunction & {
     masker?: MaskContext
 }
 
@@ -34,9 +34,9 @@ type HogInvocationContextWithMasker = HogFunctionInvocation & {
 export class HogMaskerService {
     constructor(private redis: CdpRedis) {}
 
-    public async filterByMasking(invocations: HogFunctionInvocation[]): Promise<{
-        masked: HogFunctionInvocation[]
-        notMasked: HogFunctionInvocation[]
+    public async filterByMasking(invocations: CyclotronJobInvocationHogFunction[]): Promise<{
+        masked: CyclotronJobInvocationHogFunction[]
+        notMasked: CyclotronJobInvocationHogFunction[]
     }> {
         const invocationsWithMasker: HogInvocationContextWithMasker[] = [...invocations]
         const masks: Record<string, MaskContext> = {}
@@ -46,7 +46,7 @@ export class HogMaskerService {
             if (item.hogFunction.masking) {
                 // TODO: Catch errors
                 const value = execHog(item.hogFunction.masking.bytecode, {
-                    globals: item.globals,
+                    globals: item.state.globals,
                     timeout: 50,
                 })
                 // What to do if it is null....
@@ -118,7 +118,10 @@ export class HogMaskerService {
                 }
                 return acc
             },
-            { masked: [], notMasked: [] } as { masked: HogFunctionInvocation[]; notMasked: HogFunctionInvocation[] }
+            { masked: [], notMasked: [] } as {
+                masked: CyclotronJobInvocationHogFunction[]
+                notMasked: CyclotronJobInvocationHogFunction[]
+            }
         )
     }
 }

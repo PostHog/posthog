@@ -9,8 +9,8 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import {
+    createExampleInvocation,
     createHogExecutionGlobals,
-    createInvocation,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
@@ -110,9 +110,9 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should call the plugin onEvent method', async () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
-            const invocation = createInvocation(fn, globals)
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
+            const invocation = createExampleInvocation(fn, globals)
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -182,20 +182,25 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should handle and collect errors', async () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
-            const invocation = createInvocation(fn, globals)
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
+            const invocation = createExampleInvocation(fn, globals)
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
-            const res = await processor.processBatch([invocation])
+            const { invocationResults, backgroundTask } = await processor.processBatch([invocation])
+            await backgroundTask
 
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
-            expect(res[0].error).toBeInstanceOf(Error)
-            expect(forSnapshot(res[0].logs)).toMatchInlineSnapshot(`[]`)
+            expect(invocationResults[0].error).toBeInstanceOf(Error)
+            expect(forSnapshot(invocationResults[0].logs.map((x) => x.message))).toMatchInlineSnapshot(`
+                [
+                  "Plugin execution failed: Service is down, retry later",
+                ]
+            `)
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
                 {

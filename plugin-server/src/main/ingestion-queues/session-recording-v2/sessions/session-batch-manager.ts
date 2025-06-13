@@ -18,6 +18,8 @@ export interface SessionBatchManagerConfig {
     metadataStore: SessionMetadataStore
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
+    /** Optional switchover date for v2 metadata logic */
+    metadataSwitchoverDate: Date | null
 }
 
 /**
@@ -63,6 +65,7 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
+    private readonly metadataSwitchoverDate: Date | null
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -71,11 +74,13 @@ export class SessionBatchManager {
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
+        this.metadataSwitchoverDate = config.metadataSwitchoverDate
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
-            this.consoleLogStore
+            this.consoleLogStore,
+            this.metadataSwitchoverDate
         )
         this.lastFlushTime = Date.now()
     }
@@ -97,7 +102,8 @@ export class SessionBatchManager {
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
-            this.consoleLogStore
+            this.consoleLogStore,
+            this.metadataSwitchoverDate
         )
         this.lastFlushTime = Date.now()
     }

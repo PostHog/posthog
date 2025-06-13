@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 
 
@@ -17,7 +18,9 @@ class PgEmbeddingRow(BaseModel):
     is_deleted: bool | None = Field(default=False)
 
 
-def bulk_create_pg_embeddings(vectors: list[PgEmbeddingRow]):
+def bulk_create_pg_embeddings(
+    vectors: list[PgEmbeddingRow], embedding_version: int | None = LATEST_ACTIONS_EMBEDDING_VERSION
+):
     inserts: list[str] = []
     params = {}
 
@@ -35,6 +38,15 @@ def bulk_create_pg_embeddings(vectors: list[PgEmbeddingRow]):
             )
             """.format(idx=idx)
         )
+
+        props = vector_row.properties
+        if props is None:
+            props = {}
+        else:
+            props = props.copy()
+        if embedding_version is not None:
+            props["embedding_version"] = embedding_version
+
         params.update(
             {
                 f"domain_{idx}": vector_row.domain,
@@ -42,7 +54,7 @@ def bulk_create_pg_embeddings(vectors: list[PgEmbeddingRow]):
                 f"id_{idx}": vector_row.id,
                 f"vector_{idx}": vector_row.vector,
                 f"text_{idx}": vector_row.text,
-                f"properties_{idx}": json.dumps(vector_row.properties) if vector_row.properties else None,
+                f"properties_{idx}": json.dumps(props),
                 f"is_deleted_{idx}": vector_row.is_deleted,
             }
         )

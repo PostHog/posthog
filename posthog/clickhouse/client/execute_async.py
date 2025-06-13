@@ -111,7 +111,7 @@ class QueryStatusManager:
                 "rows_read": 0,
                 "estimated_rows_total": 0,
                 "time_elapsed": 0,
-                "memory_usage": 0,
+                "active_cpu_time": 0,
             }
             for single_query_progress in clickhouse_query_progress_dict.values():
                 for k in query_progress.keys():

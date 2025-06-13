@@ -204,6 +204,7 @@ class S3EnsureBucketTestStep(DestinationTestStep):
             aws_secret_access_key=self.aws_secret_access_key,
             endpoint_url=self.endpoint_url,
         ) as client:
+            assert self.bucket_name is not None
             try:
                 await client.head_bucket(Bucket=self.bucket_name)
             except ClientError as err:
@@ -278,6 +279,11 @@ class BigQueryProjectTestStep(DestinationTestStep):
     This test could not be broken into two as the project not existing and us not
     having permissions to access it looks the same from our perspective.
 
+    Permissions could be granted at the project level, or at the dataset level.
+    To account for this, we check that the project exists by listing projects
+    (`list_projects` call) and by listing datasets (with `list_datasets`) and
+    inspecting the project associated with each dataset.
+
     Attributes:
         project_id: ID of the BigQuery project we are checking.
         service_account_info: Service account credentials used to access the
@@ -320,6 +326,11 @@ class BigQueryProjectTestStep(DestinationTestStep):
         projects = {p.project_id for p in client.list_projects()}
 
         if self.project_id in projects:
+            return DestinationTestStepResult(status=Status.PASSED)
+
+        dataset_projects = {d.project for d in client.list_datasets()}
+
+        if self.project_id in dataset_projects:
             return DestinationTestStepResult(status=Status.PASSED)
         else:
             return DestinationTestStepResult(
@@ -547,7 +558,10 @@ def try_load_private_key(
     private_key: str | None = None, private_key_passphrase: str | None = None
 ) -> tuple[bytes | None, DestinationTestStepResult | None]:
     """Attempt to load a private key, return a failed result if an error occurs."""
-    from posthog.temporal.batch_exports.snowflake_batch_export import InvalidPrivateKeyError, load_private_key
+    from posthog.temporal.batch_exports.snowflake_batch_export import (
+        InvalidPrivateKeyError,
+        load_private_key,
+    )
 
     if private_key is None:
         return (None, None)
@@ -606,7 +620,11 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import snowflake.connector
-        from snowflake.connector.errors import DatabaseError, InterfaceError, OperationalError
+        from snowflake.connector.errors import (
+            DatabaseError,
+            InterfaceError,
+            OperationalError,
+        )
 
         private_key, result = try_load_private_key(self.private_key, self.private_key_passphrase)
         if result is not None:

@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::time::Duration as StdDuration;
 use time::Duration;
 
 use crate::common::*;
@@ -32,6 +33,65 @@ async fn it_captures_one_event() -> Result<()> {
     let event = main_topic.next_event()?;
     assert_json_include!(
         actual: event,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_drops_performance_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let dropped_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let retained_one = json!({
+        "token": token,
+        "event": "some_event",
+        "distinct_id": distinct_id
+    });
+    // we should be filtering these out prior to publishing to ingest topic
+    let should_drop = json!({
+        "token": token,
+        "event": "$performance_event",
+        "distinct_id": dropped_id
+    });
+    let retained_two = json!({
+        "token": token,
+        "event": "some_other_event",
+        "distinct_id": distinct_id
+    });
+
+    let res = server.capture_events(retained_one.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    // silently ignored if the filtering of unsupported event types results in an empty payload
+    let res = server.capture_events(should_drop.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let res = server.capture_events(retained_two.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let got = main_topic.next_event()?;
+    assert_json_include!(
+        actual: got,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id
+        })
+    );
+
+    // the next event in the topic should be retained_two
+    // since we filtered out should_drop (w/dropped_id)
+    let got = main_topic.next_event()?;
+    assert_json_include!(
+        actual: got,
         expected: json!({
             "token": token,
             "distinct_id": distinct_id
@@ -1177,6 +1237,78 @@ async fn it_limits_batch_endpoints_to_20mb() -> Result<()> {
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
     let res = server.capture_to_batch(nok_event.to_string()).await;
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_returns_200() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(StdDuration::from_millis(3000))
+        .build()
+        .unwrap();
+    let timestamp = Utc::now().timestamp_millis();
+    let url = format!(
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js",
+        server.addr, timestamp
+    );
+    let res = client
+        .post(url)
+        .body(event.to_string())
+        .send()
+        .await
+        .expect("failed to send request");
+    assert_eq!(StatusCode::OK, res.status());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_returns_204_when_beacon_is_1() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(StdDuration::from_millis(3000))
+        .build()
+        .unwrap();
+    let timestamp = Utc::now().timestamp_millis();
+    let url = format!(
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        server.addr, timestamp
+    );
+    let res = client
+        .post(url)
+        .body(event.to_string())
+        .send()
+        .await
+        .expect("failed to send request");
+    assert_eq!(StatusCode::NO_CONTENT, res.status());
 
     Ok(())
 }

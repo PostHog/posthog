@@ -220,8 +220,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             }
         },
 
-        // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
+        handler: (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
             const isCanvas = isCanvasMutation(e)
 
             // scrubbing / fast forwarding

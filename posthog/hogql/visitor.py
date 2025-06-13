@@ -252,6 +252,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_property_type(self, node: ast.PropertyType):
         self.visit(node.field_type)
 
+    def visit_map_property_type(self, node: ast.PropertyType):
+        self.visit(node.field_type)
+
     def visit_expression_field_type(self, node: ast.ExpressionFieldType):
         pass
 
@@ -789,4 +792,12 @@ class CloningVisitor(Visitor[Any]):
             n=self.visit(node.n),
             offset_value=self.visit(node.offset_value) if node.offset_value is not None else None,
             exprs=[self.visit(expr) for expr in node.exprs],
+        )
+
+    def visit_select_set_node(self, node: ast.SelectSetNode) -> ast.SelectSetNode:
+        return ast.SelectSetNode(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            set_operator=node.set_operator,
+            select_query=self.visit(node.select_query),
         )

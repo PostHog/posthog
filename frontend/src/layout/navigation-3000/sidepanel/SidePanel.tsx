@@ -10,6 +10,7 @@ import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
     SidePanelExports,
     SidePanelExportsIcon,
@@ -35,7 +36,7 @@ export const SIDE_PANEL_TABS: Record<
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
     [SidePanelTab.Max]: {
-        label: 'Max',
+        label: 'Max AI',
         Icon: function IconMaxFromHedgehogConfig() {
             const { user } = useValues(userLogic)
             return (
@@ -235,7 +236,9 @@ export function SidePanel(): JSX.Element | null {
             {PanelConent ? (
                 <div className="SidePanel3000__content">
                     <WithinSidePanelContext.Provider value={true}>
-                        <PanelConent />
+                        <ErrorBoundary>
+                            <PanelConent />
+                        </ErrorBoundary>
                     </WithinSidePanelContext.Provider>
                 </div>
             ) : null}

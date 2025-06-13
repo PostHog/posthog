@@ -1,7 +1,7 @@
 import './LemonTabs.scss'
 
 import { IconInfo } from '@posthog/icons'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 import { useSliderPositioning } from '../hooks'
 import { Link } from '../Link'
@@ -15,6 +15,8 @@ export interface AbstractLemonTab<T extends string | number> {
     /** URL of the tab if it can be linked to (which is usually a good practice). */
     link?: string
     tooltipDocLink?: string
+    /** data-attr to be placed on the tab button, useful for autocapture */
+    'data-attr'?: string
 }
 
 /** A tab with content. In this case the LemonTabs component automatically renders content of the active tab. */
@@ -30,8 +32,10 @@ export interface LemonTabsProps<T extends string | number> {
     /** List of tabs. Falsy entries are ignored - they're there to make conditional tabs convenient. */
     tabs: (LemonTab<T> | null | false)[]
     size?: 'small' | 'medium'
+    /** data-attr to be placed on the tab container, useful for autocapture */
     'data-attr'?: string
     barClassName?: string
+    className?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -45,6 +49,7 @@ export function LemonTabs<T extends string | number>({
     tabs,
     barClassName,
     size = 'medium',
+    className,
     'data-attr': dataAttr,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
@@ -58,7 +63,7 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`)}
+            className={cn('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`, className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
@@ -68,7 +73,7 @@ export function LemonTabs<T extends string | number>({
             }
             data-attr={dataAttr}
         >
-            <ul className={clsx('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
+            <ul className={cn('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
                 {realTabs.map((tab) => {
                     const content = (
                         <>
@@ -85,7 +90,7 @@ export function LemonTabs<T extends string | number>({
                             docLink={tab.tooltipDocLink}
                         >
                             <li
-                                className={clsx('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
+                                className={cn('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
                                 onClick={onChange ? () => onChange(tab.key) : undefined}
                                 role="tab"
                                 aria-selected={tab.key === activeKey}
@@ -100,6 +105,7 @@ export function LemonTabs<T extends string | number>({
                                         : undefined
                                 }
                                 ref={tab.key === activeKey ? selectionRef : undefined}
+                                data-attr={tab['data-attr']}
                             >
                                 {tab.link ? (
                                     <Link className="LemonTabs__tab-content" to={tab.link}>
