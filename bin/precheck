@@ -1,0 +1,230 @@
+#!/bin/bash
+# Run checks in order from fastest to slowest to fail fast
+
+set -e
+
+# Colors and formatting
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m' # No Color
+
+# Parse arguments
+FILTER=""
+VERBOSE=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+    -v | --verbose)
+        VERBOSE=true
+        shift
+        ;;
+    *)
+        FILTER="$1"
+        shift
+        ;;
+    esac
+done
+
+# Header
+echo -e "${BOLD}${CYAN}╭─────────────────────────────────────────────────────────────╮${NC}"
+echo -e "${BOLD}${CYAN}│          🚀 PostHog CI Precheck                             │${NC}"
+echo -e "${BOLD}${CYAN}╰─────────────────────────────────────────────────────────────╯${NC}"
+if [ -n "$FILTER" ]; then
+    echo -e "${YELLOW}Filter: ${FILTER}${NC}"
+fi
+echo ""
+
+# Set up environment
+setup_environment() {
+    export TEST=1
+    export NODE_OPTIONS="--max-old-space-size=16384"
+
+    # Backend/Django environment
+    export SECRET_KEY='6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+    export DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog'
+    export REDIS_URL='redis://localhost'
+    export CLICKHOUSE_HOST='localhost'
+    export CLICKHOUSE_SECURE='False'
+    export CLICKHOUSE_VERIFY='False'
+    export OBJECT_STORAGE_ENABLED='True'
+    export OBJECT_STORAGE_ENDPOINT='http://localhost:19000'
+    export OBJECT_STORAGE_ACCESS_KEY_ID='object_storage_root_user'
+    export OBJECT_STORAGE_SECRET_ACCESS_KEY='object_storage_root_password'
+    export DISPLAY=':99.0'
+    export OIDC_RSA_PRIVATE_KEY='test'
+}
+
+# Track results
+# Using temp files instead of associative arrays for compatibility
+RESULTS_DIR=$(mktemp -d)
+trap "rm -rf $RESULTS_DIR" EXIT
+TOTAL_CHECKS=0
+
+# Run a single check (used by parallel execution)
+run_single_check() {
+    local check_name="$1"
+    local check_command="$2"
+    local check_id=$(echo "$check_name" | sed 's/[^a-zA-Z0-9]/_/g')
+    local start_time=$(date +%s)
+
+    local output_file=$(mktemp)
+    if eval "$check_command" >"$output_file" 2>&1; then
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        echo "pass" > "$RESULTS_DIR/${check_id}.result"
+        echo "$duration" > "$RESULTS_DIR/${check_id}.duration"
+    else
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        echo "fail" > "$RESULTS_DIR/${check_id}.result"
+        echo "$duration" > "$RESULTS_DIR/${check_id}.duration"
+
+        # Save error output for verbose mode
+        if [ "$VERBOSE" = true ]; then
+            cp "$output_file" "$RESULTS_DIR/${check_id}.output"
+        fi
+    fi
+    rm -f "$output_file"
+}
+
+# Run a group of checks in parallel
+run_parallel_group() {
+    local group_name="$1"
+    shift
+
+    local pids=()
+    local names=()
+
+    # Start all checks in parallel
+    while [[ $# -gt 0 ]]; do
+        local check_name="$1"
+        local check_command="$2"
+        shift 2
+
+        echo -e "${BLUE}⏳${NC} ${check_name}..."
+
+        run_single_check "$check_name" "$check_command" &
+        pids+=($!)
+        names+=("$check_name")
+
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+
+    # Wait and display results
+    for i in "${!pids[@]}"; do
+        wait "${pids[$i]}"
+        local name="${names[$i]}"
+        local check_id=$(echo "$name" | sed 's/[^a-zA-Z0-9]/_/g')
+        
+        local result=$(cat "$RESULTS_DIR/${check_id}.result" 2>/dev/null || echo "fail")
+        local duration=$(cat "$RESULTS_DIR/${check_id}.duration" 2>/dev/null || echo "0")
+
+        if [[ "$result" == "pass" ]]; then
+            echo -e "${GREEN}✓${NC} ${name} ${GREEN}(${duration}s)${NC}"
+        else
+            echo -e "${RED}✗${NC} ${name} ${RED}(${duration}s)${NC}"
+
+            if [ "$VERBOSE" = true ] && [ -f "$RESULTS_DIR/${check_id}.output" ]; then
+                echo -e "${RED}Error output:${NC}"
+                cat "$RESULTS_DIR/${check_id}.output" | sed 's/^/  /'
+            fi
+        fi
+    done
+}
+
+# Setup environment
+setup_environment
+
+# Backend checks
+if [ -z "$FILTER" ] || [ "$FILTER" = "backend" ]; then
+    echo -e "${BOLD}${BLUE}📦 Backend Checks${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    # Fast checks
+    run_parallel_group "backend-fast" \
+        "Python linting (ruff)" "ruff check ." \
+        "Python formatting" "ruff format --check --diff ."
+
+    # Medium checks
+    run_parallel_group "backend-medium" \
+        "Django migrations" "python manage.py makemigrations --check --dry-run" \
+        "Backend schema" "npm run schema:build:python && git diff --exit-code posthog/schema.py"
+
+    # Slow checks
+    # run_parallel_group "backend-slow" \
+    #     "Type checking (mypy)" "mypy -p posthog | mypy-baseline filter"
+
+    echo ""
+fi
+
+# Frontend checks
+if [ -z "$FILTER" ] || [ "$FILTER" = "frontend" ]; then
+    echo -e "${BOLD}${BLUE}🎨 Frontend Checks${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    # Ensure dependencies
+    if [ ! -d "frontend/node_modules" ]; then
+        echo -e "${YELLOW}📦 Installing frontend dependencies...${NC}"
+        pnpm --filter=@posthog/frontend... install --frozen-lockfile
+    fi
+
+    # Generate types (required for other checks)
+    echo -e "${YELLOW}🔧 Generating frontend types...${NC}"
+    pnpm --filter=@posthog/frontend typegen:write
+
+    # Fast checks
+    run_parallel_group "frontend-fast" \
+        "Prettier formatting" "pnpm --filter=@posthog/frontend prettier:check" \
+        "CSS linting" "pnpm --filter=@posthog/frontend lint:css"
+
+    # Medium checks
+    run_parallel_group "frontend-medium" \
+        "TypeScript compilation" "pnpm --filter=@posthog/frontend typescript:check"
+
+    # Slow checks
+    run_parallel_group "frontend-slow" \
+        "ESLint" "pnpm --filter=@posthog/frontend lint:js" \
+        "Frontend schema" "pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code frontend/src/queries/schema.json" \
+        "Mobile replay schema" "pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code ee/frontend/mobile-replay/schema.json"
+
+    echo ""
+fi
+
+# Calculate totals
+PASSED_CHECKS=0
+FAILED_CHECKS=0
+for result_file in "$RESULTS_DIR"/*.result; do
+    if [ -f "$result_file" ]; then
+        result=$(cat "$result_file")
+        if [[ "$result" == "pass" ]]; then
+            PASSED_CHECKS=$((PASSED_CHECKS + 1))
+        elif [[ "$result" == "fail" ]]; then
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+    fi
+done
+
+# Summary
+echo -e "${BOLD}${BLUE}📊 Summary${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "Total checks: ${TOTAL_CHECKS}"
+echo -e "Passed: ${GREEN}${PASSED_CHECKS}${NC}"
+echo -e "Failed: ${RED}${FAILED_CHECKS}${NC}"
+echo ""
+
+if [ $FAILED_CHECKS -eq 0 ]; then
+    echo -e "${GREEN}${BOLD}🎉 All checks passed! Your code is ready for CI.${NC}"
+    exit 0
+else
+    echo -e "${RED}${BOLD}💥 ${FAILED_CHECKS} check(s) failed.${NC}"
+    echo ""
+    echo -e "${YELLOW}💡 Tips:${NC}"
+    echo -e "  • Run with ${CYAN}-v${NC} or ${CYAN}--verbose${NC} to see error details"
+    echo -e "  • Fix issues and run ${CYAN}pnpm precheck${NC} again"
+    echo -e "  • Run specific checks: ${CYAN}pnpm precheck frontend${NC} or ${CYAN}pnpm precheck backend${NC}"
+    exit 1
+fi
