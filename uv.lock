@@ -3695,6 +3695,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pyjwt" },
+    { name = "pymongo" },
     { name = "pymssql" },
     { name = "pymysql" },
     { name = "pyodbc" },
@@ -3904,6 +3905,7 @@ requires-dist = [
     { name = "pyarrow", specifier = "==18.1.0" },
     { name = "pydantic", specifier = "==2.10.3" },
     { name = "pyjwt", specifier = "==2.4.0" },
+    { name = "pymongo", specifier = "==4.13.1" },
     { name = "pymssql", specifier = "==2.3.1" },
     { name = "pymysql", specifier = "==1.1.1" },
     { name = "pyodbc", specifier = "==5.1.0" },
@@ -4350,6 +4352,26 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
+]
+
+[[package]]
+name = "pymongo"
+version = "4.13.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dnspython" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ad/be/9263901e3bf5460f8a06e823825d8bc369e19dd6c131b4c08ab3ac37946d/pymongo-4.13.1.tar.gz", hash = "sha256:08dd70224978831ce7dc76016205d9b56c86aa337077f65a54b672240e7e9d6d", size = 2166945, upload-time = "2025-06-11T19:24:24.268Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/5a/e99cdf7b8c524f0cecbb08a1abeef3ea0aa26eb2d9d3ef12ef71f446e901/pymongo-4.13.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:6249560e51a6e881cca6258d2de1241d30f50d45d8c7fc45205e1776306f44d0", size = 857036, upload-time = "2025-06-11T19:23:08.474Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/dd/90667744976e4dff66ac65f1b9e5db146c0a052a186728ce820f68b1af4c/pymongo-4.13.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:a2e557dedf2ca26a6ad6a6d41003177de113606256754f70f75d3e6902ae26e9", size = 857334, upload-time = "2025-06-11T19:23:09.781Z" },
+    { url = "https://files.pythonhosted.org/packages/83/62/bb141cca517b7636d257d3e45a3aa7aa09431d55dc0e2436207675b3f930/pymongo-4.13.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:759c879af24af5a4256e3675180b2d392bb7f009ccf1693fc12af66d38aadea7", size = 1426404, upload-time = "2025-06-11T19:23:11.154Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/bd/18ae00db8c35de335de65660e23e704683a552137fc6d9d2e83082692c01/pymongo-4.13.1-cp311-cp311-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:59ad9f47a95bd330e423fa506714494d84f1af6b4095f3a30f7d69f0ed741d93", size = 1477365, upload-time = "2025-06-11T19:23:12.653Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/9e/92801672fa3043ba18b27fee1f5c49c5006adc86814d4caf6664beb926dc/pymongo-4.13.1-cp311-cp311-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:494ce1f93d507e8e170886dbefbef32662ac0cfe5b1734a65b6e523103b7ef3c", size = 1451809, upload-time = "2025-06-11T19:23:13.965Z" },
+    { url = "https://files.pythonhosted.org/packages/88/55/a0af5ddfb66f0ecd0ab070502c3b96ca1ea3aef92a1d72be114dd3eebd61/pymongo-4.13.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7b0d614275cef7457fb0c9ae5831b35361bbb826f09ceb7d289f78c69f8bad45", size = 1430933, upload-time = "2025-06-11T19:23:17.085Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/83/21178fe7cbb6ffbf8edd72e825dc075e95aea563a27ae5f75f70bc3544dd/pymongo-4.13.1-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:443de2fd340f0b899a59d5b4fd4c773f016e8cbed8075975783bced3583fa0a8", size = 1399585, upload-time = "2025-06-11T19:23:19.049Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/2a/d5007e5dfdec5441c930c928c0544098ac159ed0076f6a99757656337a1d/pymongo-4.13.1-cp311-cp311-win32.whl", hash = "sha256:493c162b783614c69efdfc41ebe9521df6cc5da6be3d25c92535db111e804952", size = 836143, upload-time = "2025-06-11T19:23:20.427Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/bc/10c37970b109a80384fdc43b7532673779e588f6721db10d1eddc398cd61/pymongo-4.13.1-cp311-cp311-win_amd64.whl", hash = "sha256:643b79645944899b2addb4ce03d9a6718dd1f4a0e1fa71fecdc49e6dea072b62", size = 851330, upload-time = "2025-06-11T19:23:21.869Z" },
 ]
 
 [[package]]

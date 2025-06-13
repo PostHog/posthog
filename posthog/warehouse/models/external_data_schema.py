@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.mysql import (
     MySQLSourceConfig,
     get_schemas as get_mysql_schemas,
 )
+from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, get_schemas as get_mongo_schemas
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.postgres import (
     PostgreSQLSourceConfig,
@@ -499,6 +500,19 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
     return results
 
 
+def filter_mongo_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type == "integer":
+            results.append((column_name, IncrementalFieldType.Integer))
+        # MongoDB ObjectId can be used for incremental sync based on timestamp
+        elif column_name == "_id" and type == "string":
+            results.append((column_name, IncrementalFieldType.String))
+
+    return results
+
+
 def get_sql_schemas_for_source_type(
     source_type: ExternalDataSource.Type, job_inputs: dict[str, Any]
 ) -> dict[str, list[tuple[str, str]]]:
@@ -508,6 +522,8 @@ def get_sql_schemas_for_source_type(
         schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(job_inputs))
     elif source_type == ExternalDataSource.Type.MSSQL:
         schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(job_inputs))
+    elif source_type == ExternalDataSource.Type.MONGO:
+        schemas = get_mongo_schemas(MongoSourceConfig.from_dict(job_inputs))
     else:
         raise Exception("Unsupported source_type")
 
