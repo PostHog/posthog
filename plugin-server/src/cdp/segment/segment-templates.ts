@@ -336,9 +336,6 @@ const getFieldType = (field: any) => {
     }
 
     if (field.type === 'object') {
-        if (typeof field.default !== 'undefined' && '@path' in field.default) {
-            return 'string'
-        }
         if (typeof field.default !== 'undefined' && '@arrayPath' in field.default) {
             return 'string'
         }
@@ -346,10 +343,6 @@ const getFieldType = (field: any) => {
     }
 
     if (['number', 'integer', 'datetime', 'password', 'boolean'].includes(field.type)) {
-        return 'string'
-    }
-
-    if (typeof field.default === 'object' && '@path' in field.default) {
         return 'string'
     }
 
