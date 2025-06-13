@@ -1,0 +1,90 @@
+name: Check Migrations
+
+on:
+    pull_request:
+        paths:
+            - '**/migrations/*.py'
+        types: [opened, synchronize, reopened]
+
+jobs:
+    check-migrations:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # Fetch all history for comparing changes
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: '3.11'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+
+            - name: Install dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install jq
+              run: sudo apt-get install -y jq
+
+            - name: Get changed migrations
+              id: changed-files
+              run: |
+                  # Get list of changed migration files
+                  CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep -E 'migrations/.*\.py$')
+                  echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+                  echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+
+            - name: Check migrations and post comment
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # Read the changed files from the output
+                  CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+
+                  # If no migration files changed, exit
+                  if [ -z "$CHANGED_FILES" ]; then
+                    echo "No migration files changed"
+                    exit 0
+                  fi
+
+                  # Initialize comment body
+                  COMMENT_BODY="## Migration SQL Changes\n\n"
+
+                  # Process each changed migration file
+                  for file in $CHANGED_FILES; do
+                    if [[ $file =~ migrations/([0-9]+)_ ]]; then
+                      migration_number="${BASH_REMATCH[1]}"
+                      # Get app name by looking at the directory structure
+                      # For nested apps like products/user_interviews, we want user_interviews
+                      app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
+                      echo "Checking migration $migration_number for app $app_name"
+                      
+                      # Get SQL output
+                      SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
+                      
+                      # Add to comment body
+                      COMMENT_BODY+="### $file\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                    fi
+                  done
+
+                  # Delete previous comments from this workflow
+                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
+                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | while read -r comment_id; do
+                    curl -X DELETE \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                  done
+
+                  # Post new comment to PR
+                  curl -X POST \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                    -d "{\"body\":\"$COMMENT_BODY\"}"
