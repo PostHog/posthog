@@ -10,12 +10,12 @@ jobs:
     check-migrations:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
               with:
                   fetch-depth: 0 # Fetch all history for comparing changes
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: '3.11'
 
