@@ -72,6 +72,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
@@ -611,6 +612,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
+            },
+            {
+                id: 'organization-experiment-stats-method',
+                title: 'Default experiment statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
+                component: <OrganizationExperimentStatsMethod />,
+                flag: 'EXPERIMENTS_FREQUENTIST',
             },
         ],
     },
