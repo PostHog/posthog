@@ -156,7 +156,7 @@ async function addGroupPropertiesToPostIngestionEvent(
             const queryString = `SELECT group_properties FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
 
             const selectResult: QueryResult = await postgres.query(
-                PostgresUse.COMMON_READ,
+                PostgresUse.PERSONS_READ,
                 queryString,
                 [event.teamId, columnIndex, groupKey],
                 'fetchGroup'
