@@ -1026,6 +1026,20 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
+        run_at = dt.datetime.now(dt.UTC).isoformat()
+
+        start_run_activity_inputs = StartRunActivityInputs(dag=dag, run_at=run_at, team_id=inputs.team_id)
+        await temporalio.workflow.execute_activity(
+            start_run_activity,
+            start_run_activity_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=1,
+            ),
+        )
+
         while ready or running:
 
             print("ready", ready)
@@ -1085,6 +1099,18 @@ class RunWorkflow(PostHogWorkflow):
                                 # We can't cancel, but we can untrack it to prevent it from being processed
                                 del running[descendant]
                             q.extend(list(dependents.get(descendant, set())))
+
+        await temporalio.workflow.execute_activity(
+            finish_run_activity,
+            FinishRunActivityInputs(
+                completed=list(completed),
+                failed=list(failed | ancestor_failed),
+                run_at=temporalio.workflow.now().isoformat(),
+                team_id=inputs.team_id,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+        )
 
         return Results(
             serialize_set(completed),
