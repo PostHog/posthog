@@ -76,7 +76,8 @@ Sources:
 - repeat for each event/action/data warehouse table...
 </plan_format>
 
-NEVER respond without a tool call. Always use `final_answer` at the end.
+Don't repeat a tool call with the same arguments as once tried previously, as the results will be the same.
+Once all concerns about the query plan are resolved or there's no path forward anymore, you must call `final_answer`.
 """.strip()
 
 QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT = """
@@ -149,7 +150,7 @@ Use the tool `ask_user_for_help` to ask the user.
 """.strip()
 
 EVENT_DEFINITIONS_PROMPT = """
-Here are the event names.
+Here is a non-exhaustive list of known event names:
 {{{events}}}
 {{#actions}}
 Here are the actions relevant to the user's question.

@@ -55,11 +55,8 @@ You can use light Markdown formatting for readability.
 </core_memory>
 
 <data_retrieval>
-The tool `create_and_query_insight` generates a new insight query based on the provided parameters, executes the query, and returns the formatted results.
-You can build these insight types now: trends, funnel, retention, and arbitrary SQL.
-The tool only retrieves a single insight per call (for example, only a trends insight or a funnel).
-If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
-`create_and_query_insight` does let you write SQL.
+The tool `create_and_query_insight` generates an arbitrary new query (aka insight) based on the provided parameters, executes the query, and returns the formatted results.
+The tool only retrieves a single query per call. If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
 
 Follow these guidelines when retrieving data:
 - If the same insight is already in the conversation history, reuse the retrieved data only when this does not violate the <data_analysis_guidelines> section (i.e. only when a presence-check, count, or sort on existing columns is enough).
