@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Literal, Union, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
@@ -75,7 +75,9 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
     return ast.Constant(value=1)
 
 
-def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, ActionsNode]) -> ast.Expr:
+def event_or_action_to_filter(
+    team: Team, entity_node: Union[EventsNode, ActionsNode], events_alias: Optional[str] = None
+) -> ast.Expr:
     """
     Returns the filter for a single entity node.
     """
@@ -83,19 +85,21 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
     if isinstance(entity_node, ActionsNode):
         try:
             action = Action.objects.get(pk=int(entity_node.id), team__project_id=team.project_id)
-            event_filter = action_to_expr(action)
+            event_filter = action_to_expr(action, events_alias=events_alias)
         except Action.DoesNotExist:
             # If an action doesn't exist, we want to return no events
             event_filter = ast.Constant(value=False)
     else:
         event_filter = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
+            left=ast.Field(chain=[events_alias, "event"] if events_alias else ["event"]),
             right=ast.Constant(value=entity_node.event),
         )
 
     if entity_node.properties:
-        event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])
+        event_properties = ast.And(
+            exprs=[property_to_expr(property, team, events_alias=events_alias) for property in entity_node.properties]
+        )
         event_filter = ast.And(exprs=[event_filter, event_properties])
 
     return event_filter

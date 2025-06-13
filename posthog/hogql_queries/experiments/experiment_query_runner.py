@@ -404,6 +404,17 @@ class ExperimentQueryRunner(QueryRunner):
                         )
 
             case ExperimentFunnelMetric() as metric:
+                # Pre-calculate step conditions to avoid property resolution issues in UDF
+                step_selects = []
+                for i, funnel_step in enumerate(metric.series):
+                    step_filter = event_or_action_to_filter(self.team, funnel_step, events_alias="events")
+                    step_selects.append(
+                        ast.Alias(
+                            alias=f"step_{i}",
+                            expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+                        )
+                    )
+
                 return ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
@@ -412,6 +423,7 @@ class ExperimentQueryRunner(QueryRunner):
                         ast.Field(chain=["events", "event"]),
                         ast.Field(chain=["events", "uuid"]),
                         ast.Field(chain=["events", "properties"]),
+                        *step_selects,
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["events"]),
@@ -433,7 +445,7 @@ class ExperimentQueryRunner(QueryRunner):
                         exprs=[
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             *self._get_test_accounts_filter(),
-                            funnel_steps_to_filter(self.team, metric.series),
+                            funnel_steps_to_filter(self.team, metric.series, events_alias="events"),
                         ],
                     ),
                 )
@@ -456,7 +468,7 @@ class ExperimentQueryRunner(QueryRunner):
                     case _:
                         return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
-                return funnel_evaluation_expr(self.team, self.metric)
+                return funnel_evaluation_expr(self.team, self.metric, events_alias="metric_events")
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery

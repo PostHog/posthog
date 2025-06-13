@@ -1,3 +1,4 @@
+from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.models.team.team import Team
@@ -12,19 +13,26 @@ from posthog.schema import (
 )
 
 
-def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
+def funnel_steps_to_filter(
+    team: Team, funnel_steps: list[EventsNode | ActionsNode], events_alias: Optional[str] = None
+) -> ast.Expr:
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
     """
-    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
+    return ast.Or(
+        exprs=[event_or_action_to_filter(team, funnel_step, events_alias=events_alias) for funnel_step in funnel_steps]
+    )
 
 
-def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
+def funnel_evaluation_expr(
+    team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: Optional[str] = None
+) -> ast.Expr:
     """
     Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
     Evaluates to 1 if the user completed the funnel, 0 if they didn't.
 
-    See the README.md for a detailed explanation of the expression.
+    When events_alias is provided, assumes that step conditions have been pre-calculated
+    as step_0, step_1, etc. fields in the aliased table.
     """
 
     if funnel_metric.conversion_window is not None and funnel_metric.conversion_window_unit is not None:
@@ -36,36 +44,46 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric) ->
         conversion_window_seconds = 3 * 365 * 24 * 60 * 60
 
     num_steps = len(funnel_metric.series)
-    placeholders: dict[str, ast.Expr] = {
-        "num_steps": ast.Constant(value=num_steps),
-        "num_steps_minus_one": ast.Constant(value=num_steps - 1),
-        "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-    }
 
-    # Build step conditions, a list of expressions that return the step number if the event satisfies
-    # the condition and 0 otherwise.
-    step_conditions = []
-    for i, funnel_step in enumerate(funnel_metric.series):
-        filter_expr = event_or_action_to_filter(team, funnel_step)
-        step_condition_placeholder = f"step_condition_{i}"
-        step_conditions.append(f"multiply({i + 1}, if({{{step_condition_placeholder}}}, 1, 0))")
-        placeholders[step_condition_placeholder] = filter_expr
+    # Create field references with proper alias support
+    timestamp_field = f"{events_alias}.timestamp" if events_alias else "timestamp"
+    uuid_field = f"{events_alias}.uuid" if events_alias else "uuid"
+
+    if events_alias:
+        # When using an alias, assume step conditions are pre-calculated
+        step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
+    else:
+        # Original approach for direct table access
+        placeholders: dict[str, ast.Expr] = {
+            "num_steps": ast.Constant(value=num_steps),
+            "num_steps_minus_one": ast.Constant(value=num_steps - 1),
+            "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+        }
+
+        # Build step conditions, a list of expressions that return the step number if the event satisfies
+        # the condition and 0 otherwise.
+        step_conditions = []
+        for i, funnel_step in enumerate(funnel_metric.series):
+            filter_expr = event_or_action_to_filter(team, funnel_step, events_alias=events_alias)
+            step_condition_placeholder = f"step_condition_{i}"
+            step_conditions.append(f"multiply({i + 1}, if({{{step_condition_placeholder}}}, 1, 0))")
+            placeholders[step_condition_placeholder] = filter_expr
 
     step_conditions_str = ", ".join(step_conditions)
 
     expression = f"""
     if(
         length(
-            arrayFilter(result -> result.1 >= {{num_steps_minus_one}},
+            arrayFilter(result -> result.1 >= {num_steps - 1},
                 aggregate_funnel_array(
-                    {{num_steps}},
-                    {{conversion_window_seconds}},
+                    {num_steps},
+                    {conversion_window_seconds},
                     'first_touch',
                     'ordered',
                     array(array('')),
                     arraySort(t -> t.1, groupArray(tuple(
-                        toFloat(timestamp),
-                        uuid,
+                        toFloat({timestamp_field}),
+                        {uuid_field},
                         array(''),
                         arrayFilter(x -> x != 0, [{step_conditions_str}])
                     )))
@@ -77,4 +95,4 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric) ->
     )
     """
 
-    return parse_expr(expression, placeholders=placeholders)
+    return parse_expr(expression, placeholders=placeholders if not events_alias else {})
