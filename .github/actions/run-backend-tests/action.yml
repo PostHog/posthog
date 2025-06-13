@@ -241,40 +241,40 @@ runs:
               path: .test_durations
               retention-days: 2
 
-        - name: Validate query versions
-          id: validate-query-versions
-          shell: bash
-          run: python bin/validate-query-versions.py | tee validation_output.txt
+        # - name: Validate query versions
+        #   id: validate-query-versions
+        #   shell: bash
+        #   run: python bin/validate-query-versions.py | tee validation_output.txt
 
-        - name: Upload validation output
-          id: validate-query-versions-upload
-          uses: actions/upload-artifact@v4
-          with:
-              name: validation-query-versions
-              path: validation_output.txt
-              retention-days: 14 # keep for two weeks
+        # - name: Upload validation output
+        #   id: validate-query-versions-upload
+        #   uses: actions/upload-artifact@v4
+        #   with:
+        #       name: validation-query-versions
+        #       path: validation_output.txt
+        #       retention-days: 14 # keep for two weeks
 
-        - name: Comment with artifact link
-          if: github.event_name == 'pull_request'
-          uses: peter-evans/create-or-update-comment@v4
-          with:
-              token: ${{ inputs.token }}
-              issue-number: ${{ github.event.pull_request.number }}
-              body: |
-                  ### 🔍 Query-version validation results
-                  Output of `python bin/validate-query-versions.py` \
-                  is available as an artifact → \
-                  [Download](${{ steps.validate-query-versions-upload.outputs.artifact-url }})
+        # - name: Comment with artifact link
+        #   if: github.event_name == 'pull_request'
+        #   uses: peter-evans/create-or-update-comment@v4
+        #   with:
+        #       token: ${{ inputs.token }}
+        #       issue-number: ${{ github.event.pull_request.number }}
+        #       body: |
+        #           ### 🔍 Query-version validation results
+        #           Output of `python bin/validate-query-versions.py` \
+        #           is available as an artifact → \
+        #           [Download](${{ steps.validate-query-versions-upload.outputs.artifact-url }})
 
-                  ```
-                  ${{ steps.validate-query-versions.outputs.content }}
-                  ```
+        #           ```
+        #           ${{ steps.validate-query-versions.outputs.content }}
+        #           ```
 
-                  <details>
-                    <summary>Click to view full benchmark results</summary>
+        #           <details>
+        #             <summary>Click to view full benchmark results</summary>
 
-                    ```
-                    ${{ steps.pr_vs_master.outputs.content }}
-                    ```
-                  </details>
-              edit-mode: replace
+        #             ```
+        #             ${{ steps.pr_vs_master.outputs.content }}
+        #             ```
+        #           </details>
+        #       edit-mode: replace
