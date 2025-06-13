@@ -9,7 +9,7 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import HOGQL_EXAMPLE_MESSAGE, IDENTITY_MESSAGE, SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError, NotImplementedError as HogQLNotImplementedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.schema import AssistantHogQLQuery
@@ -60,7 +60,7 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         assert result.query is not None
         try:
             print_ast(parse_select(result.query), context=self.hogql_context, dialect="clickhouse")
-        except (ExposedHogQLError, ResolutionError) as err:
+        except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
