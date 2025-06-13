@@ -52,7 +52,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
     }, [treeRef, setTreeRef])
 
     return (
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <div className="flex overflow-hidden flex-col flex-1 h-full">
             <div
                 className="p-1"
                 // eslint-disable-next-line react/forbid-dom-props
@@ -91,8 +91,8 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                                         className="font-mono text-xs"
                                     />
                                 ) : (
-                                    <div className="flex flex-row justify-between gap-1">
-                                        <span className="truncate font-mono text-xs">{item.name}</span>
+                                    <div className="flex flex-row gap-1 justify-between">
+                                        <span className="font-mono text-xs truncate">{item.name}</span>
                                         {renderTableCount(item.record?.row_count)}
                                     </div>
                                 )}
@@ -204,7 +204,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                                     className="z-2"
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                        router.actions.push(urls.dataWarehouseSourceNew())
                                     }}
                                 >
                                     <IconPlusSmall className="text-tertiary" />
@@ -254,11 +254,11 @@ const EditorSidebarOverlay = (): JSX.Element => {
 
     return (
         <div className="flex flex-col h-full">
-            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-1">
+            <header className="flex flex-row gap-1 items-center p-1 h-10 border-b shrink-0">
                 <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
                 <Tooltip title="Click to copy">
                     <span
-                        className="font-mono cursor-pointer flex-1 whitespace-nowrap overflow-hidden text-ellipsis"
+                        className="overflow-hidden flex-1 font-mono whitespace-nowrap cursor-pointer text-ellipsis"
                         onClick={() => copy()}
                     >
                         {selectedSchema?.name}
@@ -270,7 +270,7 @@ const EditorSidebarOverlay = (): JSX.Element => {
                             size="small"
                             icon={<IconCopy style={{ color: 'var(--text-secondary)' }} />}
                             noPadding
-                            className="ml-1 mr-1"
+                            className="mr-1 ml-1"
                             data-attr="copy-icon"
                             onClick={() => copy()}
                         />

@@ -30,7 +30,8 @@ import { AccessControlLevel, ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
+import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
+import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -329,25 +330,24 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
 
-                                // TODO: BEN - FIx this
-                                // if (
-                                //     scene === Scene.PipelineNodeNew &&
-                                //     params.searchParams.kind == 'hubspot' &&
-                                //     params.searchParams.code
-                                // ) {
-                                //     actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                                //     actions.handleRedirect(params.searchParams.kind, {
-                                //         code: params.searchParams.code,
-                                //     })
-                                //     actions.setStep(2)
-                                //     router.actions.replace(
-                                //         urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
-                                //     )
-                                // } else {
-                                //     router.actions.replace(
-                                //         urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                //     )
-                                // }
+                                if (
+                                    scene === Scene.DataWarehouseSourceNew &&
+                                    params.searchParams.kind == 'hubspot' &&
+                                    params.searchParams.code
+                                ) {
+                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
+                                    actions.handleRedirect(params.searchParams.kind, {
+                                        code: params.searchParams.code,
+                                    })
+                                    actions.setStep(2)
+                                    router.actions.replace(
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
+                                    )
+                                } else {
+                                    router.actions.replace(
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
+                                    )
+                                }
                                 return
                             }
                         }
