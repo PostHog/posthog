@@ -897,9 +897,10 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "const": "properties.$session_id",
+                    "default": null,
                     "description": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
-                    "type": "string"
+                    "enum": ["properties.$session_id", null],
+                    "type": ["string", "null"]
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue",
@@ -953,7 +954,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "$ref": "#/definitions/integer",
-                    "description": "Use this field to define the aggregation by a specific group from the group mapping that the user has provided."
+                    "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions."
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/AssistantFunnelsBreakdownFilter",
@@ -10698,7 +10699,7 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnelFromStep": {
                     "$ref": "#/definitions/integer"
@@ -10770,7 +10771,7 @@
                     "type": "array"
                 },
                 "funnel_aggregate_by_hogql": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnel_from_step": {
                     "type": "number"
@@ -13011,14 +13012,17 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
                 "searchTerm": {
                     "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "severityLevels": {
                     "items": {
@@ -13031,7 +13035,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "filterGroup", "kind", "severityLevels"],
+            "required": ["dateRange", "filterGroup", "kind", "serviceNames", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
@@ -18007,7 +18011,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort"],
+            "enum": ["all", "product", "cohort", "country"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {
@@ -19280,7 +19284,7 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "logs",
+                "log_attributes",
                 "replay",
                 "revenue_analytics_properties",
                 "resources"

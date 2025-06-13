@@ -44,7 +44,7 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
                         path: urls.dataPipelines(),
                     },
                     {
-                        key: Scene.DataPipelines,
+                        key: [Scene.DataPipelines, 'destinations'],
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
                     },

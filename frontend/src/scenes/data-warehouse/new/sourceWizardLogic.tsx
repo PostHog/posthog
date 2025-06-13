@@ -17,6 +17,7 @@ import {
     externalDataSources,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
+    manualLinkSources,
     ManualLinkSourceType,
     ProductKey,
     SourceConfig,
@@ -807,6 +808,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     GoogleAds: {
         name: 'GoogleAds',
         label: 'Google Ads',
+        betaSource: true,
         caption: (
             <>
                 Ensure you have granted PostHog access to your Google Ads account as instructed in the
@@ -937,7 +939,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
     )
 }
 
-export const MANUAL_SOURCE_LINK_MAP: Record<ManualLinkSourceType, string> = {
+const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
@@ -1019,6 +1021,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as SourceConfig | null,
             {
                 selectConnector: (_, { connector }) => connector,
+            },
+        ],
+        isManualLinkFormVisible: [
+            false,
+            {
+                toggleManualLinkFormVisible: (_, { visible }) => visible,
             },
         ],
         currentStep: [
@@ -1117,8 +1125,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.selectedConnector, s.manualLinkingProvider],
-            (selectedConnector, manualLinkingProvider): Breadcrumb[] => {
+            (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
+            (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.DataPipelines,
@@ -1126,7 +1134,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: Scene.DataPipelines,
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
                         path: urls.dataPipelines('sources'),
                     },
@@ -1134,11 +1142,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         key: Scene.DataWarehouseSource,
                         name:
                             selectedConnector?.label ??
-                            (manualLinkingProvider ? MANUAL_SOURCE_LINK_MAP[manualLinkingProvider] : 'New'),
+                            (manualLinkingProvider
+                                ? manualConnectors.find((c) => c.type === manualLinkingProvider)?.name
+                                : 'New'),
                     },
                 ]
             },
         ],
+
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
@@ -1192,8 +1203,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         showFooter: [
-            (s) => [s.selectedConnector, s.manualLinkingProvider],
-            (selectedConnector, manualLinkingProvider) => selectedConnector || manualLinkingProvider,
+            (s) => [s.selectedConnector, s.isManualLinkFormVisible],
+            (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
         ],
         connectors: [
             (s) => [s.dataWarehouseSources],
@@ -1210,6 +1221,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : false,
                 }))
             },
+        ],
+        manualConnectors: [
+            () => [],
+            (): { name: string; type: ManualLinkSourceType }[] =>
+                manualLinkSources.map((source) => ({
+                    name: manualLinkSourceMap[source],
+                    type: source,
+                })),
         ],
         addToHubspotButtonUrl: [
             (s) => [s.preflight],
@@ -1300,7 +1319,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (values.currentStep === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
-            } else if (values.currentStep === 2 && values.manualLinkingProvider) {
+            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
                 dataWarehouseTableLogic.actions.submitTable()
                 posthog.capture('source created', { sourceType: 'Manual' })
             }
@@ -1433,13 +1452,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
-            const source = Object.values(SOURCE_DETAILS).find((source) => source.name.toLowerCase() === kind)
-            const manualSource = Object.keys(MANUAL_SOURCE_LINK_MAP).find((name) => name.toLowerCase() === kind) as
-                | ManualLinkSourceType
-                | undefined
+            const source = values.connectors.find((s) => s.name.toLowerCase() === kind)
+            const manualSource = values.manualConnectors.find((s) => s.type.toLowerCase() === kind)
 
             if (manualSource) {
-                actions.setManualLinkingProvider(manualSource)
+                actions.toggleManualLinkFormVisible(true)
+                actions.setManualLinkingProvider(manualSource.type)
                 return
             }
 
@@ -1472,6 +1490,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             [urls.dataWarehouseSourceNew()]: handleUrlChange,
         }
     }),
+
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),

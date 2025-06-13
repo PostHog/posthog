@@ -29,9 +29,9 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
                         path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: Scene.DataPipelines,
+                        key: [Scene.DataPipelines, kind],
                         name: capitalizeFirstLetter(kind) + 's',
-                        path: urls.dataPipelines(kind + 's'),
+                        path: urls.dataPipelines(kind),
                     },
                     {
                         key: Scene.DataPipelinesNew,
