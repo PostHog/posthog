@@ -4,20 +4,23 @@ use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::fmt::Write;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use tracing::info;
 
 use crate::{
-    api::errors::FlagError,
+    api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
+    flags::flag_models::FeatureFlagId,
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
         FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME,
     },
-    properties::{property_matching::match_property, property_models::PropertyFilter},
+    properties::{
+        property_matching::match_property,
+        property_models::{OperatorType, PropertyFilter, PropertyType},
+    },
 };
 
 use super::{
@@ -41,16 +44,11 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 /// * `f64` - A number between 0 and 1
 pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
-    let mut hasher = Sha1::new();
-    hasher.update(hash_key.as_bytes());
-    let result = hasher.finalize();
-    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
-        let _ = write!(acc, "{:02x}", byte);
-        acc
-    })[..15]
-        .to_string();
-    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
+    let hash_value = Sha1::digest(hash_key.as_bytes());
+    // We use the first 8 bytes of the hash and shift right by 4 bits
+    // This is equivalent to using the first 15 hex characters (7.5 bytes) of the hash
+    // as was done in the previous implementation, ensuring consistent feature flag distribution
+    let hash_val: u64 = u64::from_be_bytes(hash_value[..8].try_into().unwrap()) >> 4;
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
@@ -213,9 +211,9 @@ pub fn locally_computable_property_overrides(
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
     property_overrides.as_ref().and_then(|overrides| {
-        let should_prefer_overrides = property_filters
-            .iter()
-            .all(|prop| overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
+        let should_prefer_overrides = property_filters.iter().all(|prop| {
+            overrides.contains_key(&prop.key) && prop.prop_type != PropertyType::Cohort
+        });
 
         if should_prefer_overrides {
             Some(overrides.clone())
@@ -233,6 +231,49 @@ pub fn all_properties_match(
     flag_condition_properties
         .iter()
         .all(|property| match_property(property, matching_property_values, false).unwrap_or(false))
+}
+
+pub fn all_flag_condition_properties_match(
+    flag_condition_properties: &[PropertyFilter],
+    flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+) -> bool {
+    flag_condition_properties
+        .iter()
+        .all(|property| match_flag_value_to_flag_filter(property, flag_evaluation_results))
+}
+
+// Attempts to match a flag condition filter that depends on another flag
+// evaluation result to a flag evaluation result
+pub fn match_flag_value_to_flag_filter(
+    filter: &PropertyFilter,
+    flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+) -> bool {
+    // If the operator is not exact, we can't match the flag value to the flag filter
+    if filter.operator != Some(OperatorType::Exact) {
+        // Should we log this?
+        tracing::error!(
+            "Flag filter operator for property type Flag is not `exact`, skipping flag value matching: {:?}",
+            filter
+        );
+        return false;
+    }
+
+    let Some(flag_id) = filter.get_feature_flag_id() else {
+        return false;
+    };
+
+    let Some(flag_value) = flag_evaluation_results.get(&flag_id) else {
+        return false;
+    };
+
+    match filter.value {
+        Some(Value::Bool(true)) => flag_value != &FlagValue::Boolean(false),
+        Some(Value::Bool(false)) => flag_value == &FlagValue::Boolean(false),
+        Some(Value::String(ref s)) => {
+            matches!(flag_value, FlagValue::String(flag_str) if flag_str == s)
+        }
+        _ => false,
+    }
 }
 
 /// Retrieves feature flag hash key overrides for a list of distinct IDs.
@@ -477,7 +518,7 @@ mod tests {
 
     use crate::{
         flags::flag_models::{FeatureFlagRow, FlagFilters},
-        properties::property_models::OperatorType,
+        properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
             create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
             insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
@@ -587,7 +628,7 @@ mod tests {
                 key: "email".to_string(),
                 value: Some(json!("test@example.com")),
                 operator: None,
-                prop_type: "person".to_string(),
+                prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
             },
@@ -595,7 +636,7 @@ mod tests {
                 key: "age".to_string(),
                 value: Some(json!(25)),
                 operator: Some(OperatorType::Gte),
-                prop_type: "person".to_string(),
+                prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
             },
@@ -609,7 +650,7 @@ mod tests {
                 key: "email".to_string(),
                 value: Some(json!("test@example.com")),
                 operator: None,
-                prop_type: "person".to_string(),
+                prop_type: PropertyType::Person,
                 group_type_index: None,
                 negation: None,
             },
@@ -617,7 +658,7 @@ mod tests {
                 key: "cohort".to_string(),
                 value: Some(json!(1)),
                 operator: None,
-                prop_type: "cohort".to_string(),
+                prop_type: PropertyType::Cohort,
                 group_type_index: None,
                 negation: None,
             },
@@ -626,5 +667,58 @@ mod tests {
         let result =
             locally_computable_property_overrides(&overrides, &property_filters_with_cohort);
         assert!(result.is_none());
+    }
+
+    #[rstest]
+    #[case("1", json!(true), FlagValue::Boolean(true), true)] // filter value true, flag_value is true, so true
+    #[case("1", json!(true), FlagValue::Boolean(false), false)] // filter value true, flag_value is false, so false
+    #[case("1", json!(true), FlagValue::String("some-variant".to_string()), true)]
+    // filter value true, flag_value is "some-variant", so true (filter value true means flag value can be true or any variant)
+    #[case("1", json!(true), FlagValue::String("other-variant".to_string()), true)] // filter value true, flag_value is "other-variant", so true (see above)
+    #[case("1", json!(false), FlagValue::Boolean(false), true)] // filter value false, flag_value is false, so true
+    #[case("1", json!(false), FlagValue::Boolean(true), false)] // filter value false, flag_value is true, so false
+    #[case("1", json!(false), FlagValue::String("some-variant".to_string()), false)] // filter value false, flag_value is "some-variant", so false
+    #[case("1", json!("some-variant"), FlagValue::String("some-variant".to_string()), true)] // flag value variant matches filter value variant, so true
+    #[case("1", json!("some-variant"), FlagValue::String("other-variant".to_string()), false)] // flag value variant doesn't match filter value variant, so false
+    #[case("1", json!("some-variant"), FlagValue::Boolean(true), false)] // even though flag value is true, it doesn't match the filter value variant, so false
+    #[case("1", json!("some-variant"), FlagValue::Boolean(false), false)] // flag value is false and doesn't match the filter value variant, so false
+    #[case("2", json!(true), FlagValue::Boolean(true), false)] // flag referenced by filter does not exist, so false
+    #[tokio::test]
+    async fn test_match_flag_filter_value(
+        #[case] filter_flag_id: i32,
+        #[case] filter_value: Value,
+        #[case] flag_value: FlagValue,
+        #[case] expected: bool,
+    ) {
+        let flag_evaluation_results = HashMap::from([(1, flag_value)]);
+
+        let filter = PropertyFilter {
+            key: filter_flag_id.to_string(),
+            value: Some(filter_value),
+            operator: Some(OperatorType::Exact),
+            prop_type: PropertyType::Flag,
+            negation: None,
+            group_type_index: None,
+        };
+
+        let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn test_match_flag_value_to_flag_filter_returns_false_if_operator_is_not_exact() {
+        let flag_evaluation_results = HashMap::from([(1, FlagValue::Boolean(true))]);
+
+        let filter = PropertyFilter {
+            key: "1".to_string(),
+            value: Some(json!(true)),
+            operator: Some(OperatorType::Icontains),
+            prop_type: PropertyType::Flag,
+            group_type_index: None,
+            negation: None,
+        };
+
+        let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
+        assert!(!result);
     }
 }

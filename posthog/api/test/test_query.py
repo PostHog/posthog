@@ -13,14 +13,17 @@ from posthog.models.utils import UUIDT
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
+    CachedRetentionQueryResponse,
     DataWarehouseNode,
     EventPropertyFilter,
     EventsQuery,
     FunnelsQuery,
     HogQLPropertyFilter,
     HogQLQuery,
+    MeanRetentionCalculation,
     PersonPropertyFilter,
     PropertyOperator,
+    RetentionQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -353,7 +356,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {
                     "type": "validation_error",
                     "code": "illegal_type_of_argument",
-                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295.",
+                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295, allow_experimental_join_condition = 1.",
                     "attr": None,
                 },
             )
@@ -1047,35 +1050,40 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = CachedHogQLQueryResponse.model_validate(api_response)
         assert response.results[0][0] == variable_override_value
 
-
-class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
-    def test_async_query_invalid_json(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/query_awaited/", data="invalid json", content_type="application/json"
+    @patch("posthog.api.query.process_query_model")
+    def test_upgrades_query(self, mock_process_query):
+        mock_process_query.return_value = CachedRetentionQueryResponse(
+            cache_key="cache_123",
+            is_cached=False,
+            last_refresh="2023-10-16T12:00:00Z",
+            next_allowed_client_refresh="2023-10-16T14:00:00Z",
+            results=[],
+            timezone="UTC",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response["Content-Type"], "text/event-stream")
 
-        content = b"".join(response.streaming_content)  # type: ignore[attr-defined]
-        error_data_str = content.decode().strip()
-        error_data = json.loads(error_data_str.split("data: ")[1])
-        assert isinstance(error_data, dict)  # Type guard for mypy
-        self.assertEqual(error_data.get("type"), "invalid_request", error_data)
-        self.assertEqual(error_data.get("code"), "parse_error")
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {
+                        "period": "Day",
+                        "totalIntervals": 8,
+                        "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                        "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                        "retentionType": "retention_first_time",
+                        "showMean": True,
+                    },
+                },
+                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
+            },
+        ).json()
 
-    def test_async_auth(self):
-        self.client.logout()
-        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query_awaited/",
-            data=json.dumps({"query": query.dict()}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_get_returns_405(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/query_awaited/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        mock_process_query.assert_called_once()
+        updated_query = mock_process_query.call_args.args[1]
+        assert isinstance(updated_query, RetentionQuery)
+        assert updated_query.version == 2
+        assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
 
 
 class TestQueryRetrieve(APIBaseTest):

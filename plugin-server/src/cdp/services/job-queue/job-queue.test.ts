@@ -1,17 +1,27 @@
+import { DateTime } from 'luxon'
+
 import { defaultConfig } from '~/src/config/config'
 import { PluginsServerConfig } from '~/src/types'
 
-import { HogFunctionManagerService } from '../hog-function-manager.service'
+import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
+import { HOG_EXAMPLES } from '../../_tests/examples'
+import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
+import { createInvocation } from '../../utils/invocation-utils'
 import { CyclotronJobQueue, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
-    let mockHogFunctionManager: jest.Mocked<HogFunctionManagerService>
     let mockConsumeBatch: jest.Mock
+
+    const exampleHogFunction = createHogFunction({
+        name: 'Test hog function',
+        ...HOG_EXAMPLES.simple_fetch,
+        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+        ...HOG_FILTERS_EXAMPLES.no_filters,
+    })
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        mockHogFunctionManager = {} as jest.Mocked<HogFunctionManagerService>
         mockConsumeBatch = jest.fn()
     })
 
@@ -21,7 +31,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('postgres')
         })
@@ -33,19 +43,22 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('kafka')
         })
     })
 
     describe('producer setup', () => {
-        const buildQueue = (mapping: string) => {
+        const buildQueue = (mapping: string, teamMapping?: string) => {
             config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
+            queue['jobQueuePostgres'].queueInvocations = jest.fn()
+            queue['jobQueueKafka'].queueInvocations = jest.fn()
             return queue
         }
 
@@ -76,6 +89,54 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
         })
+
+        it('should account for team mapping', async () => {
+            const queue = buildQueue('*:postgres', '1:*:kafka')
+            await queue.startAsProducer()
+            expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
+            expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
+        })
+
+        it.each([
+            ['postgres', true],
+            ['kafka', false],
+        ])(
+            'should route scheduled jobs to %s if force scheduled to postgres is enabled',
+            async (_target, enforceRouting) => {
+                config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES = enforceRouting
+                const queue = buildQueue('*:kafka')
+                await queue.startAsProducer()
+                const invocations = [
+                    {
+                        ...createInvocation(
+                            {
+                                ...createHogExecutionGlobals(),
+                                inputs: {},
+                            },
+                            exampleHogFunction
+                        ),
+                        queueScheduledAt: DateTime.now().plus({ seconds: 1 }),
+                    },
+                ]
+                await queue.queueInvocations(invocations)
+
+                if (enforceRouting) {
+                    // With enforced routing and the main queue being kafka then both producers should be started
+                    expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
+                    expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
+
+                    expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith(invocations)
+                    expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([])
+                } else {
+                    // Without enforced routing only the kafka producer should be started
+                    expect(queue['jobQueuePostgres'].startAsProducer).not.toHaveBeenCalled()
+                    expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
+
+                    expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([])
+                    expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
+                }
+            }
+        )
     })
 })
 

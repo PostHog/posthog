@@ -2,7 +2,6 @@ import time
 from datetime import datetime
 from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
 
-import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
@@ -88,7 +87,63 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     description = models.CharField(max_length=1000, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted = models.BooleanField(default=False)
-    filters = models.JSONField(null=True, blank=True)
+    filters = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="""Filters for the cohort. Examples:
+
+        # Behavioral filter (performed event)
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "address page viewed",
+                        "type": "behavioral",
+                        "value": "performed_event",
+                        "negation": false,
+                        "event_type": "events",
+                        "time_value": "30",
+                        "time_interval": "day"
+                    }]
+                }]
+            }
+        }
+
+        # Person property filter
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
+                        "key": "promoCodes",
+                        "type": "person",
+                        "value": ["1234567890"],
+                        "negation": false,
+                        "operator": "exact"
+                    }]
+                }]
+            }
+        }
+
+        # Cohort filter
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
+                        "key": "id",
+                        "type": "cohort",
+                        "value": 8814,
+                        "negation": false
+                    }]
+                }]
+            }
+        }""",
+    )
     query = models.JSONField(null=True, blank=True)
     people = models.ManyToManyField("Person", through="CohortPeople")
     version = models.IntegerField(blank=True, null=True)
@@ -220,13 +275,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
-        use_hogql_cohorts = posthoganalytics.feature_enabled(
-            "enable_hogql_cohort_calculation",
-            str(self.team.organization_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-        )
-
         logger.warn(
             "cohort_calculation_started",
             id=self.pk,
@@ -236,9 +284,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(
-                self, pending_version, initiating_user_id=initiating_user_id, hogql=use_hogql_cohorts
-            )
+            count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
 
             self.last_calculation = timezone.now()

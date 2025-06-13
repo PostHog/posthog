@@ -72,7 +72,7 @@ export const EventSelectorStep = ({
     return (
         <RunningTimeCalculatorModalStep
             stepNumber={1}
-            title="Estimate Experiment Traffic"
+            title="Estimate experiment traffic"
             description="Choose an event to estimate the number of users who will be exposed to your experiment. We'll use data from the last 14 days to calculate the minimum sample size and estimated duration for your experiment."
         >
             <ActionFilter

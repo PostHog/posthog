@@ -1,7 +1,6 @@
 import { PostgresRouter } from '~/src/utils/db/postgres'
 import { TeamManager } from '~/src/utils/team-manager'
 
-import { eachBatchAppsOnEventHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
 import {
     eachBatchWebhooksHandlers,
     groupIntoBatchesByUsage,
@@ -18,8 +17,6 @@ import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { runOnEvent } from '../../../src/worker/plugins/run'
-import { pluginConfig39 } from '../../helpers/plugins'
 
 jest.mock('../../../src/worker/plugins/run')
 
@@ -110,27 +107,6 @@ describe('eachBatchX', () => {
                 pluginConfigsPerTeam: new Map(),
             },
         }
-    })
-
-    describe('eachBatchAppsOnEventHandlers', () => {
-        it('calls runOnEvent when useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [pluginConfig39])
-            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(kafkaEvent), queue)
-            // TODO fix to jest spy on the actual function
-            expect(runOnEvent).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    eventUuid: 'uuid1',
-                    teamId: 2,
-                    distinctId: 'my_id',
-                })
-            )
-        })
-        it('skip runOnEvent when no pluginconfig for team', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.clear()
-            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(kafkaEvent), queue)
-            expect(runOnEvent).not.toHaveBeenCalled()
-        })
     })
 
     describe('eachBatchWebhooksHandlers', () => {

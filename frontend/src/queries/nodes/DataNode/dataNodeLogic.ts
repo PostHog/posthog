@@ -16,6 +16,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
@@ -62,6 +63,7 @@ import {
     isPersonsNode,
     isTracesQuery,
 } from '~/queries/utils'
+import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
@@ -98,6 +100,17 @@ export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(1)
+const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(5)
+
+function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
+    if (
+        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables &&
+        [NodeKind.WebOverviewQuery, NodeKind.WebStatsTableQuery, NodeKind.InsightVizNode].includes(query.kind)
+    ) {
+        return webAnalyticsPreAggConcurrencyController
+    }
+    return concurrencyController
+}
 
 function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
     if (!modifiers) {
@@ -113,7 +126,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
     connect((props: DataNodeLogicProps) => ({
-        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeam', 'currentTeamId'], featureFlagLogic, ['featureFlags']],
         actions: [
             dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
             [
@@ -154,13 +167,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     !('results' in props.cachedResults)))
         ) {
             // For normal loads, use appropriate refresh type
-            const refreshType = queryVarsHaveChanged
-                ? isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                    ? 'force_async'
-                    : 'force_blocking'
-                : isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                ? 'async'
-                : 'blocking'
+            let refreshType: RefreshType
+            if (queryVarsHaveChanged) {
+                refreshType =
+                    isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
+            } else {
+                refreshType = isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking'
+            }
+
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
@@ -202,7 +216,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const query = overrideQuery ?? props.query
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
-                    const refresh = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING] && !pollOnly) {
+                        refresh =
+                            refresh === 'force_async' ? 'force_blocking' : refresh === 'async' ? 'blocking' : refresh
+                    }
 
                     if (props.doNotLoad) {
                         return props.cachedResults
@@ -252,7 +270,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         signal: cache.abortController.signal,
                     }
                     try {
-                        const response = await concurrencyController.run({
+                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
                             debugTag: query.kind,
                             abortController,
                             priority: props.loadPriority,

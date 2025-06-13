@@ -168,10 +168,26 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
             )
             base_currency = (
-                ast.Constant(value=self.team.revenue_analytics_config.base_currency)
-                if self.team.revenue_analytics_config.base_currency is not None
+                ast.Constant(value=self.team.base_currency)
+                if self.team.base_currency is not None
                 else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
             )
+
+            # For DataWarehouse nodes we have a timestamp field we need to use
+            # This timestamp data can be nullable, so we need to handle NULL values
+            # to avoid ClickHouse errors with dictGetOrDefault expecting non-nullable dates
+            timestamp_expr: ast.Expr
+            if isinstance(self.series, DataWarehouseNode):
+                timestamp_expr = ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Field(chain=[self.series.timestamp_field]),
+                        ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
+                    ],
+                )
+            else:
+                # For events, timestamp is never null
+                timestamp_expr = ast.Field(chain=["timestamp"])
 
             return ast.Call(
                 name=method,
@@ -180,7 +196,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                         ast.Field(chain=chain),
                         event_currency,
                         base_currency,
-                        ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
+                        ast.Call(name="_toDate", args=[timestamp_expr]),
                     )
                 ],
             )

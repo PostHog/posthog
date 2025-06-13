@@ -21,7 +21,7 @@ pub async fn do_issue_processing(
 ) -> Result<HashMap<String, Issue>, (usize, UnhandledError)> {
     let mut issue_handles = HashMap::new();
     for (index, fingerprinted) in indexed_fingerprinted.iter() {
-        let to_resolve = fingerprinted.fingerprint.clone();
+        let to_resolve = fingerprinted.fingerprint.value.clone();
         let event = events[*index]
             .as_ref()
             .expect("no events have been dropped since indexed-property gathering");
@@ -77,7 +77,7 @@ fn find_index_with_matching_fingerprint(
     list: &[(usize, FingerprintedErrProps)],
 ) -> usize {
     for (index, props) in list.iter() {
-        if props.fingerprint == fingerprint {
+        if props.fingerprint.value == fingerprint {
             return *index;
         }
     }

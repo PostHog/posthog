@@ -1,6 +1,12 @@
-import { ExceptionAttributes } from 'scenes/error-tracking/utils'
+import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
-import { ErrorTrackingException, ErrorTrackingRuntime } from './types'
+import {
+    ErrorEventProperties,
+    ErrorTrackingException,
+    ErrorTrackingRuntime,
+    ExceptionAttributes,
+    FingerprintRecordPart,
+} from './types'
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList.length > 0 && exceptionList.some((e) => !!e.stacktrace)
@@ -40,4 +46,87 @@ export function concatValues(
         return undefined
     }
     return definedKeys.map((key) => attrs[key]).join(' ')
+}
+
+export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
+    const {
+        $lib: lib,
+        $lib_version: libVersion,
+        $browser: browser,
+        $browser_version: browserVersion,
+        $os: os,
+        $os_version: osVersion,
+        $sentry_url: sentryUrl,
+        $level: level,
+        $cymbal_errors: ingestionErrors,
+    } = properties
+
+    let type = properties.$exception_type
+    let value = properties.$exception_message
+    let synthetic: boolean | undefined = properties.$exception_synthetic
+    const url: string | undefined = properties.$current_url
+    const exceptionList: ErrorTrackingException[] | undefined = getExceptionList(properties)
+    if (!type) {
+        type = exceptionList?.[0]?.type
+    }
+    if (!value) {
+        value = exceptionList?.[0]?.value
+    }
+    if (synthetic == undefined) {
+        synthetic = exceptionList?.[0]?.mechanism?.synthetic
+    }
+
+    const handled = exceptionList?.[0]?.mechanism?.handled ?? false
+    const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
+
+    return {
+        type,
+        value,
+        synthetic,
+        runtime,
+        lib,
+        libVersion,
+        browser,
+        browserVersion,
+        os,
+        osVersion,
+        url,
+        sentryUrl,
+        handled,
+        level,
+        ingestionErrors,
+    }
+}
+
+export function getExceptionList(properties: ErrorEventProperties): ErrorTrackingException[] {
+    const { $sentry_exception } = properties
+    let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
+    // exception autocapture sets $exception_list for all exceptions.
+    // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
+    if (!exceptionList?.length && $sentry_exception) {
+        if (Array.isArray($sentry_exception.values)) {
+            exceptionList = $sentry_exception.values
+        }
+    }
+    return exceptionList || []
+}
+
+export function getFingerprintRecords(properties: ErrorEventProperties): FingerprintRecordPart[] {
+    const { $exception_fingerprint_record } = properties
+    return $exception_fingerprint_record || []
+}
+
+export function getAdditionalProperties(
+    properties: ErrorEventProperties,
+    isCloudOrDev: boolean | undefined
+): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(properties).filter(([key]) => {
+            return !isPostHogProperty(key, isCloudOrDev)
+        })
+    )
+}
+
+export function getSessionId(properties: ErrorEventProperties): string | undefined {
+    return properties['$session_id'] as string | undefined
 }

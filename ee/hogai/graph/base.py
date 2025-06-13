@@ -8,9 +8,10 @@ from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
-from posthog.schema import AssistantMessage, AssistantToolCall
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
@@ -25,8 +26,8 @@ class AssistantNode(ABC):
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
-        thread_id = config["configurable"]["thread_id"]
-        if self._is_conversation_cancelled(thread_id):
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        if thread_id and self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
         return self.run(state, config)
 
@@ -101,29 +102,25 @@ class AssistantNode(ABC):
         """
         Extracts contextual tools from the runnable config.
         """
-        try:
-            contextual_tools = config["configurable"]["contextual_tools"]
-        except KeyError:
-            return {}
+        contextual_tools = (config.get("configurable") or {}).get("contextual_tools") or {}
         if not isinstance(contextual_tools, dict):
             raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
+
+    def _get_ui_context(self, state: AssistantState) -> MaxContextShape | None:
+        """
+        Extracts the UI context from the latest human message.
+        """
+        return find_last_ui_context(state.messages)
 
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """
         Extracts the user distinct ID from the runnable config.
         """
-        try:
-            distinct_id = config["configurable"]["distinct_id"]
-        except KeyError:
-            return None
-        return distinct_id
+        return (config.get("configurable") or {}).get("distinct_id") or None
 
     def _get_trace_id(self, config: RunnableConfig) -> Any | None:
         """
         Extracts the trace ID from the runnable config.
         """
-        try:
-            return config["configurable"]["trace_id"]
-        except KeyError:
-            return None
+        return (config.get("configurable") or {}).get("trace_id") or None

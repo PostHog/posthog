@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Updates the Temporal schedule for a batch export"
+    help = "Updates the Temporal schedules for batch exports to ensure they are up to date"
 
     def add_arguments(self, parser):
         parser.add_argument("--batch-export-id", default=None, type=str, help="Single batch export ID to update")

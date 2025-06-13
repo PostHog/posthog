@@ -186,7 +186,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                 },
                 {
                     key: ReplayTabs.Playlists,
-                    name: 'Playlists',
+                    name: 'Collections',
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {

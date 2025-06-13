@@ -35,7 +35,11 @@ export function OrganizationDropdownMenu(): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive className="max-w-[210px]" iconOnly={isLayoutNavCollapsed ? true : false}>
+                <ButtonPrimitive
+                    className="max-w-[210px]"
+                    iconOnly={isLayoutNavCollapsed ? true : false}
+                    data-attr="tree-navbar-organization-dropdown-button"
+                >
                     {currentOrganization ? (
                         <UploadedLogo
                             name={currentOrganization.name}
@@ -78,6 +82,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             active
                             tooltip={`Current organization: ${currentOrganization.name}`}
                             tooltipPlacement="right"
+                            data-attr="tree-navbar-organization-dropdown-current-organization-button"
                         >
                             <UploadedLogo
                                 size="xsmall"
@@ -99,6 +104,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             onClick={() => updateCurrentOrganization(otherOrganization.id)}
                             tooltip={`Switch to organization: ${otherOrganization.name}`}
                             tooltipPlacement="right"
+                            data-attr="tree-navbar-organization-dropdown-other-organization-button"
                         >
                             <UploadedLogo
                                 size="xsmall"

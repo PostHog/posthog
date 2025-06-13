@@ -43,8 +43,9 @@ pub enum QueryCommand {
     },
 }
 
-pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
+pub fn query_command(host: Option<String>, query: &QueryCommand) -> Result<(), Error> {
     let creds = load_token()?;
+    let host = creds.get_host(host.as_deref());
 
     match query {
         QueryCommand::Editor {
@@ -54,7 +55,7 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
         } => {
             // Given this is an interactive command, we're happy enough to not join the capture handle
             let handle = capture_command_invoked("query_editor", Some(creds.env_id.clone()));
-            let res = start_query_editor(host, creds.clone(), *debug)?;
+            let res = start_query_editor(&host, creds.clone(), *debug)?;
             if !no_print {
                 println!("Final query: {}", res);
             }

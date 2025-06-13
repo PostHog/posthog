@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { QueryBasedInsightModel } from '~/types'
 
 export async function deleteWithUndo<T extends Record<string, any>>({
@@ -52,6 +53,13 @@ export async function deleteInsightWithUndo({
         deleted: !undo,
     })
     props.callback?.(undo, props.object)
+    if (props.object.short_id) {
+        if (undo) {
+            refreshTreeItem('insight', String(props.object.short_id))
+        } else {
+            deleteFromTree('insight', String(props.object.short_id))
+        }
+    }
     lemonToast[undo ? 'success' : 'info'](
         <>
             <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}

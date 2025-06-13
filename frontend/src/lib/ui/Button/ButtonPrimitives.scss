@@ -7,6 +7,7 @@
     --button-padding-y-lg: 7px;
     --button-height-sm: 26px;
     --button-height-base: 30px;
+    --button-height-base-tall: 45px;
     --button-height-lg: 40px;
 }
 
@@ -19,6 +20,7 @@
     font-weight: 400;
     color: var(--text-primary);
     cursor: pointer;
+    user-select: none;
     border-radius: var(--radius);
 
     svg {
@@ -111,6 +113,14 @@
     }
 }
 
+.button-primitive--height-base-tall {
+    height: var(--button-height-base-tall);
+
+    &.icon-only {
+        width: var(--button-height-base);
+    }
+}
+
 .button-primitive--height-lg {
     height: var(--button-height-lg);
 
@@ -147,4 +157,8 @@
         width: 20px;
         height: 20px;
     }
+}
+
+.button-primitive--full-width {
+    width: 100%;
 }

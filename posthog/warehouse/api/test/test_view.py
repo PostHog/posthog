@@ -67,6 +67,7 @@ class TestView(APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": f"select distinct_id as distinct_id from events LIMIT 100",
                 },
+                "edited_history_id": view["latest_history_id"],
             },
         )
 
@@ -99,8 +100,8 @@ class TestView(APIBaseTest):
         "posthog.warehouse.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns",
         return_value={"id": "String", "a_column": "String"},
     )
-    @patch("posthog.tasks.warehouse.get_ph_client")
-    def test_view_with_external_table(self, patch_get_columns_1, patch_get_columns_2, patch_get_ph_client):
+    @patch("posthog.tasks.warehouse.get_client")
+    def test_view_with_external_table(self, patch_get_columns_1, patch_get_columns_2, patch_get_client):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_tables/",
             {

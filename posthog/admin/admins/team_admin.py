@@ -91,7 +91,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "api_query_rate_limit",
                     "data_attributes",
                     "session_recording_version",
-                    "access_control",
                     "inject_web_apps",
                     "extra_settings",
                     "modifiers",

@@ -4,15 +4,7 @@ from uuid import UUID
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import (
-    exceptions,
-    mixins,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets, permissions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -26,6 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
+from posthog.permissions import UserCanInvitePermission, OrganizationMemberPermissions
 
 
 class OrganizationInviteManager:
@@ -160,6 +153,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         team_error = "Project does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None
+
+        # Note: this validation is checking if the inviting user has permission to invite others to the project with the specified access level, not whether the project itself has access controls enabled.
+        # checking if the inviting user has permission to invite a user to the project with the given level
         for item in private_project_access:
             # if the project is private, if user is not an admin of the team, they can't invite to it
             organization: Organization = Organization.objects.get(id=self.context["organization_id"])
@@ -169,33 +165,68 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             try:
                 team: Team = teams.get(id=item["id"])
             except Team.DoesNotExist:
-                raise exceptions.ValidationError(
-                    team_error,
-                )
-            is_private = team.access_control
-            if not is_private:
-                continue
+                raise exceptions.ValidationError(team_error)
+
             try:
-                team_membership: ExplicitTeamMembership | OrganizationMembership = ExplicitTeamMembership.objects.get(
-                    team_id=item["id"],
-                    parent_membership__user=self.context["request"].user,
+                # Check if the user is an org admin/owner - org admins/owners can invite with any level
+                OrganizationMembership.objects.get(
+                    organization_id=self.context["organization_id"],
+                    user=self.context["request"].user,
+                    level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
                 )
-            except ExplicitTeamMembership.DoesNotExist:
+                continue
+            except OrganizationMembership.DoesNotExist:
+                # User is not an org admin/owner
+                pass
+
+            # This path is deprecated, and will be removed soon
+            if team.access_control:
+                team_membership: ExplicitTeamMembership | None = None
                 try:
-                    # No explicit team membership. Try getting the implicit team membership - any org owners and admins can invite to any team
-                    team_membership = OrganizationMembership.objects.get(
-                        organization_id=self.context["organization_id"],
-                        user=self.context["request"].user,
-                        level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
+                    team_membership = ExplicitTeamMembership.objects.get(
+                        team_id=item["id"],
+                        parent_membership__user=self.context["request"].user,
                     )
-                except OrganizationMembership.DoesNotExist:
+                except ExplicitTeamMembership.DoesNotExist:
+                    raise exceptions.ValidationError(team_error)
+                if team_membership.level < item["level"]:
                     raise exceptions.ValidationError(
-                        team_error,
+                        "You cannot invite to a private project with a higher level than your own.",
                     )
-            if team_membership.level < item["level"]:
-                raise exceptions.ValidationError(
-                    "You cannot invite to a private project with a higher level than your own.",
-                )
+                # Legacy private project and the current user has permission to invite to it
+                continue
+
+            # New access control checks
+            from ee.models.rbac.access_control import AccessControl
+
+            # Check if the team has an access control row that applies to the entire resource
+            team_access_controls = AccessControl.objects.filter(
+                team_id=item["id"],
+                resource="team",
+                resource_id=str(item["id"]),
+                organization_member=None,
+                role=None,
+            )
+
+            # If no access controls exist, continue (team can be accessed by anyone in the organization)
+            if not team_access_controls.exists():
+                continue
+
+            # Check if there's an access control with level 'none' (private team)
+            private_team_access = team_access_controls.filter(access_level="none").exists()
+
+            if private_team_access:
+                # Team is private, check if user has admin access
+                user_access = AccessControl.objects.filter(
+                    team_id=item["id"],
+                    resource="team",
+                    resource_id=str(item["id"]),
+                    organization_member__user=self.context["request"].user,
+                    access_level="admin",
+                ).exists()
+
+                if not user_access:
+                    raise exceptions.ValidationError(team_error)
 
         return private_project_access
 
@@ -264,6 +295,17 @@ class OrganizationInviteViewSet(
     lookup_field = "id"
     ordering = "-created_at"
 
+    def dangerously_get_permissions(self):
+        if self.action == "create":
+            create_permissions = [
+                permission()
+                for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
+            ]
+
+            return create_permissions
+
+        raise NotImplementedError()
+
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
 
@@ -286,7 +328,12 @@ class OrganizationInviteViewSet(
 
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["organization_member:write"],
+        permission_classes=[UserCanInvitePermission],
+    )
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
         user = cast(User, self.request.user)

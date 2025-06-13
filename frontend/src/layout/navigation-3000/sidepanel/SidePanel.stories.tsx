@@ -73,6 +73,7 @@ export const SidePanelMax: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/environments/:team_id/core_memory': EMPTY_PAGINATED_RESPONSE,
+            '/api/environments/:team_id/conversations': EMPTY_PAGINATED_RESPONSE,
         },
     })
 

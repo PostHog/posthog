@@ -16,6 +16,7 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentVariantFunnelsBaseStats,
     FunnelConversionWindowTimeUnit,
+    LegacyExperimentQueryResponse,
     PersonsOnEventsMode,
     ExperimentFunnelMetric,
 )
@@ -80,7 +81,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -124,7 +125,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -397,7 +398,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 )
             self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
-            result = query_runner.calculate()
+            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
             self.assertEqual(len(result.variants), 2)
             control_variant = cast(
@@ -471,7 +472,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = query_runner.calculate()
+            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -629,7 +630,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -789,7 +790,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -973,7 +974,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -1194,7 +1195,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -1381,7 +1382,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         self.assertEqual(len(result.variants), 2)
 
@@ -1396,3 +1397,132 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.failure_count, 0)
         self.assertEqual(test_variant.success_count, 0)
         self.assertEqual(test_variant.failure_count, 2)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_many_steps(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User with first step only
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "add to cart",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "checkout started",
+                        "timestamp": "2024-01-02T12:03:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "checkout completed",
+                        "timestamp": "2024-01-02T12:04:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "survey submitted",
+                        "timestamp": "2024-01-02T12:05:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "referral",
+                        "timestamp": "2024-01-02T12:06:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User with only first step completed
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="add to cart"),
+                EventsNode(event="checkout started"),
+                EventsNode(event="checkout completed"),
+                EventsNode(event="survey submitted"),
+                EventsNode(event="referral"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.success_count, 1)
+        self.assertEqual(control_variant.failure_count, 0)
+        self.assertEqual(test_variant.success_count, 0)
+        self.assertEqual(test_variant.failure_count, 1)

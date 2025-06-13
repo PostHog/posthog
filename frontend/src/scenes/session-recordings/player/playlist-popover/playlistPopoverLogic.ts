@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
@@ -36,16 +36,20 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         setNewFormShowing: (show: boolean) => ({ show }),
         setShowPlaylistPopover: (show: boolean) => ({ show }),
     })),
-    loaders(({ values, props, actions }) => ({
+    lazyLoaders(({ values }) => ({
         playlists: {
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylists: async (_, breakpoint) => {
                 await breakpoint(300)
-                const response = await api.recordings.listPlaylists(toParams({ search: values.searchQuery }))
+                const response = await api.recordings.listPlaylists(
+                    toParams({ search: values.searchQuery, type: 'collection' })
+                )
                 breakpoint()
                 return response.results
             },
         },
+    })),
+    loaders(({ values, props, actions }) => ({
         currentPlaylists: {
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylistsForRecording: async (_, breakpoint) => {
@@ -103,6 +107,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 await breakpoint(100)
                 const newPlaylist = await createPlaylist({
                     name,
+                    type: 'collection',
                 })
 
                 actions.reportRecordingPlaylistCreated('pin')

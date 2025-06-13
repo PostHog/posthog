@@ -7,6 +7,7 @@ from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from unittest.mock import ANY
 
+from ee.models.rbac.role import Role
 from posthog.test.base import APIBaseTest
 from posthog.models import (
     ErrorTrackingSymbolSet,
@@ -14,7 +15,6 @@ from posthog.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
-    UserGroup,
 )
 from posthog.models.utils import uuid7
 from botocore.config import Config
@@ -330,21 +330,21 @@ class TestErrorTracking(APIBaseTest):
         issue_two = self.create_issue()
 
         ErrorTrackingIssueAssignment.objects.create(issue=issue_one, user=self.user)
-        user_group = UserGroup.objects.create(team=self.team, name="Team group")
-        user_group.members.set([self.user])
+        role = Role.objects.create(name="Team role", organization=self.organization)
+        role.members.set([self.user])
 
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
             data={
                 "ids": [issue_one.id, issue_two.id],
                 "action": "assign",
-                "assignee": {"id": user_group.id, "type": "user_group"},
+                "assignee": {"id": role.id, "type": "role"},
             },
         )
 
         self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
         self.assertEqual(
-            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], user_group=user_group)), 2
+            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
         )
 
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:

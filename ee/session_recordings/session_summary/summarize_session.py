@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from dataclasses import dataclass
 import json
 from pathlib import Path
 
@@ -14,29 +15,41 @@ from ee.session_recordings.session_summary.prompt_data import SessionSummaryProm
 from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 logger = structlog.get_logger(__name__)
 
 
+@dataclass(frozen=True)
+class ExtraSummaryContext:
+    focus_area: str | None = None
+
+
 class ReplaySummarizer:
-    def __init__(self, recording: SessionRecording, user: User, team: Team):
-        self.recording = recording
+    def __init__(self, session_id: str, user: User, team: Team, local_reads_prod: bool = False):
+        self.session_id = session_id
         self.user = user
         self.team = team
+        self.local_reads_prod = local_reads_prod
 
     def _generate_prompt(
         self,
         prompt_data: SessionSummaryPromptData,
         url_mapping_reversed: dict[str, str],
         window_mapping_reversed: dict[str, str],
+        extra_summary_context: ExtraSummaryContext | None,
     ) -> tuple[str, str]:
         # Keep shortened URLs for the prompt to reduce the number of tokens
         short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
         # Render all templates
         template_dir = Path(__file__).parent / "templates" / "identify-objectives"
-        system_prompt = load_custom_template(template_dir, f"system-prompt.djt")
+        system_prompt = load_custom_template(
+            template_dir,
+            f"system-prompt.djt",
+            {
+                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
+            },
+        )
         summary_example = load_custom_template(template_dir, f"example.yml")
         summary_prompt = load_custom_template(
             template_dir,
@@ -47,24 +60,27 @@ class ReplaySummarizer:
                 "URL_MAPPING": json.dumps(short_url_mapping_reversed),
                 "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
                 "SUMMARY_EXAMPLE": summary_example,
+                "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
             },
         )
         return summary_prompt, system_prompt
 
-    def summarize_recording(self) -> Generator[str, None, None]:
+    def summarize_recording(self, extra_summary_context: ExtraSummaryContext | None) -> Generator[str, None, None]:
         timer = ServerTimingsGathered()
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
             session_metadata = get_session_metadata(
-                session_id=self.recording.session_id,
+                session_id=self.session_id,
                 team=self.team,
+                local_reads_prod=self.local_reads_prod,
             )
         try:
             with timer("get_events"):
                 session_events_columns, session_events = get_session_events(
-                    session_id=self.recording.session_id,
-                    session_metadata=session_metadata,
                     team=self.team,
+                    session_metadata=session_metadata,
+                    session_id=self.session_id,
+                    local_reads_prod=self.local_reads_prod,
                 )
         # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
         except ValueError as e:
@@ -101,17 +117,15 @@ class ReplaySummarizer:
                 # Convert to a dict, so that we can amend its values freely
                 raw_session_metadata=dict(session_metadata),
                 raw_session_columns=session_events_columns,
-                session_id=self.recording.session_id,
+                session_id=self.session_id,
             )
             if not prompt_data.metadata.start_time:
-                raise ValueError(
-                    f"No start time found for session_id {self.recording.session_id} when generating the prompt"
-                )
+                raise ValueError(f"No start time found for session_id {self.session_id} when generating the prompt")
             # Reverse mappings for easier reference in the prompt.
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
             summary_prompt, system_prompt = self._generate_prompt(
-                prompt_data, url_mapping_reversed, window_mapping_reversed
+                prompt_data, url_mapping_reversed, window_mapping_reversed, extra_summary_context
             )
 
         # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
@@ -122,7 +136,7 @@ class ReplaySummarizer:
             summary_prompt=summary_prompt,
             user=self.user,
             allowed_event_ids=list(simplified_events_mapping.keys()),
-            session_id=self.recording.session_id,
+            session_id=self.session_id,
             simplified_events_mapping=simplified_events_mapping,
             simplified_events_columns=prompt_data.columns,
             url_mapping_reversed=url_mapping_reversed,
@@ -132,10 +146,12 @@ class ReplaySummarizer:
         )
         return session_summary_generator
 
-    def stream_recording_summary(self):
+    def stream_recording_summary(
+        self, extra_summary_context: ExtraSummaryContext | None = None
+    ) -> SyncIterableToAsync | Generator[str, None, None]:
         if SERVER_GATEWAY_INTERFACE == "ASGI":
-            return self._astream()
-        return self.summarize_recording()
+            return self._astream(extra_summary_context)
+        return self.summarize_recording(extra_summary_context)
 
-    def _astream(self):
-        return SyncIterableToAsync(self.summarize_recording())
+    def _astream(self, extra_summary_context: ExtraSummaryContext | None) -> SyncIterableToAsync:
+        return SyncIterableToAsync(self.summarize_recording(extra_summary_context))

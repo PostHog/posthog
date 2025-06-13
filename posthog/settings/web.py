@@ -30,8 +30,9 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.early_access_features",
-    "products.editor",
+    "products.links",
     "products.revenue_analytics",
+    "products.user_interviews",
 ]
 
 INSTALLED_APPS = [
@@ -70,6 +71,7 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
+    "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -80,12 +82,12 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.SessionAgeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -97,6 +99,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
+    "posthog.middleware.Fix204Middleware",
 ]
 
 if DEBUG:
@@ -201,8 +204,8 @@ SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
-# For sensitive actions we have an additional permission (default 1 hour)
-SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 6, type_cast=int)
+# For sensitive actions we have an additional permission (default 2 hour)
+SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
@@ -318,7 +321,7 @@ GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_POST_RESPONSE_ALLOW_LIST",
         ",".join(
             [
-                "^/?api/projects/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
             ]
         ),
     )
@@ -330,31 +333,31 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?api/plugin_config/\\d+/frontend/?$",
-                "^/?api/projects/@current/property_definitions/?$",
-                "^/?api/projects/\\d+/event_definitions/?$",
-                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
-                "^/?api/projects/\\d+/insights/?$",
-                "^/?api/projects/\\d+/insights/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/?$",
-                "^/?api/projects/\\d+/actions/?$",
-                "^/?api/projects/\\d+/session_recordings/?$",
-                "^/?api/projects/\\d+/session_recordings/.*$",
-                "^/?api/projects/\\d+/session_recording_playlists/?$",
-                "^/?api/projects/\\d+/session_recording_playlists/.*$",
-                "^/?api/projects/\\d+/performance_events/?$",
-                "^/?api/projects/\\d+/performance_events/.*$",
-                "^/?api/projects/\\d+/exports/\\d+/content/?$",
-                "^/?api/projects/\\d+/activity_log/important_changes/?$",
-                "^/?api/projects/\\d+/uploaded_media/?$",
+                "^/?api/(environments|projects)/@current/property_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/event_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/(environments|projects)/\\d+/insights/?$",
+                "^/?api/(environments|projects)/\\d+/insights/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/?$",
+                "^/?api/(environments|projects)/\\d+/actions/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/.*$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/?$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/.*$",
+                "^/?api/(environments|projects)/\\d+/performance_events/?$",
+                "^/?api/(environments|projects)/\\d+/performance_events/.*$",
+                "^/?api/(environments|projects)/\\d+/exports/\\d+/content/?$",
+                "^/?api/(environments|projects)/\\d+/activity_log/important_changes/?$",
+                "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
-                "^/api/projects/\\d+/groups/property_definitions/?$",
-                "^/api/projects/\\d+/cohorts/?$",
-                "^/api/projects/\\d+/persons/?$",
+                "^/api/(environments|projects)/\\d+/groups/property_definitions/?$",
+                "^/api/(environments|projects)/\\d+/cohorts/?$",
+                "^/api/(environments|projects)/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
-                "^api/projects/@current/feature_flags/my_flags/?$",
-                "^/?api/projects/\\d+/query/?$",
+                "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -451,7 +454,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
+HOG_TRANSFORMATIONS_CUSTOM_ENABLED = get_from_env("HOG_TRANSFORMATIONS_CUSTOM_ENABLED", False, type_cast=bool)
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####
@@ -473,6 +476,7 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+
 
 ####
 # OAuth

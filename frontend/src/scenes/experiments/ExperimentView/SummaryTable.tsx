@@ -24,8 +24,16 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
+import {
+    calculateDelta,
+    conversionRateForVariant,
+    countDataForVariant,
+    credibleIntervalForVariant,
+    exposureCountDataForVariant,
+    getHighestProbabilityVariant,
+} from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
-import { getViewRecordingFilters } from '../utils'
+import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
 
 export function SummaryTable({
@@ -40,20 +48,15 @@ export function SummaryTable({
     const {
         experimentId,
         experiment,
-        metricResults,
-        secondaryMetricResults,
+        legacyMetricResults,
+        legacySecondaryMetricResults,
         tabularExperimentResults,
         getInsightType,
-        exposureCountDataForVariant,
-        conversionRateForVariant,
         experimentMathAggregationForTrends,
-        countDataForVariant,
-        getHighestProbabilityVariant,
-        credibleIntervalForVariant,
         featureFlags,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
-    const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
+    const result = isSecondary ? legacySecondaryMetricResults?.[metricIndex] : legacyMetricResults?.[metricIndex]
     if (!result) {
         return <></>
     }
@@ -150,28 +153,19 @@ export function SummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const controlVariant = (result.variants as TrendExperimentVariant[]).find(
-                    ({ key }) => key === 'control'
-                ) as TrendExperimentVariant
-
-                if (
-                    !variant.count ||
-                    !variant.absolute_exposure ||
-                    !controlVariant ||
-                    !controlVariant.count ||
-                    !controlVariant.absolute_exposure
-                ) {
+                const deltaResult = calculateDelta(result, variant.key, insightType)
+                if (!deltaResult) {
                     return <div className="font-semibold">—</div>
                 }
 
-                const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                const variantMean = variant.count / variant.absolute_exposure
-                const delta = ((variantMean - controlMean) / controlMean) * 100
-
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div
+                        className={`font-semibold ${
+                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                        }`}
+                    >
+                        {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
+                    </div>
                 )
             },
         })
@@ -377,7 +371,10 @@ export function SummaryTable({
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
 
-            const filters = getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
+            const filters = isLegacyExperimentQuery(metric)
+                ? getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
+                : getViewRecordingFilters(experiment, metric, variantKey)
+
             return (
                 <LemonButton
                     size="xsmall"
@@ -400,7 +397,7 @@ export function SummaryTable({
                             date_to: experiment?.end_date,
                             filter_test_accounts:
                                 metric.kind === NodeKind.ExperimentMetric
-                                    ? false
+                                    ? experiment.exposure_criteria?.filterTestAccounts ?? false
                                     : metric.kind === NodeKind.ExperimentTrendsQuery
                                     ? metric.count_query.filterTestAccounts
                                     : metric.funnels_query.filterTestAccounts,

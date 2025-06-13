@@ -1,5 +1,14 @@
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonTable,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -223,10 +232,28 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
 
     return (
         <div className="deprecated-space-y-4">
+            <LemonBanner type="info" dismissKey="session-recordings-playlists-banner">
+                We've made some updates!
+                <br />
+                <p className="font-normal">
+                    Playlists used to combine saved filters and pinned recordings, but that sometimes led to confusion.
+                    Now, they are handled separately:
+                    <ul className="list-disc list-inside">
+                        <li>
+                            <Link to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}>
+                                Saved Filters
+                            </Link>{' '}
+                            stay with filters.
+                        </li>
+                        <li>Collections are simple recording lists — no filters involved.</li>
+                    </ul>
+                    More predictable, less messy!
+                </p>
+            </LemonBanner>
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
                     type="search"
-                    placeholder="Search for playlists"
+                    placeholder="Search for collections"
                     onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
                     value={filters.search || ''}
                 />

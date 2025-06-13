@@ -23,6 +23,11 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from django_otp.plugins.otp_static.models import StaticDevice
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
+from rest_framework.parsers import JSONParser
+
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -950,3 +955,83 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
             res = self.client.get("/api/organizations/@current")
             assert res.status_code == 200
+
+
+class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+    def setUp(self):
+        super().setUp()  # Call the setup from APIBaseTest
+        self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+        self.team.save()
+        self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
+
+    def test_authenticate_with_valid_secret_api_key_in_header(self):
+        # Simulate a request with a valid secret API key
+        wsgi_request = self.factory.get(
+            "/",
+            data=None,
+            secure=False,
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+        assert result is not None
+        user, _ = result
+
+        self.assertIsNotNone(user)
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+
+    def test_authenticate_with_valid_secret_api_key_in_body(self):
+        # Simulate a request with a valid secret API key
+        wsgi_request = self.factory.post(
+            "/",
+            data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
+            content_type="application/json",
+        )
+        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
+        request.parsers = [JSONParser()]  # Explicitly set JSONParser
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+        assert result is not None
+        user, _ = result
+
+        self.assertIsNotNone(user)
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+
+    def test_authenticate_with_valid_secret_api_key_in_query_string(self):
+        # Simulate a request with a valid secret API key
+        wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
+        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+        assert result is not None
+        user, _ = result
+
+        self.assertIsNotNone(user)
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+
+    def test_authenticate_with_invalid_secret_api_key(self):
+        # Simulate a request with an invalid secret API key
+        wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer phs_NOT_A_VALID_KEY")
+        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
+
+    def test_authenticate_without_secret_api_key(self):
+        # Simulate a request without a secret API key
+        wsgi_request = self.factory.get("/")
+        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)

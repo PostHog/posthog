@@ -10,12 +10,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { asDisplay, asLink } from './person-utils'
+import { asDisplay, asLink, PersonPropType } from './person-utils'
 import { PersonPreview } from './PersonPreview'
-
-type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null

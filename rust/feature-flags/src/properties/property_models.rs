@@ -22,6 +22,20 @@ pub enum OperatorType {
     NotIn,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PropertyType {
+    #[serde(rename = "person")]
+    Person,
+    #[serde(rename = "cohort")]
+    Cohort,
+    #[serde(rename = "group")]
+    Group,
+    // A flag property is compared to another flag evaluation result
+    #[serde(rename = "flag")]
+    Flag,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
@@ -29,8 +43,7 @@ pub struct PropertyFilter {
     pub value: Option<serde_json::Value>,
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
-    // TODO: worth making a enum here to differentiate between cohort and person filters?
-    pub prop_type: String,
+    pub prop_type: PropertyType,
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
 }

@@ -1,3 +1,4 @@
+import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
@@ -36,7 +37,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
     return (
         <div
             className={clsx(
-                'flex flex-col relative min-h-24 overflow-y-auto',
+                'flex flex-col relative px-1 min-h-24 overflow-y-auto',
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}
         >
@@ -49,13 +50,17 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                         key: 'beta',
                         label: <div className="px-2">Previews</div>,
                         content: (
-                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-3 pt-2">
-                                <LemonBanner type="info">
-                                    Get early access to these upcoming features. Let us know what you think!
+                            <div className="flex flex-col flex-1 p-2 overflow-y-auto">
+                                <LemonBanner type="info" className="mb-2">
+                                    Get early access to these upcoming features. Let us know what you think!
+                                </LemonBanner>
+                                <LemonBanner type="info" className="mb-2">
+                                    Note that toggling these features will enable it for your account only. Each
+                                    individual user in your organization will need to enable it separately.
                                 </LemonBanner>
                                 {betaFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                                        {i > 0 && <LemonDivider className="my-4" />}
+                                        {i > 0 && <LemonDivider className="mt-3 mb-2" />}
                                         <FeaturePreview feature={feature} />
                                     </div>
                                 ))}
@@ -71,11 +76,13 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                             </div>
                         ),
                         content: (
-                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-3 pt-2">
-                                <LemonBanner type="info">Get notified when upcoming features are ready!</LemonBanner>
+                            <div className="flex flex-col flex-1 p-2 overflow-y-auto">
+                                <LemonBanner type="info" className="mb-2">
+                                    Get notified when upcoming features are ready!
+                                </LemonBanner>
                                 {conceptFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                                        {i > 0 && <LemonDivider className="my-4" />}
+                                        {i > 0 && <LemonDivider className="mt-3 mb-2" />}
                                         <ConceptPreview feature={feature} />
                                     </div>
                                 ))}
@@ -119,11 +126,13 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                         enabled && "You have already expressed your interest. We'll contact you when it's ready"
                     }
                     onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true)}
+                    size="small"
+                    sideIcon={enabled ? <IconCheck /> : <IconBell />}
                 >
                     {enabled ? 'Registered' : 'Get notified'}
                 </LemonButton>
             </div>
-            <p className="my-2">{description || <i>No description.</i>}</p>
+            <p className="mb-1">{description || <i>No description.</i>}</p>
         </div>
     )
 }

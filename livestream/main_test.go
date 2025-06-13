@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,7 +10,6 @@ import (
 	"github.com/posthog/posthog/livestream/events"
 	"github.com/posthog/posthog/livestream/handlers"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestIndex(t *testing.T) {
@@ -50,9 +48,6 @@ func TestStatsHandler(t *testing.T) {
 
 	if assert.NoError(t, handler(c)) {
 		assert.Equal(t, http.StatusOK, rec.Code)
-		var response map[string]int
-		err := json.Unmarshal(rec.Body.Bytes(), &response)
-		require.NoError(t, err)
-		assert.Equal(t, 1, response["users_on_product"])
+		assert.JSONEq(t, `{"users_on_product":1}`, string(rec.Body.Bytes()))
 	}
 }

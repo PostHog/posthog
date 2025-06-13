@@ -81,12 +81,15 @@ def test_prepare_metadata(mock_raw_metadata: dict[str, Any]) -> None:
 
 
 def test_load_session_data(
-    mock_raw_events: list[tuple[Any, ...]], mock_raw_metadata: dict[str, Any], mock_events_columns: list[str]
+    mock_filtered_events: list[tuple[Any, ...]],
+    mock_raw_metadata: dict[str, Any],
+    mock_filtered_events_columns: list[str],
+    mock_events_columns: list[str],
 ) -> None:
     prompt_data = SessionSummaryPromptData()
     session_id = "test_session_id"
     events_mapping = prompt_data.load_session_data(
-        mock_raw_events, mock_raw_metadata, mock_events_columns[:-2], session_id
+        mock_filtered_events, mock_raw_metadata, mock_filtered_events_columns, session_id
     )
     # Verify columns are set correctly with event_id and event_index added
     assert prompt_data.columns == mock_events_columns
@@ -105,11 +108,11 @@ def test_load_session_data(
     ]
     assert list(prompt_data.url_mapping.values()) == ["url_1", "url_2", "url_3"]
     # Verify events are processed correctly and not filtered out (yet)
-    assert len(prompt_data.results) == len(mock_raw_events)
-    assert len(events_mapping) == len(mock_raw_events)
+    assert len(prompt_data.results) == len(mock_filtered_events)
+    assert len(events_mapping) == len(mock_filtered_events)
     # Verify event structure
     first_event = prompt_data.results[0]
-    assert len(first_event) == len(mock_events_columns)
+    assert len(first_event) == len(mock_events_columns)  # Event id and index added
     assert first_event[0] == "$autocapture"  # event type preserved
     assert first_event[5] == "window_1"  # window_id mapped
     assert first_event[6] == "url_1"  # url mapped
@@ -142,13 +145,13 @@ def test_load_session_data_empty_events(mock_raw_metadata: dict[str, Any]) -> No
         prompt_data.load_session_data([], mock_raw_metadata, raw_columns, session_id)
 
 
-def test_load_session_data_empty_metadata(mock_raw_events: list[tuple[Any, ...]]) -> None:
+def test_load_session_data_empty_metadata(mock_filtered_events: list[tuple[Any, ...]]) -> None:
     prompt_data = SessionSummaryPromptData()
     raw_columns = ["event", "timestamp"]
     session_id = "test_session_id"
 
     with pytest.raises(ValueError, match="No session metadata provided"):
-        prompt_data.load_session_data(mock_raw_events, {}, raw_columns, session_id)
+        prompt_data.load_session_data(mock_filtered_events, {}, raw_columns, session_id)
 
 
 def test_metadata_to_dict() -> None:

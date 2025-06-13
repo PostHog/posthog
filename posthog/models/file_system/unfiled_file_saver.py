@@ -1,5 +1,6 @@
 # posthog/models/file_system/unfiled_file_saver.py
-
+from datetime import datetime
+from django.utils import timezone
 from typing import Optional
 
 from posthog.models.action.action import Action
@@ -14,6 +15,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.experiment import Experiment
 from posthog.models.insight import Insight
 from posthog.models.dashboard import Dashboard
+from posthog.models.link import Link
 from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -25,6 +27,7 @@ MIXIN_MODELS = {
     "experiment": Experiment,
     "insight": Insight,
     "dashboard": Dashboard,
+    "link": Link,
     "notebook": Notebook,
     "early_access_feature": EarlyAccessFeature,
     "session_recording_playlist": SessionRecordingPlaylist,
@@ -48,6 +51,7 @@ class UnfiledFileSaver:
     def save_unfiled_for_model(self, model_cls: type[FileSystemSyncMixin]) -> list[FileSystem]:
         unfiled_qs = model_cls.get_file_system_unfiled(self.team)
         new_files: list[FileSystem] = []
+        users_by_id: dict[int, User] = {}
         for obj in unfiled_qs:
             rep = obj.get_file_system_representation()
 
@@ -56,6 +60,18 @@ class UnfiledFileSaver:
                 continue
 
             path = f"{rep.base_folder}/{escape_path(rep.name)}"
+            user: User | None = None
+            if rep.meta.get("created_by"):
+                user = users_by_id.get(rep.meta["created_by"])
+                if user is None:
+                    user = User.objects.filter(pk=rep.meta["created_by"]).first()
+                    if user:
+                        users_by_id[rep.meta["created_by"]] = user
+                if user is None:
+                    user = self.user
+            created_at = timezone.now()
+            if rep.meta.get("created_at"):
+                created_at = datetime.fromisoformat(rep.meta["created_at"])
             new_files.append(
                 FileSystem(
                     team=self.team,
@@ -65,7 +81,8 @@ class UnfiledFileSaver:
                     ref=rep.ref,
                     href=rep.href,
                     meta=rep.meta,
-                    created_by=self.user,
+                    created_by=user,
+                    created_at=created_at,
                     shortcut=False,
                 )
             )

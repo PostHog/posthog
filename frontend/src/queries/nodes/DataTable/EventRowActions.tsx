@@ -64,7 +64,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         <LemonButton
                             fullWidth
                             sideIcon={<IconWarning />}
-                            data-attr="events-table-exception-link"
+                            data-attr="events-table-issue-link"
                             to={urls.errorTrackingIssue(
                                 event.properties.$exception_issue_id,
                                 event.properties.$exception_fingerprint

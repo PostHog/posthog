@@ -73,6 +73,8 @@ export interface LemonButtonPropsBase
     truncate?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
+    /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
+    tooltipArrowOffset?: number
 }
 
 export type SideAction = Pick<
@@ -134,6 +136,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
+                tooltipArrowOffset,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -251,7 +254,12 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
             if (tooltipContent || tooltipDocLink) {
                 workingButton = (
-                    <Tooltip title={tooltipContent} placement={tooltipPlacement} docLink={tooltipDocLink}>
+                    <Tooltip
+                        title={tooltipContent}
+                        placement={tooltipPlacement}
+                        arrowOffset={tooltipArrowOffset}
+                        docLink={tooltipDocLink}
+                    >
                         {workingButton}
                     </Tooltip>
                 )

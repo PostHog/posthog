@@ -1,8 +1,8 @@
 from datetime import timedelta
-from django.conf import settings
+import uuid
 from django.test import TestCase, override_settings
 from freezegun import freeze_time
-from posthog.models.oauth import OAuthApplication, OAuthGrant
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 from posthog.models import Organization, User
 from django.utils import timezone
 from django.core.exceptions import ValidationError
@@ -21,7 +21,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -40,7 +39,6 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="https://example.com/callback",
-                user=self.user,
                 organization=self.organization,
                 algorithm="RS256",
                 skip_authorization=True,  # This should trigger the constraint
@@ -54,7 +52,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -64,7 +61,7 @@ class TestOAuthModels(TestCase):
             code="test_code",
             code_challenge="test_challenge",
             code_challenge_method="S256",
-            expires=timezone.now() + timedelta(minutes=settings.OAUTH2_PROVIDER["AUTHORIZATION_CODE_EXPIRE_SECONDS"]),
+            expires=timezone.now() + timedelta(minutes=15),
         )
         self.assertEqual(grant.code, "test_code")
         self.assertEqual(grant.code_challenge_method, "S256")
@@ -77,7 +74,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -103,7 +99,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",  # HTTPS URL
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -119,7 +114,6 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="http://example.com/callback",
-                user=self.user,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -133,7 +127,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8000/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -146,7 +139,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -158,7 +150,6 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="https://example.com/callback",
-                user=self.user,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -172,7 +163,6 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="ftp://example.com/callback",
-                user=self.user,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -186,7 +176,6 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="https://example.com/callback#fragment",
-                user=self.user,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -200,7 +189,6 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="https://:8000/callback",
-                user=self.user,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -214,7 +202,6 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_IMPLICIT,
                 redirect_uris="https://example.com/callback",
-                user=self.user,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -227,7 +214,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -251,7 +237,6 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
@@ -274,9 +259,56 @@ class TestOAuthModels(TestCase):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
-            user=self.user,
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertEqual(app.user, self.user)
+
         self.assertEqual(app.organization, self.organization)
+
+    def test_oauth_models_have_reverse_relationships(self):
+        app = OAuthApplication.objects.create(
+            name="Test App",
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="test_code",
+            code_challenge="test_challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        id_token = OAuthIDToken.objects.create(
+            application=app,
+            user=self.user,
+            jti=uuid.uuid4(),
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="test_token",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app,
+            user=self.user,
+            token="test_token",
+        )
+
+        self.assertIn(app, self.organization.oauth_applications.all())
+
+        self.assertIn(grant, self.user.oauth_grants.all())
+        self.assertIn(id_token, self.user.oauth_id_tokens.all())
+        self.assertIn(access_token, self.user.oauth_access_tokens.all())
+        self.assertIn(refresh_token, self.user.oauth_refresh_tokens.all())

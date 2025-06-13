@@ -21,7 +21,7 @@ describe('LLM Observability utils', () => {
         }
         expect(normalizeMessage(message)).toEqual([
             {
-                role: 'message',
+                role: 'user',
                 content: JSON.stringify(message),
             },
         ])
@@ -95,7 +95,7 @@ describe('LLM Observability utils', () => {
     it('normalizeOutputMessage: parses a string message', () => {
         expect(normalizeMessage('foo')).toEqual([
             {
-                role: 'message',
+                role: 'user',
                 content: 'foo',
             },
         ])

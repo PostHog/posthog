@@ -44,6 +44,7 @@ class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
     INTERNAL_DESTINATION = "internal_destination"
+    SOURCE_WEBHOOK = "source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
     EMAIL = "email"
@@ -55,6 +56,7 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.BROADCAST,
+    HogFunctionType.SOURCE_WEBHOOK,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,
@@ -100,6 +102,13 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    hog_function_template = models.ForeignKey(
+        "posthog.HogFunctionTemplate",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hog_functions",
+    )
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @classmethod
@@ -110,6 +119,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         folder = "Unfiled/Destinations"
         href = f"/pipeline/destinations/hog-{self.pk}/configuration"
+        type = self.type
 
         if self.type == HogFunctionType.SITE_APP:
             folder = "Unfiled/Site apps"
@@ -117,13 +127,20 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
             href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.SOURCE_WEBHOOK:
+            folder = "Unfiled/Sources"
+            href = f"/functions/{self.pk}/configuration"
         elif self.type == HogFunctionType.BROADCAST:
             folder = "Unfiled/Broadcasts"
             href = f"/messaging/broadcasts/{self.pk}"
+        elif self.kind == "messaging_campaign":
+            folder = "Unfiled/Campaigns"
+            href = f"/messaging/campaigns/{self.pk}"
+            type = "campaign"
 
         return FileSystemRepresentation(
             base_folder=self._create_in_folder or folder,
-            type=f"hog_function/{self.type}",  # sync with APIScopeObject in scopes.py
+            type=f"hog_function/{type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=href,

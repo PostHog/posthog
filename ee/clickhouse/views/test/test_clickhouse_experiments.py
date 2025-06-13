@@ -55,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(13, 14)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -72,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(13, 14)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1675,7 +1675,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -2308,6 +2308,76 @@ class TestExperimentCRUD(APILicensedTest):
             "Special Folder/Experiments" in ff_entry.path
         ), f"Expected path to contain 'Special Folder/Experiments', got {ff_entry.path}"
 
+    def test_list_endpoint_excludes_deleted_experiments(self):
+        """Test that list endpoint doesn't return soft-deleted experiments"""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment_id = response.json()["id"]
+
+        response2 = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Active Experiment",
+                "feature_flag_key": "active-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        active_experiment_id = response2.json()["id"]
+
+        # Soft delete the first experiment
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        experiment_ids = [exp["id"] for exp in response.json()["results"]]
+
+        # Should only contain the active experiment
+        self.assertIn(active_experiment_id, experiment_ids)
+        self.assertNotIn(experiment_id, experiment_ids)
+
+    def test_detail_endpoint_returns_404_for_deleted_experiment(self):
+        """Test that detail endpoint returns 404 for soft-deleted experiments"""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment_id = response.json()["id"]
+
+        # Soft delete the experiment
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        # Try to get the deleted experiment
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
@@ -2447,6 +2517,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "key": "$pageview",
                             "value": "http://example.com",
                             "type": "person",
+                            "operator": "exact",
                         },
                     ],
                 }
@@ -2590,13 +2661,13 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "key": "$pageview",
                             "value": "http://example.com",
                             "type": "person",
+                            "operator": "exact",
                         },
                     ],
                 }
             },
             name="cohort_X",
         )
-        cohort_extra.calculate_people_ch(pending_version=1)
 
         action1 = Action.objects.create(
             team=self.team,
@@ -2725,6 +2796,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             timestamp=datetime.now() - timedelta(days=2),
         )
         flush_persons_and_events()
+
+        cohort_extra.calculate_people_ch(pending_version=1)
 
         # now call to make cohort
         response = self.client.post(

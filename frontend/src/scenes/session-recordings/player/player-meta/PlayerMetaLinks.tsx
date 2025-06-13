@@ -1,8 +1,6 @@
-import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
+import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -24,15 +22,15 @@ function PinToPlaylistButton(): JSX.Element {
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
-    const tooltip = logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'
-    const description = 'Pin'
+    const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
+    const description = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
             size="xsmall"
             onClick={() => {
                 if (nodeLogic) {
-                    // If we are in a node, then pinning should persist the recording
+                    // If we are in a node, then pinning should persist that recording
                     maybePersistRecording()
                 }
 
@@ -40,13 +38,13 @@ function PinToPlaylistButton(): JSX.Element {
             }}
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
-            icon={<IconPin />}
+            icon={<IconPlusSmall />}
         />
     ) : (
         <PlaylistPopoverButton
             tooltip={tooltip}
             setPinnedInCurrentPlaylist={logicProps.setPinned}
-            icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
+            icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
             size="xsmall"
         >
             {description}
@@ -110,7 +108,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
         <NotebookSelectButton
             fullWidth={fullWidth}
             size="xsmall"
-            icon={<IconComment />}
+            icon={<IconNotebook />}
             resource={{
                 type: NotebookNodeType.Recording,
                 attrs: { id: sessionRecordingId, __init: { expanded: true } },
@@ -133,7 +131,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
                 personsModalLogic.findMounted()?.actions.closeModal()
             }}
         >
-            Comment
+            Add to notebook
         </NotebookSelectButton>
     )
 }
@@ -142,8 +140,6 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
 
-    const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
-    const hasMobileExport = window.IMPERSONATED_SESSION || hasMobileExportFlag
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
 
@@ -169,28 +165,32 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const items: LemonMenuItems = useMemo(() => {
         const itemsArray: LemonMenuItems = [
             isStandardMode && {
-                label: '.json',
-                status: 'default',
-                icon: <IconDownload />,
-                onClick: () => exportRecordingToFile(false),
-                tooltip: 'Export recording to a JSON file. This can be loaded later into PostHog for playback.',
+                title: 'Export',
+                key: 'export',
+                items: [
+                    {
+                        label: 'posthog .json',
+                        status: 'default',
+                        icon: <IconDownload />,
+                        onClick: () => exportRecordingToFile('posthog'),
+                        tooltip:
+                            'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
+                    },
+                    {
+                        label: 'rrweb .json',
+                        status: 'default',
+                        icon: <IconDownload />,
+                        onClick: () => exportRecordingToFile('rrweb'),
+                        tooltip:
+                            'Export rrweb snapshots to a JSON file. This can be played in rrweb compatible players like rrwebdebug.com.',
+                    },
+                ],
             },
         ]
         if (size === 'small') {
             itemsArray.unshift({
                 label: () => <AddToNotebookButton fullWidth={true} />,
             })
-        }
-        if (hasMobileExport) {
-            isStandardMode &&
-                itemsArray.push({
-                    label: 'DEBUG - mobile.json',
-                    status: 'default',
-                    icon: <IconDownload />,
-                    onClick: () => exportRecordingToFile(true),
-                    tooltip:
-                        'DEBUG - ONLY VISIBLE TO POSTHOG STAFF - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
-                })
         }
         if (logicProps.playerKey !== 'modal') {
             isStandardMode &&
@@ -202,7 +202,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 })
         }
         return itemsArray
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, hasMobileExport, size])
+    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

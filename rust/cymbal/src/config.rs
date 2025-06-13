@@ -54,6 +54,9 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub sourcemap_timeout_seconds: u64,
 
+    #[envconfig(default = "5")]
+    pub sourcemap_connect_timeout_seconds: u64,
+
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
 
@@ -110,8 +113,14 @@ pub struct Config {
 
     #[envconfig(default = "100000")]
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
-    // This is very granular, but gives us vey good control over memory usage.
     pub max_assignment_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
+    pub grouping_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_grouping_rule_cache_size: u64,
 
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,

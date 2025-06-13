@@ -198,6 +198,15 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
+                    ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+                        ? [
+                              {
+                                  label: 'Calendar Heatmap',
+                                  type: InsightType.CALENDAR_HEATMAP,
+                                  dataAttr: 'insight-calendar-heatmap-tab',
+                              },
+                          ]
+                        : []),
                 ]
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
@@ -372,6 +381,13 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                     ...cache.breakdownFilter,
                     breakdowns: undefined,
                 }
+            }
+        }
+
+        if (isRetentionQuery(query) && cache.breakdownFilter?.breakdowns) {
+            mergedQuery.breakdownFilter = {
+                ...query.breakdownFilter,
+                breakdowns: cache.breakdownFilter.breakdowns.filter((b) => b.type === 'person' || b.type === 'event'),
             }
         }
     }

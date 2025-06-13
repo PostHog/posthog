@@ -12,6 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { loginLogic } from './loginLogic'
 import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
@@ -51,7 +52,8 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError, signupUrl } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
@@ -114,7 +116,10 @@ export function Login(): JSX.Element {
                             label={
                                 <div className="flex flex-1 items-center justify-between gap-2">
                                     <span>Password</span>
-                                    <Link to="/reset" data-attr="forgot-password">
+                                    <Link
+                                        to={[urls.passwordReset(), { email: login.email }]}
+                                        data-attr="forgot-password"
+                                    >
                                         Forgot your password?
                                     </Link>
                                 </div>
@@ -160,7 +165,7 @@ export function Login(): JSX.Element {
                 {preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
-                        <Link to="/signup" data-attr="signup" className="font-bold">
+                        <Link to={signupUrl} data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
                     </div>

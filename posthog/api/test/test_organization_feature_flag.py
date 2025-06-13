@@ -446,7 +446,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         def create_cohort(name, children):
             creation_order.append(name)
-            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]
+            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person", "operator": "exact"}]
             if children:
                 properties = [{"key": "id", "type": "cohort", "value": child.pk} for child in children]
 
@@ -519,7 +519,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                     "properties": {
                         "type": "AND",
                         "values": [
-                            {"key": "name", "value": "test", "type": "person"},
+                            {"key": "name", "value": "test", "type": "person", "operator": "exact"},
                         ],
                     }
                 },

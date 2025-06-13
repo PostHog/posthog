@@ -166,18 +166,6 @@ pub fn router<
 
     let event_router = Router::new()
         .route(
-            "/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
             "/i/v0/e",
             post(v0_endpoint::event)
                 .get(v0_endpoint::event)
@@ -191,6 +179,55 @@ pub fn router<
         )
         .route("/i/v0", get(index))
         .route("/i/v0/", get(index))
+        // legacy endpoints registered here
+        .route(
+            "/e",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/e/",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/track",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/track/",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/engage",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/engage/",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/capture",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/capture/",
+            post(v0_endpoint::event_legacy)
+                .get(v0_endpoint::event_legacy)
+                .options(v0_endpoint::options),
+        )
         .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     let status_router = Router::new()

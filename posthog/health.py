@@ -43,7 +43,8 @@ service_dependencies: dict[ServiceRole, list[str]] = {
         # NOTE: we include Postgres because the way we use django means every request hits the DB
         # https://posthog.slack.com/archives/C02E3BKC78F/p1679669676438729
         "postgres",
-        "postgres_migrations_uptodate",
+        # NOTE: migrations run in a separate job before the version is even deployed. This check is unnecessary
+        # "postgres_migrations_uptodate",
         "cache",
         # NOTE: we do not include clickhouse for web, as even without clickhouse we
         # want to be able to display something to the user.
@@ -58,7 +59,8 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     "worker": [
         "http",
         "postgres",
-        "postgres_migrations_uptodate",
+        # NOTE: migrations run in a separate job before the version is even deployed. This check is unnecessary
+        # "postgres_migrations_uptodate",
         "clickhouse",
         "celery_broker",
     ],

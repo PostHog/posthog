@@ -6,10 +6,16 @@ import { transformFilterDefinitions } from './transformations'
 type CoreFilterDefinitionsGroup = keyof typeof coreFilterDefinitionsByGroup
 
 export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.entries(coreFilterDefinitionsByGroup).reduce(
-    (acc, [key, group]) => ({
-        ...acc,
-        [key]: transformFilterDefinitions(group),
-    }),
+    (acc, [key, group]) => {
+        if (key === '//' || typeof group === 'string') {
+            // ignore the comment
+            return acc
+        }
+        return {
+            ...acc,
+            [key]: transformFilterDefinitions(group),
+        }
+    },
     {} as Record<CoreFilterDefinitionsGroup, Record<string, CoreFilterDefinition>>
 )
 
@@ -130,6 +136,24 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
         '$web_vitals_CLS_event',
         '$web_vitals_INP_event',
         '$web_vitals_LCP_event',
+    ],
+    $csp_violation: [
+        '$csp_document_url',
+        '$csp_blocked_url',
+        '$csp_effective_directive',
+        '$csp_violated_directive',
+        '$csp_version',
+        '$csp_original_policy',
+        '$csp_disposition',
+        '$csp_line_number',
+        '$csp_column_number',
+        '$csp_source_file',
+        '$csp_status_code',
+        '$csp_referrer',
+        '$csp_report_type',
+        '$csp_raw_report',
+        '$csp_script_sample',
+        '$csp_user_agent',
     ],
     $set: ['$set', '$set_once'],
 }

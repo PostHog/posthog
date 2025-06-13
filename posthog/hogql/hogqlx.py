@@ -2,7 +2,7 @@ from typing import Any
 
 from posthog.hogql import ast
 
-HOGQLX_COMPONENTS = ["Sparkline", "a", "em", "strong", "RecordingButton"]
+HOGQLX_COMPONENTS = ["Sparkline", "a", "em", "strong", "RecordingButton", "ExplainCSPReport"]
 
 
 def convert_tag_to_hx(node: ast.HogQLXTag) -> ast.Tuple:

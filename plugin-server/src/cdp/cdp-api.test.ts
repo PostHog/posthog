@@ -1,4 +1,6 @@
+// eslint-disable-next-line simple-import-sort/imports
 import '../../tests/helpers/mocks/producer.mock'
+import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import express from 'express'
 import supertest from 'supertest'
@@ -12,20 +14,6 @@ import { createHogFunction, insertHogFunction as _insertHogFunction } from './_t
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
-
-jest.mock('../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() =>
-            Promise.resolve({
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                json: () => Promise.resolve({ success: true }),
-            })
-        ),
-    }
-})
-
-const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 describe('CDP API', () => {
     let hub: Hub
@@ -167,10 +155,12 @@ describe('CDP API', () => {
         mockFetch.mockImplementationOnce(() =>
             Promise.resolve({
                 status: 201,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
-                headers: new Headers({ 'Content-Type': 'application/json' }),
             })
         )
+
         const res = await supertest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: false })
@@ -208,8 +198,9 @@ describe('CDP API', () => {
         mockFetch.mockImplementationOnce(() => {
             return Promise.resolve({
                 status: 201,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
-                headers: new Headers({ 'Content-Type': 'application/json' }),
             })
         })
 

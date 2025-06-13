@@ -122,18 +122,20 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadMetricResults(true)
 
-            await expectLogic(logic).toDispatchActions(['setMetricResultsLoading', 'setMetricResults']).toMatchValues({
-                metricResults: [],
-                metricResultsLoading: true,
-                primaryMetricsResultErrors: [],
-            })
+            await expectLogic(logic)
+                .toDispatchActions(['setMetricResultsLoading', 'setLegacyMetricResults'])
+                .toMatchValues({
+                    legacyMetricResults: [],
+                    metricResultsLoading: true,
+                    primaryMetricsResultErrors: [],
+                })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setMetricResultsLoading'])
                 .toMatchValues({
-                    metricResults: [
+                    legacyMetricResults: [
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,
                             fakeInsightId: expect.any(String),
@@ -196,9 +198,9 @@ describe('experimentLogic', () => {
             const promise = logic.asyncActions.loadSecondaryMetricResults(true)
 
             await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setSecondaryMetricResults'])
+                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setLegacySecondaryMetricResults'])
                 .toMatchValues({
-                    secondaryMetricResults: [],
+                    legacySecondaryMetricResults: [],
                     secondaryMetricResultsLoading: true,
                     secondaryMetricsResultErrors: [],
                 })
@@ -208,7 +210,7 @@ describe('experimentLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricResultsLoading'])
                 .toMatchValues({
-                    secondaryMetricResults: [
+                    legacySecondaryMetricResults: [
                         null,
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,
@@ -229,43 +231,6 @@ describe('experimentLogic', () => {
                         null,
                     ],
                 })
-        })
-    })
-
-    describe('selector values', () => {
-        it('given an mde, calculates correct sample size', async () => {
-            await expectLogic(logic).toMatchValues({
-                minimumDetectableEffect: 30,
-            })
-
-            expect(logic.values.minimumSampleSizePerVariant(20)).toEqual(29)
-
-            expect(logic.values.minimumSampleSizePerVariant(40)).toEqual(43)
-
-            expect(logic.values.minimumSampleSizePerVariant(0)).toEqual(0)
-        })
-
-        it('given sample size and entrants, calculates correct running time', async () => {
-            // 500 entrants over 14 days, 1000 sample size, so need twice the time
-            expect(logic.values.expectedRunningTime(500, 1000)).toEqual(28)
-
-            // 500 entrants over 14 days, 250 sample size, so need half the time
-            expect(logic.values.expectedRunningTime(500, 250)).toEqual(7)
-
-            // 0 entrants over 14 days, so infinite running time
-            expect(logic.values.expectedRunningTime(0, 1000)).toEqual(Infinity)
-        })
-
-        it('given control count data, calculates correct running time', async () => {
-            // 1000 count over 14 days
-            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(2.8)
-
-            // 10,000 entrants over 14 days
-            // 10x entrants, so 1/10th running time
-            expect(logic.values.recommendedExposureForCountData(10000)).toEqual(0.3)
-
-            // 0 entrants over 14 days, so infinite running time
-            expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
         })
     })
 })

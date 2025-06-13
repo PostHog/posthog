@@ -23,6 +23,7 @@ export function PlaylistPopoverButton({
     const {
         logicProps: { logicKey: currentPlaylistId },
     } = useValues(sessionRecordingsPlaylistLogic)
+
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -49,12 +50,12 @@ export function PlaylistPopoverButton({
                                 <Form
                                     formKey="newPlaylist"
                                     logic={playlistPopoverLogic}
-                                    props={{ sessionRecordingId }}
+                                    props={{ sessionRecordingId, playerKey: logicProps.playerKey }}
                                     enableFormOnSubmit
                                     className="deprecated-space-y-1"
                                 >
                                     <LemonField name="name">
-                                        <LemonInput placeholder="Playlist name" fullWidth />
+                                        <LemonInput placeholder="Collection name" fullWidth />
                                     </LemonField>
                                     <div className="flex items-center gap-2 justify-end">
                                         <LemonButton
@@ -73,13 +74,13 @@ export function PlaylistPopoverButton({
                                 <>
                                     <LemonInput
                                         type="search"
-                                        placeholder="Search playlists..."
+                                        placeholder="Search collections..."
                                         value={searchQuery}
                                         onChange={setSearchQuery}
                                         fullWidth
                                     />
                                     <LemonButton fullWidth icon={<IconPlus />} onClick={() => setNewFormShowing(true)}>
-                                        New list
+                                        New collection
                                     </LemonButton>
                                 </>
                             )}
@@ -126,7 +127,7 @@ export function PlaylistPopoverButton({
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
-                            <div className="p-2 text-center text-secondary">No playlists found</div>
+                            <div className="p-2 text-center text-secondary">No collections found</div>
                         )}
                     </div>
                 }

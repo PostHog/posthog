@@ -80,7 +80,6 @@ services:
             file: docker-compose.base.yml
             service: worker
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -99,7 +98,6 @@ services:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}:8666'
             SECRET_KEY: $POSTHOG_SECRET
@@ -109,6 +107,9 @@ services:
             SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            OTEL_SERVICE_NAME: 'posthog'
+            OTEL_EXPORTER_OTLP_ENDPOINT: ''
+            OTEL_SDK_DISABLED: 'true'
         depends_on:
             - db
             - redis
@@ -122,7 +123,6 @@ services:
             service: plugins
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -171,7 +171,6 @@ services:
             service: asyncmigrationscheck
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
@@ -217,7 +216,6 @@ services:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
         depends_on:
@@ -237,7 +235,6 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
-            SENTRY_DSN: $SENTRY_DSN
         depends_on:
             db:
                 condition: service_healthy
@@ -253,7 +250,6 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
-            SENTRY_DSN: $SENTRY_DSN
         depends_on:
             db:
                 condition: service_healthy
@@ -286,11 +282,11 @@ services:
             file: docker-compose.base.yml
             service: livestream
         environment:
-            - JWT.TOKEN=${POSTHOG_SECRET}
+            - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
         ports:
             - '8666:8080'
         volumes:
-            - ./posthog/docker/livestream/configs-dev.yml:/configs/configs.yml
+            - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
 volumes:
     zookeeper-data:

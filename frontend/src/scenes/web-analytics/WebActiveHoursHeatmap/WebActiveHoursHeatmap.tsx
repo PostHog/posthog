@@ -1,5 +1,9 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
+import { InsightLoadingState } from 'scenes/insights/EmptyStates'
+import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { teamLogic } from 'scenes/teamLogic'
+import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -9,10 +13,9 @@ import {
     EventsHeatMapRowAggregationResult,
     EventsHeatMapStructuredResult,
 } from '~/queries/schema/schema-general'
-import { EventsHeatMapQuery } from '~/queries/schema/schema-general'
+import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { EventsHeatMap } from '../EventsHeatMap/EventsHeatMap'
 import {
     AggregationLabel,
     getColumnAggregationTooltip,
@@ -25,29 +28,39 @@ import {
 } from './utils'
 
 interface WebActiveHoursHeatmapProps {
-    query: EventsHeatMapQuery
-    context: QueryContext
+    query: CalendarHeatmapQuery
+    context?: QueryContext
     cachedResults?: AnyResponseType
 }
+let uniqueNode = 0
 
 export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.Element {
     const { weekStartDay } = useValues(teamLogic)
+    const [key] = useState(() => `WebActiveHoursHeatmap.${uniqueNode++}`)
 
-    const { response, responseLoading, queryId } = useValues(
-        dataNodeLogic({
-            query: props.query,
-            key: 'active-hours-heatmap',
-            dataNodeCollectionId: props.context.insightProps?.dataNodeCollectionId,
-            cachedResults: props.cachedResults,
-        })
-    )
+    const logic = dataNodeLogic({
+        query: props.query,
+        key: key,
+        dataNodeCollectionId: props.context?.insightProps?.dataNodeCollectionId,
+        cachedResults: props.cachedResults,
+    })
+
+    const { response, responseLoading, queryId } = useValues(logic)
+
+    if (responseLoading) {
+        return (
+            <InsightsWrapper>
+                <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context?.insightProps ?? {}} />
+            </InsightsWrapper>
+        )
+    }
 
     const data = processData(weekStartDay, response?.results ?? {}, HoursAbbreviated.values, rowLabels(weekStartDay))
+
     return (
-        <EventsHeatMap
+        <CalendarHeatMap
             {...props}
             isLoading={responseLoading}
-            queryId={queryId}
             thresholdFontSize={thresholdFontSize}
             rowLabels={rowLabels(weekStartDay)}
             columnLabels={HoursAbbreviated.values}

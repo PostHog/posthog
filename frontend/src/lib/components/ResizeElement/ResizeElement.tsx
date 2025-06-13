@@ -1,26 +1,34 @@
 import { cn } from 'lib/utils/css-classes'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-type ResizableDivProps = {
+type ResizableElementProps = {
     defaultWidth: number
     minWidth?: number
     maxWidth?: number
     onResize: (width: number) => void
     children?: React.ReactNode
     className?: string
+    innerClassName?: string
     style?: React.CSSProperties
+    borderPosition?: 'center' | 'left' | 'right'
+    onResizeStart?: () => void
+    onResizeEnd?: () => void
 }
 
-export function ResizableDiv({
+export function ResizableElement({
     defaultWidth,
     minWidth = 100,
     maxWidth = 1000,
     onResize,
     children,
     className,
+    innerClassName,
     style,
+    borderPosition = 'center',
+    onResizeStart,
+    onResizeEnd,
     ...props
-}: ResizableDivProps): JSX.Element {
+}: ResizableElementProps): JSX.Element {
     const [width, setWidth] = useState(defaultWidth)
     const containerRef = useRef<HTMLDivElement>(null)
     const startXRef = useRef<number>(0)
@@ -42,14 +50,18 @@ export function ResizableDiv({
         currentWidthRef.current = newWidth
     }, [])
 
-    const handleMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-        document.body.classList.add('is-resizing')
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-        startXRef.current = clientX
-        startWidthRef.current = currentWidthRef.current
-        isResizing.current = true
-        e.preventDefault()
-    }, [])
+    const handleMouseDown = useCallback(
+        (e: React.MouseEvent | React.TouchEvent) => {
+            document.body.classList.add('is-resizing')
+            const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+            startXRef.current = clientX
+            startWidthRef.current = currentWidthRef.current
+            isResizing.current = true
+            e.preventDefault()
+            onResizeStart?.()
+        },
+        [onResizeStart]
+    )
 
     const handleMove = useCallback(
         (clientX: number) => {
@@ -108,8 +120,9 @@ export function ResizableDiv({
                 rafRef.current = null
             }
             document.body.classList.remove('is-resizing')
+            onResizeEnd?.()
         }
-    }, [])
+    }, [onResizeEnd])
 
     // Use effect for adding/removing global event listeners
     useEffect(() => {
@@ -143,10 +156,13 @@ export function ResizableDiv({
                 onMouseDown={handleMouseDown}
                 onTouchStart={handleMouseDown}
                 className={cn(
-                    'group absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-primary after:-translate-x-1/2 after:left-1/2',
+                    'absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-primary after:-translate-x-1/2 after:left-1/2',
                     {
                         'bg-accent-highlight-primary': isResizing.current,
-                    }
+                        'after:left-0': borderPosition === 'left',
+                        'after:left-full': borderPosition === 'right',
+                    },
+                    innerClassName
                 )}
                 role="separator"
                 tabIndex={0}

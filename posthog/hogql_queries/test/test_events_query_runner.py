@@ -633,3 +633,33 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         display_names = [row[1]["display_name"] for row in response.results]
         assert set(display_names) == {"id_email", "id_anon"}
+
+    def test_person_display_name_field_with_spaces_in_property_name(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_spaced"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_spaced",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        # Configure the team to use the property with spaces as display name
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User With Spaces"}

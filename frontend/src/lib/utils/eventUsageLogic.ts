@@ -6,7 +6,6 @@ import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
-import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
@@ -42,6 +41,7 @@ import {
     DashboardType,
     EntityType,
     Experiment,
+    ExperimentHoldoutType,
     ExperimentIdType,
     FilterLogicalOperator,
     FunnelCorrelation,
@@ -53,6 +53,7 @@ import {
     Resource,
     type SDK,
     Survey,
+    SurveyQuestionType,
 } from '~/types'
 
 import type { eventUsageLogicType } from './eventUsageLogicType'
@@ -363,13 +364,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsUpdated: (experimentId: ExperimentIdType) => ({ experimentId }),
-        reportExperimentHoldoutCreated: (holdout: Holdout) => ({ holdout }),
+        reportExperimentHoldoutCreated: (holdout: ExperimentHoldoutType) => ({ holdout }),
         reportExperimentHoldoutAssigned: ({
             experimentId,
             holdoutId,
         }: {
             experimentId: ExperimentIdType
-            holdoutId: Holdout['id']
+            holdoutId: ExperimentHoldoutType['id']
         }) => ({ experimentId, holdoutId }),
         reportExperimentSharedMetricCreated: (sharedMetric: SharedMetric) => ({ sharedMetric }),
         reportExperimentSharedMetricAssigned: (experimentId: ExperimentIdType, sharedMetric: SharedMetric) => ({
@@ -1116,6 +1117,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 has_branching_logic: survey.questions.some(
                     (question) => question.branching && Object.keys(question.branching).length > 0
                 ),
+                has_partial_responses: survey.enable_partial_responses,
+                skipping_submit_button: survey.questions.some((question) => {
+                    if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return question.skipSubmitButton
+                    }
+                    return false
+                }),
             })
         },
         reportSurveyViewed: ({ survey }) => {
@@ -1155,6 +1166,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 has_branching_logic: survey.questions.some(
                     (question) => question.branching && Object.keys(question.branching).length > 0
                 ),
+                has_partial_responses: survey.enable_partial_responses,
+                skipping_submit_button: survey.questions.some((question) => {
+                    if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return question.skipSubmitButton
+                    }
+                    return false
+                }),
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {

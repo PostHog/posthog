@@ -105,7 +105,7 @@ export async function createActionFromEvent(
     try {
         action = await api.actions.create(actionData)
     } catch (response: any) {
-        if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
+        if (response.data?.type === 'validation_error' && response.data?.code === 'unique' && increment < 30) {
             return recurse(teamId, event, increment + 1, dataAttributes, createInFolder, recurse)
         }
         lemonToast.error(

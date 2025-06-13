@@ -55,6 +55,10 @@ pub fn prepare_events(
                     continue;
                 }
 
+                // We've seen invalid (string) offsets come in, I /think/ from django capture. Rather than dropping the whole
+                // event, we just check prior to deserialization that the offset is a number, and if not, we discard it.
+                let raw_event = sanitize_offset(raw_event);
+
                 // Now parse it out into the relevant structure. At this point, failure to convert from
                 // the raw json object to a RawEvent indicates some pipeline error, and we should fail and
                 // take lag until it's fixed (so we return an UnhandledError here)
@@ -100,10 +104,14 @@ fn transform_event(
     person_mode: PersonMode,
     team: &Team,
 ) -> ClickHouseEvent {
-    // Fold the ip the event was sent from into the event properties
-    raw_event
-        .properties
-        .insert("$ip".to_string(), Value::String(outer.ip.clone()));
+    if team.anonymize_ips {
+        raw_event.properties.remove("$ip");
+    } else {
+        // Fold the ip the event was sent from into the event properties
+        raw_event
+            .properties
+            .insert("$ip".to_string(), Value::String(outer.ip.clone()));
+    }
 
     // Fold in $set and $set_once properties
     let set = raw_event.set;
@@ -214,4 +222,25 @@ pub fn resolve_timestamp(
     } else {
         None
     }
+}
+
+fn sanitize_offset(raw_event: Value) -> Value {
+    let Value::Object(raw_event) = raw_event else {
+        return raw_event; // The rest of the pipeline will handle this case
+    };
+
+    let Some(offset) = raw_event.get("offset") else {
+        return Value::Object(raw_event);
+    };
+
+    let raw_event = match offset {
+        Value::Number(_) => raw_event,
+        _ => {
+            let mut raw_event = raw_event;
+            raw_event.remove("offset");
+            raw_event
+        }
+    };
+
+    Value::Object(raw_event)
 }

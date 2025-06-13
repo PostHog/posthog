@@ -63,7 +63,7 @@ class SessionSummaryPromptData:
         event_index_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for i, event in enumerate(raw_session_events):
-            # Copy the event to avoid mutating the original
+            # Copy the event to avoid mutating the original, add new columns for event_id and event_index
             simplified_event: list[str | datetime | list[str] | int | None] = [*list(event), None, None]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:

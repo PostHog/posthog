@@ -61,6 +61,7 @@ class OAuthApplication(AbstractApplication):
             if not parsed_uri.netloc:
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
 
+            # Note: URI fragments are not allowed in redirect URIs in the OAuth 2.0 specification
             if parsed_uri.fragment:
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
 
@@ -69,10 +70,14 @@ class OAuthApplication(AbstractApplication):
         super().save(*args, **kwargs)
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-    # Note: We do not require an organization or user to be linked to an OAuth application - this is so that we can support dynamic client registration
+    # NOTE: By default an application should be linked to the organization that created it.
+    # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
+    # Only admins of the organization should have permission to edit the application.
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True
+        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True, related_name="oauth_applications"
     )
+
+    # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
     user: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
 
@@ -83,6 +88,14 @@ class OAuthAccessToken(AbstractAccessToken):
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="oauth_access_tokens",
+    )
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
@@ -96,6 +109,14 @@ class OAuthIDToken(AbstractIDToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="oauth_id_tokens",
+    )
+
 
 class OAuthRefreshToken(AbstractRefreshToken):
     class Meta(AbstractRefreshToken.Meta):
@@ -104,6 +125,12 @@ class OAuthRefreshToken(AbstractRefreshToken):
         swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        related_name="oauth_refresh_tokens",
+    )
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
@@ -115,6 +142,7 @@ class OAuthGrant(AbstractGrant):
         verbose_name_plural = "OAuth Grants"
         swappable = "OAUTH2_PROVIDER_GRANT_MODEL"
 
+        # Note: We do not support plaintext code challenge methods since they are not secure
         constraints = [
             models.CheckConstraint(
                 check=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
@@ -123,6 +151,12 @@ class OAuthGrant(AbstractGrant):
         ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        related_name="oauth_grants",
+    )
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)

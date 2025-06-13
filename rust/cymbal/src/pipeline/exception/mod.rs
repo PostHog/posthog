@@ -12,7 +12,7 @@ pub mod stack_processing;
 
 use crate::{
     app_context::AppContext,
-    error::{EventError, PipelineResult, UnhandledError},
+    error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
     issue_resolution::IssueStatus,
     metric_consts::SUPPRESSED_ISSUE_DROPPED_EVENTS,
     recursively_sanitize_properties,
@@ -22,7 +22,7 @@ use crate::{
 pub async fn do_exception_handling(
     mut events: Vec<PipelineResult>,
     context: Arc<AppContext>,
-) -> Result<Vec<PipelineResult>, (usize, UnhandledError)> {
+) -> Result<Vec<PipelineResult>, PipelineFailure> {
     // First pass through the event list, to get all the exception property sets
     // we'll process. Events we don't get exception properties from will be skipped
     // in all the following passes
@@ -57,7 +57,7 @@ pub async fn do_exception_handling(
     let mut events = events;
     for (index, fingerprinted) in fingerprinted.into_iter() {
         let issue = issues
-            .get(&fingerprinted.fingerprint)
+            .get(&fingerprinted.fingerprint.value)
             .cloned()
             .expect("Issue was resolved");
 

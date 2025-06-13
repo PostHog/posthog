@@ -12,7 +12,7 @@ use crate::{
     values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
-const MAX_JSON_SERDE_DEPTH: usize = 64;
+pub const MAX_JSON_SERDE_DEPTH: usize = 64;
 
 /// The outcome of a virtual machine step.
 #[derive(Debug, Clone)]
@@ -121,7 +121,15 @@ impl<'a> HogVM<'a> {
                     self.push_stack(val)?;
                 } else if let Ok(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
+                } else if get_json_nested(&self.context.globals, &chain[..1], self)?.is_some() {
+                    // If the first element of the chain is a global, push null onto the stack, e.g.
+                    // if a program is looking for "properties.blah", and "properties" exists, but
+                    // "blah" doesn't, push null onto the stack.
+                    self.push_stack(HogLiteral::Null)?;
                 } else {
+                    // But if the first element in the chain didn't exist, this is an error (the mental model here
+                    // comes from SQL, where a missing column is an error, but a missing field in a column is, or
+                    // at least can be, treated as a null value).
                     return Err(VmError::UnknownGlobal(format!("{:?}", chain)));
                 }
             }

@@ -8,9 +8,10 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
 
 describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder
+    const SWITCHOVER_DATE = new Date('2025-01-01T00:00:00Z')
 
     beforeEach(() => {
-        recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id')
+        recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
@@ -55,7 +56,7 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.FullSnapshot,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: {
                         source: 1,
                         adds: [{ parentId: 1, nextId: 2, node: { tag: 'div', attrs: { class: 'test' } } }],
@@ -63,7 +64,7 @@ describe('SnappySessionRecorder', () => {
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                     data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
                 },
             ]
@@ -87,12 +88,12 @@ describe('SnappySessionRecorder', () => {
                 window1: [
                     {
                         type: RRWebEventType.Meta,
-                        timestamp: 1000,
+                        timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                         data: { href: 'https://example.com', width: 1024, height: 768 },
                     },
                     {
                         type: RRWebEventType.FullSnapshot,
-                        timestamp: 1500,
+                        timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                         data: {
                             source: 1,
                             adds: [{ parentId: 1, nextId: null, node: { tag: 'h1', attrs: { id: 'title' } } }],
@@ -102,12 +103,12 @@ describe('SnappySessionRecorder', () => {
                 window2: [
                     {
                         type: RRWebEventType.Custom,
-                        timestamp: 2000,
+                        timestamp: new Date('2025-01-01T01:00:02Z').getTime(),
                         data: { tag: 'user-interaction', payload: { type: 'click', target: '#submit-btn' } },
                     },
                     {
                         type: RRWebEventType.IncrementalSnapshot,
-                        timestamp: 2500,
+                        timestamp: new Date('2025-01-01T01:00:03Z').getTime(),
                         data: { source: 3, mousemove: [{ x: 100, y: 200, id: 1 }] },
                     },
                 ],
@@ -144,7 +145,7 @@ describe('SnappySessionRecorder', () => {
         it('should handle large amounts of data', async () => {
             const events = Array.from({ length: 10000 }, (_, i) => ({
                 type: RRWebEventType.Custom,
-                timestamp: i * 100,
+                timestamp: new Date('2025-01-01T01:00:00Z').getTime() + i * 100,
                 data: { value: 'x'.repeat(1000) },
             }))
 
@@ -167,7 +168,9 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should throw error when recording after end', async () => {
-            const message = createMessage('window1', [{ type: RRWebEventType.Custom, timestamp: 1000, data: {} }])
+            const message = createMessage('window1', [
+                { type: RRWebEventType.Custom, timestamp: new Date('2025-01-01T01:00:00Z').getTime(), data: {} },
+            ])
             recorder.recordMessage(message)
             await recorder.end()
 
@@ -175,7 +178,9 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should throw error when calling end multiple times', async () => {
-            const message = createMessage('window1', [{ type: RRWebEventType.Custom, timestamp: 1000, data: {} }])
+            const message = createMessage('window1', [
+                { type: RRWebEventType.Custom, timestamp: new Date('2025-01-01T01:00:00Z').getTime(), data: {} },
+            ])
             recorder.recordMessage(message)
             await recorder.end()
 
@@ -188,12 +193,12 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.FullSnapshot,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { source: 1 },
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                     data: { source: 2 },
                 },
             ]
@@ -202,27 +207,27 @@ describe('SnappySessionRecorder', () => {
             recorder.recordMessage(message)
             const result = await recorder.end()
 
-            expect(result.startDateTime).toEqual(DateTime.fromMillis(1000))
-            expect(result.endDateTime).toEqual(DateTime.fromMillis(2000))
+            expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:00Z').getTime()))
+            expect(result.endDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:01Z').getTime()))
         })
 
         it('should track min/max timestamps across multiple messages', async () => {
             const messages = [
                 createMessage('window1', [
-                    { type: RRWebEventType.Meta, timestamp: 2000 },
-                    { type: RRWebEventType.FullSnapshot, timestamp: 3000 },
+                    { type: RRWebEventType.Meta, timestamp: new Date('2025-01-01T01:00:00Z').getTime() },
+                    { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:01Z').getTime() },
                 ]),
                 createMessage('window2', [
-                    { type: RRWebEventType.FullSnapshot, timestamp: 1000 },
-                    { type: RRWebEventType.IncrementalSnapshot, timestamp: 4000 },
+                    { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:02Z').getTime() },
+                    { type: RRWebEventType.IncrementalSnapshot, timestamp: new Date('2025-01-01T01:00:03Z').getTime() },
                 ]),
             ]
 
             messages.forEach((message) => recorder.recordMessage(message))
             const result = await recorder.end()
 
-            expect(result.startDateTime).toEqual(DateTime.fromMillis(1000)) // Min from all messages
-            expect(result.endDateTime).toEqual(DateTime.fromMillis(4000)) // Max from all messages
+            expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:00Z').getTime())) // Min from all messages
+            expect(result.endDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:03Z').getTime())) // Max from all messages
         })
 
         it('should handle empty events array', async () => {
@@ -230,8 +235,8 @@ describe('SnappySessionRecorder', () => {
             recorder.recordMessage(message)
             const result = await recorder.end()
 
-            expect(result.startDateTime).toEqual(DateTime.fromMillis(0))
-            expect(result.endDateTime).toEqual(DateTime.fromMillis(0))
+            expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('1970-01-01T00:00:00Z').getTime()))
+            expect(result.endDateTime).toEqual(DateTime.fromMillis(new Date('1970-01-01T00:00:00Z').getTime()))
         })
     })
 
@@ -261,7 +266,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: {},
                 },
             ])
@@ -275,7 +280,7 @@ describe('SnappySessionRecorder', () => {
                 createMessage('window1', [
                     {
                         type: RRWebEventType.Meta,
-                        timestamp: 1000,
+                        timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                         data: {},
                     },
                 ])
@@ -285,7 +290,7 @@ describe('SnappySessionRecorder', () => {
                 ...createMessage('window1', [
                     {
                         type: RRWebEventType.Meta,
-                        timestamp: 2000,
+                        timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                         data: {},
                     },
                 ]),
@@ -300,7 +305,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: {},
                 },
             ])
@@ -316,7 +321,7 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { href: 'https://example.com' },
                 },
             ]
@@ -336,7 +341,7 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { href: longUrl },
                 },
             ]
@@ -354,7 +359,7 @@ describe('SnappySessionRecorder', () => {
             // Create 30 different URLs
             const events = Array.from({ length: 30 }, (_, i) => ({
                 type: RRWebEventType.Meta,
-                timestamp: 1000 + i * 100,
+                timestamp: new Date('2025-01-01T01:00:00Z').getTime() + i * 100,
                 data: { href: `https://example${i}.com` },
             }))
 
@@ -373,14 +378,14 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { href: 'https://example1.com' },
                 },
             ])
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 2000,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                     data: { href: 'https://example2.com' },
                 },
             ])
@@ -397,14 +402,14 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { href: 'https://first-url.com' },
                 },
             ])
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 2000,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                     data: { href: 'https://second-url.com' },
                 },
             ])
@@ -421,14 +426,14 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: {},
                 },
             ])
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 2000,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                     data: { href: 'https://example.com' },
                 },
             ])
@@ -445,7 +450,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: {},
                 },
             ])
@@ -461,17 +466,17 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { href: 'https://example1.com' },
                 },
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1500,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
                     data: { href: 'https://example2.com' },
                 },
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 2000,
+                    timestamp: new Date('2025-01-01T01:00:02Z').getTime(),
                     data: { href: 'https://example3.com' },
                 },
             ]
@@ -490,7 +495,7 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
             ]
@@ -506,12 +511,12 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 2, type: 4 }, // MouseInteraction, DblClick
                 },
             ]
@@ -527,14 +532,14 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
             ])
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 2, type: 3 }, // MouseInteraction, ContextMenu
                 },
             ])
@@ -550,12 +555,12 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 2, type: 1 }, // MouseInteraction, MouseDown
                 },
             ]
@@ -571,17 +576,17 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
                     data: { source: 2, type: 4 }, // MouseInteraction, DblClick
                 },
             ]
@@ -599,7 +604,7 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 5 }, // Input
                 },
             ]
@@ -615,12 +620,12 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 5 }, // Input
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 5 }, // Input
                 },
             ]
@@ -636,14 +641,14 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 5 }, // Input
                 },
             ])
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 5 }, // Input
                 },
             ])
@@ -659,12 +664,12 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 2 }, // MouseInteraction
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 3 }, // Scroll
                 },
             ]
@@ -680,17 +685,17 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 5 }, // Input
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 2 }, // MouseInteraction
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
                     data: { source: 5 }, // Input
                 },
             ]
@@ -708,7 +713,7 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 1 }, // MouseMove
                 },
             ]
@@ -724,12 +729,12 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 1 }, // MouseMove
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 6 }, // TouchMove
                 },
             ]
@@ -745,14 +750,14 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 1 }, // MouseMove
                 },
             ])
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 6 }, // TouchMove
                 },
             ])
@@ -768,17 +773,17 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 3 }, // Scroll - not mouse activity
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 4 }, // ViewportResize - not mouse activity
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
                     data: { source: 5 }, // Input - not mouse activity
                 },
             ]
@@ -794,27 +799,27 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { source: 1 }, // MouseMove - counts as mouse activity
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 3 }, // Scroll - not mouse activity
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
                     data: { source: 6 }, // TouchMove - counts as mouse activity
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2500,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:03Z').toMillis(),
                     data: { source: 4 }, // ViewportResize - not mouse activity
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 3000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:04Z').toMillis(),
                     data: { source: 5 }, // Input - not mouse activity
                 },
             ]
@@ -833,7 +838,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
@@ -848,14 +853,14 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: {},
                 },
             ])
@@ -879,7 +884,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
@@ -897,7 +902,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
@@ -916,7 +921,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
@@ -936,7 +941,7 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
@@ -944,7 +949,7 @@ describe('SnappySessionRecorder', () => {
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: {},
                 },
             ])
@@ -967,7 +972,7 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
@@ -989,7 +994,7 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { href: 'https://example.com' },
                 },
             ]
@@ -1006,11 +1011,11 @@ describe('SnappySessionRecorder', () => {
     describe('Batch ID', () => {
         it('should include batch ID in end result', async () => {
             const batchId = 'test-batch-123'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: {},
                 },
             ])
@@ -1023,10 +1028,14 @@ describe('SnappySessionRecorder', () => {
 
         it('should maintain batch ID across multiple messages', async () => {
             const batchId = 'test-batch-456'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
 
-            const message1 = createMessage('window1', [{ type: RRWebEventType.Meta, timestamp: 1000, data: {} }])
-            const message2 = createMessage('window2', [{ type: RRWebEventType.Meta, timestamp: 2000, data: {} }])
+            const message1 = createMessage('window1', [
+                { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(), data: {} },
+            ])
+            const message2 = createMessage('window2', [
+                { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(), data: {} },
+            ])
 
             recorder.recordMessage(message1)
             recorder.recordMessage(message2)
@@ -1037,7 +1046,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should include batch ID even with no messages', async () => {
             const batchId = 'test-batch-789'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
             const result = await recorder.end()
 
             expect(result.batchId).toBe(batchId)
@@ -1050,17 +1059,17 @@ describe('SnappySessionRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { href: 'https://example.com' },
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000, // 1 second after first event
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 1 }, // MouseMove - active event
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 3000, // 1 second after second event
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
                     data: { source: 2, type: 2 }, // MouseInteraction, Click - active event
                 },
             ]
@@ -1077,12 +1086,12 @@ describe('SnappySessionRecorder', () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(),
                     data: { href: 'https://example.com' },
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(),
                     data: { source: 1 }, // MouseMove - active event
                 },
             ])
@@ -1091,12 +1100,12 @@ describe('SnappySessionRecorder', () => {
             const message2 = createMessage('window2', [
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 3000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:02Z').toMillis(),
                     data: { source: 2, type: 2 }, // MouseInteraction, Click - active event
                 },
                 {
                     type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 4000,
+                    timestamp: DateTime.fromISO('2025-01-01T01:00:03Z').toMillis(),
                     data: { source: 5 }, // Input - active event
                 },
             ])
@@ -1107,6 +1116,408 @@ describe('SnappySessionRecorder', () => {
 
             // The active time should be calculated based on events from both windows
             expect(result.activeMilliseconds).toEqual(2000)
+        })
+    })
+
+    describe('switchover date', () => {
+        it('should not compute metadata when switchover date is null', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', null)
+            const events = [
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: new Date('2025-01-01T01:00:02Z').getTime(),
+                    data: { source: 1 }, // MouseMove
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: new Date('2025-01-01T01:00:03Z').getTime(),
+                    data: { href: 'https://example.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // Verify no metadata is recorded
+            expect(result.clickCount).toBe(0)
+            expect(result.keypressCount).toBe(0)
+            expect(result.mouseActivityCount).toBe(0)
+            expect(result.activeMilliseconds).toBe(0)
+            expect(result.urls).toEqual([])
+            expect(result.firstUrl).toBeNull()
+
+            // Verify events are still written to buffer
+            const lines = await parseSnappyBuffer(result.buffer)
+            expect(lines).toEqual([
+                ['window1', events[0]],
+                ['window1', events[1]],
+                ['window1', events[2]],
+                ['window1', events[3]],
+            ])
+        })
+
+        it('should not compute metadata for events before switchover date', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const events = [
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: beforeSwitchoverTs - 3000,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: beforeSwitchoverTs - 2000,
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: beforeSwitchoverTs - 1000,
+                    data: { source: 1 }, // MouseMove
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.clickCount).toBe(0)
+            expect(result.keypressCount).toBe(0)
+            expect(result.mouseActivityCount).toBe(0)
+            expect(result.activeMilliseconds).toBe(0)
+        })
+
+        it('should only compute metadata for events after switchover date', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
+            const events = [
+                // Before switchover
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: beforeSwitchoverTs - 3000,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: beforeSwitchoverTs - 2000,
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: beforeSwitchoverTs - 1000,
+                    data: { source: 1 }, // MouseMove
+                },
+                // After switchover
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: afterSwitchoverTs,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: afterSwitchoverTs + 1000,
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: afterSwitchoverTs + 2000,
+                    data: { source: 1 }, // MouseMove
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.clickCount).toBe(1)
+            expect(result.keypressCount).toBe(1)
+            expect(result.mouseActivityCount).toBe(2)
+            expect(result.activeMilliseconds).toBeGreaterThan(0)
+        })
+
+        it('should compute metadata for events exactly at the switchover timestamp (inclusive)', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const switchoverTs = SWITCHOVER_DATE.getTime()
+            const events = [
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: switchoverTs,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: switchoverTs,
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: switchoverTs,
+                    data: { source: 1 }, // MouseMove
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.clickCount).toBe(1)
+            expect(result.keypressCount).toBe(1)
+            expect(result.mouseActivityCount).toBe(2)
+            expect(result.activeMilliseconds).toBeGreaterThan(0)
+        })
+
+        it('should not accumulate URLs from events before switchover date', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs,
+                    data: { href: 'https://before.com' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs - 1000,
+                    data: { href: 'https://before2.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.urls).toEqual([])
+            expect(result.firstUrl).toBeNull()
+        })
+
+        it('should only accumulate URLs from events after switchover date', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
+            const events = [
+                // Before switchover
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs,
+                    data: { href: 'https://before.com' },
+                },
+                // After switchover
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: afterSwitchoverTs,
+                    data: { href: 'https://after.com' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: afterSwitchoverTs + 1000,
+                    data: { href: 'https://after2.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.urls).toEqual(['https://after.com', 'https://after2.com'])
+            expect(result.firstUrl).toBe('https://after.com')
+        })
+
+        it('should compute startDateTime and endDateTime from all events, including before switchover', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs - 2000,
+                    data: { href: 'https://before.com' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs,
+                    data: { href: 'https://before2.com' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: afterSwitchoverTs,
+                    data: { href: 'https://after2.com' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: afterSwitchoverTs + 5000,
+                    data: { href: 'https://after.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.startDateTime.toMillis()).toBe(beforeSwitchoverTs - 2000)
+            expect(result.endDateTime.toMillis()).toBe(afterSwitchoverTs + 5000)
+        })
+
+        it('should compute startDateTime and endDateTime correctly when all events are before switchover', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs - 2000,
+                    data: { href: 'https://before.com' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs,
+                    data: { href: 'https://before2.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.startDateTime.toMillis()).toBe(beforeSwitchoverTs - 2000)
+            expect(result.endDateTime.toMillis()).toBe(beforeSwitchoverTs)
+        })
+
+        it('should set distinctId even if all events are before switchover', () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs - 2000,
+                    data: { href: 'https://before.com' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs,
+                    data: { href: 'https://before2.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            expect(recorder.distinctId).toBe('distinct_id')
+        })
+
+        it('should write all events to the buffer regardless of switchover date', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
+            const events = {
+                window1: [
+                    {
+                        type: RRWebEventType.Meta,
+                        timestamp: beforeSwitchoverTs - 1000,
+                        data: { href: 'https://before1.com' },
+                    },
+                    {
+                        type: RRWebEventType.Meta,
+                        timestamp: afterSwitchoverTs,
+                        data: { href: 'https://after1.com' },
+                    },
+                ],
+                window2: [
+                    {
+                        type: RRWebEventType.Meta,
+                        timestamp: beforeSwitchoverTs,
+                        data: { href: 'https://before2.com' },
+                    },
+                    {
+                        type: RRWebEventType.Meta,
+                        timestamp: afterSwitchoverTs + 1000,
+                        data: { href: 'https://after2.com' },
+                    },
+                ],
+            }
+            const message = {
+                ...createMessage('', []),
+                eventsByWindowId: events,
+            }
+            recorder.recordMessage(message)
+            const { buffer } = await recorder.end()
+            const lines = await parseSnappyBuffer(buffer)
+            expect(lines).toEqual([
+                ['window1', events.window1[0]],
+                ['window1', events.window1[1]],
+                ['window2', events.window2[0]],
+                ['window2', events.window2[1]],
+            ])
+        })
+
+        it('should record snapshotSource and snapshotLibrary from message before switchover date', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: beforeSwitchoverTs,
+                    data: {},
+                },
+            ]
+            const message = createMessage('window1', events)
+            message.snapshot_source = 'mobile-before'
+            message.snapshot_library = 'lib-before'
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.snapshotSource).toBe('mobile-before')
+            expect(result.snapshotLibrary).toBe('lib-before')
+        })
+
+        it('should record snapshotSource and snapshotLibrary from message after switchover date', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: afterSwitchoverTs,
+                    data: {},
+                },
+            ]
+            const message = createMessage('window1', events)
+            message.snapshot_source = 'mobile-after'
+            message.snapshot_library = 'lib-after'
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+            expect(result.snapshotSource).toBe('mobile-after')
+            expect(result.snapshotLibrary).toBe('lib-after')
+        })
+
+        it('should compute size correctly depending on switchover date', async () => {
+            // Scenario 1: switchover before all events (all events counted)
+            const allEvents = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
+                    data: { href: 'a' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: new Date('2025-01-01T01:01:00Z').getTime(),
+                    data: { href: 'b' },
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: new Date('2025-01-01T01:02:00Z').getTime(),
+                    data: { href: 'c' },
+                },
+            ]
+            const switchoverEarly = new Date('2024-01-01T00:00:00Z')
+            const recorder1 = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', switchoverEarly)
+            let totalRaw = 0
+            totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[0]]))
+            totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[1]]))
+            totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[2]]))
+            const result1 = await recorder1.end()
+            expect(totalRaw).toBeGreaterThan(0)
+            expect(result1.size).toBe(totalRaw)
+
+            // Scenario 2: switchover in the middle (only events after switchover counted)
+            const switchoverMid = new Date('2025-01-01T01:01:30Z')
+            const recorder2 = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', switchoverMid)
+            recorder2.recordMessage(createMessage('window1', [allEvents[0]])) // before switchover
+            recorder2.recordMessage(createMessage('window1', [allEvents[1]])) // before switchover
+            const expectedRaw = recorder2.recordMessage(createMessage('window1', [allEvents[2]])) // after switchover
+            const result2 = await recorder2.end()
+            expect(result2.size).toBe(expectedRaw)
         })
     })
 })

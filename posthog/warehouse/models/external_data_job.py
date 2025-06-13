@@ -13,7 +13,8 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         RUNNING = "Running", "Running"
         FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
     class PipelineVersion(models.TextChoices):
         V1 = "v1-dlt-sync", "v1-dlt-sync"
@@ -31,6 +32,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
 
     __repr__ = sane_repr("id")
 

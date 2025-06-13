@@ -12,6 +12,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -217,7 +218,7 @@ export const cohortsModel = kea<cohortsModelType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
             const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
@@ -233,12 +234,14 @@ export const cohortsModel = kea<cohortsModelType>([
             actions.setPollTimeout(window.setTimeout(actions.loadAllCohorts, POLL_TIMEOUT))
         },
         exportCohortPersons: async ({ id, columns }) => {
+            const cohort = values.cohortsById[id]
             const exportCommand = {
                 export_format: ExporterFormat.CSV,
                 export_context: {
                     path: `/api/cohort/${id}/persons`,
                     columns,
-                } as { path: string; columns?: string[] },
+                    filename: cohort?.name ? `cohort-${cohort.name}` : 'cohort',
+                } as { path: string; columns?: string[]; filename?: string },
             }
             if (columns && columns.length > 0) {
                 exportCommand.export_context['columns'] = columns
@@ -249,7 +252,16 @@ export const cohortsModel = kea<cohortsModelType>([
             await deleteWithUndo({
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
-                callback: actions.loadCohorts,
+                callback: (undo) => {
+                    actions.loadCohorts()
+                    if (cohort.id && cohort.id !== 'new') {
+                        if (undo) {
+                            refreshTreeItem('cohort', String(cohort.id))
+                        } else {
+                            deleteFromTree('cohort', String(cohort.id))
+                        }
+                    }
+                },
             })
         },
         setCohortFilters: async () => {

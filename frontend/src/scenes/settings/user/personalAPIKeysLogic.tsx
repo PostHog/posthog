@@ -13,6 +13,7 @@ import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
 import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
+
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
     'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'

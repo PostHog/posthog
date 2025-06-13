@@ -10,6 +10,7 @@ import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
+import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
 import * as monaco from 'monaco-editor'
@@ -68,6 +69,9 @@ function initEditor(
     }
     if (editorProps?.language === 'hogJson') {
         initHogJsonLanguage(monaco)
+    }
+    if (editorProps?.language === 'liquid') {
+        initLiquidLanguage(monaco)
     }
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
@@ -273,8 +277,8 @@ export function CodeEditor({
         return (
             <MonacoDiffEditor
                 key={queryKey}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 original={originalValue}
                 modified={value}
                 options={{

@@ -22,13 +22,24 @@ import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
-const DEFAULT_FETCH_BATCH_SIZE = 1000
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 
 const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
     help: 'Main loop consumer batch processing duration in ms',
+    labelNames: ['topic', 'groupId'],
+})
+
+const consumedBatchBackgroundDuration = new Histogram({
+    name: 'consumed_batch_background_duration_ms',
+    help: 'Background task processing duration in ms',
+    labelNames: ['topic', 'groupId'],
+})
+
+const consumedBatchBackpressureDuration = new Histogram({
+    name: 'consumed_batch_backpressure_duration_ms',
+    help: 'Time spent waiting for background work to finish due to backpressure',
     labelNames: ['topic', 'groupId'],
 })
 
@@ -103,14 +114,18 @@ export class KafkaConsumer {
     private consumerConfig: ConsumerGlobalConfig
     private fetchBatchSize: number
     private maxHealthHeartbeatIntervalMs: number
+    private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
+    private backgroundTask: Promise<void>[]
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
+        this.backgroundTask = []
+
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-
-        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE || DEFAULT_FETCH_BATCH_SIZE
+        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
 
@@ -252,11 +267,22 @@ export class KafkaConsumer {
 
         if (topicPartitionOffsets.length > 0) {
             logger.debug('📝', 'Storing offsets', { topicPartitionOffsets })
-            this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+            try {
+                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+            } catch (e) {
+                // NOTE: We don't throw here - this can happen if we were re-assigned partitions
+                // and the offsets are no longer valid whilst processing a batch
+                logger.error('📝', 'Failed to store offsets', {
+                    error: String(e),
+                    assignedPartitions: this.assignments(),
+                    topicPartitionOffsets,
+                })
+                captureException(e)
+            }
         }
     }
 
-    public async connect(eachBatch: (messages: Message[]) => Promise<void>) {
+    public async connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>) {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
         try {
@@ -269,7 +295,10 @@ export class KafkaConsumer {
 
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
-        await ensureTopicExists(this.consumerConfig, this.config.topic)
+        if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
+            // For hobby deploys we want to auto-create, but on cloud we don't
+            await ensureTopicExists(this.consumerConfig, this.config.topic)
+        }
 
         // The consumer has an internal pre-fetching queue that sequentially pools
         // each partition, with the consumerMaxWaitMs timeout. We want to read big
@@ -290,6 +319,8 @@ export class KafkaConsumer {
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
 
+                    logger.debug('🔁', 'messages', { count: messages.length })
+
                     // After successfully pulling a batch, we can update our heartbeat time
                     this.heartbeat()
 
@@ -307,7 +338,7 @@ export class KafkaConsumer {
                     }
 
                     const startProcessingTimeMs = new Date().valueOf()
-                    await eachBatch(messages)
+                    const result = await eachBatch(messages)
 
                     const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                     consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
@@ -319,10 +350,58 @@ export class KafkaConsumer {
                         logger.warn('🕒', `Slow batch: ${logSummary}`)
                     }
 
-                    if (this.config.autoCommit && this.config.autoOffsetStore) {
-                        this.storeOffsetsForMessages(messages)
+                    // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
+                    // it would be hard to mix background work with non-background work.
+                    // So we just create pretend work to simplify the rest of the logic
+                    const backgroundTask = result?.backgroundTask ?? Promise.resolve()
+
+                    const backgroundTaskStart = performance.now()
+
+                    void backgroundTask.finally(async () => {
+                        // Only when we are fully done with the background work we store the offsets
+                        // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
+                        // Remove the background work from the queue when it is finished
+
+                        // First of all clear ourselves from the queue
+                        const index = this.backgroundTask.indexOf(backgroundTask)
+                        void this.backgroundTask.splice(index, 1)
+
+                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
+                        await Promise.all(this.backgroundTask.slice(0, index))
+
+                        if (this.config.autoCommit && this.config.autoOffsetStore) {
+                            this.storeOffsetsForMessages(messages)
+                        }
+
+                        if (result?.backgroundTask) {
+                            // We only want to count the time spent in the background work if it was real
+                            consumedBatchBackgroundDuration
+                                .labels({
+                                    topic: this.config.topic,
+                                    groupId: this.config.groupId,
+                                })
+                                .observe(performance.now() - backgroundTaskStart)
+                        }
+                    })
+
+                    // At first we just add the background work to the queue
+                    this.backgroundTask.push(backgroundTask)
+
+                    // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
+
+                    if (this.backgroundTask.length >= this.maxBackgroundTasks) {
+                        const stopTimer = consumedBatchBackpressureDuration.startTimer({
+                            topic: this.config.topic,
+                            groupId: this.config.groupId,
+                        })
+                        // If we have more than the max, we need to await one
+                        await this.backgroundTask[0]
+                        stopTimer()
                     }
                 }
+
+                // Once we are stopping, make sure that we wait for all background work to finish
+                await Promise.all(this.backgroundTask)
             } catch (error) {
                 throw error
             } finally {

@@ -1,0 +1,27 @@
+{
+    "name": "@posthog/products-logs",
+    "scripts": {},
+    "dependencies": {
+        "eslint-plugin-posthog": "workspace:*"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "*",
+        "@types/react": "*",
+        "classnames": "*",
+        "clsx": "*",
+        "eslint": "*",
+        "eslint-plugin-posthog": "*",
+        "jest": "*",
+        "fast-deep-equal": "*",
+        "kea": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "prettier": "*",
+        "react": "*",
+        "stylelint": "*",
+        "typescript": "*",
+        "use-debounce": "*",
+        "ansi-colors": "*"
+    }
+}

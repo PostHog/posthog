@@ -204,7 +204,7 @@ describe('createActionFromEvent()', () => {
     describe('action already exists', () => {
         beforeEach(() => {
             api.actions.create.mockImplementation(() => {
-                throw { type: 'validation_error', code: 'unique' }
+                throw { data: { type: 'validation_error', code: 'unique' } }
             })
         })
 

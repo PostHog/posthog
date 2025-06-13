@@ -2,11 +2,12 @@ import { useValues } from 'kea'
 
 import {
     CachedExperimentFunnelsQueryResponse,
-    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
+import { getHighestProbabilityVariant, getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
@@ -14,13 +15,16 @@ export function WinningVariantText({
     result,
     experimentId,
 }: {
-    result: CachedExperimentQueryResponse | CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
+    result:
+        | CachedLegacyExperimentQueryResponse
+        | CachedExperimentFunnelsQueryResponse
+        | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
-    const { getIndexForVariant, getHighestProbabilityVariant } = useValues(experimentLogic)
+    const { getInsightType, experiment } = useValues(experimentLogic)
 
     const highestProbabilityVariant = getHighestProbabilityVariant(result)
-    const index = getIndexForVariant(result, highestProbabilityVariant || '')
+    const index = getIndexForVariant(result, highestProbabilityVariant || '', getInsightType(experiment.metrics[0]))
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result
 
@@ -67,9 +71,9 @@ export function SignificanceText({
 }
 
 export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { experimentId, metricResults } = useValues(experimentLogic)
+    const { experimentId, legacyMetricResults } = useValues(experimentLogic)
 
-    const result = metricResults?.[metricIndex]
+    const result = legacyMetricResults?.[metricIndex]
     if (!result) {
         return <></>
     }

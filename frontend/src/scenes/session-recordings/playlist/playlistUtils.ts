@@ -13,7 +13,7 @@ import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/se
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { urls } from 'scenes/urls'
 
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { PropertyOperator, SessionRecordingPlaylistType, UniversalFilterValue } from '~/types'
@@ -137,7 +137,14 @@ export async function deletePlaylist(
         object: playlist,
         idField: 'short_id',
         endpoint: `projects/@current/session_recording_playlists`,
-        callback: undoCallback,
+        callback: (undo) => {
+            if (undo) {
+                refreshTreeItem('session_recording_playlist', playlist.short_id)
+            } else {
+                deleteFromTree('session_recording_playlist', playlist.short_id)
+            }
+            undoCallback?.()
+        },
     })
     return playlist
 }
