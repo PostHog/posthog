@@ -2,7 +2,6 @@ import { HogFlow } from '~/src/schema/hogflow'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
-import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
@@ -123,30 +122,6 @@ describe('HogFlowManager', () => {
         })
     })
 
-    // describe('filters hog flow by type', () => {
-    //     it('for just transformations', async () => {
-    //         expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation'])).length).toEqual(1)
-    //         expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation']))[0].type).toEqual(
-    //             'transformation'
-    //         )
-    //     })
-
-    //     it('for just destinations', async () => {
-    //         expect((await manager.getHogFunctionsForTeam(teamId1, ['destination'])).length).toEqual(1)
-    //         expect((await manager.getHogFunctionsForTeam(teamId1, ['destination']))[0].type).toEqual('destination')
-    //     })
-
-    //     it('for both', async () => {
-    //         expect((await manager.getHogFunctionsForTeam(teamId1, ['destination', 'transformation'])).length).toEqual(2)
-    //         expect((await manager.getHogFunctionsForTeam(teamId1, ['destination', 'transformation']))[0].type).toEqual(
-    //             'destination'
-    //         )
-    //         expect((await manager.getHogFunctionsForTeam(teamId1, ['destination', 'transformation']))[1].type).toEqual(
-    //             'transformation'
-    //         )
-    //     })
-    // })
-
     describe('getHogFlowIdsForTeam', () => {
         it('returns function IDs', async () => {
             const result = await manager.getHogFlowIdsForTeams([teamId1, teamId2])
@@ -185,57 +160,4 @@ describe('HogFlowManager', () => {
             expect(result[teamId1]).not.toContain(hogFlows[0].id)
         })
     })
-
-    // it('removes disabled functions', async () => {
-    //     let items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
-
-    //     expect(items).toMatchObject([
-    //         {
-    //             id: hogFlows[0].id,
-    //         },
-    //     ])
-
-    //     await hub.db.postgres.query(
-    //         PostgresUse.COMMON_WRITE,
-    //         `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
-    //         [hogFlows[0].id],
-    //         'testKey'
-    //     )
-
-    //     // This is normally dispatched by django
-    //     manager['onHogFunctionsReloaded'](teamId1, [hogFlows[0].id])
-
-    //     items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
-
-    //     expect(items).toEqual([])
-    // })
-
-    // it('enriches integration inputs if found and belonging to the team', async () => {
-    //     const function1Inputs = (await manager.getHogFunctionsForTeam(teamId1, ['destination']))[0].inputs
-    //     const function2Inputs = (await manager.getHogFunctionsForTeam(teamId2, ['destination']))[0].inputs
-
-    //     // Only the right team gets the integration inputs enriched
-    //     expect(function1Inputs).toEqual({
-    //         slack: {
-    //             value: {
-    //                 team: 'foobar',
-    //                 access_token: 'token',
-    //                 not_encrypted: 'not-encrypted',
-    //                 integrationId: 1,
-    //             },
-    //         },
-    //         normal: {
-    //             value: integrations[0].id,
-    //         },
-    //     })
-
-    //     expect(function2Inputs).toEqual({
-    //         slack: {
-    //             value: integrations[0].id,
-    //         },
-    //         normal: {
-    //             value: integrations[0].id,
-    //         },
-    //     })
-    // })
 })
