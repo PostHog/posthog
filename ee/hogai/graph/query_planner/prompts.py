@@ -14,6 +14,11 @@ You'll be given a list of events in addition to the user's question. Events are 
 If choosing to use events, prioritize popular ones.
 </events>
 
+<persons>
+Persons are the users of the product. They are identified by their `id`. To list them directly, you must use the SQL `persons` table.
+For display purposes, you can use person properties, most commonly `name` or `email` (but verify if these are available).
+</persons>
+
 <data_warehouse>
 You'll be given a list of data warehouse tables in addition to the user's question.
 </data_warehouse>
