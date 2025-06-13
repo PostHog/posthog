@@ -404,7 +404,10 @@ export class CdpApi {
             }
 
             const payload = `${timestamp}.${req.rawBody.toString()}`
-            const hmac = crypto.createHmac('sha256', this.hub.MAILJET_SECRET_KEY).update(payload).digest()
+            const hmac = crypto
+                .createHmac('sha256', this.hub.MAILJET_SECRET_KEY || '')
+                .update(payload)
+                .digest()
 
             try {
                 const signatureBuffer = Buffer.from(signature, 'hex')

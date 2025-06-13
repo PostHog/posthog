@@ -10,6 +10,7 @@ class AppMetricsRequestSerializer(serializers.Serializer):
             "exportEvents",
             "scheduledTask",
             "webhook",
+            "composeWebhook",
         ],
         help_text="What to gather metrics for",
         required=False,

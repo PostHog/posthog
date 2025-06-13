@@ -35,7 +35,7 @@ export interface MailjetEvent {
     source?: string
 
     // `unsub` event fields
-    mj_list_id: string
+    mj_list_id?: string
 }
 
 export const eventTypeToCategory = {
