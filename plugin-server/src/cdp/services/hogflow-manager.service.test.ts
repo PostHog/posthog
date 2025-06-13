@@ -116,7 +116,7 @@ describe('HogFlowManager', () => {
 
         items = await manager.getHogFlowsForTeam(teamId1)
 
-        expect(items.find(item => item.id === hogFlows[0].id)).toMatchObject({
+        expect(items.find((item) => item.id === hogFlows[0].id)).toMatchObject({
             id: hogFlows[0].id,
             name: 'Test Hog Flow team 1 updated',
         })
