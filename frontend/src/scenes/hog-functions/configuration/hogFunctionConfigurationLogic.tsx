@@ -34,7 +34,7 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
@@ -649,7 +649,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 if (!props.id || props.id === 'new') {
-                    const folder = await asyncSaveToModal({})
+                    const type = values.type
+                    const typeFolder =
+                        type === 'site_app'
+                            ? 'Site apps'
+                            : type === 'transformation'
+                            ? 'Transformations'
+                            : type === 'source_webhook'
+                            ? 'Sources'
+                            : type === 'broadcast'
+                            ? 'Broadcasts'
+                            : type === 'messaging_campaign'
+                            ? 'Campaigns'
+                            : 'Destinations'
+                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
                     if (typeof folder === 'string') {
                         payload._create_in_folder = folder
                     }
@@ -1122,7 +1135,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                 }
                 groupTypes.forEach((groupType) => {
-                    const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
+                    const name = escapePropertyAsHogQLIdentifier(groupType.group_type)
                     query.select.push(
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )

@@ -138,7 +138,11 @@ export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.E
     )
 }
 
-export function ResultsQuery({
+/**
+ * shows a breakdown query for legacy metrics
+ * @deprecated use ResultsQuery
+ */
+export function LegacyResultsQuery({
     result,
     showTable,
 }: {
@@ -150,6 +154,7 @@ export function ResultsQuery({
     }
 
     const query = result.kind === NodeKind.ExperimentTrendsQuery ? result.count_query : result.funnels_query
+
     const fakeInsightId = Math.random().toString(36).substring(2, 15)
 
     return (
@@ -181,7 +186,10 @@ export function ResultsQuery({
     )
 }
 
-export function ExploreButton({
+/**
+ * @deprecated use ExploreButton instead
+ */
+export function LegacyExploreButton({
     result,
     size = 'small',
 }: {
@@ -232,7 +240,7 @@ export function ResultsHeader(): JSX.Element {
                     {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
                     {result &&
                         (result.kind === NodeKind.ExperimentTrendsQuery ||
-                            result.kind === NodeKind.ExperimentFunnelsQuery) && <ExploreButton result={result} />}
+                            result.kind === NodeKind.ExperimentFunnelsQuery) && <LegacyExploreButton result={result} />}
                 </div>
             </div>
         </div>

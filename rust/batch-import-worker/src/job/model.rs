@@ -54,8 +54,8 @@ pub struct JobState {
 #[serde(rename_all = "lowercase")]
 pub struct PartState {
     pub key: String,
-    pub current_offset: usize,
-    pub total_size: usize,
+    pub current_offset: u64,
+    pub total_size: u64,
 }
 
 impl PartState {

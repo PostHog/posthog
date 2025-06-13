@@ -2111,6 +2111,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The product of the revenue event.",
             "type": "String",
         },
+        "country": {
+            "label": "Country",
+            "description": "The country of the customer connected to the revenue event.",
+            "type": "String",
+        },
         "cohort": {
             "label": "Cohort",
             "description": "The cohort of the customer connected to the revenue event.",

@@ -1,19 +1,20 @@
+import posthoganalytics
+import structlog
 import time
-from typing import Any, Optional
 
 from django.conf import settings
 
 from posthog.models.team.team import Team
-import structlog
-from celery import shared_task, chain
+from celery import shared_task, chain, current_task
+from datetime import timedelta
 from dateutil.relativedelta import relativedelta
+from typing import Any, Optional
+
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge, Counter
-from sentry_sdk import set_tag
 
-from datetime import timedelta
-
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
@@ -203,18 +204,27 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
-    cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("feature", Feature.COHORT.value)
+        posthoganalytics.tag("cohort_id", cohort_id)
 
-    set_tag("feature", Feature.COHORT.value)
-    set_tag("cohort_id", cohort.id)
-    set_tag("team_id", cohort.team.id)
+        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-    staleness_hours = 0.0
-    if cohort.last_calculation is not None:
-        staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
-    COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+        posthoganalytics.tag("team_id", cohort.team.id)
 
-    cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+        staleness_hours = 0.0
+        if cohort.last_calculation is not None:
+            staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
+        COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+
+        tags = {"cohort_id": cohort_id, "feature": Feature.COHORT.value}
+        if initiating_user_id:
+            tags["user_id"] = initiating_user_id
+        if current_task and current_task.request and current_task.request.id:
+            tags["celery_task_id"] = current_task.request.id
+        tag_queries(**tags)
+
+        cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)

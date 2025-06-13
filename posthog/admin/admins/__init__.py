@@ -1,4 +1,5 @@
 from .async_deletion_admin import AsyncDeletionAdmin
+from .batch_imports import BatchImportAdmin
 from .cohort_admin import CohortAdmin
 from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
