@@ -19,8 +19,6 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { useEffect, useState } from 'react'
 
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-
 export function SaveToModal(): JSX.Element {
     const { isOpen, form, selectedFolders, defaultFolder } = useValues(saveToLogic)
     const [showChooseFolder, setShowChooseFolder] = useState(false)
@@ -29,8 +27,6 @@ export function SaveToModal(): JSX.Element {
     )
     const { closeSaveToModal, submitForm, addSelectedFolder, removeSelectedFolder, setFormValue } =
         useActions(saveToLogic)
-    const allFolders = splitPath(form.folder || '')
-    const lastFolder = form.folder === '' ? 'Project root' : allFolders[allFolders.length - 1]
 
     function handleSubmit(): void {
         if (locallySelectedFolder) {
@@ -59,12 +55,7 @@ export function SaveToModal(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSubmit}
-                        data-attr="save-to-modal-save-button"
-                        disabledReason={typeof lastFolder !== 'string' ? 'Please select a folder' : undefined}
-                    >
+                    <LemonButton type="primary" onClick={handleSubmit} data-attr="save-to-modal-save-button">
                         Save
                     </LemonButton>
                 </>
