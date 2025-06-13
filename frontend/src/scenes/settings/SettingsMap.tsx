@@ -405,6 +405,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',
                 component: <UserGroups />,
+                flag: 'USER_GROUPS_ENABLED',
             },
             {
                 id: 'error-tracking-alerting',

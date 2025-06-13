@@ -75,6 +75,7 @@ from . import (
     uploaded_media,
     user,
     user_group,
+    external_web_analytics,
     web_vitals,
 )
 from .file_system import file_system, file_system_shortcut, persisted_folder
@@ -319,6 +320,12 @@ projects_router.register(
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
+projects_router.register(
+    r"external_web_analytics",
+    external_web_analytics.ExternalWebAnalyticsViewSet,
+    "project_external_web_analytics",
+    ["project_id"],
+)
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
