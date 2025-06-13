@@ -18,6 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
 import structlog
 from django.utils.decorators import method_decorator
+from typing import TypedDict
 
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.user_permissions import UserPermissions
@@ -25,6 +26,10 @@ from posthog.utils import render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+
+class OAuthAuthorizationContext(TypedDict):
+    user: User
 
 
 class OAuthAuthorizationSerializer(serializers.Serializer):
@@ -46,17 +51,21 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
     )
     scoped_teams = serializers.ListField(child=serializers.IntegerField(), required=False, allow_null=True, default=[])
 
-    def validate_scoped_organizations(self, scoped_organization_ids):
+    def __init__(self, *args, **kwargs):
+        context = kwargs.get("context", {})
+        if "user" not in context:
+            raise ValueError("OAuthAuthorizationSerializer requires 'user' in context")
+        super().__init__(*args, **kwargs)
+
+    def validate_scoped_organizations(self, scoped_organization_ids: list[str]) -> list[str]:
         access_level = self.initial_data.get("access_level")
-        requesting_user: User = self.context["request"].user
+        requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
         org_memberships = user_permissions.organization_memberships
 
         if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value:
             if not scoped_organization_ids or len(scoped_organization_ids) == 0:
-                raise serializers.ValidationError(
-                    "scoped_organizations is required when access_level is 'organization'."
-                )
+                raise serializers.ValidationError("scoped_organizations is required when access_level is organization")
             try:
                 organization_uuids = [uuid.UUID(org_id) for org_id in scoped_organization_ids]
                 for org_uuid in organization_uuids:
@@ -69,18 +78,18 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             return scoped_organization_ids
         elif scoped_organization_ids and len(scoped_organization_ids) > 0:
             raise serializers.ValidationError(
-                f"scoped_organizations is not allowed when access_level is '{access_level}'."
+                f"scoped_organizations is not allowed when access_level is {access_level}"
             )
         return []
 
-    def validate_scoped_teams(self, scoped_team_ids):
+    def validate_scoped_teams(self, scoped_team_ids: list[int]) -> list[int]:
         access_level = self.initial_data.get("access_level")
-        requesting_user: User = self.context["request"].user
+        requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
 
         if access_level == OAuthApplicationAccessLevel.TEAM.value:
             if not scoped_team_ids or len(scoped_team_ids) == 0:
-                raise serializers.ValidationError("scoped_teams is required when access_level is 'team'.")
+                raise serializers.ValidationError("scoped_teams is required when access_level is team")
 
             teams = Team.objects.filter(pk__in=scoped_team_ids)
             if len(teams) != len(scoped_team_ids):
@@ -93,7 +102,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
                     )
             return scoped_team_ids
         elif scoped_team_ids and len(scoped_team_ids) > 0:
-            raise serializers.ValidationError(f"scoped_teams is not allowed when access_level is '{access_level}'.")
+            raise serializers.ValidationError(f"scoped_teams is not allowed when access_level is {access_level}")
         return []
 
 
@@ -270,7 +279,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         return render_template("index.html", request)
 
     def post(self, request, *args, **kwargs):
-        serializer = OAuthAuthorizationSerializer(data=request.data, context={"request": request})
+        serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
 
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -104,6 +104,7 @@ class TestOAuthAPI(APIBaseTest):
             "access_level": OAuthApplicationAccessLevel.ALL.value,
             "scoped_organizations": [],
             "scoped_teams": [],
+            "scope": "openid",
         }
 
     @property
@@ -212,6 +213,7 @@ class TestOAuthAPI(APIBaseTest):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback https://example.com/callback2",
+            algorithm="RS256",
         )
 
         url_without_redirect_uri = self.replace_param_in_url(url, "redirect_uri", None)
@@ -442,7 +444,7 @@ class TestOAuthAPI(APIBaseTest):
             "scoped_organizations": ["org1"],
             "scoped_teams": [1],
         }
-        serializer = OAuthAuthorizationSerializer(data=data)
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_organizations", serializer.errors)
@@ -457,7 +459,7 @@ class TestOAuthAPI(APIBaseTest):
             "scoped_organizations": ["org1"],
             "scoped_teams": [1],
         }
-        serializer = OAuthAuthorizationSerializer(data=data)
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_teams", serializer.errors)
         self.assertEqual(
@@ -470,7 +472,7 @@ class TestOAuthAPI(APIBaseTest):
             "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
             "scoped_organizations": [],
         }
-        serializer = OAuthAuthorizationSerializer(data=data)
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_organizations", serializer.errors)
         self.assertEqual(
@@ -484,16 +486,14 @@ class TestOAuthAPI(APIBaseTest):
             "access_level": OAuthApplicationAccessLevel.TEAM.value,
             "scoped_teams": [],
         }
-        serializer = OAuthAuthorizationSerializer(data=data)
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_teams", serializer.errors)
         self.assertEqual(serializer.errors["scoped_teams"][0], "scoped_teams is required when access_level is team")
 
     def test_full_oauth_flow_preserves_scoped_teams(self):
-        # Define scoped teams
-        scoped_teams = [1, 2, 3]
+        scoped_teams = [self.team.id]
 
-        # 1. Get authorization request with scoped teams
         authorization_data = {
             **self.base_authorization_post_body,
             "access_level": OAuthApplicationAccessLevel.TEAM.value,
@@ -507,7 +507,6 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Extract authorization code from redirect URL
         redirect_to = response.json()["redirect_to"]
         self.assertIn("code=", redirect_to)
         code = redirect_to.split("code=")[1].split("&")[0]
@@ -518,7 +517,6 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(grant.scoped_teams, scoped_teams)
 
-        # 2. Exchange authorization code for tokens
         token_data = {
             **self.base_token_body,
             "code": code,
@@ -532,7 +530,6 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(token_response.status_code, status.HTTP_200_OK)
         token_response_data = token_response.json()
 
-        # Check that the access token is present
         self.assertIn("access_token", token_response_data)
         self.assertIn("refresh_token", token_response_data)
 
@@ -569,10 +566,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(refresh_token.scoped_teams, scoped_teams)
 
     def test_full_oauth_flow_preserves_scoped_organizations(self):
-        # Define scoped organizations
-        scoped_organizations = ["org1", "org2"]
+        scoped_organizations = [str(self.organization.id)]
 
-        # 1. Get authorization request with scoped organizations
         authorization_data = {
             **self.base_authorization_post_body,
             "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
@@ -586,7 +581,6 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Extract authorization code from redirect URL
         redirect_to = response.json()["redirect_to"]
         self.assertIn("code=", redirect_to)
         code = redirect_to.split("code=")[1].split("&")[0]
@@ -597,7 +591,6 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(grant.scoped_organizations, scoped_organizations)
 
-        # 2. Exchange authorization code for tokens
         token_data = {
             **self.base_token_body,
             "code": code,
@@ -619,7 +612,6 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
-        # refresh the access token
         refresh_token_data = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
@@ -829,3 +821,20 @@ class TestOAuthAPI(APIBaseTest):
         refresh_token.refresh_from_db()
 
         self.assertEqual(refresh_token.revoked, timezone.now())
+
+    def test_serializer_requires_user_in_context(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+        }
+
+        with self.assertRaises(ValueError) as cm:
+            OAuthAuthorizationSerializer(data=data)
+        self.assertEqual(str(cm.exception), "OAuthAuthorizationSerializer requires 'user' in context")
+
+        with self.assertRaises(ValueError) as cm:
+            OAuthAuthorizationSerializer(data=data, context={})
+        self.assertEqual(str(cm.exception), "OAuthAuthorizationSerializer requires 'user' in context")
+
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
+        self.assertTrue(serializer.is_valid())
