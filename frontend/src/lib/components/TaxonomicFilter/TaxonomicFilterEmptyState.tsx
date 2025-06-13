@@ -8,7 +8,7 @@ import type React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineStage, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { BuilderHog3 } from '../hedgehogs'
 

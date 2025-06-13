@@ -26,21 +26,17 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 
-import { PipelineStage } from '~/types'
-
 import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
 import { RenderApp } from './utils'
 
 export function PipelinePluginConfiguration({
-    stage,
     pluginId,
     pluginConfigId,
 }: {
-    stage: PipelineStage
     pluginId?: number
     pluginConfigId?: number
 }): JSX.Element {
-    const logicProps = { stage: stage, pluginId: pluginId || null, pluginConfigId: pluginConfigId || null }
+    const logicProps = { pluginId: pluginId || null, pluginConfigId: pluginConfigId || null }
     const logic = pipelinePluginConfigurationLogic(logicProps)
 
     const {
@@ -55,16 +51,12 @@ export function PipelinePluginConfiguration({
     } = useValues(logic)
     const { submitConfiguration, resetConfiguration, migrateToHogFunction } = useActions(logic)
 
-    if (!stage) {
-        return <NotFound object="pipeline stage" />
-    }
-
     if (loading && !plugin) {
         return <SpinnerOverlay />
     }
 
     if (!plugin) {
-        return <NotFound object={`pipeline ${stage}`} />
+        return <NotFound object="plugin" />
     }
 
     const loadingOrSubmitting = loading || isConfigurationSubmitting

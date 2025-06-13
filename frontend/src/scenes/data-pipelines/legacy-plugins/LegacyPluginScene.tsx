@@ -6,7 +6,7 @@ import { PipelinePluginConfiguration } from 'scenes/data-pipelines/legacy-plugin
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, Breadcrumb, PipelineStage } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { legacyPluginSceneLogicType } from './LegacyPluginSceneType'
 import { PipelineNodeLogs } from './PipelineNodeLogs'
@@ -108,7 +108,7 @@ export function LegacyPluginScene(): JSX.Element {
         {
             label: 'Configuration',
             key: 'configuration',
-            content: <PipelinePluginConfiguration stage={PipelineStage.Destination} pluginConfigId={pluginConfigId} />,
+            content: <PipelinePluginConfiguration pluginConfigId={pluginConfigId} />,
         },
         {
             label: 'Metrics',
@@ -118,7 +118,7 @@ export function LegacyPluginScene(): JSX.Element {
         {
             label: 'Logs',
             key: 'logs',
-            content: <PipelineNodeLogs id={pluginConfigId} stage={PipelineStage.Destination} />,
+            content: <PipelineNodeLogs id={pluginConfigId} />,
         },
         {
             label: 'History',

@@ -815,27 +815,6 @@ export enum ActivityTab {
     LiveEvents = 'live',
 }
 
-export enum PipelineStage {
-    Transformation = 'transformation',
-    Destination = 'destination',
-    Source = 'source',
-    SiteApp = 'site-app',
-    ImportApp = 'legacy-source',
-}
-
-export enum PipelineNodeTab {
-    Backfills = 'backfills',
-    Configuration = 'configuration',
-    Testing = 'testing',
-    Runs = 'runs',
-    Logs = 'logs',
-    Metrics = 'metrics',
-    History = 'history',
-    Schemas = 'schemas',
-    Syncs = 'syncs',
-    SourceConfiguration = 'source configuration',
-}
-
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',

@@ -20,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
 import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
-import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { editorSceneLogic, renderTableCount } from '../editorSceneLogic'

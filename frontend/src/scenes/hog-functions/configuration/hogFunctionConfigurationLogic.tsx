@@ -52,7 +52,6 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
     PersonType,
-    PipelineNodeTab,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -283,7 +282,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         const baseKey = id ?? templateId ?? 'new'
         return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
-    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -1442,15 +1441,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
 
             // TODO: Fix this!!
-            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
-            if (
-                !(
-                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
-                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
-                )
-            ) {
-                return true
-            }
+            // const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            // if (
+            //     !(
+            //         possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+            //         possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+            //     )
+            // ) {
+            //     return true
+            // }
 
             return false
         },

@@ -6,7 +6,7 @@ import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExport
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportService, Breadcrumb, PipelineStage } from '~/types'
+import { BatchExportService, Breadcrumb } from '~/types'
 
 import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
 import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
@@ -118,7 +118,7 @@ export function BatchExportScene(): JSX.Element {
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: <PipelineNodeLogs id={id} stage={PipelineStage.Destination} />,
+                  content: <PipelineNodeLogs id={id} />,
               }
             : null,
         id

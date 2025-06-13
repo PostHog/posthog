@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineStage, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
+import { PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import {
     defaultConfigForPlugin,
@@ -17,13 +17,7 @@ import {
 } from '../../pipeline/configUtils'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 
-async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
-    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
-    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
-}
-
 export interface PipelinePluginConfigurationLogicProps {
-    stage: PipelineStage | null
     pluginId: number | null
     pluginConfigId: number | null
 }
@@ -68,15 +62,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         return null
                     }
 
-                    let plugins: Record<number, PluginType> = {}
-
-                    // TRICKY: We load from the list as the permissions are a not quite right for getting one.
-                    // As we are moving away from plugins opting for this quick fix for now.
-                    if (props.stage === PipelineStage.Transformation) {
-                        plugins = await loadPluginsFromUrl('api/organizations/@current/pipeline_transformations')
-                    } else if (props.stage === PipelineStage.Destination) {
-                        plugins = await loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
-                    }
+                    const plugins: Record<number, PluginType> = {}
 
                     return plugins[props.pluginId] || api.get(`api/organizations/@current/plugins/${props.pluginId}`)
                 },
@@ -92,7 +78,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     return null
                 },
                 updatePluginConfig: async (formdata: Record<string, any>) => {
-                    if (!values.plugin || !props.stage) {
+                    if (!values.plugin) {
                         return null
                     }
                     const { enabled, order, name, description, ...config } = formdata
@@ -211,7 +197,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             },
         ],
         isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
-        stage: [(_, p) => [p.stage], (stage) => stage],
     })),
     forms(({ asyncActions, values }) => ({
         configuration: {

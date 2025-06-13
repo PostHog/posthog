@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import api from '~/lib/api'
-import { LogEntry, LogEntryLevel, LogEntryRequestParams, PipelineStage } from '~/types'
+import { LogEntry, LogEntryLevel, LogEntryRequestParams } from '~/types'
 
 import type { pipelineNodeLogsLogicType } from './pipelineNodeLogsLogicType'
 
@@ -46,8 +46,6 @@ export enum PipelineBackend {
 
 export interface PipelineNodeLogsLogicProps {
     id: number | string
-    /** Might be null if a non-existent stage is set in th URL. */
-    stage: PipelineStage | null
 }
 
 type PluginNodeId = {
@@ -62,7 +60,7 @@ type BatchExportNodeId = {
 export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId
 
 export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
-    props({} as PipelineNodeLogsLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
+    props({} as PipelineNodeLogsLogicProps),
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
     connect(() => ({
