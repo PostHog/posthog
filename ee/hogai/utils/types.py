@@ -117,7 +117,7 @@ class _SharedAssistantState(BaseModel):
     """
     The insight plan to generate.
     """
-    root_tool_insight_type: Optional[str] = Field(default=None, deprecated=True)
+    root_tool_insight_type: Optional[str] = Field(default=None)
     """
     The type of insight to generate.
     """
