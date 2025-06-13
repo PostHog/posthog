@@ -18,7 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
 import structlog
 from django.utils.decorators import method_decorator
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.user_permissions import UserPermissions
@@ -127,9 +127,9 @@ class OAuthValidator(OAuth2Validator):
 
         return OAuthAccessToken.objects.create(
             user=request.user,
-            scope=token["scope"],
+            scope=token.get("scope", None),
             expires=expires,
-            token=token["access_token"],
+            token=token.get("access_token", None),
             id_token=id_token,
             application=request.client,
             source_refresh_token=source_refresh_token,
@@ -143,11 +143,11 @@ class OAuthValidator(OAuth2Validator):
         )
 
         if not expires:
-            expires = timezone.now() + timedelta(seconds=oauth2_settings.AUTHORIZATION_CODE_EXPIRE_SECONDS)
+            expires = timezone.now() + timedelta(seconds=cast(int, oauth2_settings.AUTHORIZATION_CODE_EXPIRE_SECONDS))
         return OAuthGrant.objects.create(
             application=request.client,
             user=request.user,
-            code=code["code"],
+            code=code.get("code", None),
             expires=expires,
             redirect_uri=request.redirect_uri,
             scope=" ".join(request.scopes),

@@ -120,7 +120,7 @@ class TestOAuthAPI(APIBaseTest):
 
     @property
     def private_key(self) -> str:
-        return settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEY"]
+        return str(settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEY"])
 
     @property
     def public_key(self) -> str:
@@ -283,7 +283,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(grant.code_challenge, self.code_challenge)
         self.assertEqual(grant.code_challenge_method, "S256")
 
-        expiration_minutes = settings.OAUTH2_PROVIDER["AUTHORIZATION_CODE_EXPIRE_SECONDS"] / 60
+        expiration_minutes = int(settings.OAUTH2_PROVIDER["AUTHORIZATION_CODE_EXPIRE_SECONDS"]) / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
 
@@ -708,13 +708,13 @@ class TestOAuthAPI(APIBaseTest):
 
         public_key = public_numbers.public_key()
 
-        public_key_pem = public_key.public_bytes(
+        public_key_pem_bytes = public_key.public_bytes(
             encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
 
-        public_key_pem = public_key_pem.decode("utf-8")
+        public_key_pem_str = public_key_pem_bytes.decode("utf-8")
 
-        self.assertEqual(public_key_pem, self.public_key)
+        self.assertEqual(public_key_pem_str, self.public_key)
 
     def test_id_token_not_returned_without_openid_scope(self):
         data_without_openid = {

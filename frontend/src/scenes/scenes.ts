@@ -474,6 +474,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'plain',
         projectBased: false,
         organizationBased: false,
+        allowUnauthenticated: true,
     },
     [Scene.HogFunction]: {
         projectBased: true,

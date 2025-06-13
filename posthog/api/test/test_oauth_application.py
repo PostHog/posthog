@@ -1,8 +1,8 @@
 from rest_framework import status
-# from django.urls import reverse # No longer needed if not using reverse()
 
 from posthog.models.oauth import OAuthApplication
 from posthog.test.base import APIBaseTest
+from rest_framework.test import APIClient
 
 
 class TestOAuthApplicationMetadataView(APIBaseTest):
@@ -62,8 +62,6 @@ class TestOAuthApplicationMetadataView(APIBaseTest):
         self.assertEqual(response.data, expected_data)
 
     def test_endpoint_is_publicly_accessible_with_unauthenticated_client(self):
-        from rest_framework.test import APIClient
-
         unauthenticated_client = APIClient()
 
         url = f"/api/oauth_application/metadata/{self.application.client_id}/"

@@ -41,9 +41,9 @@ export const OAuthAuthorize = (): JSX.Element => {
         <div className="max-w-2xl mx-auto py-12 px-6">
             <div className="text-center mb-8">
                 <h2 className="text-2xl font-semibold">
-                    Authorize <strong>{oauthApplication?.name}</strong>
+                    Authorize <strong>{oauthApplication.name}</strong>
                 </h2>
-                <p className="text-muted mt-2">{oauthApplication?.name} is requesting access to your data.</p>
+                <p className="text-muted mt-2">{oauthApplication.name} is requesting access to your data.</p>
             </div>
 
             <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">

@@ -9,29 +9,31 @@ export type APIScope = {
     disabledWhenProjectScoped?: boolean
     description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
+    objectPlural: string
 }
 
 export const APIScopes: APIScope[] = [
-    { key: 'action' },
-    { key: 'activity_log' },
-    { key: 'annotation' },
-    { key: 'batch_export' },
-    { key: 'cohort' },
-    { key: 'dashboard' },
-    { key: 'dashboard_template' },
-    { key: 'early_access_feature' },
-    { key: 'event_definition' },
-    { key: 'error_tracking' },
-    { key: 'experiment' },
-    { key: 'export' },
-    { key: 'feature_flag' },
-    { key: 'group' },
-    { key: 'hog_function' },
-    { key: 'insight' },
-    { key: 'notebook' },
-    { key: 'organization', disabledWhenProjectScoped: true },
+    { key: 'action', objectPlural: 'actions' },
+    { key: 'activity_log', objectPlural: 'activity logs' },
+    { key: 'annotation', objectPlural: 'annotations' },
+    { key: 'batch_export', objectPlural: 'batch exports' },
+    { key: 'cohort', objectPlural: 'cohorts' },
+    { key: 'dashboard', objectPlural: 'dashboards' },
+    { key: 'dashboard_template', objectPlural: 'dashboard templates' },
+    { key: 'early_access_feature', objectPlural: 'early access features' },
+    { key: 'event_definition', objectPlural: 'event definitions' },
+    { key: 'error_tracking', objectPlural: 'error tracking' },
+    { key: 'experiment', objectPlural: 'experiments' },
+    { key: 'export', objectPlural: 'exports' },
+    { key: 'feature_flag', objectPlural: 'feature flags' },
+    { key: 'group', objectPlural: 'groups' },
+    { key: 'hog_function', objectPlural: 'hog functions' },
+    { key: 'insight', objectPlural: 'insights' },
+    { key: 'notebook', objectPlural: 'notebooks' },
+    { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
     {
         key: 'organization_member',
+        objectPlural: 'organization members',
         disabledWhenProjectScoped: true,
         warnings: {
             write: (
@@ -43,23 +45,25 @@ export const APIScopes: APIScope[] = [
             ),
         },
     },
-    { key: 'person' },
-    { key: 'plugin' },
+    { key: 'person', objectPlural: 'persons' },
+    { key: 'plugin', objectPlural: 'plugins' },
     {
         key: 'project',
+        objectPlural: 'projects',
         warnings: {
             write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
         },
     },
-    { key: 'property_definition' },
-    { key: 'query', disabledActions: ['write'] },
-    { key: 'session_recording' },
-    { key: 'session_recording_playlist' },
-    { key: 'sharing_configuration' },
-    { key: 'subscription' },
-    { key: 'survey' },
+    { key: 'property_definition', objectPlural: 'property definitions' },
+    { key: 'query', disabledActions: ['write'], objectPlural: 'queries' },
+    { key: 'session_recording', objectPlural: 'session recordings' },
+    { key: 'session_recording_playlist', objectPlural: 'session recording playlists' },
+    { key: 'sharing_configuration', objectPlural: 'sharing configurations' },
+    { key: 'subscription', objectPlural: 'subscriptions' },
+    { key: 'survey', objectPlural: 'surveys' },
     {
         key: 'user',
+        objectPlural: 'users',
         disabledActions: ['write'],
         warnings: {
             read: (
@@ -71,9 +75,13 @@ export const APIScopes: APIScope[] = [
             ),
         },
     },
-    { key: 'webhook', info: 'Webhook configuration is currently only enabled for the Zapier integration.' },
-    { key: 'warehouse_view' },
-    { key: 'warehouse_table' },
+    {
+        key: 'webhook',
+        info: 'Webhook configuration is currently only enabled for the Zapier integration.',
+        objectPlural: 'webhooks',
+    },
+    { key: 'warehouse_view', objectPlural: 'warehouse views' },
+    { key: 'warehouse_table', objectPlural: 'warehouse tables' },
 ]
 
 export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [

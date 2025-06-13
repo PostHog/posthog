@@ -43,7 +43,7 @@ const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.E
             ) : accessType === 'organizations' ? (
                 <>
                     <p className="mb-2">
-                        This will only allow access to selected organizations and all project within them.
+                        This will only allow access to selected organizations and all projects within them.
                     </p>
 
                     <LemonField name="scoped_organizations">
