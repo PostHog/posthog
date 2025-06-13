@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0763_migrate_team_base_currency"),
+        ("posthog", "0767_batchimport_created_by_id"),
     ]
 
     operations = [
