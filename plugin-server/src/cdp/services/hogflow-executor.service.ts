@@ -81,7 +81,6 @@ export class HogFlowExecutorService {
         }
     }
 
-    // NOTE: We will probably make these async to allow for some additional fetching such as for integrations / persons
     async execute(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
