@@ -88,7 +88,6 @@ export class HogFlowExecutorService {
     }
 
     protected async getPerson(personId: string): Promise<Person | null> {
-        // TODO: Implement via dedicated lazy loader service
         return null
     }
 
