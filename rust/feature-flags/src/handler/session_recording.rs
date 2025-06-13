@@ -45,7 +45,7 @@ pub fn session_recording_config_response(
         Some(cfg) if cfg.is_object() => {
             let key = cfg.get("key").cloned();
             let variant = cfg.get("variant").cloned();
-
+    
             match (key, variant) {
                 (Some(k), Some(v)) => Some(json!({ "flag": k, "variant": v })),
                 (Some(k), None) => Some(k),
