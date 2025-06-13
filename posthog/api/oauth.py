@@ -206,9 +206,9 @@ class OAuthValidator(OAuth2Validator):
             try:
                 code = dict(request.decoded_body).get("code", None)
                 if code:
-                    grant: OAuthGrant = OAuthGrant.objects.get(code=code)
-                    scoped_teams = grant.scoped_teams
-                    scoped_organizations = grant.scoped_organizations
+                    code_grant = OAuthGrant.objects.get(code=code)
+                    scoped_teams = code_grant.scoped_teams
+                    scoped_organizations = code_grant.scoped_organizations
             except OAuthGrant.DoesNotExist:
                 pass
 
