@@ -116,6 +116,10 @@ export class HogFlowExecutorService {
         // TODO: Add early exit for exit conditions being met
         // Also load the person info for that and cache it on the invocation in a way that won't get serialized
 
+        // NOTE: Todo this right we likely want to enrich the invocation here or earlier with two things:
+        // 1. The person object
+        // 2. the converted filters object as it is likely to be used by many or all runners
+
         // TODO: Also derive max action step count from the hog flow
         try {
             while (!result.finished && result.invocation.state.actionStepCount < MAX_ACTION_STEPS_HARD_LIMIT) {
