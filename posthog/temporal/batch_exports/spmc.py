@@ -2,6 +2,7 @@ import abc
 import asyncio
 import collections.abc
 import datetime as dt
+import math
 import operator
 import typing
 import uuid
@@ -986,21 +987,25 @@ def slice_record_batch(
         min_records_batch_per_batch: Each slice yielded should contain at least
             this number of records.
     """
-    total_rows = record_batch.num_rows
-    yielded_rows = 0
-    offset = 0
-    length = total_rows
-
     if max_record_batch_size_bytes <= 0 or max_record_batch_size_bytes > record_batch.nbytes:
         yield record_batch
         return
+
+    total_rows = record_batch.num_rows
+    yielded_rows = 0
+    offset = 0
+    estimated = _estimate_rows_to_fit_under_max(record_batch, max_record_batch_size_bytes, min_records_per_batch)
+    length = total_rows - estimated
 
     while yielded_rows < total_rows:
         sliced_record_batch = record_batch.slice(offset=offset, length=length)
         current_rows = sliced_record_batch.num_rows
 
-        if max_record_batch_size_bytes < sliced_record_batch.nbytes and min_records_per_batch < current_rows:
-            length -= 1
+        if sliced_record_batch.nbytes > max_record_batch_size_bytes and current_rows > min_records_per_batch:
+            estimated = _estimate_rows_to_fit_under_max(
+                sliced_record_batch, max_record_batch_size_bytes, min_records_per_batch
+            )
+            length -= estimated
             continue
 
         yield sliced_record_batch
@@ -1008,6 +1013,17 @@ def slice_record_batch(
         yielded_rows += current_rows
         offset = offset + length
         length = total_rows - yielded_rows
+
+
+def _estimate_rows_to_fit_under_max(
+    slice: pa.RecordBatch, max_record_batch_size_bytes: int, min_records_per_batch: int
+) -> int:
+    if slice.nbytes <= max_record_batch_size_bytes or slice.num_rows <= min_records_per_batch:
+        return 0
+
+    avg_bytes_per_row = slice.nbytes / slice.num_rows
+    bytes_diff = slice.nbytes - max_record_batch_size_bytes
+    return max(math.floor(bytes_diff / avg_bytes_per_row), 1)
 
 
 def generate_query_ranges(
