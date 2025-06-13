@@ -182,3 +182,43 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         endpoint_path = f"/api/projects/{{project_id}}/external_web_analytics/summary/"
 
         assert endpoint_path in paths
+
+    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    def test_summary_sql_injection_protection(self, mock_chdb):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
+        mock_chdb.query.side_effect = [
+            "100,50,200\n",
+            "25,50\n",
+        ]
+
+        malicious_dates = [
+            "2023-01-01'; DROP TABLE users; --",
+            "2023-01-01' OR '1'='1",
+            "2023-01-01'; SELECT * FROM sensitive_table; --",
+            "2023-01-01' UNION SELECT password FROM users --",
+            "'; DELETE FROM events; --",
+        ]
+
+        for malicious_date in malicious_dates:
+            response = self.client.post(
+                self.url,
+                data={
+                    "date_from": malicious_date,
+                    "date_to": "2023-01-31",
+                    "explicit_date": True,
+                },
+            )
+
+            assert response.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_200_OK]
+
+            if response.status_code == status.HTTP_200_OK:
+                for call in mock_chdb.query.call_args_list:
+                    query_str = call[0][0] if call[0] else ""
+                    assert "DROP TABLE" not in query_str.upper()
+                    assert "DELETE FROM" not in query_str.upper()
+                    assert "UNION SELECT" not in query_str.upper()
+                    assert "SELECT * FROM" not in query_str.upper()
+
+        mock_chdb.reset_mock()
