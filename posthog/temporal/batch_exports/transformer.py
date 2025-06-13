@@ -217,10 +217,8 @@ class ParquetStreamTransformer(StreamTransformer):
         """Write records to a temporary file as Parquet."""
 
         self.parquet_writer.write_batch(record_batch.select(self.parquet_writer.schema.names))
-        # Get current buffer content without copying
         data = self._parquet_buffer.getvalue()
 
-        # Reset buffer efficiently
         self._parquet_buffer.seek(0)
         self._parquet_buffer.truncate(0)
 
