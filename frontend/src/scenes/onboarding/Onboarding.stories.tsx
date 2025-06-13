@@ -3,8 +3,6 @@ import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import pluginConfigs from 'scenes/pipeline/__mocks__/pluginConfigs.json'
-import plugins from 'scenes/pipeline/__mocks__/plugins.json'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -36,8 +34,6 @@ const meta: Meta = {
                 '/api/billing/': {
                     ...billingJson,
                 },
-                '/api/projects/:team_id/pipeline_transformation_configs/': pluginConfigs,
-                '/api/organizations/:organization_id/pipeline_transformations/': plugins,
             },
             patch: {
                 '/api/environments/@current/add_product_intent/': {},

@@ -14,7 +14,7 @@ import {
     determineInvisibleFields,
     determineRequiredFields,
     getPluginConfigFormData,
-} from '../../pipeline/configUtils'
+} from './configUtils'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 
 export interface PipelinePluginConfigurationLogicProps {
