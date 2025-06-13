@@ -11,6 +11,9 @@ import { AvailableFeature } from '~/types'
 
 import batchExports from './__mocks__/batchExports.json'
 import empty from './__mocks__/empty.json'
+import _hogFunctionDestinations from './__mocks__/hogFunctionDestinations.json'
+import _hogFunctionMetrics from './__mocks__/hogFunctionMetrics.json'
+import _hogFunctionTransformations from './__mocks__/hogFunctionTransformations.json'
 
 const batchExportsRetrieveMock: MockSignature = (req, res, ctx) => {
     const batchExport = batchExports.results.find((conf) => conf.id === req.params.id)
@@ -18,6 +21,27 @@ const batchExportsRetrieveMock: MockSignature = (req, res, ctx) => {
         return res(ctx.status(404))
     }
     return res(ctx.json({ ...batchExport }))
+}
+
+const hogFunctionsRetrieveMock: MockSignature = (req, res, ctx) => {
+    const hogFunction =
+        _hogFunctionDestinations.results.find((conf) => conf.id === req.params.id) ||
+        _hogFunctionTransformations.results.find((conf) => conf.id === req.params.id)
+    if (!hogFunction) {
+        return res(ctx.status(404))
+    }
+    return res(ctx.json({ ...hogFunction }))
+}
+
+const hogFunctionListMock: MockSignature = (req, res, ctx) => {
+    const type = req.url.searchParams.get('types') || req.url.searchParams.get('type')
+    const results = type?.includes('transformation')
+        ? _hogFunctionTransformations
+        : type?.includes('destination')
+        ? _hogFunctionDestinations
+        : []
+
+    return res(ctx.json(results))
 }
 
 export default {
@@ -44,6 +68,12 @@ export default {
                 '/api/environments/:team_id/integrations/': empty,
 
                 // Hog functions
+                '/api/environments/:team_id/hog_functions/': hogFunctionListMock,
+                '/api/projects/:team_id/hog_functions/': hogFunctionListMock,
+                '/api/environments/:team_id/hog_functions/:id': hogFunctionsRetrieveMock,
+                '/api/projects/:team_id/hog_functions/:id': hogFunctionsRetrieveMock,
+                '/api/environments/:team_id/hog_functions/:id/metrics': _hogFunctionMetrics,
+                '/api/projects/:team_id/hog_functions/:id/metrics': _hogFunctionMetrics,
             },
         }),
     ],
