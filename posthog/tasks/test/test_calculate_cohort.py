@@ -306,7 +306,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_a = Cohort.objects.create(
                 team=self.team,
                 name="Cohort A",
-                groups=[{"properties": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}]}],
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
+                    }
+                },
                 is_static=False,
             )
 
@@ -314,7 +319,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_b = Cohort.objects.create(
                 team=self.team,
                 name="Cohort B",
-                groups=[{"properties": [{"key": "$some_prop_b", "value": "something_b", "type": "person"}]}],
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop_b", "value": "something_b", "type": "person"}],
+                    }
+                },
                 is_static=False,
             )
 
@@ -322,14 +332,15 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_c = Cohort.objects.create(
                 team=self.team,
                 name="Cohort C",
-                groups=[
-                    {
-                        "properties": [
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
                             {"key": "id", "value": cohort_a.id, "type": "cohort"},
                             {"key": "id", "value": cohort_b.id, "type": "cohort"},
-                        ]
+                        ],
                     }
-                ],
+                },
                 is_static=False,
             )
 
@@ -337,7 +348,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_d = Cohort.objects.create(
                 team=self.team,
                 name="Cohort D",
-                groups=[{"properties": [{"key": "id", "value": cohort_c.id, "type": "cohort"}]}],
+                filters={
+                    "properties": {"type": "AND", "values": [{"key": "id", "value": cohort_c.id, "type": "cohort"}]}
+                },
                 is_static=False,
             )
 
@@ -388,7 +401,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_a = Cohort.objects.create(
                 team=self.team,
                 name="Cohort A",
-                groups=[{"properties": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}]}],
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
+                    }
+                },
                 is_static=False,
             )
 
@@ -396,15 +414,16 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort_with_missing_dependency = Cohort.objects.create(
                 team=self.team,
                 name="Cohort with missing dependency",
-                groups=[
-                    {
-                        "properties": [
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
                             {"key": "id", "value": MISSING_COHORT_ID, "type": "cohort"},  # non-existent cohort
                             {"key": "id", "value": cohort_a.id, "type": "cohort"},
                             {"key": "$some_prop", "value": "something", "type": "person"},
-                        ]
+                        ],
                     }
-                ],
+                },
                 is_static=False,
             )
 
@@ -454,14 +473,15 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             dynamic_cohort = Cohort.objects.create(
                 team=self.team,
                 name="Dynamic Cohort depending on static cohorts",
-                groups=[
-                    {
-                        "properties": [
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
                             {"key": "id", "value": static_cohort_a.id, "type": "cohort"},
                             {"key": "$dynamic_prop", "value": "dynamic_value", "type": "person"},
-                        ]
+                        ],
                     }
-                ],
+                },
                 is_static=False,
             )
 
@@ -497,6 +517,96 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             )
 
             mock_chain.assert_called_once_with(mock_task)
+            mock_chain_instance.apply_async.assert_called_once()
+
+        @patch("posthog.tasks.calculate_cohort.chain")
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+        def test_increment_version_and_enqueue_calculate_cohort_with_cyclic_dependency(
+            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+        ) -> None:
+            # Create a cyclic dependency: A -> B -> C -> A
+            cohort_a = Cohort.objects.create(
+                team=self.team,
+                name="Cohort A",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
+                    }
+                },
+                is_static=False,
+            )
+
+            cohort_b = Cohort.objects.create(
+                team=self.team,
+                name="Cohort B",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "id", "value": cohort_a.id, "type": "cohort"},
+                            {"key": "$some_prop_b", "value": "something_b", "type": "person"},
+                        ],
+                    }
+                },
+                is_static=False,
+            )
+
+            cohort_c = Cohort.objects.create(
+                team=self.team,
+                name="Cohort C",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "id", "value": cohort_b.id, "type": "cohort"},
+                            {"key": "$some_prop_c", "value": "something_c", "type": "person"},
+                        ],
+                    }
+                },
+                is_static=False,
+            )
+
+            # Create the cycle by making A depend on C
+            cohort_a.filters = {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort_c.id, "type": "cohort"},
+                        {"key": "$some_prop_a", "value": "something_a", "type": "person"},
+                    ],
+                }
+            }
+            cohort_a.save()
+
+            mock_chain_instance = MagicMock()
+            mock_chain.return_value = mock_chain_instance
+
+            mock_task = MagicMock()
+            mock_calculate_cohort_ch_si.return_value = mock_task
+
+            increment_version_and_enqueue_calculate_cohort(cohort_a, initiating_user=None)
+
+            cohort_a.refresh_from_db()
+            cohort_b.refresh_from_db()
+            cohort_c.refresh_from_db()
+
+            self.assertEqual(cohort_a.pending_version, 1)
+            self.assertEqual(cohort_b.pending_version, 1)
+            self.assertEqual(cohort_c.pending_version, 1)
+            self.assertTrue(cohort_a.is_calculating)
+            self.assertTrue(cohort_b.is_calculating)
+            self.assertTrue(cohort_c.is_calculating)
+
+            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 3)
+
+            actual_calls = mock_calculate_cohort_ch_si.call_args_list
+            actual_cohort_order = [call[0][0] for call in actual_calls]
+
+            self.assertEqual(len(actual_cohort_order), 3)
+            self.assertEqual(len(set(actual_cohort_order)), 3)
+
+            mock_chain.assert_called_once_with(mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
 
     return TestCalculateCohort
