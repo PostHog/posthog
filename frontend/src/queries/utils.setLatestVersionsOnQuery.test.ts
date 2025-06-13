@@ -54,6 +54,45 @@ describe('setLatestVersionsOnQuery', () => {
             version: 7,
         })
     })
+
+    it('allows disabling recursing for user provided queries', () => {
+        const query = {
+            kind: 'InsightVizNode',
+            source: {
+                kind: 'FunnelsQuery',
+                series: [
+                    {
+                        kind: 'EventsNode',
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    {
+                        kind: 'EventsNode',
+                        event: '$pageview',
+                        name: 'Pageview',
+                    },
+                ],
+                funnelsFilter: {
+                    funnelVizType: 'steps',
+                },
+            },
+            full: true,
+        }
+
+        expect(setLatestVersionsOnQuery(query, { recursion: false })).toEqual({
+            full: true,
+            kind: 'InsightVizNode',
+            source: {
+                funnelsFilter: { funnelVizType: 'steps' },
+                kind: 'FunnelsQuery',
+                series: [
+                    { event: '$pageview', kind: 'EventsNode', name: '$pageview' },
+                    { event: '$pageview', kind: 'EventsNode', name: 'Pageview' },
+                ],
+            },
+            version: 7,
+        })
+    })
 })
 
 export {}
