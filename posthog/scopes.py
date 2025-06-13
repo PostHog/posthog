@@ -59,7 +59,6 @@ APIScopeObjectOrNotSupported = Literal[
     "INTERNAL",
 ]
 
-
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 

@@ -37,8 +37,8 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from .api.web_experiment import web_experiments
-from .api.utils import hostname_in_allowed_url_list
+from posthog.api.web_experiment import web_experiments
+from posthog.api.utils import hostname_in_allowed_url_list
 from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS
@@ -61,6 +61,7 @@ from .views import (
 from posthog.api.query import progress
 
 from posthog.api.slack import slack_interactivity_callback
+from posthog.oauth2_urls import urlpatterns as oauth2_urls
 
 logger = structlog.get_logger(__name__)
 
@@ -221,6 +222,7 @@ urlpatterns = [
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
+    path("oauth/", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
