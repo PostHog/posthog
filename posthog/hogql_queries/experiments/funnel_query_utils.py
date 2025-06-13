@@ -13,15 +13,11 @@ from posthog.schema import (
 )
 
 
-def funnel_steps_to_filter(
-    team: Team, funnel_steps: list[EventsNode | ActionsNode], events_alias: Optional[str] = None
-) -> ast.Expr:
+def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
     """
-    return ast.Or(
-        exprs=[event_or_action_to_filter(team, funnel_step, events_alias=events_alias) for funnel_step in funnel_steps]
-    )
+    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
 
 
 def funnel_evaluation_expr(
@@ -64,7 +60,7 @@ def funnel_evaluation_expr(
         # the condition and 0 otherwise.
         step_conditions = []
         for i, funnel_step in enumerate(funnel_metric.series):
-            filter_expr = event_or_action_to_filter(team, funnel_step, events_alias=events_alias)
+            filter_expr = event_or_action_to_filter(team, funnel_step)
             step_condition_placeholder = f"step_condition_{i}"
             step_conditions.append(f"multiply({i + 1}, if({{{step_condition_placeholder}}}, 1, 0))")
             placeholders[step_condition_placeholder] = filter_expr

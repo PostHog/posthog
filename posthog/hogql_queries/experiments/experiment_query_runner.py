@@ -407,7 +407,7 @@ class ExperimentQueryRunner(QueryRunner):
                 # Pre-calculate step conditions to avoid property resolution issues in UDF
                 step_selects = []
                 for i, funnel_step in enumerate(metric.series):
-                    step_filter = event_or_action_to_filter(self.team, funnel_step, events_alias="events")
+                    step_filter = event_or_action_to_filter(self.team, funnel_step)
                     step_selects.append(
                         ast.Alias(
                             alias=f"step_{i}",
@@ -445,7 +445,7 @@ class ExperimentQueryRunner(QueryRunner):
                         exprs=[
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             *self._get_test_accounts_filter(),
-                            funnel_steps_to_filter(self.team, metric.series, events_alias="events"),
+                            funnel_steps_to_filter(self.team, metric.series),
                         ],
                     ),
                 )

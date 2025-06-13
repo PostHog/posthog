@@ -314,7 +314,6 @@ def property_to_expr(
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
     strict: bool = False,
-    events_alias: Optional[str] = None,
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -426,9 +425,7 @@ def property_to_expr(
                 property.key = split[-1]
 
             if isinstance(value, list) and len(value) > 1:
-                # Prepend events_alias if provided
-                full_chain = [events_alias, *chain, property.key] if events_alias else [*chain, property.key]
-                field = ast.Field(chain=full_chain)
+                field = ast.Field(chain=[*chain, property.key])
                 exprs = [
                     _expr_to_compare_op(
                         expr=field,
@@ -471,9 +468,7 @@ def property_to_expr(
         if chain == ["properties"] and property.key == "$elements_chain":
             field = ast.Field(chain=["elements_chain"])
         else:
-            # Prepend events_alias if provided
-            full_chain = [events_alias, *chain, property.key] if events_alias else [*chain, property.key]
-            field = ast.Field(chain=full_chain)
+            field = ast.Field(chain=[*chain, property.key])
 
         expr: ast.Expr = field
 
