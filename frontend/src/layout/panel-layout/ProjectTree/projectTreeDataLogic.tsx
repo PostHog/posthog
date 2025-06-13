@@ -9,6 +9,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { UNFILED_SAVED_QUERIES_PATH } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -779,7 +780,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return
             }
             // Prevent creating folders that start with UNFILED_SAVED_QUERIES_PATH. Special case used in queryDatabase sidebar
-            if (newPath.startsWith('Unfiled/Saved queries')) {
+            if (newPath === UNFILED_SAVED_QUERIES_PATH) {
                 lemonToast.error('Saved queries is a reserved path in this folder')
                 return
             }

@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { lemonToast, Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -1032,7 +1032,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         addFolder: ({ folder, editAfter, callback }) => {
             // Prevent creating folders that start with UNFILED_SAVED_QUERIES_PATH. Special case used in queryDatabase sidebar
-            if (folder.startsWith(UNFILED_SAVED_QUERIES_PATH)) {
+            if (folder === UNFILED_SAVED_QUERIES_PATH) {
                 lemonToast.error('Saved queries is a reserved path in this folder')
                 return
             }

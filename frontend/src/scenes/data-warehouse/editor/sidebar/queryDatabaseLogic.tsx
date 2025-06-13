@@ -71,7 +71,7 @@ const FILE_FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
     includeMatches: true,
 }
 
-const UNFILED_SAVED_QUERIES_PATH = 'Unfiled/Saved queries'
+export const UNFILED_SAVED_QUERIES_PATH = 'Unfiled/Saved queries'
 
 const posthogTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
@@ -1085,5 +1085,3 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         actions.loadFolder(UNFILED_SAVED_QUERIES_PATH)
     }),
 ])
-
-export { UNFILED_SAVED_QUERIES_PATH }
