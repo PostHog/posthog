@@ -1,6 +1,6 @@
 import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
 
-import { VIEW_BOX_WIDTH } from './constants'
+import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
 import { GridLines } from './GridLines'
 import { useTooltipHover } from './useTooltipHover'
 import { VariantBar } from './VariantBar'
@@ -8,7 +8,6 @@ import { VariantTooltip } from './VariantTooltip'
 
 export function Chart({
     chartSvgRef,
-    chartHeight,
     variantResults,
     chartRadius,
     metricIndex,
@@ -16,7 +15,6 @@ export function Chart({
     isSecondary,
 }: {
     chartSvgRef: React.RefObject<SVGSVGElement>
-    chartHeight: number
     variantResults: ExperimentVariantResultFrequentist[]
     chartRadius: number
     metricIndex: number
@@ -24,6 +22,8 @@ export function Chart({
     isSecondary: boolean
 }): JSX.Element {
     const { showTooltip, hideTooltip, showTooltipFromTooltip, isTooltipVisible } = useTooltipHover()
+
+    const chartHeight = Math.max(BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variantResults.length, 70)
 
     return (
         <div className="relative w-full">
@@ -48,6 +48,8 @@ export function Chart({
                                 chartRadius={chartRadius}
                                 metricIndex={metricIndex}
                                 isSecondary={isSecondary}
+                                chartHeight={chartHeight}
+                                totalBars={variantResults.length}
                                 onMouseEnter={() => showTooltip(variantResult.key)}
                                 onMouseLeave={hideTooltip}
                             />

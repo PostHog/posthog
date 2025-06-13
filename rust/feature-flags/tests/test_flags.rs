@@ -1664,7 +1664,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let json_data = res.json::<Value>().await?;
     println!("json_data: {:?}", json_data);
     assert!(json_data.get("supportedCompression").is_none());
-    assert_eq!(json_data["autocapture_opt_out"], json!(false));
+    assert!(json_data.get("autocapture_opt_out").is_none());
 
     // With config param
     let res = server

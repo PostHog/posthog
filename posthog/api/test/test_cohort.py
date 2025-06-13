@@ -3,7 +3,7 @@ from ee.clickhouse.materialized_columns.analyze import materialize
 from datetime import datetime, timedelta
 from typing import Optional, Any
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
@@ -786,14 +786,25 @@ email@example.org,
         self.assertEqual(len(response.json()["results"]), 2, response)
 
     @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_and_calculating_with_cycle(self, patch_calculate_cohort, patch_capture):
+    def test_creating_update_and_calculating_with_cycle(
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+    ):
+        mock_chain_instance = MagicMock()
+        patch_chain.return_value = mock_chain_instance
+
+        # Count total calculation calls (both delay and chain)
+        def get_total_calculation_calls():
+            return patch_calculate_cohort_delay.call_count + patch_chain.call_count
+
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        self.assertEqual(get_total_calculation_calls(), 1)
 
         # Cohort B that depends on Cohort A
         response_b = self.client.post(
@@ -813,7 +824,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 2)
+        self.assertEqual(get_total_calculation_calls(), 2)
 
         # Cohort C that depends on Cohort B
         response_c = self.client.post(
@@ -833,7 +844,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
         # Update Cohort A to depend on Cohort C
         response = self.client.patch(
@@ -861,7 +872,7 @@ email@example.org,
             },
             response.json(),
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
         # Update Cohort A to depend on Cohort A itself
         response = self.client.patch(
@@ -889,17 +900,28 @@ email@example.org,
             },
             response.json(),
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
     @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_with_non_directed_cycle(self, patch_calculate_cohort, patch_capture):
+    def test_creating_update_with_non_directed_cycle(
+        self, patch_calculate_cohort_delay, patch_calculate_cohort_si, patch_chain, patch_capture
+    ):
+        mock_chain_instance = MagicMock()
+        patch_chain.return_value = mock_chain_instance
+
+        # Count total calculation calls (both delay and chain)
+        def get_total_calculation_calls():
+            return patch_calculate_cohort_delay.call_count + patch_chain.call_count
+
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        self.assertEqual(get_total_calculation_calls(), 1)
 
         # Cohort B that depends on Cohort A
         response_b = self.client.post(
@@ -919,7 +941,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 2)
+        self.assertEqual(get_total_calculation_calls(), 2)
 
         # Cohort C that depends on both Cohort A & B
         response_c = self.client.post(
@@ -944,7 +966,7 @@ email@example.org,
                 ],
             },
         )
-        self.assertEqual(patch_calculate_cohort.call_count, 3)
+        self.assertEqual(get_total_calculation_calls(), 3)
 
         # Update Cohort C
         response = self.client.patch(
@@ -955,7 +977,7 @@ email@example.org,
         )
         # it's not a loop because C depends on A & B, B depends on A, and A depends on nothing.
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(patch_calculate_cohort.call_count, 4)
+        self.assertEqual(get_total_calculation_calls(), 4)
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")

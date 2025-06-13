@@ -19,21 +19,17 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { useEffect, useState } from 'react'
 
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-
 export function SaveToModal(): JSX.Element {
-    const { isOpen, form, selectedFolders, defaultFolder } = useValues(saveToLogic)
+    const { isOpen, form, selectedFolders, defaultFolder = 'Unfiled' } = useValues(saveToLogic)
     const [showChooseFolder, setShowChooseFolder] = useState(false)
     const [locallySelectedFolder, setLocallySelectedFolder] = useState<SelectedFolder | null>(
         selectedFolders.length > 0 ? selectedFolders[0] : form.folder
     )
     const { closeSaveToModal, submitForm, addSelectedFolder, removeSelectedFolder, setFormValue } =
         useActions(saveToLogic)
-    const allFolders = splitPath(form.folder || '')
-    const lastFolder = form.folder === '' ? 'Project root' : allFolders[allFolders.length - 1]
 
     function handleSubmit(): void {
-        if (locallySelectedFolder) {
+        if (typeof locallySelectedFolder === 'string') {
             addSelectedFolder(locallySelectedFolder)
         }
         setFormValue('folder', locallySelectedFolder)
@@ -42,7 +38,7 @@ export function SaveToModal(): JSX.Element {
     }
 
     useEffect(() => {
-        if (form.folder) {
+        if (typeof form.folder === 'string' && form.folder !== locallySelectedFolder) {
             setLocallySelectedFolder(form.folder)
         }
     }, [form.folder])
@@ -59,12 +55,7 @@ export function SaveToModal(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSubmit}
-                        data-attr="save-to-modal-save-button"
-                        disabledReason={typeof lastFolder !== 'string' ? 'Please select a folder' : undefined}
-                    >
+                    <LemonButton type="primary" onClick={handleSubmit} data-attr="save-to-modal-save-button">
                         Save
                     </LemonButton>
                 </>
@@ -76,7 +67,7 @@ export function SaveToModal(): JSX.Element {
                         <DropdownMenuTrigger asChild>
                             <ButtonPrimitive fullWidth variant="outline">
                                 <IconFolder className="size-4 text-tertiary" />
-                                {locallySelectedFolder}
+                                {locallySelectedFolder || 'Project'}
                                 {defaultFolder === locallySelectedFolder ? (
                                     <span className="text-tertiary text-xxs pt-[2px]">(Default)</span>
                                 ) : null}
@@ -99,7 +90,7 @@ export function SaveToModal(): JSX.Element {
                                                     }}
                                                 >
                                                     {folder === locallySelectedFolder ? <IconCheck /> : <IconBlank />}
-                                                    {folder}
+                                                    {folder || 'Project'}
                                                 </ButtonPrimitive>
                                             </DropdownMenuItem>
                                             <ButtonPrimitive
@@ -136,7 +127,7 @@ export function SaveToModal(): JSX.Element {
                                         }}
                                     >
                                         {defaultFolder === locallySelectedFolder ? <IconCheck /> : <IconBlank />}
-                                        {defaultFolder}
+                                        {defaultFolder || 'Project'}
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             </DropdownMenuRadioGroup>
