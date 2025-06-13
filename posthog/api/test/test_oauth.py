@@ -1147,3 +1147,115 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_redirect_uri_with_query_params_handled_safely(self):
+        auth_data = {
+            **self.base_authorization_post_body,
+            "redirect_uri": "https://example.com/callback?redirect=https://evil.com",
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+
+        response_data = response.json()
+        redirect_to = response_data.get("redirect_to", "")
+
+        self.assertTrue(redirect_to.startswith("https://example.com/callback"))
+        self.assertNotIn("https://evil.com", redirect_to.split("?")[0])
+
+    def test_authorization_code_cannot_be_used_across_different_applications(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_data_wrong_app = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": "test_public_client_id",
+            "client_secret": "test_public_client_secret",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        response = self.post("/oauth/token/", token_data_wrong_app)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+
+    def test_pkce_strictly_enforced_for_public_clients(self):
+        public_auth_data_no_pkce = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data_no_pkce)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("error=invalid_request", redirect_to)
+        self.assertIn("Code+challenge+required", redirect_to)
+
+    def test_nonce_uniqueness_validation(self):
+        nonce_value = "test_nonce_12345"
+
+        auth_data_with_nonce = {**self.base_authorization_post_body, "nonce": nonce_value, "scope": "openid"}
+
+        response1 = self.client.post("/oauth/authorize/", auth_data_with_nonce)
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        code1 = response1.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response1 = self.post("/oauth/token/", {**self.base_token_body, "code": code1})
+        self.assertEqual(token_response1.status_code, status.HTTP_200_OK)
+
+        response2 = self.client.post("/oauth/authorize/", auth_data_with_nonce)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        code2 = response2.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response2 = self.post("/oauth/token/", {**self.base_token_body, "code": code2})
+        self.assertEqual(token_response2.status_code, status.HTTP_200_OK)
+
+    def test_access_token_isolation_between_applications(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        access_token = token_response.json()["access_token"]
+
+        other_app = OAuthApplication.objects.create(
+            name="Other Test App",
+            client_id="other_test_client_id",
+            client_secret="other_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://other.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        db_token = OAuthAccessToken.objects.get(token=access_token)
+        self.assertEqual(db_token.application, self.confidential_application)
+        self.assertNotEqual(db_token.application, other_app)
+
+    def test_token_leakage_in_error_responses(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        access_token = token_response.json()["access_token"]
+
+        invalid_requests = [
+            {"grant_type": "invalid_grant", "token": access_token},
+            {"client_id": "invalid_client", "token": access_token},
+        ]
+
+        for invalid_request in invalid_requests:
+            response = self.post("/oauth/token/", invalid_request)
+            response_text = response.content.decode()
+            self.assertNotIn(access_token, response_text)
