@@ -3167,6 +3167,8 @@ export interface WebAnalyticsExternalSummaryRequest {
 
 export type ExternalQueryErrorCode = 'platform_access_required' | 'query_execution_failed'
 
+export type ExternalQueryStatus = 'success' | 'error'
+
 export interface ExternalQueryError {
     code: ExternalQueryErrorCode
     detail: string
@@ -3174,7 +3176,7 @@ export interface ExternalQueryError {
 
 export interface WebAnalyticsExternalSummaryQueryResponse {
     data: Record<string, any>
-    status: 'success' | 'error'
+    status: ExternalQueryStatus
     error?: ExternalQueryError
 }
 

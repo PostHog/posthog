@@ -9998,6 +9998,10 @@
             "enum": ["platform_access_required", "query_execution_failed"],
             "type": "string"
         },
+        "ExternalQueryStatus": {
+            "enum": ["success", "error"],
+            "type": "string"
+        },
         "FailureMessage": {
             "additionalProperties": false,
             "properties": {
@@ -15202,8 +15206,7 @@
                             "$ref": "#/definitions/ExternalQueryError"
                         },
                         "status": {
-                            "enum": ["success", "error"],
-                            "type": "string"
+                            "$ref": "#/definitions/ExternalQueryStatus"
                         }
                     },
                     "required": ["data", "status"],
@@ -20217,8 +20220,7 @@
                     "$ref": "#/definitions/ExternalQueryError"
                 },
                 "status": {
-                    "enum": ["success", "error"],
-                    "type": "string"
+                    "$ref": "#/definitions/ExternalQueryStatus"
                 }
             },
             "required": ["data", "status"],

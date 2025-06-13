@@ -15,9 +15,11 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    ExternalQueryErrorCode,
     ExternalQueryError,
     WebAnalyticsExternalSummaryQuery,
     WebAnalyticsExternalSummaryQueryResponse,
+    ExternalQueryStatus,
 )
 
 
@@ -57,10 +59,10 @@ class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
             return WebAnalyticsExternalSummaryQueryResponse(
                 data={},
                 error=ExternalQueryError(
-                    code="platform_access_required",
+                    code=ExternalQueryErrorCode.PLATFORM_ACCESS_REQUIRED,
                     detail="Organization must have platform access to use external web analytics",
                 ),
-                status="error",
+                status=ExternalQueryStatus.ERROR,
             )
 
         try:
@@ -76,7 +78,7 @@ class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
                     "total_pageviews": results["total_pageviews"],
                     "bounce_rate": results["bounce_rate"],
                 },
-                status="success",
+                status=ExternalQueryStatus.SUCCESS,
             )
 
         except Exception as e:
@@ -84,10 +86,10 @@ class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
             return WebAnalyticsExternalSummaryQueryResponse(
                 data={},
                 error=ExternalQueryError(
-                    code="query_execution_failed",
+                    code=ExternalQueryErrorCode.QUERY_EXECUTION_FAILED,
                     detail="Failed to execute query",
                 ),
-                status="error",
+                status=ExternalQueryStatus.ERROR,
             )
 
     @cached_property

@@ -1083,6 +1083,11 @@ class ExternalQueryErrorCode(StrEnum):
     QUERY_EXECUTION_FAILED = "query_execution_failed"
 
 
+class ExternalQueryStatus(StrEnum):
+    SUCCESS = "success"
+    ERROR = "error"
+
+
 class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1712,11 +1717,6 @@ class QueryResponseAlternative17(BaseModel):
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
-
-
-class Status3(StrEnum):
-    SUCCESS = "success"
-    ERROR = "error"
 
 
 class QueryResponseAlternative59(BaseModel):
@@ -3177,7 +3177,7 @@ class QueryResponseAlternative24(BaseModel):
     )
     data: dict[str, Any]
     error: Optional[ExternalQueryError] = None
-    status: Status3
+    status: ExternalQueryStatus
 
 
 class QueryStatus(BaseModel):
@@ -3808,7 +3808,7 @@ class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
     )
     data: dict[str, Any]
     error: Optional[ExternalQueryError] = None
-    status: Status3
+    status: ExternalQueryStatus
 
 
 class WebExternalClicksTableQueryResponse(BaseModel):
