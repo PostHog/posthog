@@ -324,6 +324,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         capture_exception(err)
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
     else:
+        await logger.ainfo("I am here")
         await logger.ainfo("Materialized model %s", model.label)
         if queue:
             await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
@@ -968,18 +969,32 @@ class RunWorkflow(PostHogWorkflow):
 
         print("upstream", upstream)
 
-        # Only consider materialized views
+        # Only consider materialized views that should be run
         mat_views = [node for node in upstream["nodes"] if node["type"] == "view" and node.get("sync_frequency")]
-        node_ids = {node["id"] for node in mat_views}
+        mat_view_ids = {node["id"] for node in mat_views}
 
-        # Build dependencies and dependents maps
-        dependencies = {node["id"]: set() for node in mat_views}
-        dependents = {node["id"]: set() for node in mat_views}
+        # Build full dependency graph
+        all_deps: dict[str, set[str]] = collections.defaultdict(set)
         for edge in upstream["edges"]:
-            src, tgt = edge["source"], edge["target"]
-            if tgt in node_ids and src in node_ids:
-                dependencies[tgt].add(src)
-                dependents[src].add(tgt)
+            all_deps[edge["target"]].add(edge["source"])
+
+        # For each materialized view, find its materialized dependencies, traversing through non-materialized views
+        dependencies = {node_id: set() for node_id in mat_view_ids}
+        dependents: dict[str, set[str]] = collections.defaultdict(set)
+        for node_id in mat_view_ids:
+            q = collections.deque(list(all_deps.get(node_id, [])))
+            visited = set(q)
+            while q:
+                dep = q.popleft()
+                if dep in mat_view_ids:
+                    dependencies[node_id].add(dep)
+                    dependents[dep].add(node_id)
+                else:
+                    # If the dependency is not a materialized view (e.g. another view, or a table), look at its dependencies
+                    for grand_dep in all_deps.get(dep, []):
+                        if grand_dep not in visited:
+                            visited.add(grand_dep)
+                            q.append(grand_dep)
 
         completed = set()
         failed = set()
