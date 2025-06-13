@@ -1,7 +1,7 @@
 import type { Meta } from '@storybook/react'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { Combobox, ComboboxContent, ComboboxItem, ComboboxSearch } from './Combobox'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxItem, ComboboxSearch } from './Combobox'
 
 const meta = {
     title: 'UI/Combobox',
@@ -25,6 +25,8 @@ export function Default(): JSX.Element {
                     <ComboboxItem asChild onClick={() => console.log('clicked Banana')}>
                         <ButtonPrimitive menuItem>Banana</ButtonPrimitive>
                     </ComboboxItem>
+
+                    <ComboboxEmpty>No results found</ComboboxEmpty>
                 </ComboboxContent>
             </Combobox>
         </div>

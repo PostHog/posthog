@@ -11,6 +11,7 @@ import React, {
 } from 'react'
 import { ListBox, ListBoxHandle } from '../ListBox/ListBox'
 import { TextInputPrimitive } from '../TextInputPrimitive/TextInputPrimitive'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 // Styling variants
 const comboboxVariants = cva({
@@ -92,7 +93,7 @@ export const ComboboxSearch = forwardRef<HTMLInputElement, ComboboxSearchProps>(
 
 ComboboxSearch.displayName = 'ComboboxSearch'
 
-// Content (filters children)
+// Content (filters children + empty state support)
 type ComboboxContentProps = {
     children: ReactNode
     className?: string
@@ -101,34 +102,62 @@ type ComboboxContentProps = {
 export const ComboboxContent = ({ children, className }: ComboboxContentProps) => {
     const { value } = useComboboxContext()
 
-    const filteredItems = React.Children.toArray(children).filter((child) => {
+    const allChildren = React.Children.toArray(children)
+
+    const filteredItems = allChildren.filter((child) => {
         if (!React.isValidElement(child)) return false
 
         if (child.type === ComboboxItem) {
+            if (child.props.alwaysVisible) return true
+
             const text = extractTextFromReactNode(child.props.children).toLowerCase()
             return text.includes(value.toLowerCase())
         }
 
-        return true
+        return false
+    })
+
+    const emptyFallback = allChildren.find((child) => {
+        return React.isValidElement(child) && child.type === ComboboxEmpty
     })
 
     return (
-        <ul className={cn('flex flex-col gap-px px-1 pb-1', className)}>
-            {filteredItems}
+        <ul className={cn('flex flex-col gap-px px-1 pb-1 max-h-[200px]', className)}>
+            <ScrollableShadows direction='vertical' styledScrollbars innerClassName='rounded'>
+            {filteredItems.length > 0 ? filteredItems : emptyFallback ?? null}
+            </ScrollableShadows>
         </ul>
     )
 }
 
 ComboboxContent.displayName = 'ComboboxContent'
 
-// Item
-type ComboboxItemProps = React.ComponentPropsWithoutRef<typeof ListBox.Item>
+// Item (now with alwaysVisible support)
+type ComboboxItemProps = React.ComponentPropsWithoutRef<typeof ListBox.Item> & {
+    alwaysVisible?: boolean
+}
 
 export const ComboboxItem = forwardRef<React.ElementRef<typeof ListBox.Item>, ComboboxItemProps>(
     (props, ref) => <ListBox.Item {...props} ref={ref} />
 )
 
 ComboboxItem.displayName = 'ComboboxItem'
+
+// Empty state component
+type ComboboxEmptyProps = {
+    children: ReactNode
+    className?: string
+}
+
+export const ComboboxEmpty = ({ children, className }: ComboboxEmptyProps) => {
+    return (
+        <div className={cn('px-2 py-1 text-sm text-muted-foreground', className)}>
+            {children}
+        </div>
+    )
+}
+
+ComboboxEmpty.displayName = 'ComboboxEmpty'
 
 // Helper to extract text from any nested child for filtering
 function extractTextFromReactNode(node: ReactNode): string {
@@ -153,20 +182,21 @@ function extractTextFromReactNode(node: ReactNode): string {
     <ComboboxSearch placeholder="Search..." />
 
     <ComboboxContent>
-        <ComboboxItem asChild aria-disabled="true">
+        <ComboboxItem alwaysVisible asChild aria-disabled="true">
             <ButtonPrimitive menuItem disabled>
-                <IconSearch className="size-4" />
-                Search icon
+                Type to search...
             </ButtonPrimitive>
         </ComboboxItem>
 
         <ComboboxItem asChild>
-            <ButtonPrimitive menuItem>Item 1</ButtonPrimitive>
+            <ButtonPrimitive menuItem>Apple</ButtonPrimitive>
         </ComboboxItem>
 
         <ComboboxItem asChild>
-            <ButtonPrimitive menuItem>Item 2</ButtonPrimitive>
+            <ButtonPrimitive menuItem>Banana</ButtonPrimitive>
         </ComboboxItem>
+
+        <ComboboxEmpty>No results found</ComboboxEmpty>
     </ComboboxContent>
 </Combobox>
 
