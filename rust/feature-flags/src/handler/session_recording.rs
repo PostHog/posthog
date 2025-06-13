@@ -41,17 +41,18 @@ pub fn session_recording_config_response(
     let minimum_duration = team.session_recording_minimum_duration_milliseconds;
 
     // linked_flag logic
-    let linked_flag = match &team.session_recording_linked_flag {
-        Some(cfg) => {
-            let key = cfg.get("key");
-            let variant = cfg.get("variant");
+    let linked_flag: Option<Value> = match &team.session_recording_linked_flag {
+        Some(cfg) if cfg.is_object() => {
+            let key = cfg.get("key").cloned();
+            let variant = cfg.get("variant").cloned();
+    
             match (key, variant) {
-                (Some(k), Some(v)) => Some(json!({"flag": k, "variant": v})),
-                (Some(k), None) => Some(k.clone()),
+                (Some(k), Some(v)) => Some(json!({ "flag": k, "variant": v })),
+                (Some(k), None) => Some(k),
                 _ => None,
             }
         }
-        None => None,
+        _ => None,
     };
 
     let rrweb_script_config = if !config.session_replay_rrweb_script.is_empty() {
