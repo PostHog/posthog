@@ -1,7 +1,7 @@
 import base64
 from datetime import timedelta
 import hashlib
-from typing import Optional
+from typing import Optional, cast
 from django.test import override_settings
 from freezegun import freeze_time
 import jwt
@@ -283,7 +283,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(grant.code_challenge, self.code_challenge)
         self.assertEqual(grant.code_challenge_method, "S256")
 
-        expiration_minutes = int(settings.OAUTH2_PROVIDER["AUTHORIZATION_CODE_EXPIRE_SECONDS"]) / 60
+        expiration_seconds = cast(int, settings.OAUTH2_PROVIDER["AUTHORIZATION_CODE_EXPIRE_SECONDS"])
+        expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
 
