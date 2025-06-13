@@ -2,6 +2,7 @@ import { HogFlow } from '~/src/schema/hogflow'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
@@ -31,21 +32,21 @@ describe('HogFlowManager', () => {
 
         hogFlows.push(
             await insertHogFlow(hub.postgres, teamId1, {
-                name: 'Test Hog Function team 1',
+                name: 'Test Hog Flow team 1',
                 status: 'active',
             })
         )
 
         hogFlows.push(
             await insertHogFlow(hub.postgres, teamId1, {
-                name: 'Test Hog Function team 1 - transformation',
+                name: 'Test Hog Flow team 1 - other',
                 status: 'active',
             })
         )
 
         hogFlows.push(
             await insertHogFlow(hub.postgres, teamId2, {
-                name: 'Test Hog Function team 2',
+                name: 'Test Hog Flow team 2',
                 status: 'active',
             })
         )
@@ -61,7 +62,48 @@ describe('HogFlowManager', () => {
     it('returns the hog flow', async () => {
         let items = await manager.getHogFlowsForTeam(teamId1)
 
-        expect(items).toMatchInlineSnapshot()
+        expect(items).toEqual([
+            {
+                abort_action: null,
+                actions: {},
+                conversion: null,
+                created_at: expect.any(String),
+                description: '',
+                edges: {},
+                exit_condition: 'exit_on_conversion',
+                id: hogFlows[0].id,
+                name: 'Test Hog Flow team 1',
+                status: 'active',
+                team_id: teamId1,
+                trigger: {
+                    filters: {},
+                    type: 'event',
+                },
+                trigger_masking: null,
+                updated_at: expect.any(String),
+                version: 1,
+            },
+            {
+                abort_action: null,
+                actions: {},
+                conversion: null,
+                created_at: expect.any(String),
+                description: '',
+                edges: {},
+                exit_condition: 'exit_on_conversion',
+                id: hogFlows[1].id,
+                name: 'Test Hog Flow team 1 - other',
+                status: 'active',
+                team_id: teamId1,
+                trigger: {
+                    filters: {},
+                    type: 'event',
+                },
+                trigger_masking: null,
+                updated_at: expect.any(String),
+                version: 1,
+            },
+        ])
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -75,12 +117,10 @@ describe('HogFlowManager', () => {
 
         items = await manager.getHogFlowsForTeam(teamId1)
 
-        expect(items).toMatchObject([
-            {
-                id: hogFlows[0].id,
-                name: 'Test Hog Flow team 1 updated',
-            },
-        ])
+        expect(items[1]).toMatchObject({
+            id: hogFlows[0].id,
+            name: 'Test Hog Flow team 1 updated',
+        })
     })
 
     // describe('filters hog flow by type', () => {
