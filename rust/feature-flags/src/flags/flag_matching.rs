@@ -1346,9 +1346,8 @@ impl FeatureFlagMatcher {
             .collect();
 
         // Fetch group type mappings from database (gracefully handle missing mappings)
-        let group_mappings = fetch_group_type_mappings(self.reader.clone(), self.project_id)
-            .await
-            .unwrap_or_else(|_| HashMap::new()); // we should error here actually.  Or I guess we can error elsewhere?  Some sort of error fetching if we can't get anything
+        let group_mappings =
+            fetch_group_type_mappings(self.reader.clone(), self.project_id).await?;
         self.flag_evaluation_state
             .set_group_type_mappings(group_mappings);
 
