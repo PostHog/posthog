@@ -14,7 +14,7 @@ export interface OpenSaveToProps {
     /** Folder to preselect. */
     folder?: string | null
     /** Folder to use if the default folder is missing */
-    defaultFolder: string | null
+    defaultFolder?: string | null
     /** Returns the folder when selected */
     callback: (folder: string) => void
     /** Triggered if the modal was closed */

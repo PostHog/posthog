@@ -20,7 +20,7 @@ import {
 import { useEffect, useState } from 'react'
 
 export function SaveToModal(): JSX.Element {
-    const { isOpen, form, selectedFolders, defaultFolder } = useValues(saveToLogic)
+    const { isOpen, form, selectedFolders, defaultFolder = 'Unfiled' } = useValues(saveToLogic)
     const [showChooseFolder, setShowChooseFolder] = useState(false)
     const [locallySelectedFolder, setLocallySelectedFolder] = useState<SelectedFolder | null>(
         selectedFolders.length > 0 ? selectedFolders[0] : form.folder
