@@ -324,7 +324,6 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         capture_exception(err)
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
     else:
-        await logger.ainfo("I am here")
         await logger.ainfo("Materialized model %s", model.label)
         if queue:
             await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
@@ -741,6 +740,7 @@ async def get_posthog_tables(team_id: int) -> list[str]:
 @dataclasses.dataclass
 class StartRunActivityInputs:
     models_to_run: list[str]
+    root_model_id: str
     run_at: str
     team_id: int
 
@@ -808,8 +808,18 @@ async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     try:
         async with asyncio.TaskGroup() as tg:
             for label in inputs.models_to_run:
+                progress = None
+                if label == inputs.root_model_id and len(inputs.models_to_run) > 1:
+                    progress = "Updating upstream view(s)..."
+
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, None, inputs.team_id)
+                    update_saved_query_status(
+                        label,
+                        DataWarehouseSavedQuery.Status.RUNNING,
+                        None,
+                        inputs.team_id,
+                        progress=progress,
+                    )
                 )
     except* Exception:
         await logger.aexception("Failed to update saved query status when starting run")
@@ -840,12 +850,14 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
         async with asyncio.TaskGroup() as tg:
             for label in inputs.completed:
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.COMPLETED, run_at, inputs.team_id)
+                    update_saved_query_status(
+                        label, DataWarehouseSavedQuery.Status.COMPLETED, run_at, inputs.team_id, progress=""
+                    )
                 )
 
             for label in inputs.failed:
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, None, inputs.team_id)
+                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, None, inputs.team_id, progress="")
                 )
     except* Exception:
         await logger.aexception("Failed to update saved query status when finishing run")
@@ -873,7 +885,11 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
 @temporalio.activity.defn
 async def update_saved_query_status(
-    label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
+    label: str,
+    status: DataWarehouseSavedQuery.Status,
+    run_at: typing.Optional[dt.datetime],
+    team_id: int,
+    progress: typing.Optional[str] = None,
 ):
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
@@ -890,6 +906,9 @@ async def update_saved_query_status(
     if run_at:
         saved_query.last_run_at = run_at
     saved_query.status = status
+
+    if progress is not None:
+        saved_query.progress = progress
 
     await database_sync_to_async(saved_query.save)()
 
@@ -973,7 +992,7 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
-        # Get the upstream DAG for the root model
+        # Get the upstream DAG for the root model, the most downstream model in the DAG
         root_model_id = inputs.select[0].label
         upstream = await temporalio.workflow.execute_activity(
             get_upstream_dag_activity,
@@ -981,8 +1000,6 @@ class RunWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
-
-        print("upstream", upstream)
 
         # Only consider materialized views that should be run
         mat_views = [node for node in upstream["nodes"] if node["type"] == "view" and node.get("sync_frequency")]
@@ -1038,7 +1055,6 @@ class RunWorkflow(PostHogWorkflow):
         running = dict()
         ready = [node_id for node_id, deps in dependencies.items() if not deps]
 
-        # Build the dag for activity input (needed for run_single_model_activity)
         inputs.select[0] = dataclasses.replace(inputs.select[0], ancestors="ALL")
         build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
         dag = await temporalio.workflow.execute_activity(
@@ -1056,7 +1072,7 @@ class RunWorkflow(PostHogWorkflow):
         run_at = dt.datetime.now(dt.UTC).isoformat()
 
         start_run_activity_inputs = StartRunActivityInputs(
-            models_to_run=list(mat_view_ids), run_at=run_at, team_id=inputs.team_id
+            models_to_run=list(mat_view_ids), root_model_id=root_model_id, run_at=run_at, team_id=inputs.team_id
         )
         await temporalio.workflow.execute_activity(
             start_run_activity,
@@ -1070,11 +1086,6 @@ class RunWorkflow(PostHogWorkflow):
         )
 
         while ready or running:
-
-            print("ready", ready)
-            print("running", running)
-
-            # Launch all ready nodes
             for node_id in ready:
                 run_dag_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=jobs_map[node_id])
                 fut = workflow.start_activity(
