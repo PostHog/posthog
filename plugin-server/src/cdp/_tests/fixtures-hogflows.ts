@@ -11,14 +11,19 @@ import { CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../type
 export const createHogFlow = (hogFlow: Partial<HogFlow>) => {
     const item: HogFlow = {
         id: randomUUID(),
-        type: 'destination',
+        version: 1,
         name: 'Hog Flow',
         team_id: 1,
-        enabled: true,
-        hog: '',
-        bytecode: [],
+        status: 'active',
+        trigger: {
+            type: 'event',
+            filters: {},
+        },
+        exit_condition: 'exit_on_conversion',
+        edges: [],
+        actions: [],
         ...hogFlow,
-    } as HogFlow
+    }
 
     return item
 }
@@ -39,7 +44,6 @@ export const insertHogFlow = async (
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         created_by_id: 1001,
-        deleted: false,
     })
     return res
 }

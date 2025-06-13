@@ -48,7 +48,7 @@ class HogFlow(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)
-    trigger_masking = models.JSONField(default=dict)
+    trigger_masking = models.JSONField(default=dict, null=True, blank=True)
     conversion = models.JSONField(default=dict)
     exit_condition = models.CharField(max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION)
 

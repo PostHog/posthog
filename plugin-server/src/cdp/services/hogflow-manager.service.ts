@@ -138,7 +138,7 @@ export class HogFlowManagerService {
         logger.info('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
         const response = await this.hub.postgres.query<Pick<HogFlow, 'id' | 'team_id' | 'version'>>(
             PostgresUse.COMMON_READ,
-            `SELECT id, team_id FROM posthog_hogflow WHERE status='active' AND deleted = FALSE AND team_id = ANY($1)`,
+            `SELECT id, team_id FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
             [teamIds],
             'fetchAllTeamHogFlows'
         )
