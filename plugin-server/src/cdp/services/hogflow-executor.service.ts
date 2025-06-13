@@ -81,7 +81,10 @@ export class HogFlowExecutorService {
         }
     }
 
-    execute(invocation: CyclotronJobInvocationHogFlow): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
+    // NOTE: We will probably make these async to allow for some additional fetching such as for integrations / persons
+    async execute(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const loggingContext = {
             invocationId: invocation.id,
             hogFlowId: invocation.hogFlow.id,
@@ -96,6 +99,6 @@ export class HogFlowExecutorService {
 
         // TODO: Implement!
 
-        return result
+        return Promise.resolve(result)
     }
 }
