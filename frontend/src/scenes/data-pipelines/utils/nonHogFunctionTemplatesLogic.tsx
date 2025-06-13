@@ -3,7 +3,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
-import { MANUAL_SOURCE_LINK_MAP, sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
+import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { userLogic } from 'scenes/userLogic'
 
@@ -16,13 +16,20 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
     path((key) => ['scenes', 'data-pipelines', 'utils', 'nonHogFunctionTemplatesLogic', key]),
 
     connect(() => ({
-        values: [sourceWizardLogic, ['connectors'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
+        values: [
+            sourceWizardLogic,
+            ['connectors', 'manualConnectors'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
     })),
 
     selectors({
         hogFunctionTemplatesDataWarehouseSources: [
-            (s) => [s.connectors],
-            (connectors): HogFunctionTemplateType[] => {
+            (s) => [s.connectors, s.manualConnectors],
+            (connectors, manualConnectors): HogFunctionTemplateType[] => {
                 const managed = connectors.map(
                     (connector: SourceConfig): HogFunctionTemplateType => ({
                         id: `managed-${connector.name}`,
@@ -44,12 +51,12 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                     })
                 )
 
-                const selfManaged = Object.entries(MANUAL_SOURCE_LINK_MAP).map(
-                    ([type, name]): HogFunctionTemplateType => ({
-                        id: `self-managed-${type}`,
+                const selfManaged = manualConnectors.map(
+                    (source): HogFunctionTemplateType => ({
+                        id: `self-managed-${source.type}`,
                         type: 'source',
-                        name,
-                        icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[type],
+                        name: source.name,
+                        icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[source.type],
                         status: 'stable',
                         description: (
                             <>
@@ -96,9 +103,5 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 )
             },
         ],
-
-        // Add another for plugin destinations
-
-        // Add another for batch exports
     }),
 ])

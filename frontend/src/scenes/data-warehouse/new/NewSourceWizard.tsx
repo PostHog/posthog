@@ -6,19 +6,18 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
+import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
-import { SurveyEventName, SurveyEventProperties } from '~/types'
+import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
-import { DataWarehouseSourceIcon } from '../settings/DataWarehouseSourceIcon'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { MANUAL_SOURCE_LINK_MAP, sourceWizardLogic } from './sourceWizardLogic'
+import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
@@ -127,8 +126,24 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 }
 
 function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'disableConnectedSources'>): JSX.Element {
-    const { connectors } = useValues(sourceWizardLogic)
+    const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
+    const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
+        useActions(sourceWizardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const onClick = (sourceConfig: SourceConfig): void => {
+        if (sourceConfig.name == 'Hubspot') {
+            window.open(addToHubspotButtonUrl() as string, '_self')
+        } else {
+            selectConnector(sourceConfig)
+        }
+        onNext()
+    }
+
+    const onManualLinkClick = (manualLinkSource: ManualLinkSourceType): void => {
+        toggleManualLinkFormVisible(true)
+        setManualLinkingProvider(manualLinkSource)
+    }
 
     const filteredConnectors = connectors.filter((n) => {
         return !(n.name === 'GoogleAds' && !featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH])
@@ -211,7 +226,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                                     )}
                                     {!isConnected && !sourceConfig.unreleasedSource && (
                                         <LemonButton
-                                            to={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.name}
+                                            onClick={() => onClick(sourceConfig)}
                                             className="my-2"
                                             type="primary"
                                             disabledReason={
@@ -237,10 +252,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
-                dataSource={Object.entries(MANUAL_SOURCE_LINK_MAP).map(([type, name]) => ({
-                    type,
-                    name,
-                }))}
+                dataSource={manualConnectors}
                 loading={false}
                 disableTableWhileLoading={false}
                 columns={[
@@ -262,7 +274,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         render: (_, sourceConfig) => (
                             <div className="flex flex-row justify-end p-1">
                                 <LemonButton
-                                    to={urls.dataWarehouseSourceNew() + '?kind=' + sourceConfig.type}
+                                    onClick={() => onManualLinkClick(sourceConfig.type)}
                                     className="my-2"
                                     type="primary"
                                 >
