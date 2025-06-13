@@ -740,7 +740,7 @@ async def get_posthog_tables(team_id: int) -> list[str]:
 
 @dataclasses.dataclass
 class StartRunActivityInputs:
-    dag: DAG
+    models_to_run: list[str]
     run_at: str
     team_id: int
 
@@ -750,6 +750,33 @@ class StartRunActivityInputs:
             "team_id": self.team_id,
             "run_at": self.run_at,
         }
+
+
+@dataclasses.dataclass
+class CreateJobsForMaterializedViewsActivityInputs:
+    team_id: int
+    materialized_view_ids: list[str]
+
+
+@temporalio.activity.defn
+async def create_jobs_for_materialized_views_activity(
+    inputs: CreateJobsForMaterializedViewsActivityInputs,
+) -> dict[str, str]:
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    workflow_id = temporalio.activity.info().workflow_id
+    workflow_run_id = temporalio.activity.info().workflow_run_id
+
+    jobs = {}
+    for model_id in inputs.materialized_view_ids:
+        saved_query = await get_saved_query(team, model_id)
+        job = await start_job_modeling_run(
+            team=team,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            saved_query=saved_query,
+        )
+        jobs[model_id] = str(job.id)
+    return jobs
 
 
 @dataclasses.dataclass
@@ -780,10 +807,7 @@ async def start_run_activity(inputs: StartRunActivityInputs) -> None:
 
     try:
         async with asyncio.TaskGroup() as tg:
-            for label, model in inputs.dag.items():
-                if model.selected is False:
-                    continue
-
+            for label in inputs.models_to_run:
                 tg.create_task(
                     update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, None, inputs.team_id)
                 )
@@ -949,15 +973,6 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
-        job_id = await temporalio.workflow.execute_activity(
-            create_job_model_activity,
-            CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=1,
-            ),
-        )
-
         # Get the upstream DAG for the root model
         root_model_id = inputs.select[0].label
         upstream = await temporalio.workflow.execute_activity(
@@ -977,6 +992,17 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             create_table_activity,
             CreateTableActivityInputs(models=list(mat_view_ids), team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        )
+
+        jobs_map = await temporalio.workflow.execute_activity(
+            create_jobs_for_materialized_views_activity,
+            CreateJobsForMaterializedViewsActivityInputs(
+                team_id=inputs.team_id, materialized_view_ids=list(mat_view_ids)
+            ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
@@ -1013,6 +1039,7 @@ class RunWorkflow(PostHogWorkflow):
         ready = [node_id for node_id, deps in dependencies.items() if not deps]
 
         # Build the dag for activity input (needed for run_single_model_activity)
+        inputs.select[0] = dataclasses.replace(inputs.select[0], ancestors="ALL")
         build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
         dag = await temporalio.workflow.execute_activity(
             build_dag_activity,
@@ -1028,7 +1055,9 @@ class RunWorkflow(PostHogWorkflow):
 
         run_at = dt.datetime.now(dt.UTC).isoformat()
 
-        start_run_activity_inputs = StartRunActivityInputs(dag=dag, run_at=run_at, team_id=inputs.team_id)
+        start_run_activity_inputs = StartRunActivityInputs(
+            models_to_run=list(mat_view_ids), run_at=run_at, team_id=inputs.team_id
+        )
         await temporalio.workflow.execute_activity(
             start_run_activity,
             start_run_activity_inputs,
@@ -1047,9 +1076,10 @@ class RunWorkflow(PostHogWorkflow):
 
             # Launch all ready nodes
             for node_id in ready:
+                run_dag_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=jobs_map[node_id])
                 fut = workflow.start_activity(
                     run_single_model_activity,
-                    args=(RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=job_id), node_id),
+                    args=(run_dag_inputs, node_id),
                     start_to_close_timeout=dt.timedelta(hours=1),
                     heartbeat_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),

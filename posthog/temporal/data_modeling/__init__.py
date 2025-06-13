@@ -11,6 +11,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     get_upstream_dag_activity,
     run_single_model_activity,
     update_saved_query_status,
+    create_jobs_for_materialized_views_activity,
 )
 
 WORKFLOWS = [RunWorkflow]
@@ -26,4 +27,5 @@ ACTIVITIES = [
     get_upstream_dag_activity,
     run_single_model_activity,
     update_saved_query_status,
+    create_jobs_for_materialized_views_activity,
 ]
