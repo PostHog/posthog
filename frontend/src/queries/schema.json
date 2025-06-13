@@ -408,6 +408,9 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
@@ -9978,6 +9981,27 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
+        "ExternalQueryError": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/ExternalQueryErrorCode"
+                },
+                "detail": {
+                    "type": "string"
+                }
+            },
+            "required": ["code", "detail"],
+            "type": "object"
+        },
+        "ExternalQueryErrorCode": {
+            "enum": ["platform_access_required", "query_execution_failed"],
+            "type": "string"
+        },
+        "ExternalQueryStatus": {
+            "enum": ["success", "error"],
+            "type": "string"
+        },
         "FailureMessage": {
             "additionalProperties": false,
             "properties": {
@@ -13429,6 +13453,7 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
+                "WebAnalyticsExternalSummaryQuery",
                 "RevenueAnalyticsGrowthRateQuery",
                 "RevenueAnalyticsInsightsQuery",
                 "RevenueAnalyticsOverviewQuery",
@@ -15257,6 +15282,22 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "type": "object"
+                        },
+                        "error": {
+                            "$ref": "#/definitions/ExternalQueryError"
+                        },
+                        "status": {
+                            "$ref": "#/definitions/ExternalQueryStatus"
+                        }
+                    },
+                    "required": ["data", "status"],
                     "type": "object"
                 },
                 {
@@ -17109,6 +17150,9 @@
                 },
                 {
                     "$ref": "#/definitions/WebPageURLSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
@@ -20234,6 +20278,58 @@
                     "$ref": "#/definitions/CustomEventConversionGoal"
                 }
             ]
+        },
+        "WebAnalyticsExternalSummaryQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebAnalyticsExternalSummaryQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQueryResponse"
+                }
+            },
+            "required": ["dateRange", "kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                },
+                "error": {
+                    "$ref": "#/definitions/ExternalQueryError"
+                },
+                "status": {
+                    "$ref": "#/definitions/ExternalQueryStatus"
+                }
+            },
+            "required": ["data", "status"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "type": "string"
+                },
+                "explicit_date": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["date_from", "date_to"],
+            "type": "object"
         },
         "WebAnalyticsOrderBy": {
             "items": [
