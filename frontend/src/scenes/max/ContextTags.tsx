@@ -94,7 +94,7 @@ export function ContextSummary({
     const tooltipContent = (
         <div className="flex flex-col gap-1 p-1 max-w-xs">
             {allItems.map((item, index) => (
-                <div key={index} className="flex items-center gap-1.5 text-xs">
+                <div key={index} className="flex items-center gap-1 text-xs">
                     {item.icon}
                     <span>{item.name}</span>
                 </div>
@@ -103,14 +103,12 @@ export function ContextSummary({
     )
 
     return (
-        <div className="mb-2">
-            <Tooltip title={tooltipContent} placement="bottom">
-                <div className="flex items-center gap-1.5 text-xs text-muted hover:text-default transition-colors w-fit">
-                    <IconPageChart className="text-muted" />
-                    <span className="italic">With {contextSummaryText}</span>
-                </div>
-            </Tooltip>
-        </div>
+        <Tooltip title={tooltipContent} placement="bottom">
+            <div className="flex items-center gap-1 text-xs text-muted hover:text-default w-fit select-none mb-1.5">
+                <IconPageChart className="text-sm" />
+                <span className="italic">With {contextSummaryText}</span>
+            </div>
+        </Tooltip>
     )
 }
 

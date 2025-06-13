@@ -18,12 +18,12 @@ export function ContextDisplay(): JSX.Element {
         useActions(maxContextLogic)
 
     return (
-        <div className="w-full">
-            <div className="flex flex-wrap items-start gap-2 w-full">
+        <div className="px-1 pt-1 w-full">
+            <div className="flex flex-wrap items-start gap-1 w-full">
                 <TaxonomicPopover
                     size="xsmall"
                     type="tertiary"
-                    className="-mx-1.5 flex-shrink-0"
+                    className="flex-shrink-0 border"
                     groupType={mainTaxonomicGroupType}
                     groupTypes={taxonomicGroupTypes}
                     onChange={handleTaxonomicFilterChange}
