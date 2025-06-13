@@ -857,12 +857,151 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [],
         unreleasedSource: true,
     },
-    Mongodb: {
-        name: 'Mongodb',
+    MongoDB: {
+        name: 'MongoDB',
         label: 'MongoDB',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
+        caption: (
+            <>Enter your MongoDB credentials to automatically pull your MongoDB data into the PostHog Data warehouse.</>
+        ),
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: 'localhost',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'number',
+                required: true,
+                placeholder: '27017',
+            },
+            {
+                name: 'database',
+                label: 'Database',
+                type: 'text',
+                required: true,
+                placeholder: 'myDatabase',
+            },
+            {
+                name: 'user',
+                label: 'Username (optional)',
+                type: 'text',
+                required: false,
+                placeholder: 'username',
+            },
+            {
+                name: 'password',
+                label: 'Password (optional)',
+                type: 'password',
+                required: false,
+                placeholder: '',
+            },
+            {
+                name: 'auth_source',
+                label: 'Authentication database',
+                type: 'text',
+                required: false,
+                placeholder: 'admin',
+            },
+            {
+                type: 'select',
+                name: 'tls',
+                label: 'Use TLS/SSL?',
+                defaultValue: 'false',
+                required: true,
+                options: [
+                    {
+                        value: 'false',
+                        label: 'No',
+                    },
+                    {
+                        value: 'true',
+                        label: 'Yes',
+                    },
+                ],
+            },
+            {
+                name: 'ssh-tunnel',
+                label: 'Use SSH tunnel?',
+                type: 'switch-group',
+                default: false,
+                fields: [
+                    {
+                        name: 'host',
+                        label: 'Tunnel host',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'localhost',
+                    },
+                    {
+                        name: 'port',
+                        label: 'Tunnel port',
+                        type: 'number',
+                        required: true,
+                        placeholder: '22',
+                    },
+                    {
+                        type: 'select',
+                        name: 'auth_type',
+                        label: 'Authentication type',
+                        required: true,
+                        defaultValue: 'password',
+                        options: [
+                            {
+                                label: 'Password',
+                                value: 'password',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'password',
+                                        label: 'Tunnel password',
+                                        type: 'password',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Key pair',
+                                value: 'keypair',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: false,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'private_key',
+                                        label: 'Tunnel private key',
+                                        type: 'textarea',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                    {
+                                        name: 'passphrase',
+                                        label: 'Tunnel passphrase',
+                                        type: 'password',
+                                        required: false,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
     },
     Klaviyo: {
         name: 'Klaviyo',

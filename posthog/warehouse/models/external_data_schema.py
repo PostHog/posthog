@@ -506,9 +506,9 @@ def filter_mongo_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
         type = type.lower()
         if type == "integer":
             results.append((column_name, IncrementalFieldType.Integer))
-        # MongoDB ObjectId can be used for incremental sync based on timestamp
-        elif column_name == "_id" and type == "string":
-            results.append((column_name, IncrementalFieldType.String))
+        # # MongoDB ObjectId can be used for incremental sync based on timestamp
+        # elif column_name == "_id" and type == "string":
+        #     results.append((column_name, IncrementalFieldType.String))
 
     return results
 

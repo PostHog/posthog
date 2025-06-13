@@ -84,6 +84,7 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
+    filter_mongo_incremental_fields,
     get_postgres_row_count,
     get_sql_schemas_for_source_type,
 )
@@ -496,6 +497,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.DOIT:
             new_source_model, doit_schemas = self._handle_doit_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.MONGO:
+            new_source_model, mongo_schemas = self._handle_mongo_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -507,6 +510,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.MSSQL,
         ]:
             default_schemas = sql_schemas
+        elif source_type == ExternalDataSource.Type.MONGO:
+            default_schemas = mongo_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
         elif source_type == ExternalDataSource.Type.BIGQUERY:
@@ -926,6 +931,69 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         config = GoogleAdsServiceAccountSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
         schemas = get_google_ads_schemas(config)
+
+        return new_source_model, list(schemas.keys())
+
+    def _handle_mongo_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        host = payload.get("host")
+        port = payload.get("port")
+        database = payload.get("database")
+        user = payload.get("user")
+        password = payload.get("password")
+        auth_source = payload.get("auth_source", "admin")
+        tls_str = payload.get("tls", "false")
+        tls = str_to_bool(tls_str)
+
+        ssh_tunnel_obj = payload.get("ssh-tunnel", {})
+        using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+        ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+        ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+        ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+        ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+        ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+        ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+        ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+        ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
+
+        if not host or not port or not database:
+            raise Exception("Missing required parameters: host, port, database")
+
+        if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
+            raise Exception("Cannot use internal database")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "host": host,
+                "port": port,
+                "database": database,
+                "user": user,
+                "password": password,
+                "auth_source": auth_source,
+                "tls": tls,
+                "ssh_tunnel_enabled": using_ssh_tunnel,
+                "ssh_tunnel_host": ssh_tunnel_host,
+                "ssh_tunnel_port": ssh_tunnel_port,
+                "ssh_tunnel_auth_type": ssh_tunnel_auth_type,
+                "ssh_tunnel_auth_type_username": ssh_tunnel_auth_type_username,
+                "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
+                "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
+                "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
+            },
+            prefix=prefix,
+        )
+
+        schemas = get_sql_schemas_for_source_type(source_type, new_source_model.job_inputs)
 
         return new_source_model, list(schemas.keys())
 
@@ -1359,6 +1427,150 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "sync_type": None,
                 }
                 for table_name, columns in filtered_results
+            ]
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.MONGO:
+            from pymongo.errors import OperationFailure as MongoOperationFailure
+
+            host = request.data.get("host", None)
+            port = request.data.get("port", None)
+            database = request.data.get("database", None)
+            user = request.data.get("user", None)
+            password = request.data.get("password", None)
+            auth_source = request.data.get("auth_source", "admin")
+            tls_str = request.data.get("tls", "false")
+            tls = str_to_bool(tls_str)
+
+            ssh_tunnel_obj = request.data.get("ssh-tunnel", {})
+            using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
+            ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
+            ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
+            ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
+            ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
+            ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
+            ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
+            ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
+            ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
+
+            ssh_tunnel = SSHTunnel(
+                enabled=using_ssh_tunnel,
+                host=ssh_tunnel_host,
+                port=ssh_tunnel_port,
+                auth_type=ssh_tunnel_auth_type,
+                username=ssh_tunnel_auth_type_username,
+                password=ssh_tunnel_auth_type_password,
+                passphrase=ssh_tunnel_auth_type_passphrase,
+                private_key=ssh_tunnel_auth_type_private_key,
+            )
+
+            if not host or not port or not database:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: host, port, database"},
+                )
+
+            if using_ssh_tunnel:
+                auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
+                if not auth_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": (
+                                auth_error_message
+                                if len(auth_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
+                        },
+                    )
+
+                port_valid, port_error_message = ssh_tunnel.has_valid_port()
+                if not port_valid:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": (
+                                port_error_message
+                                if len(port_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
+                        },
+                    )
+
+            # Validate internal database
+            if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Cannot use internal database"},
+                )
+
+            try:
+                result = get_sql_schemas_for_source_type(
+                    source_type,
+                    {
+                        "host": host,
+                        "port": int(port),
+                        "database": database,
+                        "user": user,
+                        "password": password,
+                        "auth_source": auth_source,
+                        "tls": tls,
+                        "ssh_tunnel": {
+                            "host": ssh_tunnel.host,
+                            "port": ssh_tunnel.port,
+                            "enabled": ssh_tunnel.enabled,
+                            "auth": {
+                                "type": ssh_tunnel.auth_type,
+                                "username": ssh_tunnel.username,
+                                "password": ssh_tunnel.password,
+                                "private_key": ssh_tunnel.private_key,
+                                "passphrase": ssh_tunnel.passphrase,
+                            },
+                        },
+                    },
+                )
+                if len(result.keys()) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "No collections found in database"},
+                    )
+            except MongoOperationFailure as e:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"MongoDB authentication failed: {str(e)}"},
+                )
+            except BaseSSHTunnelForwarderError as e:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": e.value or "Failed to connect to MongoDB database"},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Could not fetch MongoDB collections", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Failed to connect to MongoDB database"},
+                )
+
+            filtered_results = [
+                (collection_name, filter_mongo_incremental_fields(columns))
+                for collection_name, columns in result.items()
+            ]
+
+            result_mapped_to_options = [
+                {
+                    "table": collection_name,
+                    "should_sync": False,
+                    "rows": None,  # MongoDB doesn't provide easy row count in schema discovery
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in columns
+                    ],
+                    "incremental_available": True,
+                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
+                    "sync_type": None,
+                }
+                for collection_name, columns in filtered_results
             ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:

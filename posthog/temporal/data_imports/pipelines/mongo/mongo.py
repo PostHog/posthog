@@ -341,6 +341,12 @@ def mongo_source(
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
                 processed_doc = {}
+
+                # First, initialize all schema fields with None
+                for field_name, _ in schema_info:
+                    processed_doc[field_name] = None
+
+                # Then populate with actual document values
                 for key, value in doc.items():
                     if isinstance(value, ObjectId):
                         processed_doc[key] = str(value)
