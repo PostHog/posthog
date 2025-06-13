@@ -27,6 +27,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
                     on_match: z.string(), // TODO: Can we type this more directly to an edge?
                 })
             ),
+            wait_duration_seconds: z.number().optional(),
         }),
     }),
     z.object({

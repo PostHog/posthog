@@ -16,6 +16,9 @@ import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { HOG_FLOW_ACTION_RUNNERS } from './hogflows/actions'
+import { HogFlowActionRunnerResult } from './hogflows/actions/types'
+
+export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -90,8 +93,8 @@ export class HogFlowExecutorService {
     }
 
     private getCurrentAction(invocation: CyclotronJobInvocationHogFlow): HogFlowAction {
-        const currentActionId = invocation.state.currentActionId
-        if (!currentActionId) {
+        const currentAction = invocation.state.currentAction
+        if (!currentAction) {
             const triggerAction = invocation.hogFlow.actions.find((action) => action.type === 'trigger')
             if (!triggerAction) {
                 throw new Error('No trigger action found')
@@ -99,17 +102,19 @@ export class HogFlowExecutorService {
             return triggerAction
         }
 
-        const action = invocation.hogFlow.actions.find((action) => action.id === currentActionId)
+        return this.getActionById(invocation, currentAction.id)
+    }
+
+    private getActionById(invocation: CyclotronJobInvocationHogFlow, actionId: string): HogFlowAction {
+        const action = invocation.hogFlow.actions.find((action) => action.id === actionId)
         if (!action) {
-            throw new Error(`Action ${currentActionId} not found`)
+            throw new Error(`Action ${actionId} not found`)
         }
 
         return action
     }
 
-    private async runCurrentAction(
-        invocation: CyclotronJobInvocationHogFlow
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
+    private async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
         const action = this.getCurrentAction(invocation)
         // Find the appropriate action from our registry
         const actionRunner = HOG_FLOW_ACTION_RUNNERS[action.type]
@@ -136,17 +141,50 @@ export class HogFlowExecutorService {
 
         logger.debug('🦔', `[HogFlowExecutor] Executing hog flow`, loggingContext)
 
-        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hogflow',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(
+            invocation,
+            {
+                queue: 'hogflow',
+            },
+            {
+                finished: false,
+            }
+        )
 
+        result.invocation.state.actionStepCount = invocation.state.actionStepCount ?? 0
+
+        // TODO: Also derive max action step count from the hog flow
         try {
-            // TODO: Should we use the invocation or the result one :thinking:
-            const actionResult = await this.runCurrentAction(result.invocation)
+            while (!result.finished && result.invocation.state.actionStepCount < MAX_ACTION_STEPS_HARD_LIMIT) {
+                const actionResult = await this.runCurrentAction(result.invocation)
 
-            result.invocation.state.actionStepCount = (invocation.state.actionStepCount ?? 0) + 1
+                if (!actionResult.finished) {
+                    // If the result isn't finished we _require_ that there is a `scheduledAt` param in order to delay the result
+                    if (!actionResult.scheduledAt) {
+                        throw new Error('Action result is not finished and no scheduledAt param is provided')
+                    }
 
-            // Update the state with the result and carry on in a loop as necessary
+                    // TODO: Figure out what to do here...
+                    result.finished = false
+                    result.invocation.queueScheduledAt = actionResult.scheduledAt
+                    // TODO: Do we also want to increment some meta context?
+                    break
+                }
+
+                if (actionResult.goToActionId) {
+                    result.invocation.state.actionStepCount = (result.invocation.state.actionStepCount ?? 0) + 1
+                    // Update the state to be going to the next action
+                    result.invocation.state.currentAction = {
+                        id: actionResult.goToActionId,
+                        startedAt: DateTime.now(),
+                    }
+                    break
+                }
+
+                // The action is finished so we move on
+                result.finished = true
+                break
+            }
 
             // * Save the iteration count in the state so we never get stuck in infinite loops
             // * Figure out how to invoke other hog functions...

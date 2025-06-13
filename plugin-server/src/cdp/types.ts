@@ -293,7 +293,10 @@ export type HogFlowInvocationContext = {
     personId?: string
     event?: any // TODO: Type better
     variables?: Record<string, any>
-    currentActionId?: string
+    currentAction?: {
+        id: string
+        startedAt: DateTime
+    }
     actionStepCount?: number
 }
 
