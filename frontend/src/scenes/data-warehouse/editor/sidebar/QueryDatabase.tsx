@@ -81,7 +81,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
             >
                 <DatabaseSearchField placeholder="Search database" />
             </div>
-            <div className="overflow-y-auto flex-1 min-h-0">
+            <div className="h-full overflow-y-auto flex">
                 <LemonTree
                     ref={treeRef}
                     data={treeDataFinal}
