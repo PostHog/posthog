@@ -45,6 +45,11 @@ export const GrossRevenueTile = (): JSX.Element => {
             value: 'cohort',
             disabledReason: featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_COHORT_GROUPING] ? undefined : 'Coming soon',
         },
+        {
+            label: 'Country',
+            value: 'country',
+            disabledReason: featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_COUNTRY_GROUPING] ? undefined : 'Coming soon',
+        },
     ]
 
     const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [

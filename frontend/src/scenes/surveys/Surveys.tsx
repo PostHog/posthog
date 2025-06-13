@@ -30,7 +30,7 @@ import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, Survey, SurveyEventName } from '~/types'
+import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
@@ -126,18 +126,7 @@ export function Surveys(): JSX.Element {
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions
-                        type="destination"
-                        subTemplateIds={['survey-response']}
-                        filters={{
-                            events: [
-                                {
-                                    id: SurveyEventName.SENT,
-                                    type: 'events',
-                                },
-                            ],
-                        }}
-                    />
+                    <LinkedHogFunctions type="destination" subTemplateIds={['survey-response']} />
                 </>
             )}
 

@@ -69,7 +69,7 @@ pub async fn main() -> Result<(), Error> {
     while context.is_running() {
         liveness.report_healthy().await;
         info!("Looking for next job");
-        let Some(model) = JobModel::claim_next_job(context.clone()).await? else {
+        let Some(mut model) = JobModel::claim_next_job(context.clone()).await? else {
             if !context.is_running() {
                 break;
             }
@@ -81,7 +81,27 @@ pub async fn main() -> Result<(), Error> {
         info!("Claimed job: {:?}", model.id);
 
         let init_liveness_run = spawn_liveness_loop(liveness.clone());
-        let mut next_step = Some(Job::new(model, context.clone()).await?);
+
+        let mut next_step = match Job::new(model.clone(), context.clone()).await {
+            Ok(job) => Some(job),
+            Err(e) => {
+                let error_msg = format!("Job initialization failed for job {}: {:?}", model.id, e);
+                error!("{}", error_msg);
+                // Customer will see this error in the UI, we want to surface any problems they might have with their parsing
+                // or configuring the job, etc.
+                if let Err(pause_err) = model
+                    .pause(context.clone(), e.root_cause().to_string())
+                    .await
+                {
+                    error!(
+                        "Failed to pause job after initialization error: {:?}",
+                        pause_err
+                    );
+                }
+                init_liveness_run.store(false, Ordering::Relaxed);
+                continue;
+            }
+        };
         init_liveness_run.store(false, Ordering::Relaxed);
 
         while let Some(job) = next_step {
