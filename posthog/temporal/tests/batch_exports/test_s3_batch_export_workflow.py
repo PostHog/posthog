@@ -828,12 +828,7 @@ async def _run_s3_batch_export_workflow(
     ateam,
     batch_export_id,
     s3_destination_config,
-    bucket_name,
     interval,
-    compression,
-    exclude_events,
-    s3_key_prefix,
-    file_format,
     data_interval_start,
     data_interval_end,
     clickhouse_client,
@@ -847,6 +842,12 @@ async def _run_s3_batch_export_workflow(
         batch_export_model = model
     elif model is not None:
         batch_export_schema = model
+
+    exclude_events = s3_destination_config.get("exclude_events", None)
+    file_format = s3_destination_config.get("file_format", "JSONLines")
+    compression = s3_destination_config.get("compression", None)
+    s3_key_prefix = s3_destination_config.get("prefix", None)
+    bucket_name = s3_destination_config.get("bucket_name", None)
 
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
@@ -968,12 +969,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1014,12 +1010,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1063,12 +1054,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1129,12 +1115,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1177,12 +1158,7 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1267,12 +1243,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=destination_config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1284,6 +1255,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
     "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials(),
     reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
 )
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
@@ -1328,12 +1300,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=destination_config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -2135,8 +2102,8 @@ async def test_s3_multi_part_upload_raises_exception_if_invalid_endpoint(bucket_
         await s3_upload.start()
 
 
-# TODO - run this using stage?
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("use_internal_s3_stage", [False, True])
 async def test_s3_export_workflow_with_request_timeouts(
     clickhouse_client,
     ateam,
@@ -2149,6 +2116,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     data_interval_start,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage,
 ):
     """Test the S3BatchExport Workflow end-to-end when a `RequestTimeout` occurs.
 
@@ -2216,6 +2184,8 @@ async def test_s3_export_workflow_with_request_timeouts(
                 start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
+                insert_into_s3_stage_activity,
+                insert_into_s3_activity_from_stage,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ),
@@ -2223,6 +2193,9 @@ async def test_s3_export_workflow_with_request_timeouts(
         with (
             mock.patch("posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session", FakeSession),
             mock.patch("posthog.temporal.batch_exports.batch_exports.RetryPolicy", DoNotRetryPolicy),
+            override_settings(
+                BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+            ),
         ):
             await activity_environment.client.execute_workflow(
                 S3BatchExportWorkflow.run,
