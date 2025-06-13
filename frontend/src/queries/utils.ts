@@ -706,13 +706,13 @@ export function getMathTypeWarning(
  * Recursively adds the latest version for the respective kind to each node. This
  * is necessary so that schema migrations don't run on hardcoded queries that
  * are already the latest version. */
-export function getFreshQuery<T = any>(node: T): T {
+export function setLatestVersionsOnQuery<T = any>(node: T): T {
     if (node === null || typeof node !== 'object') {
         return node
     }
 
     if (Array.isArray(node)) {
-        return (node as unknown as any[]).map(getFreshQuery) as unknown as T
+        return (node as unknown as any[]).map(setLatestVersionsOnQuery) as unknown as T
     }
 
     const cloned: Record<string, any> = { ...(node as any) }
@@ -724,7 +724,7 @@ export function getFreshQuery<T = any>(node: T): T {
 
     for (const [key, value] of Object.entries(cloned)) {
         if (value !== null && typeof value === 'object') {
-            cloned[key] = getFreshQuery(value)
+            cloned[key] = setLatestVersionsOnQuery(value)
         }
     }
 
