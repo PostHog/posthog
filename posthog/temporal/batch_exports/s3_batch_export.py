@@ -1091,14 +1091,24 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         while len(self.current_buffer) >= self.part_size:
             await self._upload_next_part()
 
-    async def _upload_next_part(self):
+    async def _upload_next_part(self, final: bool = False):
         """Extract a part from buffer and upload it"""
+        if not len(self.current_buffer):
+            return
+
         if not self.upload_id:
             await self._initialize_multipart_upload()
 
-        # Extract part data
-        part_data = bytes(self.current_buffer[: self.part_size])
-        self.current_buffer = self.current_buffer[self.part_size :]
+        if final:
+            await self.logger.ainfo(
+                "Uploading final part of file %s with upload id %s", self._get_current_key(), self.upload_id
+            )
+            # take all the data
+            part_data = bytes(self.current_buffer)
+        else:
+            # Extract part data
+            part_data = bytes(self.current_buffer[: self.part_size])
+            self.current_buffer = self.current_buffer[self.part_size :]
 
         part_number = self.part_counter
         self.part_counter += 1
@@ -1112,6 +1122,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         # Track the upload
         self.pending_uploads[part_number] = upload_task
+
+        if final:
+            self.current_buffer.clear()
 
         await self.logger.adebug(
             "Concurrent uploads running: %s",
@@ -1238,7 +1251,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         try:
             # Upload any remaining data in buffer
             if len(self.current_buffer) > 0:
-                await self._upload_final_part()
+                await self._upload_next_part(final=True)
 
             # Wait for all pending uploads for this file and check for errors
             # TODO - maybe we can improve error handling here
@@ -1260,14 +1273,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         except Exception:
             # Cleanup on error
-            if self.upload_id:
-                try:
-                    client = await self._get_s3_client()
-                    await client.abort_multipart_upload(
-                        Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
-                    )
-                except Exception:
-                    await self.logger.aexception("Failed to abort multipart upload during cleanup")
+            await self._abort()
             raise
 
     def _on_upload_complete(self, task: asyncio.Task, part_number: int):
@@ -1316,14 +1322,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
         except Exception:
             # Cleanup on error
-            if self.upload_id:
-                try:
-                    client = await self._get_s3_client()
-                    await client.abort_multipart_upload(
-                        Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
-                    )
-                except Exception:
-                    pass  # Best effort cleanup
+            await self._abort()
             raise
         finally:
             self._finalized = True
@@ -1345,43 +1344,13 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
     # we just want to ensure we test both versions of the code path
-    # async def _single_file_upload_current(self):
-    #     """Handle small files that don't need multipart - uses current key"""
+    # async def _single_file_upload(self):
+    #     """Handle small files that don't need multipart"""
     #     data = bytes(self.current_buffer)
-    #     current_key = self._get_current_key()
-    #     await self.s3_client.put_object(Bucket=self.s3_inputs.bucket_name, Key=current_key, Body=data)
+    #     client = await self._get_s3_client()
+    #     await client.put_object(Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), Body=data)
     #     self.current_buffer.clear()
     #     self.current_file_size = 0
-
-    async def _upload_final_part(self):
-        """Upload the final part (may be smaller than part_size)"""
-        if not len(self.current_buffer):
-            return
-
-        if not self.upload_id:
-            await self._initialize_multipart_upload()
-
-        await self.logger.ainfo(
-            "Uploading final part of file %s with upload id %s", self._get_current_key(), self.upload_id
-        )
-
-        part_data = bytes(self.current_buffer)
-        part_number = self.part_counter
-
-        await self.upload_semaphore.acquire()
-
-        upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
-        upload_task.add_done_callback(lambda task: self._on_upload_complete(task, part_number))
-
-        self.pending_uploads[part_number] = upload_task
-        self.current_buffer.clear()
-
-    async def _single_file_upload(self):
-        """Handle small files that don't need multipart"""
-        data = bytes(self.current_buffer)
-        client = await self._get_s3_client()
-        await client.put_object(Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), Body=data)
-        self.current_buffer.clear()
 
     async def _complete_multipart_upload(self):
         """Complete multipart upload with parts in order"""
@@ -1399,3 +1368,14 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             UploadId=self.upload_id,
             MultipartUpload={"Parts": sorted_parts},
         )
+
+    async def _abort(self):
+        """Abort this S3 multi-part upload."""
+        if self.upload_id:
+            try:
+                client = await self._get_s3_client()
+                await client.abort_multipart_upload(
+                    Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
+                )
+            except Exception:
+                pass  # Best effort cleanup
