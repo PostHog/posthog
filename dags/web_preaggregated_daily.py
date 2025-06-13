@@ -23,6 +23,10 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
     get_s3_function_args,
 )
+from posthog.hogql.database.schema.web_analytics_s3 import (
+    get_s3_web_stats_structure,
+    get_s3_web_bounces_structure,
+)
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
@@ -181,6 +185,7 @@ def export_web_analytics_data(
 def partition_web_analytics_data_by_team(
     context: dagster.AssetExecutionContext,
     source_s3_path: str,
+    structure: str,
 ) -> dagster.Output[list]:
     config = context.op_config
     team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
@@ -192,9 +197,9 @@ def partition_web_analytics_data_by_team(
         team_s3_path = f"{source_s3_path.replace('.native', '')}/{team_id}/data.native"
 
         partition_query = f"""
-        INSERT INTO FUNCTION s3({get_s3_function_args(team_s3_path)})
+        INSERT INTO FUNCTION s3({get_s3_function_args(team_s3_path)}, '{structure}')
         SELECT *
-        FROM s3({get_s3_function_args(source_s3_path)})
+        FROM s3({get_s3_function_args(source_s3_path)}, '{structure}')
         WHERE team_id = {team_id}
         SETTINGS s3_truncate_on_insert=true
         """
@@ -275,6 +280,7 @@ def split_stats_export_by_team(
     return partition_web_analytics_data_by_team(
         context=context,
         source_s3_path=web_analytics_stats_export,
+        structure=get_s3_web_stats_structure(),
     )
 
 
@@ -291,6 +297,7 @@ def split_bounces_export_by_team(
     return partition_web_analytics_data_by_team(
         context=context,
         source_s3_path=web_analytics_bounces_export,
+        structure=get_s3_web_bounces_structure(),
     )
 
 
