@@ -1,23 +1,24 @@
+import posthoganalytics
+import structlog
 import time
-from typing import Any, Optional
 
 from django.conf import settings
 
-from posthog.models.team.team import Team
-import structlog
-import posthoganalytics
-from celery import shared_task
+from datetime import timedelta
 from dateutil.relativedelta import relativedelta
+from typing import Any, Optional
+
+from celery import shared_task, current_task
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge
 
-from datetime import timedelta
-
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
 from posthog.models.cohort.util import get_static_cohort_size
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
 
@@ -161,6 +162,13 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         if cohort.last_calculation is not None:
             staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
         COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+
+        tags = {"cohort_id": cohort_id, "feature": Feature.COHORT.value}
+        if initiating_user_id:
+            tags["user_id"] = initiating_user_id
+        if current_task and current_task.request and current_task.request.id:
+            tags["celery_task_id"] = current_task.request.id
+        tag_queries(**tags)
 
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 

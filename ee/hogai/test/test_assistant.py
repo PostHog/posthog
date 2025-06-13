@@ -40,9 +40,14 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    DashboardFilter,
     FailureMessage,
     HumanMessage,
+    MaxContextShape,
+    MaxDashboardContext,
+    MaxInsightContext,
     ReasoningMessage,
+    TrendsQuery,
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
@@ -117,12 +122,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         contextual_tools: Optional[dict[str, Any]] = None,
+        ui_context: Optional[MaxContextShape] = None,
     ) -> tuple[list[tuple[str, Any]], Assistant]:
         # Create assistant instance with our test graph
         assistant = Assistant(
             self.team,
             conversation or self.conversation,
-            new_message=HumanMessage(content=message or "Hello"),
+            new_message=HumanMessage(content=message or "Hello", ui_context=ui_context),
             user=self.user,
             is_new_conversation=is_new_conversation,
             tool_call_partial_state=tool_call_partial_state,
@@ -1372,6 +1378,67 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 expected_output.append(("message", test_message))
 
             self.assertConversationEqual(output, expected_output)
+
+    def test_ui_context_persists_through_conversation_retrieval(self):
+        """Test that ui_context persists when retrieving conversation state across multiple runs."""
+
+        # Create a simple graph that just returns the initial state
+        def return_initial_state(state):
+            return {"messages": [AssistantMessage(content="Response from assistant")]}
+
+        graph = (
+            AssistantGraph(self.team)
+            .add_node(AssistantNodeName.ROOT, return_initial_state)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        # Test ui_context with multiple fields
+        ui_context = MaxContextShape(
+            dashboards=[
+                MaxDashboardContext(
+                    id="1",
+                    filters=DashboardFilter(),
+                    insights=[MaxInsightContext(id="1", query=TrendsQuery(series=[]))],
+                )
+            ],
+            insights=[MaxInsightContext(id="2", query=TrendsQuery(series=[]))],
+        )
+
+        # First run: Create assistant with ui_context
+        output1, assistant1 = self._run_assistant_graph(
+            test_graph=graph,
+            message="First message",
+            conversation=self.conversation,
+            ui_context=ui_context,
+        )
+
+        ui_context_2 = MaxContextShape(insights=[MaxInsightContext(id="3", query=TrendsQuery(series=[]))])
+
+        # Second run: Create another assistant with the same conversation (simulating retrieval)
+        output2, assistant2 = self._run_assistant_graph(
+            test_graph=graph,
+            message="Second message",
+            conversation=self.conversation,
+            ui_context=ui_context_2,  # Different ui_context
+        )
+
+        # Get the final state
+        config2 = assistant2._get_config()
+        state2 = assistant2._graph.get_state(config2)
+        stored_messages2 = state2.values["messages"]
+
+        # Find all human messages in the final stored messages
+        human_messages = [msg for msg in stored_messages2 if isinstance(msg, HumanMessage)]
+        self.assertEqual(len(human_messages), 2, "Should have exactly two human messages")
+
+        first_message = human_messages[0]
+        self.assertEqual(first_message.ui_context, ui_context)
+
+        # Check second message has new ui_context
+        second_message = human_messages[1]
+        self.assertEqual(second_message.ui_context, ui_context_2)
 
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")

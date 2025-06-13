@@ -7,15 +7,16 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 import uuid
-from typing import Optional
+from typing import Optional, Any
+from collections import defaultdict, deque
 
 
-def join_components_greedily(components):
+def join_components_greedily(components: list[str]) -> list[str]:
     """
     Greedily joins components until hitting a UUID.
     Returns a list where UUIDs are separate items and non-UUID components are joined.
     """
-    new_components = []
+    new_components: list[str] = []
     current_group: list[str] = []
 
     for component in components:
@@ -48,70 +49,135 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not model_id:
             return Response({"error": "model_id is required"}, status=400)
 
-        query = Q(team_id=self.team_id, saved_query_id=model_id)
+        return Response(get_upstream_dag(self.team_id, model_id))
 
-        paths = DataWarehouseModelPath.objects.filter(query)
 
-        dag: dict[str, list] = {"nodes": [], "edges": []}
+def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]:
+    """
+    Performs a topological sort on the DAG to determine execution order.
+    Returns nodes ordered from most upstream to the node itself.
+    """
+    # Build adjacency list and in-degree count
+    graph = defaultdict(list)
+    in_degree: dict[str, int] = defaultdict(int)
 
-        seen_nodes = set()
-        uuid_nodes = set()
+    for edge in edges:
+        source, target = edge["source"], edge["target"]
+        graph[source].append(target)
+        in_degree[target] += 1
+        if source not in in_degree:
+            in_degree[source] = 0
 
-        for path in paths:
-            if isinstance(path.path, list):
-                components = path.path
-            else:
-                components = path.path.split(".")
+    # Initialize queue with nodes that have no incoming edges
+    queue = deque([node for node in nodes if in_degree[node] == 0])
+    result = []
 
-            components = join_components_greedily(components)
+    # Process nodes
+    while queue:
+        node = queue.popleft()
+        result.append(node)
 
-            for component in components:
+        for neighbor in graph[node]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    return result
+
+
+def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
+    query = Q(team_id=team_id, saved_query_id=model_id)
+    paths = DataWarehouseModelPath.objects.filter(query)
+
+    dag: dict[str, list[Any]] = {"nodes": [], "edges": []}
+    seen_nodes: set[str] = set()
+    node_data: dict[str, dict] = {}
+
+    # Sometimes we have no paths, meaning we only reference external tables and nothing else.
+    # we just map the external_tables on the saved query to directly reference the current model
+    if not paths:
+        saved_query = DataWarehouseSavedQuery.objects.filter(id=model_id, team_id=team_id).first()
+        if not saved_query:
+            return dag
+        seen_nodes = {model_id}
+
+        # Then add external table nodes and edges
+        for external_table in saved_query.external_tables:
+            node_id = external_table
+            if node_id not in seen_nodes:
+                dag["nodes"].append(
+                    {
+                        "id": node_id,
+                        "type": "table",
+                        "name": node_id,
+                    }
+                )
+                seen_nodes.add(node_id)
+
+            dag["edges"].append({"source": node_id, "target": model_id})
+
+        dag["nodes"].append(
+            {
+                "id": model_id,
+                "type": "view",
+                "name": saved_query.name,
+                "sync_frequency": saved_query.sync_frequency_interval,
+                "last_run_at": saved_query.last_run_at,
+                "status": saved_query.status,
+            }
+        )
+        return dag
+
+    uuid_nodes: set[uuid.UUID] = set()
+
+    for path in paths:
+        components = path.path if isinstance(path.path, list) else path.path.split(".")
+        components = join_components_greedily(components)
+        for component in components:
+            try:
+                component_uuid = uuid.UUID(component)
+                uuid_nodes.add(component_uuid)
+            except ValueError:
+                continue
+
+    saved_queries = {str(q.id): q for q in DataWarehouseSavedQuery.objects.filter(id__in=uuid_nodes)}
+
+    for path in paths:
+        components = path.path if isinstance(path.path, list) else path.path.split(".")
+        components = join_components_greedily(components)
+        for i, component in enumerate(components):
+            node_id = component
+            if node_id not in seen_nodes:
+                seen_nodes.add(node_id)
+                node_uuid: Optional[uuid.UUID] = None
+                saved_query = None
                 try:
-                    component_uuid = uuid.UUID(component)
-                    uuid_nodes.add(component_uuid)
-                except ValueError:
-                    continue
+                    node_uuid = uuid.UUID(component)
+                    saved_query = saved_queries.get(str(node_uuid))
 
-        # gather all saved queries in one go to avoid n+1 queries
-        saved_queries = {str(query.id): query for query in DataWarehouseSavedQuery.objects.filter(id__in=uuid_nodes)}
-
-        for path in paths:
-            if isinstance(path.path, list):
-                components = path.path
-            else:
-                components = path.path.split(".")
-
-            components = join_components_greedily(components)
-
-            for i, component in enumerate(components):
-                node_id = component
-                if node_id not in seen_nodes:
-                    seen_nodes.add(node_id)
-                    node_uuid: Optional[uuid.UUID] = None
-                    saved_query = None
-                    try:
-                        node_uuid = uuid.UUID(component)
-                        saved_query = saved_queries.get(str(node_uuid))
-                        name = saved_query.name if saved_query else component
-                    except ValueError:
+                    if not saved_query:
                         name = component
+                    else:
+                        name = saved_query.name
+                except ValueError:
+                    name = component
+                node_data[node_id] = {
+                    "id": node_id,
+                    "type": "view" if node_uuid else "table",
+                    "name": name,
+                    "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
+                    "last_run_at": saved_query.last_run_at if saved_query else None,
+                    "status": saved_query.status if saved_query else None,
+                }
+            if i > 0:
+                source = components[i - 1]
+                target = component
+                edge = {"source": source, "target": target}
+                if edge not in dag["edges"]:
+                    dag["edges"].append(edge)
 
-                    dag["nodes"].append(
-                        {
-                            "id": node_id,
-                            "type": "view" if node_uuid else "table",
-                            "name": name,
-                            "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
-                            "last_run_at": saved_query.last_run_at if saved_query else None,
-                            "status": saved_query.status if saved_query else None,
-                        }
-                    )
+    # Order nodes by dependency order
+    ordered_nodes = topological_sort(list(node_data.keys()), dag["edges"])
+    dag["nodes"] = [node_data[node_id] for node_id in ordered_nodes]
 
-                if i > 0:
-                    source = components[i - 1]
-                    target = component
-                    edge = {"source": source, "target": target}
-                    if edge not in dag["edges"]:
-                        dag["edges"].append(edge)
-
-        return Response(dag)
+    return dag

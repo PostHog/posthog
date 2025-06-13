@@ -3842,6 +3842,11 @@
             "label": "Cohort",
             "type": "String"
         },
+        "country": {
+            "description": "The country of the customer connected to the revenue event.",
+            "label": "Country",
+            "type": "String"
+        },
         "product": {
             "description": "The product of the revenue event.",
             "label": "Product",
@@ -4053,6 +4058,12 @@
             "description": "The time it took for the Largest Contentful Paint on the page. This captures the perceived load time of the page, and measure how long it took for the main content of the page to be visible to users.",
             "examples": ["2.2"],
             "label": "Web vitals LCP"
+        }
+    },
+    "max_ai_context": {
+        "Current page": {
+            "description": "Give Max context about the current dashboard or insight you are working on",
+            "label": "Current page"
         }
     }
 }
