@@ -29,7 +29,7 @@ export function SaveToModal(): JSX.Element {
         useActions(saveToLogic)
 
     function handleSubmit(): void {
-        if (locallySelectedFolder) {
+        if (typeof locallySelectedFolder === 'string') {
             addSelectedFolder(locallySelectedFolder)
         }
         setFormValue('folder', locallySelectedFolder)
@@ -38,7 +38,7 @@ export function SaveToModal(): JSX.Element {
     }
 
     useEffect(() => {
-        if (form.folder) {
+        if (typeof form.folder === 'string' && form.folder !== locallySelectedFolder) {
             setLocallySelectedFolder(form.folder)
         }
     }, [form.folder])
@@ -67,7 +67,7 @@ export function SaveToModal(): JSX.Element {
                         <DropdownMenuTrigger asChild>
                             <ButtonPrimitive fullWidth variant="outline">
                                 <IconFolder className="size-4 text-tertiary" />
-                                {locallySelectedFolder}
+                                {locallySelectedFolder || 'Project'}
                                 {defaultFolder === locallySelectedFolder ? (
                                     <span className="text-tertiary text-xxs pt-[2px]">(Default)</span>
                                 ) : null}
@@ -90,7 +90,7 @@ export function SaveToModal(): JSX.Element {
                                                     }}
                                                 >
                                                     {folder === locallySelectedFolder ? <IconCheck /> : <IconBlank />}
-                                                    {folder}
+                                                    {folder || 'Project'}
                                                 </ButtonPrimitive>
                                             </DropdownMenuItem>
                                             <ButtonPrimitive
@@ -127,7 +127,7 @@ export function SaveToModal(): JSX.Element {
                                         }}
                                     >
                                         {defaultFolder === locallySelectedFolder ? <IconCheck /> : <IconBlank />}
-                                        {defaultFolder}
+                                        {defaultFolder || 'Project'}
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             </DropdownMenuRadioGroup>
