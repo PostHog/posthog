@@ -62,6 +62,10 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["id", "kind"],
@@ -89,6 +93,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "property"],
@@ -231,6 +239,10 @@
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -394,6 +406,9 @@
                 },
                 {
                     "$ref": "#/definitions/WebPageURLSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
@@ -770,6 +785,10 @@
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["id", "kind", "name"],
@@ -835,6 +854,10 @@
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["event", "kind"],
@@ -877,9 +900,10 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "const": "properties.$session_id",
+                    "default": null,
                     "description": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
-                    "type": "string"
+                    "enum": ["properties.$session_id", null],
+                    "type": ["string", "null"]
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue",
@@ -933,7 +957,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "$ref": "#/definitions/integer",
-                    "description": "Use this field to define the aggregation by a specific group from the group mapping that the user has provided."
+                    "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions."
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/AssistantFunnelsBreakdownFilter",
@@ -1510,10 +1534,6 @@
                     "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Retention event (event marking the user coming back)."
                 },
-                "showMean": {
-                    "description": "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
-                    "type": "boolean"
-                },
                 "targetEntity": {
                     "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Activation event (event putting the actor into the initial cohort)."
@@ -1696,6 +1716,10 @@
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["id", "kind", "name"],
@@ -1803,6 +1827,10 @@
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -5668,6 +5696,10 @@
                         "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "series"],
@@ -7463,6 +7495,10 @@
                         }
                     ],
                     "description": "Source of the events"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "source"],
@@ -7486,6 +7522,10 @@
                 },
                 "tableSettings": {
                     "$ref": "#/definitions/TableSettings"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "source"],
@@ -7573,6 +7613,10 @@
                 },
                 "timestamp_field": {
                     "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
@@ -7850,6 +7894,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -8180,6 +8228,10 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -8371,6 +8423,10 @@
                 "status": {
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
                     "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 },
                 "volumeResolution": {
                     "$ref": "#/definitions/integer"
@@ -8606,6 +8662,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -8836,6 +8896,10 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -8918,6 +8982,10 @@
                 "source": {
                     "$ref": "#/definitions/InsightActorsQuery",
                     "description": "source for querying events for insights"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 },
                 "where": {
                     "description": "HogQL filters to apply on returned data",
@@ -9074,6 +9142,10 @@
                 },
                 "timestamp_field": {
                     "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["data_warehouse_join_key", "events_join_key", "kind", "table_name", "timestamp_field"],
@@ -9145,6 +9217,10 @@
                 },
                 "start_date": {
                     "type": ["string", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["end_date", "experiment_name", "feature_flag", "kind", "start_date"],
@@ -9277,6 +9353,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["funnels_query", "kind"],
@@ -9558,6 +9638,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "metric"],
@@ -9694,6 +9778,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["count_query", "kind"],
@@ -9892,6 +9980,27 @@
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
+        },
+        "ExternalQueryError": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/ExternalQueryErrorCode"
+                },
+                "detail": {
+                    "type": "string"
+                }
+            },
+            "required": ["code", "detail"],
+            "type": "object"
+        },
+        "ExternalQueryErrorCode": {
+            "enum": ["platform_access_required", "query_execution_failed"],
+            "type": "string"
+        },
+        "ExternalQueryStatus": {
+            "enum": ["success", "error"],
+            "type": "string"
         },
         "FailureMessage": {
             "additionalProperties": false,
@@ -10135,6 +10244,10 @@
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelCorrelationQuery"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "source"],
@@ -10185,6 +10298,10 @@
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelsActorsQuery"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["funnelCorrelationType", "kind", "source"],
@@ -10327,6 +10444,10 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["funnelFromStep", "funnelToStep", "id", "kind"],
@@ -10400,6 +10521,10 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["funnelFromStep", "funnelToStep", "kind"],
@@ -10568,6 +10693,10 @@
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "source"],
@@ -10594,7 +10723,7 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnelFromStep": {
                     "$ref": "#/definitions/integer"
@@ -10666,7 +10795,7 @@
                     "type": "array"
                 },
                 "funnel_aggregate_by_hogql": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnel_from_step": {
                     "type": "number"
@@ -10783,6 +10912,10 @@
                         "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "series"],
@@ -10974,6 +11107,10 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["group_type_index", "kind"],
@@ -11116,6 +11253,10 @@
                     },
                     "description": "Variables to be substituted into the query",
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "query"],
@@ -11162,6 +11303,10 @@
                 "startPosition": {
                     "$ref": "#/definitions/integer",
                     "description": "Start position of the editor word"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["endPosition", "kind", "language", "query", "startPosition"],
@@ -11261,6 +11406,10 @@
                     },
                     "description": "Variables to be subsituted into the query",
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "language", "query"],
@@ -11383,6 +11532,10 @@
                     },
                     "description": "Variables to be substituted into the query",
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "query"],
@@ -11580,6 +11733,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/HogQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -11616,6 +11773,9 @@
                 "type": {
                     "const": "human",
                     "type": "string"
+                },
+                "ui_context": {
+                    "$ref": "#/definitions/MaxContextShape"
                 }
             },
             "required": ["type", "content"],
@@ -11680,6 +11840,10 @@
                 },
                 "status": {
                     "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "source"],
@@ -11700,6 +11864,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -11730,6 +11898,10 @@
                             "$ref": "#/definitions/StickinessActorsQuery"
                         }
                     ]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "source"],
@@ -11994,6 +12166,10 @@
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
                 },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                },
                 "vizSpecificOptions": {
                     "$ref": "#/definitions/VizSpecificOptions"
                 }
@@ -12057,6 +12233,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -12118,6 +12298,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -12179,6 +12363,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -12240,6 +12428,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -12301,6 +12493,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -12362,6 +12558,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -12651,6 +12851,10 @@
                         "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "series"],
@@ -12835,23 +13039,30 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
                 "searchTerm": {
                     "type": "string"
                 },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "severityLevels": {
                     "items": {
                         "$ref": "#/definitions/LogSeverityLevel"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
-            "required": ["dateRange", "filterGroup", "kind", "severityLevels"],
+            "required": ["dateRange", "filterGroup", "kind", "serviceNames", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
@@ -12966,6 +13177,65 @@
                 }
             ]
         },
+        "MaxContextShape": {
+            "additionalProperties": false,
+            "properties": {
+                "dashboards": {
+                    "items": {
+                        "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "MaxDashboardContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "filters": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "insights", "filters"],
+            "type": "object"
+        },
         "MaxInnerUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -12980,6 +13250,32 @@
                 }
             },
             "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxInsightContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/QuerySchema"
+                }
+            },
+            "required": ["id", "query"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -13157,6 +13453,7 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
+                "WebAnalyticsExternalSummaryQuery",
                 "RevenueAnalyticsGrowthRateQuery",
                 "RevenueAnalyticsInsightsQuery",
                 "RevenueAnalyticsOverviewQuery",
@@ -13436,6 +13733,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "pathsFilter"],
@@ -13601,6 +13902,10 @@
                 },
                 "search": {
                     "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -14977,6 +15282,22 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "type": "object"
+                        },
+                        "error": {
+                            "$ref": "#/definitions/ExternalQueryError"
+                        },
+                        "status": {
+                            "$ref": "#/definitions/ExternalQueryStatus"
+                        }
+                    },
+                    "required": ["data", "status"],
                     "type": "object"
                 },
                 {
@@ -16831,6 +17152,9 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                 },
                 {
@@ -17186,6 +17510,10 @@
                 },
                 "user_modified_filters": {
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -17345,9 +17673,6 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
-                "showMean": {
-                    "type": "boolean"
-                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
@@ -17463,6 +17788,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "retentionFilter"],
@@ -17563,6 +17892,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -17586,6 +17919,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -17609,6 +17946,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -17632,6 +17973,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -17717,6 +18062,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -17784,13 +18133,17 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["groupBy", "interval", "kind", "properties"],
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort"],
+            "enum": ["all", "product", "cohort", "country"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {
@@ -17866,6 +18219,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -17962,6 +18319,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["groupBy", "kind", "properties"],
@@ -18035,6 +18396,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -18107,6 +18472,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -18368,6 +18737,10 @@
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
                 },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                },
                 "vizSpecificOptions": {
                     "$ref": "#/definitions/VizSpecificOptions"
                 }
@@ -18415,6 +18788,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/SessionAttributionExplorerQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["groupBy", "kind"],
@@ -18617,6 +18994,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/SessionsTimelineQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -18740,6 +19121,10 @@
                 },
                 "status": {
                     "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "source"],
@@ -18900,6 +19285,10 @@
                 "stickinessFilter": {
                     "$ref": "#/definitions/StickinessFilter",
                     "description": "Properties specific to the stickiness insight"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "series"],
@@ -18954,6 +19343,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/SuggestedQuestionsQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -19023,10 +19416,11 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "logs",
+                "log_attributes",
                 "replay",
                 "revenue_analytics_properties",
-                "resources"
+                "resources",
+                "max_ai_context"
             ],
             "type": "string"
         },
@@ -19056,6 +19450,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -19262,6 +19660,10 @@
                 },
                 "traceId": {
                     "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -19631,6 +20033,10 @@
                 "trendsFilter": {
                     "$ref": "#/definitions/TrendsFilter",
                     "description": "Properties specific to the trends insight"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "series"],
@@ -19727,6 +20133,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/VectorSearchQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["embedding", "kind"],
@@ -19869,6 +20279,58 @@
                 }
             ]
         },
+        "WebAnalyticsExternalSummaryQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebAnalyticsExternalSummaryQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQueryResponse"
+                }
+            },
+            "required": ["dateRange", "kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                },
+                "error": {
+                    "$ref": "#/definitions/ExternalQueryError"
+                },
+                "status": {
+                    "$ref": "#/definitions/ExternalQueryStatus"
+                }
+            },
+            "required": ["data", "status"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "type": "string"
+                },
+                "explicit_date": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["date_from", "date_to"],
+            "type": "object"
+        },
         "WebAnalyticsOrderBy": {
             "items": [
                 {
@@ -19989,6 +20451,10 @@
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -20111,6 +20577,10 @@
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -20262,6 +20732,10 @@
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -20384,6 +20858,10 @@
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties"],
@@ -20531,6 +21009,10 @@
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -20710,6 +21192,10 @@
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "metric", "percentile", "properties", "thresholds"],
@@ -20859,6 +21345,10 @@
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "properties", "source"],

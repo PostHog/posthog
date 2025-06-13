@@ -11,6 +11,7 @@ APIScopeObject = Literal[
     "activity_log",
     "annotation",
     "batch_export",
+    "batch_import",
     "cohort",
     "dashboard",
     "dashboard_template",

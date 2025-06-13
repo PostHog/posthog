@@ -54,7 +54,8 @@ impl Job {
             .import_config
             .source
             .construct(&model.secrets, context.clone(), is_restarting)
-            .await?;
+            .await
+            .with_context(|| "Failed to construct data source for job".to_string())?;
 
         let transform = Box::new(
             model
@@ -68,7 +69,8 @@ impl Job {
             .import_config
             .sink
             .construct(context.clone(), &model)
-            .await?;
+            .await
+            .with_context(|| format!("Failed to construct sink for job {}", model.id))?;
 
         let mut state = model
             .state
@@ -81,9 +83,15 @@ impl Job {
             // If we have no parts, we assume this is the first time picking up the job,
             // and populate the parts list
             let mut parts = Vec::new();
-            let keys = source.keys().await?;
+            let keys = source
+                .keys()
+                .await
+                .with_context(|| "Failed to get source keys".to_string())?;
             for key in keys {
-                let size = source.size(&key).await?;
+                let size = source
+                    .size(&key)
+                    .await
+                    .with_context(|| format!("Failed to get size for part {}", key))?;
                 debug!("Got size for part {}: {}", key, size);
                 parts.push(PartState {
                     key,
@@ -172,12 +180,13 @@ impl Job {
             .get_chunk(
                 &next_part.key,
                 next_part.current_offset,
-                self.context.config.chunk_size,
+                self.context.config.chunk_size as u64,
             )
             .await
             .context(format!("Fetching part chunk {:?}", next_part))?;
 
-        let is_last_chunk = next_part.current_offset + next_chunk.len() > next_part.total_size;
+        let is_last_chunk =
+            next_part.current_offset + (next_chunk.len() as u64) > next_part.total_size;
 
         let chunk_bytes = next_chunk.len();
 
@@ -203,7 +212,7 @@ impl Job {
         }
 
         // Update the in-memory part state (the read will be committed to the DB once the write is done)
-        next_part.current_offset += parsed.consumed;
+        next_part.current_offset += parsed.consumed as u64;
 
         Ok(Some((next_part.key.clone(), parsed)))
     }
@@ -271,7 +280,7 @@ impl Job {
             return Err(Error::msg(format!("No part found with key {}", key)));
         };
 
-        part.current_offset += consumed;
+        part.current_offset += consumed as u64;
 
         let status_message = format!(
             "Starting commit of part {} to offset {}, consumed {} additional bytes",

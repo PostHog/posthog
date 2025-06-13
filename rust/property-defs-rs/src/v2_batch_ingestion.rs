@@ -1,7 +1,6 @@
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
-use quick_cache::sync::Cache;
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -10,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     metrics_consts::{
-        CACHE_CONSUMED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
+        ISSUE_FAILED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
         V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, V2_EVENT_DEFS_BATCH_SIZE,
         V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED, V2_EVENT_PROPS_BATCH_ATTEMPT,
         V2_EVENT_PROPS_BATCH_CACHE_TIME, V2_EVENT_PROPS_BATCH_ROWS_AFFECTED,
@@ -22,6 +21,7 @@ use crate::{
     types::{
         EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType, Update,
     },
+    update_cache::Cache,
 };
 
 const V2_BATCH_MAX_RETRY_ATTEMPTS: u64 = 3;
@@ -72,7 +72,7 @@ impl EventPropertiesBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
 
         for update in self.to_cache.drain(..) {
@@ -130,7 +130,7 @@ impl EventDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_CACHE_TIME, &[]);
 
         for update in self.to_cache.drain(..) {
@@ -223,7 +223,7 @@ impl PropertyDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache<Update, ()>>) {
+    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
 
         for update in self.to_cache.drain(..) {
@@ -238,15 +238,10 @@ impl PropertyDefinitionsBatch {
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch_v2(
     config: &Config,
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     pool: &PgPool,
     batch: Vec<Update>,
 ) {
-    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
-    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
-
-    // TODO(eli): implement v1-style delay while cache is warming?
-
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
@@ -329,6 +324,7 @@ pub async fn process_batch_v2(
             Ok(result) => match result {
                 Ok(_) => continue,
                 Err(db_err) => {
+                    metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
                     error!("Batch write exhausted retries: {:?}", db_err);
                 }
             },
@@ -340,7 +336,7 @@ pub async fn process_batch_v2(
 }
 
 async fn write_event_properties_batch(
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     mut batch: EventPropertiesBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
@@ -408,7 +404,7 @@ async fn write_event_properties_batch(
 }
 
 async fn write_property_definitions_batch(
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     mut batch: PropertyDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
@@ -487,7 +483,7 @@ async fn write_property_definitions_batch(
 }
 
 async fn write_event_definitions_batch(
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     mut batch: EventDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {

@@ -12,13 +12,14 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { SelectedFolder } from '../SaveTo/saveToLogic'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 
 export interface FolderSelectProps {
     /** The folder to select */
     value?: string
     /** Callback when a folder is selected */
-    onChange?: (folder: string) => void
+    onChange?: (selectedFolder: SelectedFolder) => void
     /** Class name for the component */
     className?: string
     /** Root for folder */
@@ -42,6 +43,7 @@ export function FolderSelect({
 }: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
     const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot }
+    const inputRef = useRef<HTMLInputElement>(null)
 
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))
@@ -56,6 +58,7 @@ export function FolderSelect({
         toggleFolderOpen,
         deleteItem,
     } = useActions(projectTreeLogic(props))
+
     const treeRef = useRef<LemonTreeRef>(null)
 
     useEffect(() => {
@@ -67,6 +70,17 @@ export function FolderSelect({
             expandProjectFolder(value || '')
         }
     }, [value])
+
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            if (inputRef.current) {
+                inputRef.current?.focus()
+            }
+        }, 50)
+        return () => {
+            clearTimeout(timeout)
+        }
+    }, [])
 
     function getItemContextMenu(type: 'context' | 'dropdown'): (item: TreeDataItem) => ReactNode | undefined {
         const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
@@ -128,10 +142,12 @@ export function FolderSelect({
                 type="search"
                 placeholder="Search"
                 fullWidth
+                size="small"
                 onChange={(search) => setSearchTerm(search)}
                 value={searchTerm}
                 data-attr="folder-select-search-input"
                 autoFocus
+                inputRef={inputRef}
                 onKeyDown={(e) => {
                     if (e.key === 'ArrowDown') {
                         e.preventDefault() // Prevent scrolling
@@ -169,12 +185,14 @@ export function FolderSelect({
                     checkedItemCount={0}
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
+                            const folderPath = includeProtocol ? folder.id : folder.record?.path ?? ''
+
                             if (includeProtocol) {
                                 toggleFolderOpen(folder.id, isExpanded)
-                                onChange?.(folder.id)
+                                onChange?.(folderPath)
                             } else {
                                 toggleFolderOpen(folder.id || '', isExpanded)
-                                onChange?.(folder.record?.path ?? '')
+                                onChange?.(folderPath)
                             }
                         }
                     }}

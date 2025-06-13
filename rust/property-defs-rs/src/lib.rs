@@ -6,15 +6,15 @@ use config::Config;
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
-    UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-    UPDATE_PRODUCER_OFFSET, V2_ISOLATED_DB_SELECTED, WORKER_BLOCKED,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_DROPPED, UPDATES_FILTERED_BY_CACHE,
+    UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, UPDATE_PRODUCER_OFFSET,
+    V2_ISOLATED_DB_SELECTED, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 use v2_batch_ingestion::process_batch_v2;
 
 use ahash::AHashSet;
-use quick_cache::sync::Cache;
+use update_cache::Cache;
 
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
@@ -34,7 +34,7 @@ const UPDATE_RETRY_DELAY_MS: u64 = 50;
 
 pub async fn update_consumer_loop(
     config: Config,
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     context: Arc<AppContext>,
     mut channel: mpsc::Receiver<Update>,
 ) {
@@ -83,6 +83,8 @@ pub async fn update_consumer_loop(
 
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
+        // this should only be performed here, per *update batch* as it's
+        // more expensive now that this is 3 per-def-type caches in a trenchcoat
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
@@ -131,14 +133,10 @@ pub async fn update_consumer_loop(
 
 async fn process_batch_v1(
     config: &Config,
-    cache: Arc<Cache<Update, ()>>,
+    cache: Arc<Cache>,
     context: Arc<AppContext>,
     mut batch: Vec<Update>,
 ) {
-    // unused in v2 as a throttling mechanism, but still useful to measure
-    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
-    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
-
     // We split our update batch into chunks, one per transaction. We know each update touches
     // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
     // which helps us with inter-pod deadlocking and retries.
@@ -160,7 +158,7 @@ async fn process_batch_v1(
             // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
             // if we still fail, we drop the batch and clear it's content from the cached update set, because
             // we assume everything in it will be seen again.
-            while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
+            while let Err(e) = m_context.issue(&mut chunk).await {
                 tries += 1;
                 if tries > BATCH_UPDATE_MAX_ATTEMPTS {
                     let chunk_len = chunk.len() as u64;
@@ -173,14 +171,7 @@ async fn process_batch_v1(
                     );
                     // We clear any updates that were in this batch from the cache, so that
                     // if we see them again we'll try again to issue them.
-                    chunk.iter().for_each(|u| {
-                        if m_cache.remove(u).is_some() {
-                            metrics::counter!(UPDATES_CACHE, &[("action", "removed")]).increment(1);
-                        } else {
-                            metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
-                                .increment(1);
-                        }
-                    });
+                    chunk.iter().for_each(|u| m_cache.remove(u));
                     return;
                 }
 
@@ -205,7 +196,7 @@ pub async fn update_producer_loop(
     config: Config,
     consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
-    shared_cache: Arc<Cache<Update, ()>>,
+    shared_cache: Arc<Cache>,
 ) {
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
@@ -227,9 +218,13 @@ pub async fn update_producer_loop(
             }
         };
 
-        // TODO(eli): librdkafka auto_commit is probably making this a no-op anyway. we may want to
-        // extend the autocommit time interval either way to ensure we replay consumed messages that
-        // could be part of a lost batch or chunk during a redeploy. stay tuned...
+        // NOTE: we extended the autocommit interval in production envs to 20 seconds
+        // as a temporary remediation for events already buffered in a pod's internal
+        // queue being skipped when the consumer group rebalances or the service is
+        // redeployed. Long-term fix: start tracking max partition offsets in the
+        // Update batches and commit them only when each batch succeeds. This will
+        // not be perfect, as batch writes are async and can complete out of order,
+        // but is better than what we're doing right now
         let curr_offset = offset.get_value();
         match offset.store() {
             Ok(_) => (),
@@ -276,8 +271,7 @@ pub async fn update_producer_loop(
         {
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
-                if shared_cache.get(&update).is_some() {
-                    metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1);
+                if shared_cache.contains_key(&update) {
                     // the above can replace this metric when we have new hit/miss stats both flowing
                     metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                     continue;
@@ -288,8 +282,7 @@ pub async fn update_producer_loop(
                 // they are safely persisted to Postgres, and painfully extract them
                 // when batch writes fail. This may be a fine trade for now, since
                 // v2 batch writes fail much less often than v1
-                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
-                shared_cache.insert(update.clone(), ());
+                shared_cache.insert(update.clone());
 
                 match channel.try_send(update) {
                     Ok(_) => {}

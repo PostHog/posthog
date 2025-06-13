@@ -6,10 +6,9 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 use futures::future::ready;
 use property_defs_rs::{
     api::v1::query::Manager, api::v1::routing::apply_routes, app_context::AppContext,
-    config::Config, update_consumer_loop, update_producer_loop,
+    config::Config, update_cache::Cache, update_consumer_loop, update_producer_loop,
 };
 
-use quick_cache::sync::Cache;
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{

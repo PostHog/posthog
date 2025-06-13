@@ -1,12 +1,11 @@
-import { IconDecisionTree, IconDrag, IconHourglass, IconRevert, IconSend } from '@posthog/icons'
+import { IconClock, IconDecisionTree, IconDrag, IconHourglass, IconSend } from '@posthog/icons'
 import { Panel } from '@xyflow/react'
 
 const TOOLBAR_NODES = [
     { type: 'message', name: 'Message', icon: <IconSend /> },
     { type: 'conditional_branch', name: 'Condition', icon: <IconDecisionTree /> },
-    { type: 'wait_for_condition', name: 'Wait', icon: <IconHourglass /> },
-    { type: 'hog_function', name: 'Function', icon: <IconRevert /> },
-    { type: 'exit', name: 'Exit', icon: <IconRevert /> },
+    { type: 'delay', name: 'Wait', icon: <IconClock /> },
+    { type: 'wait_for_condition', name: 'Wait for condition', icon: <IconHourglass /> },
 ] as const
 export type ToolbarNode = (typeof TOOLBAR_NODES)[number]
 
