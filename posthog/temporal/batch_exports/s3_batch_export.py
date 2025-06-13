@@ -1113,6 +1113,11 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         # Track the upload
         self.pending_uploads[part_number] = upload_task
 
+        await self.logger.adebug(
+            "Concurrent uploads running: %s",
+            len(self.pending_uploads),
+        )
+
     async def _upload_part_with_cleanup(
         self,
         data: bytes,
