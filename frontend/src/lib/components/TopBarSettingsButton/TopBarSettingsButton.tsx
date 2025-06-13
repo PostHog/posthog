@@ -8,7 +8,8 @@ import { topBarSettingsButtonLogic } from './topBarSettingsButtonLogic'
 
 export function TopBarSettingsButton(): JSX.Element | null {
     const { loadedSceneSettingsSectionId } = useValues(topBarSettingsButtonLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const { openSettingsPanel, closeSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const { isOpen } = useValues(sidePanelSettingsLogic)
 
     if (!loadedSceneSettingsSectionId) {
         return null
@@ -19,7 +20,9 @@ export function TopBarSettingsButton(): JSX.Element | null {
             <LemonButton
                 size="small"
                 icon={<IconGear />}
-                onClick={() => openSettingsPanel({ sectionId: loadedSceneSettingsSectionId })}
+                onClick={() =>
+                    isOpen ? closeSettingsPanel() : openSettingsPanel({ sectionId: loadedSceneSettingsSectionId })
+                }
                 tooltip="See settings"
             />
         </span>
