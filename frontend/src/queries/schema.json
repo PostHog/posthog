@@ -408,6 +408,9 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
@@ -897,9 +900,10 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "const": "properties.$session_id",
+                    "default": null,
                     "description": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
-                    "type": "string"
+                    "enum": ["properties.$session_id", null],
+                    "type": ["string", "null"]
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue",
@@ -953,7 +957,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "$ref": "#/definitions/integer",
-                    "description": "Use this field to define the aggregation by a specific group from the group mapping that the user has provided."
+                    "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions."
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/AssistantFunnelsBreakdownFilter",
@@ -9977,6 +9981,27 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
+        "ExternalQueryError": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/ExternalQueryErrorCode"
+                },
+                "detail": {
+                    "type": "string"
+                }
+            },
+            "required": ["code", "detail"],
+            "type": "object"
+        },
+        "ExternalQueryErrorCode": {
+            "enum": ["platform_access_required", "query_execution_failed"],
+            "type": "string"
+        },
+        "ExternalQueryStatus": {
+            "enum": ["success", "error"],
+            "type": "string"
+        },
         "FailureMessage": {
             "additionalProperties": false,
             "properties": {
@@ -10698,7 +10723,7 @@
                     "type": "array"
                 },
                 "funnelAggregateByHogQL": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnelFromStep": {
                     "$ref": "#/definitions/integer"
@@ -10770,7 +10795,7 @@
                     "type": "array"
                 },
                 "funnel_aggregate_by_hogql": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnel_from_step": {
                     "type": "number"
@@ -11748,6 +11773,9 @@
                 "type": {
                     "const": "human",
                     "type": "string"
+                },
+                "ui_context": {
+                    "$ref": "#/definitions/MaxContextShape"
                 }
             },
             "required": ["type", "content"],
@@ -13011,14 +13039,17 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
                 "searchTerm": {
                     "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "severityLevels": {
                     "items": {
@@ -13031,7 +13062,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "filterGroup", "kind", "severityLevels"],
+            "required": ["dateRange", "filterGroup", "kind", "serviceNames", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
@@ -13146,6 +13177,65 @@
                 }
             ]
         },
+        "MaxContextShape": {
+            "additionalProperties": false,
+            "properties": {
+                "dashboards": {
+                    "items": {
+                        "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "MaxDashboardContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "filters": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "insights", "filters"],
+            "type": "object"
+        },
         "MaxInnerUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -13160,6 +13250,32 @@
                 }
             },
             "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxInsightContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/QuerySchema"
+                }
+            },
+            "required": ["id", "query"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -13337,6 +13453,7 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
+                "WebAnalyticsExternalSummaryQuery",
                 "RevenueAnalyticsGrowthRateQuery",
                 "RevenueAnalyticsInsightsQuery",
                 "RevenueAnalyticsOverviewQuery",
@@ -15165,6 +15282,22 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "type": "object"
+                        },
+                        "error": {
+                            "$ref": "#/definitions/ExternalQueryError"
+                        },
+                        "status": {
+                            "$ref": "#/definitions/ExternalQueryStatus"
+                        }
+                    },
+                    "required": ["data", "status"],
                     "type": "object"
                 },
                 {
@@ -17019,6 +17152,9 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                 },
                 {
@@ -18007,7 +18143,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort"],
+            "enum": ["all", "product", "cohort", "country"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {
@@ -19280,10 +19416,11 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "logs",
+                "log_attributes",
                 "replay",
                 "revenue_analytics_properties",
-                "resources"
+                "resources",
+                "max_ai_context"
             ],
             "type": "string"
         },
@@ -20141,6 +20278,58 @@
                     "$ref": "#/definitions/CustomEventConversionGoal"
                 }
             ]
+        },
+        "WebAnalyticsExternalSummaryQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebAnalyticsExternalSummaryQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQueryResponse"
+                }
+            },
+            "required": ["dateRange", "kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                },
+                "error": {
+                    "$ref": "#/definitions/ExternalQueryError"
+                },
+                "status": {
+                    "$ref": "#/definitions/ExternalQueryStatus"
+                }
+            },
+            "required": ["data", "status"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "type": "string"
+                },
+                "explicit_date": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["date_from", "date_to"],
+            "type": "object"
         },
         "WebAnalyticsOrderBy": {
             "items": [

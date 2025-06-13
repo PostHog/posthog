@@ -168,6 +168,16 @@ class LogsQueryRunner(QueryRunner):
                 )
             )
 
+        if self.query.serviceNames:
+            exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
+                )
+            )
+
         if self.query.searchTerm:
             exprs.append(
                 parse_expr(

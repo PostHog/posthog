@@ -426,6 +426,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_invite?: boolean
     metadata?: OrganizationMetadata
     member_count: number
+    default_experiment_stats_method: ExperimentStatsMethod
 }
 
 export interface OrganizationDomainType {
@@ -2542,7 +2543,7 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelExclusionLegacy[] // used in funnel exclusion filters
-    funnel_aggregate_by_hogql?: string
+    funnel_aggregate_by_hogql?: string | null
 
     // frontend only
     layout?: FunnelLayout // used only for funnels
@@ -5067,6 +5068,7 @@ export interface SourceConfig {
     oauthPayload?: string[]
     existingSource?: boolean
     unreleasedSource?: boolean
+    betaSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {

@@ -24,7 +24,7 @@ import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepa
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { HogQLQueryString } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -657,7 +657,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? values.answerFilterHogQLExpression.slice(4)
                     : '1=1' // Use '1=1' for SQL TRUE
 
-                const query = hogql`
+                const query = `
                     -- QUERYING BASE STATS
                     SELECT
                         event as event_name,
@@ -688,7 +688,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                 ${values.partialResponsesFilter}
                             )
                         )
-                    GROUP BY event`
+                    GROUP BY event` as HogQLQueryString
 
                 const response = await api.queryHogQL(query, {
                     queryParams: {
@@ -716,7 +716,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ? '1=1' // Use '1=1' for SQL TRUE
                         : values.answerFilterHogQLExpression.substring(4)
 
-                const query = hogql`
+                const query = `
                     -- QUERYING DISMISSED AND SENT COUNT
                     SELECT count()
                     FROM (
@@ -735,7 +735,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY person_id
                         HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
-                    ) AS PersonsWithBothEvents`
+                    ) AS PersonsWithBothEvents` as HogQLQueryString
 
                 const response = await api.queryHogQL(query, {
                     queryParams: {
@@ -760,7 +760,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const query = hogql`
+                const query = `
                     -- QUERYING NPS RESPONSES
                     SELECT
                         getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
@@ -772,7 +772,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.answerFilterHogQLExpression}
                         AND {filters}
                         ${values.partialResponsesFilter}
-                    GROUP BY survey_response`
+                    GROUP BY survey_response` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -811,7 +811,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const survey: Survey = values.survey as Survey
 
-                const query = hogql`
+                const query = `
                     -- QUERYING NPS RECURRING RESPONSES
                     SELECT
                         JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ITERATION}') AS survey_iteration,
@@ -824,7 +824,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.answerFilterHogQLExpression}
                         ${values.partialResponsesFilter}
                         AND {filters}
-                    GROUP BY survey_response, survey_iteration`
+                    GROUP BY survey_response, survey_iteration` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -891,7 +891,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
                 const question = values.survey.questions[questionIndex]
-                const query = hogql`
+                const query = `
                     -- QUERYING SINGLE CHOICE RESPONSES
                     SELECT
                         getSurveyResponse(${questionIndex}, '${question?.id ? question.id : ''}') AS survey_response,
@@ -904,7 +904,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.partialResponsesFilter}
                         AND survey_response != null
                         AND {filters}
-                    GROUP BY survey_response`
+                    GROUP BY survey_response` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -936,7 +936,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const survey: Survey = values.survey as Survey
 
                 // Use a WITH clause to ensure we're only counting each response once
-                const query = hogql`
+                const query = `
                     -- QUERYING MULTIPLE CHOICE RESPONSES
                     SELECT
                         count(),
@@ -951,7 +951,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         AND {filters}
                         ${values.partialResponsesFilter}
                     GROUP BY choice
-                    ORDER BY count() DESC`
+                    ORDER BY count() DESC` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -1005,7 +1005,7 @@ export const surveyLogic = kea<surveyLogicType>([
                       )`
                     : `(JSONHas(properties, '${ids.indexBasedKey}') AND length(trim(JSONExtractString(properties, '${ids.indexBasedKey}'))) > 0)`
 
-                const query = hogql`
+                const query = `
                     -- QUERYING OPEN TEXT RESPONSES
                     SELECT distinct_id, properties, person.properties
                     FROM events
@@ -1016,7 +1016,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.answerFilterHogQLExpression}
                         AND {filters}
                         ${values.partialResponsesFilter}
-                    LIMIT 20`
+                    LIMIT 20` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
@@ -1062,7 +1062,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 // Also get distinct_id and person properties for open text questions
-                const query = hogql`
+                const query = `
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
@@ -1076,7 +1076,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.partialResponsesFilter}
                         AND {filters}
                     ORDER BY events.timestamp DESC
-                    LIMIT ${limit}`
+                    LIMIT ${limit}` as HogQLQueryString
 
                 const responseJSON = await api.queryHogQL(query, {
                     queryParams: {
