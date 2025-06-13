@@ -162,7 +162,8 @@ const QueryDatabaseTreeView = (): JSX.Element => {
 
                         // Calculate new path for the dragged item
                         const draggedItemNameParts = draggedItem.path.split('/')
-                        const itemName = draggedItemNameParts.pop() || 'untitled'
+                        // will have some string from path
+                        const itemName = draggedItemNameParts.pop() as string
                         const newPath = targetFolderPath ? `${targetFolderPath}/${itemName}` : itemName
 
                         // Move the item using projectTreeDataLogic
