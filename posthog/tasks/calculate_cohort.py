@@ -1,23 +1,24 @@
+import posthoganalytics
+import structlog
 import time
-from typing import Any, Optional
 
 from django.conf import settings
 
-from posthog.models.team.team import Team
-import structlog
-from celery import shared_task
+from datetime import timedelta
 from dateutil.relativedelta import relativedelta
+from typing import Any, Optional
+
+from celery import shared_task, current_task
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge
-from sentry_sdk import set_tag
 
-from datetime import timedelta
-
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
 from posthog.models.cohort.util import get_static_cohort_size
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
 
@@ -31,9 +32,18 @@ COHORT_STALENESS_HOURS_GAUGE = Gauge(
     "Cohort's count of hours since last calculation",
 )
 
+COHORTS_STALE_COUNT_GAUGE = Gauge(
+    "cohorts_stale", "Number of cohorts that haven't been calculated in more than X hours", ["hours"]
+)
+
+COHORT_STUCK_COUNT_GAUGE = Gauge(
+    "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 1 hour"
+)
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
+MAX_ERRORS_CALCULATING = 20
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -42,8 +52,51 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
         | Q(last_calculation__isnull=True),
         deleted=False,
         is_calculating=False,
-        errors_calculating__lte=20,
+        errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
+
+
+def update_stale_cohort_metrics() -> None:
+    now = timezone.now()
+    stale_cohorts = (
+        Cohort.objects.filter(
+            Q(last_calculation__isnull=False),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating__lte=20,
+        )
+        .exclude(is_static=True)
+        .values_list("last_calculation", flat=True)
+    )
+
+    stale_24h = stale_36h = stale_48h = 0
+    for last_calc in stale_cohorts:
+        if last_calc <= now - relativedelta(hours=48):
+            stale_48h += 1
+            stale_36h += 1
+            stale_24h += 1
+        elif last_calc <= now - relativedelta(hours=36):
+            stale_36h += 1
+            stale_24h += 1
+        elif last_calc <= now - relativedelta(hours=24):
+            stale_24h += 1
+
+    COHORTS_STALE_COUNT_GAUGE.labels(hours="24").set(stale_24h)
+    COHORTS_STALE_COUNT_GAUGE.labels(hours="36").set(stale_36h)
+    COHORTS_STALE_COUNT_GAUGE.labels(hours="48").set(stale_48h)
+
+    stuck_count = (
+        Cohort.objects.filter(
+            is_calculating=True,
+            last_calculation__lte=now - relativedelta(hours=1),
+            last_calculation__isnull=False,
+            deleted=False,
+        )
+        .exclude(is_static=True)
+        .count()
+    )
+
+    COHORT_STUCK_COUNT_GAUGE.set(stuck_count)
 
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
@@ -68,10 +121,16 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
+        logger.info("Enqueuing cohort calculation", cohort_id=cohort.pk, last_calculation=cohort.last_calculation)
         increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
+    try:
+        update_stale_cohort_metrics()
+    except Exception as e:
+        logger.exception("Failed to update stale cohort metrics", error=str(e))
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
