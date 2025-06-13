@@ -86,8 +86,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     listeners(() => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled }) => {
             posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled)
-            // Force a feature flag refresh to ensure the UI updates immediately
-            posthog.featureFlags.reloadFeatureFlags()
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(combineUrl('/', undefined, `panel=feature-previews%3A${flagKey}`).url))
