@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const CyclotronJobInputSchema = z.object({
+export const CyclotronJobInputSchema = z.object({
     type: z.enum(['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'integration_field', 'email']),
     key: z.string(),
     label: z.string(),
@@ -92,3 +92,5 @@ export const HogFlowSchema = z.object({
 export type HogFlow = z.infer<typeof HogFlowSchema>
 export type HogFlowAction = HogFlow['actions'][number]
 export type HogFlowEdge = HogFlow['edges'][number]
+export type HogFlowActionInputSchema = z.infer<typeof CyclotronJobInputSchema>
+export type HogFlowActionInput = z.infer<typeof CyclotronJobInput>
