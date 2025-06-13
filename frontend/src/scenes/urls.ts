@@ -8,7 +8,8 @@ import { ActivityTab, AnnotationType, ProductKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
-import { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
+import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
+import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { OnboardingStepKey } from './onboarding/onboardingLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -155,6 +156,6 @@ export const urls = {
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
-    hogFunction: (id: string): string => `/functions/${id}`,
+    hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
 }

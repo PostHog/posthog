@@ -13,6 +13,7 @@ import batchExports from './__mocks__/batchExports.json'
 import empty from './__mocks__/empty.json'
 import _hogFunctionDestinations from './__mocks__/hogFunctionDestinations.json'
 import _hogFunctionMetrics from './__mocks__/hogFunctionMetrics.json'
+import _hogFunctionMetricsTotals from './__mocks__/hogFunctionMetricsTotals.json'
 import _hogFunctionTransformations from './__mocks__/hogFunctionTransformations.json'
 
 const batchExportsRetrieveMock: MockSignature = (req, res, ctx) => {
@@ -74,6 +75,8 @@ export default {
                 '/api/projects/:team_id/hog_functions/:id': hogFunctionsRetrieveMock,
                 '/api/environments/:team_id/hog_functions/:id/metrics': _hogFunctionMetrics,
                 '/api/projects/:team_id/hog_functions/:id/metrics': _hogFunctionMetrics,
+                '/api/environments/:team_id/hog_functions/:id/metrics/totals': _hogFunctionMetricsTotals,
+                '/api/projects/:team_id/hog_functions/:id/metrics/totals': _hogFunctionMetricsTotals,
             },
         }),
     ],
@@ -129,6 +132,34 @@ export function PipelineDestinationsPageWithoutPipelines(): JSX.Element {
 export function PipelineSiteAppsPage(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.dataPipelines('site_apps'))
+    }, [])
+    return <App />
+}
+
+export function PipelineTransformationPage(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.hogFunction(_hogFunctionTransformations.results[0].id))
+    }, [])
+    return <App />
+}
+
+export function PipelineDestinationPage(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.hogFunction(_hogFunctionDestinations.results[0].id))
+    }, [])
+    return <App />
+}
+
+export function PipelineDestinationPageMetrics(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.hogFunction(_hogFunctionDestinations.results[0].id, 'metrics'))
+    }, [])
+    return <App />
+}
+
+export function PipelineDestinationPageLogs(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.hogFunction(_hogFunctionDestinations.results[0].id, 'logs'))
     }, [])
     return <App />
 }
