@@ -75,11 +75,11 @@ export class MessagingMailjetManagerService {
         const signature = req.headers['x-mailjet-signature'] as string
         const timestamp = req.headers['x-mailjet-timestamp'] as string
 
-        if (!signature || !timestamp || !req.body) {
+        if (!signature || !timestamp || !req.rawBody) {
             return { status: 403, message: 'Missing required headers or body' }
         }
 
-        const payload = `${timestamp}.${req.rawBody?.toString()}`
+        const payload = `${timestamp}.${req.rawBody.toString()}`
         const hmac = crypto.createHmac('sha256', this.hub.MAILJET_SECRET_KEY).update(payload).digest()
 
         try {
