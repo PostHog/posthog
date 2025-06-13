@@ -136,7 +136,7 @@ export function buildProductManifests() {
 
     const addImport = (mod, kind, spec) => {
         // Klutch
-        if (mod === './types' && spec === 'ProductManifest') {
+        if ((mod === './types' || mod === '~/types') && spec === 'ProductManifest') {
             return
         }
 
