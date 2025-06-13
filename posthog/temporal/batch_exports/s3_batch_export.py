@@ -1006,14 +1006,14 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         data_interval_end: dt.datetime | str,
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
-        max_concurrent_uploads: int = 10,
-        # max_memory_buffer: int = 100 * 1024 * 1024,  # 100MB total buffer
+        max_concurrent_uploads: int = 5,
+        max_memory_buffer: int = 250 * 1024 * 1024,  # 250MB total buffer
     ):
         super().__init__(data_interval_start, data_interval_end)
 
         self.s3_inputs = s3_inputs
         self.part_size = part_size
-        # self.max_memory_buffer = max_memory_buffer
+        self.max_memory_buffer = max_memory_buffer
         self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
 
         self._session = aioboto3.Session()
@@ -1033,21 +1033,18 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_id = None
 
         # Backpressure control
-        # maybe let's keep it simple for now and just control this via the number of concurrent uploads
-        # self.memory_semaphore = asyncio.Semaphore(max_memory_buffer // part_size)
+        self.memory_semaphore = asyncio.Semaphore(max_memory_buffer // part_size)
         self._finalized = False
 
     async def _get_s3_client(self):
         """Get or create the shared S3 client."""
         if self._s3_client is None:
+            config = {
+                "max_pool_connections": 20,  # Increase connection pool, so to ensure we're not limited by this
+            }
             if self.s3_inputs.use_virtual_style_addressing:
-                config = {"s3": {"addressing_style": "virtual"}}
-            else:
-                config = None
-            if config:
-                boto_config = AioConfig(**config)
-            else:
-                boto_config = None
+                config["s3"] = {"addressing_style": "virtual"}
+            boto_config = AioConfig(**config)
 
             try:
                 client_ctx = self._session.client(
@@ -1095,7 +1092,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.part_counter += 1
 
         # Acquire memory semaphore (blocks if too many uploads in flight)
-        # await self.memory_semaphore.acquire()
+        await self.memory_semaphore.acquire()
 
         # Create upload task
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
@@ -1144,7 +1141,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             raise
         finally:
             # Always release memory semaphore
-            # self.memory_semaphore.release()
+            self.memory_semaphore.release()
             # Explicitly delete data to free memory immediately
             del data
 
@@ -1328,7 +1325,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         part_data = bytes(self.current_buffer)
         part_number = self.part_counter
 
-        # await self.memory_semaphore.acquire()
+        await self.memory_semaphore.acquire()
 
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
         upload_task.add_done_callback(lambda task, pn=part_number: self._on_upload_complete(task, pn))
