@@ -319,6 +319,10 @@ def recalculate_cohortpeople(
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ):
+    tag_queries(team_id=team.id)
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
+
     cohort_params: dict[str, Any]
     # No need to do anything here, as we're only testing hogql
     if cohort.is_static:
@@ -341,10 +345,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQueryHogQL")
-    if initiating_user_id:
-        tag_queries(user_id=initiating_user_id)
-
+    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL")
     hogql_global_settings = HogQLGlobalSettings()
 
     sync_execute(
