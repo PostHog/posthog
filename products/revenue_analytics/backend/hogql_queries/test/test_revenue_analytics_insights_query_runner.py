@@ -405,6 +405,24 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([result["label"] for result in results], ["stripe.posthog_test - Product C"])
         self.assertEqual([result["data"] for result in results], expected_data)
 
+    def test_with_country_filter(self):
+        results = self._run_revenue_analytics_insights_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="country",
+                    operator=PropertyOperator.EXACT,
+                    value=["US"],
+                )
+            ]
+        ).results
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual([result["label"] for result in results], ["stripe.posthog_test"])
+        self.assertEqual(
+            [result["data"] for result in results],
+            [[0, 0, Decimal("294.093"), 0, Decimal("287.6373"), 0, Decimal("135.49")]],
+        )
+
     def test_with_events_data(self):
         s1 = str(uuid7("2024-12-25"))
         s2 = str(uuid7("2025-01-03"))

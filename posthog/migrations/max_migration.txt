@@ -1,1 +1,1 @@
-0766_fix_sub_template_ids_to_template_ids
+0768_messagerecipientpreference_messagecategory

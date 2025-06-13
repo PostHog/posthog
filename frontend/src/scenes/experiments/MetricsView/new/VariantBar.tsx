@@ -12,6 +12,8 @@ export function VariantBar({
     isSecondary,
     onMouseEnter,
     onMouseLeave,
+    chartHeight,
+    totalBars,
 }: {
     variantResult: ExperimentVariantResultFrequentist
     index: number
@@ -20,6 +22,8 @@ export function VariantBar({
     isSecondary: boolean
     onMouseEnter: () => void
     onMouseLeave: () => void
+    chartHeight: number
+    totalBars: number
 }): JSX.Element {
     const interval = variantResult.confidence_interval
 
@@ -33,7 +37,9 @@ export function VariantBar({
     const colors = useChartColors()
 
     // Positioning
-    const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
+    const totalContentHeight = BAR_SPACING + totalBars * (BAR_HEIGHT + BAR_SPACING)
+    const verticalOffset = Math.max(0, (chartHeight - totalContentHeight) / 2)
+    const y = verticalOffset + BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
     const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const deltaX = valueToXCoordinate(delta, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
