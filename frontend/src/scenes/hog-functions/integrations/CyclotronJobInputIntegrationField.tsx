@@ -11,23 +11,23 @@ import {
     LinkedInAdsConversionRulePicker,
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
+import { HogFlowAction } from 'products/messaging/frontend/Campaigns/Workflows/types'
 
-import { CyclotronJobInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
-
-export type HogFunctionInputIntegrationFieldProps = {
+export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType
     value?: any
     onChange?: (value: any) => void
+    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
 }
 
-export function HogFunctionInputIntegrationField({
+export function CyclotronJobInputIntegrationField({
     schema,
     value,
     onChange,
-}: HogFunctionInputIntegrationFieldProps): JSX.Element {
-    const { configuration } = useValues(hogFunctionConfigurationLogic)
+    configuration,
+}: CyclotronJobInputIntegrationFieldProps): JSX.Element {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
 
     if (integrationsLoading) {

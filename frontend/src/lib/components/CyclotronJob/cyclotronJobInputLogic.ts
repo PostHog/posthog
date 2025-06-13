@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 
-import type { hogFunctionInputLogicType } from './HogFunctionInputLogicType'
+import type { cyclotronJobInputLogicType } from './cyclotronJobInputLogicType'
 
-export interface HogFunctionInputLogicProps {
+export interface CyclotronJobInputLogicProps {
     fieldKey: string
     initialValue?: string
     onChange?: (value: string) => void
@@ -19,10 +19,10 @@ export function formatJsonValue(value: any): string {
     return typeof value !== 'string' ? JSON.stringify(value, null, 2) : value
 }
 
-export const hogFunctionInputLogic = kea<hogFunctionInputLogicType>({
+export const cyclotronJobInputLogic = kea<cyclotronJobInputLogicType>({
     path: ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionInputLogic'],
-    props: {} as HogFunctionInputLogicProps,
-    key: (props: HogFunctionInputLogicProps) => `json_validation_${props.fieldKey}`,
+    props: {} as CyclotronJobInputLogicProps,
+    key: (props: CyclotronJobInputLogicProps) => `json_validation_${props.fieldKey}`,
 
     actions: {
         setJsonValue: (value: string) => ({ value }),
@@ -81,7 +81,7 @@ export const hogFunctionInputLogic = kea<hogFunctionInputLogicType>({
     }),
 
     // Initialize on props changes or mounting
-    propsChanged({ actions, props }: { actions: any; props: HogFunctionInputLogicProps }) {
+    propsChanged({ actions, props }: { actions: any; props: CyclotronJobInputLogicProps }) {
         if (props.initialValue !== undefined) {
             actions.setJsonValue(formatJsonValue(props.initialValue))
         }
