@@ -61,8 +61,8 @@ pub enum FlagError {
     DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
-    #[error("Dependency cycle of type {0}: {1}")]
-    DependencyCycle(DependencyType, String),
+    #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
+    DependencyCycle(DependencyType, i64),
     #[error("Person not found")]
     PersonNotFound,
     #[error("Person properties not found")]
@@ -179,9 +179,9 @@ impl IntoResponse for FlagError {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
-            FlagError::DependencyCycle(dependency_type, msg) => {
-                tracing::error!("{} dependency cycle: {}", dependency_type, msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            FlagError::DependencyCycle(dependency_type, cycle_start_id) => {
+                tracing::error!("{} dependency cycle: {:?}", dependency_type, cycle_start_id);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency cycle detected: {dependency_type} id {cycle_start_id} starts the cycle"))
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
