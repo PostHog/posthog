@@ -352,75 +352,29 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
             mongo_config = MongoSourceConfig.from_dict(model.pipeline.job_inputs)
 
-            if mongo_config.ssh_tunnel and mongo_config.ssh_tunnel.enabled:
-                ssh_tunnel = SSHTunnel.from_config(mongo_config.ssh_tunnel)
-                with ssh_tunnel.get_tunnel(mongo_config.host, mongo_config.port) as tunnel:
-                    if tunnel is None:
-                        raise Exception("Can't open tunnel to SSH server")
+            source = mongo_source(
+                connection_string=mongo_config.connection_string,
+                collection_names=endpoints,
+                is_incremental=schema.is_incremental,
+                logger=logger,
+                team_id=inputs.team_id,
+                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.is_incremental
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                ssh_tunnel=mongo_config.ssh_tunnel,
+            )
 
-                    source = mongo_source(
-                        host=tunnel.local_bind_host,
-                        port=tunnel.local_bind_port,
-                        database=mongo_config.database,
-                        collection_names=endpoints,
-                        is_incremental=schema.is_incremental,
-                        logger=logger,
-                        user=mongo_config.user,
-                        password=mongo_config.password,
-                        auth_source=mongo_config.auth_source,
-                        tls=mongo_config.tls,
-                        team_id=inputs.team_id,
-                        incremental_field=schema.sync_type_config.get("incremental_field")
-                        if schema.is_incremental
-                        else None,
-                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                        if schema.is_incremental
-                        else None,
-                        db_incremental_field_last_value=processed_incremental_last_value
-                        if schema.is_incremental
-                        else None,
-                    )
-
-                    return _run(
-                        job_inputs=job_inputs,
-                        source=source,
-                        logger=logger,
-                        inputs=inputs,
-                        schema=schema,
-                        reset_pipeline=reset_pipeline,
-                        shutdown_monitor=shutdown_monitor,
-                    )
-            else:
-                source = mongo_source(
-                    host=mongo_config.host,
-                    port=mongo_config.port,
-                    database=mongo_config.database,
-                    collection_names=endpoints,
-                    is_incremental=schema.is_incremental,
-                    logger=logger,
-                    user=mongo_config.user,
-                    password=mongo_config.password,
-                    auth_source=mongo_config.auth_source,
-                    tls=mongo_config.tls,
-                    team_id=inputs.team_id,
-                    incremental_field=schema.sync_type_config.get("incremental_field")
-                    if schema.is_incremental
-                    else None,
-                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                    if schema.is_incremental
-                    else None,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                )
-
-                return _run(
-                    job_inputs=job_inputs,
-                    source=source,
-                    logger=logger,
-                    inputs=inputs,
-                    schema=schema,
-                    reset_pipeline=reset_pipeline,
-                    shutdown_monitor=shutdown_monitor,
-                )
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
 
         elif model.pipeline.source_type in [
             ExternalDataSource.Type.MSSQL,

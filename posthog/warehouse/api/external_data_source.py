@@ -249,6 +249,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "client_email",
             "token_uri",
             "temporary-dataset",
+            # mongodb
+            "connection_string",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -939,15 +941,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        host = payload.get("host")
-        port = payload.get("port")
-        database = payload.get("database")
-        user = payload.get("user")
-        password = payload.get("password")
-        auth_source = payload.get("auth_source", "admin")
-        tls_str = payload.get("tls", "false")
-        tls = str_to_bool(tls_str)
+        connection_string = payload.get("connection_string")
 
+        if not connection_string:
+            raise Exception("Missing required parameter: connection_string")
+
+        # Parse connection string to validate and extract database for host validation
+        try:
+            from posthog.temporal.data_imports.pipelines.mongo.mongo import _parse_connection_string
+
+            connection_params = _parse_connection_string(connection_string)
+        except Exception as e:
+            raise Exception(f"Invalid connection string: {str(e)}")
+
+        if not connection_params.get("database"):
+            raise Exception("Database name is required in connection string")
+
+        # SSH tunnel handling
         ssh_tunnel_obj = payload.get("ssh-tunnel", {})
         using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
         ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
@@ -959,10 +969,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-        if not host or not port or not database:
-            raise Exception("Missing required parameters: host, port, database")
-
-        if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
+        # Validate database host (only for non-SRV connections)
+        if not connection_params.get("is_srv") and not self._validate_database_host(
+            connection_params["host"], self.team_id, using_ssh_tunnel
+        ):
             raise Exception("Cannot use internal database")
 
         new_source_model = ExternalDataSource.objects.create(
@@ -974,13 +984,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "host": host,
-                "port": port,
-                "database": database,
-                "user": user,
-                "password": password,
-                "auth_source": auth_source,
-                "tls": tls,
+                "connection_string": connection_string,
                 "ssh_tunnel_enabled": using_ssh_tunnel,
                 "ssh_tunnel_host": ssh_tunnel_host,
                 "ssh_tunnel_port": ssh_tunnel_port,
@@ -1432,14 +1436,30 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.MONGO:
             from pymongo.errors import OperationFailure as MongoOperationFailure
 
-            host = request.data.get("host", None)
-            port = request.data.get("port", None)
-            database = request.data.get("database", None)
-            user = request.data.get("user", None)
-            password = request.data.get("password", None)
-            auth_source = request.data.get("auth_source", "admin")
-            tls_str = request.data.get("tls", "false")
-            tls = str_to_bool(tls_str)
+            connection_string = request.data.get("connection_string", None)
+
+            if not connection_string:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameter: connection_string"},
+                )
+
+            # Parse connection string to validate and extract parameters
+            try:
+                from posthog.temporal.data_imports.pipelines.mongo.mongo import _parse_connection_string
+
+                connection_params = _parse_connection_string(connection_string)
+            except Exception as e:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid connection string: {str(e)}"},
+                )
+
+            if not connection_params.get("database"):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Database name is required in connection string"},
+                )
 
             ssh_tunnel_obj = request.data.get("ssh-tunnel", {})
             using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
@@ -1462,12 +1482,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 passphrase=ssh_tunnel_auth_type_passphrase,
                 private_key=ssh_tunnel_auth_type_private_key,
             )
-
-            if not host or not port or not database:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required parameters: host, port, database"},
-                )
 
             if using_ssh_tunnel:
                 auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
@@ -1496,8 +1510,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         },
                     )
 
-            # Validate internal database
-            if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
+            # Validate internal database (only for non-SRV connections)
+            if not connection_params.get("is_srv") and not self._validate_database_host(
+                connection_params["host"], self.team_id, using_ssh_tunnel
+            ):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Cannot use internal database"},
@@ -1507,13 +1523,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 result = get_sql_schemas_for_source_type(
                     source_type,
                     {
-                        "host": host,
-                        "port": int(port),
-                        "database": database,
-                        "user": user,
-                        "password": password,
-                        "auth_source": auth_source,
-                        "tls": tls,
+                        "connection_string": connection_string,
                         "ssh_tunnel": {
                             "host": ssh_tunnel.host,
                             "port": ssh_tunnel.port,

@@ -861,67 +861,18 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'MongoDB',
         label: 'MongoDB',
         caption: (
-            <>Enter your MongoDB credentials to automatically pull your MongoDB data into the PostHog Data warehouse.</>
+            <>
+                Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data
+                warehouse.
+            </>
         ),
         fields: [
             {
-                name: 'host',
-                label: 'Host',
+                name: 'connection_string',
+                label: 'Connection String',
                 type: 'text',
                 required: true,
-                placeholder: 'localhost',
-            },
-            {
-                name: 'port',
-                label: 'Port',
-                type: 'number',
-                required: true,
-                placeholder: '27017',
-            },
-            {
-                name: 'database',
-                label: 'Database',
-                type: 'text',
-                required: true,
-                placeholder: 'myDatabase',
-            },
-            {
-                name: 'user',
-                label: 'Username (optional)',
-                type: 'text',
-                required: false,
-                placeholder: 'username',
-            },
-            {
-                name: 'password',
-                label: 'Password (optional)',
-                type: 'password',
-                required: false,
-                placeholder: '',
-            },
-            {
-                name: 'auth_source',
-                label: 'Authentication database',
-                type: 'text',
-                required: false,
-                placeholder: 'admin',
-            },
-            {
-                type: 'select',
-                name: 'tls',
-                label: 'Use TLS/SSL?',
-                defaultValue: 'false',
-                required: true,
-                options: [
-                    {
-                        value: 'false',
-                        label: 'No',
-                    },
-                    {
-                        value: 'true',
-                        label: 'Yes',
-                    },
-                ],
+                placeholder: 'mongodb://username:password@host:port/database?authSource=admin',
             },
             {
                 name: 'ssh-tunnel',

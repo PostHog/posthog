@@ -28,40 +28,123 @@ from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 @config.config
 class MongoSourceConfig(config.Config):
-    host: str
-    database: str
-    port: int = config.value(converter=int, default=27017)
-    user: str | None = None
-    password: str | None = None
-    auth_source: str = "admin"
-    tls: bool = False
+    connection_string: str
     ssh_tunnel: SSHTunnelConfig | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MongoSourceConfig:
+        """Create MongoSourceConfig from dictionary, handling SSH tunnel configuration."""
+        ssh_tunnel_config = None
+
+        # Handle SSH tunnel configuration from job_inputs format
+        if data.get("ssh_tunnel_enabled"):
+            ssh_tunnel_config = SSHTunnelConfig(
+                enabled=data.get("ssh_tunnel_enabled", False),
+                host=data.get("ssh_tunnel_host"),
+                port=data.get("ssh_tunnel_port"),
+                auth_type=data.get("ssh_tunnel_auth_type"),
+                username=data.get("ssh_tunnel_auth_type_username"),
+                password=data.get("ssh_tunnel_auth_type_password"),
+                passphrase=data.get("ssh_tunnel_auth_type_passphrase"),
+                private_key=data.get("ssh_tunnel_auth_type_private_key"),
+            )
+        # Handle SSH tunnel configuration from nested format
+        elif "ssh_tunnel" in data and isinstance(data["ssh_tunnel"], dict):
+            ssh_tunnel_data = data["ssh_tunnel"]
+            if ssh_tunnel_data.get("enabled"):
+                auth_data = ssh_tunnel_data.get("auth", {})
+                ssh_tunnel_config = SSHTunnelConfig(
+                    enabled=ssh_tunnel_data.get("enabled", False),
+                    host=ssh_tunnel_data.get("host"),
+                    port=ssh_tunnel_data.get("port"),
+                    auth_type=auth_data.get("type"),
+                    username=auth_data.get("username"),
+                    password=auth_data.get("password"),
+                    passphrase=auth_data.get("passphrase"),
+                    private_key=auth_data.get("private_key"),
+                )
+
+        return cls(
+            connection_string=data["connection_string"],
+            ssh_tunnel=ssh_tunnel_config,
+        )
+
+
+def _parse_connection_string(connection_string: str) -> dict[str, Any]:
+    """Parse MongoDB connection string and extract connection parameters."""
+    from urllib.parse import urlparse, parse_qs
+
+    # Handle mongodb:// and mongodb+srv:// schemes
+    parsed = urlparse(connection_string)
+
+    if parsed.scheme not in ["mongodb", "mongodb+srv"]:
+        raise ValueError("Connection string must start with mongodb:// or mongodb+srv://")
+
+    # Extract basic connection info
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (27017 if parsed.scheme == "mongodb" else None)
+    database = parsed.path.lstrip("/") if parsed.path else None
+    user = parsed.username
+    password = parsed.password
+
+    # Parse query parameters
+    query_params = parse_qs(parsed.query)
+
+    # Extract common parameters
+    auth_source = query_params.get("authSource", ["admin"])[0]
+    tls = query_params.get("tls", ["false"])[0].lower() in ["true", "1"]
+    ssl = query_params.get("ssl", ["false"])[0].lower() in ["true", "1"]
+
+    # TLS can be specified as either tls or ssl
+    use_tls = tls or ssl
+
+    return {
+        "host": host,
+        "port": port,
+        "database": database,
+        "user": user,
+        "password": password,
+        "auth_source": auth_source,
+        "tls": use_tls,
+        "connection_string": connection_string,
+        "is_srv": parsed.scheme == "mongodb+srv",
+    }
 
 
 def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
+    connection_params = _parse_connection_string(config.connection_string)
+
     def inner(mongo_host: str, mongo_port: int):
-        connection_kwargs = {
-            "host": mongo_host,
-            "port": mongo_port,
-            "serverSelectionTimeoutMS": 5000,
-        }
+        # For SRV connections, use the full connection string
+        if connection_params["is_srv"]:
+            client = MongoClient(config.connection_string, serverSelectionTimeoutMS=5000)
+        else:
+            connection_kwargs = {
+                "host": mongo_host,
+                "port": mongo_port,
+                "serverSelectionTimeoutMS": 5000,
+            }
 
-        if config.user and config.password:
-            connection_kwargs.update(
-                {
-                    "username": config.user,
-                    "password": config.password,
-                    "authSource": config.auth_source,
-                }
-            )
+            if connection_params["user"] and connection_params["password"]:
+                connection_kwargs.update(
+                    {
+                        "username": connection_params["user"],
+                        "password": connection_params["password"],
+                        "authSource": connection_params["auth_source"],
+                    }
+                )
 
-        if config.tls:
-            connection_kwargs["tls"] = True
+            if connection_params["tls"]:
+                connection_kwargs["tls"] = True
 
-        client = MongoClient(**connection_kwargs)
-        db = client[config.database]
+            client = MongoClient(**connection_kwargs)
+
+        if not connection_params["database"]:
+            raise ValueError("Database name is required in connection string")
+
+        db = client[connection_params["database"]]
 
         schema_list = collections.defaultdict(list)
 
@@ -111,13 +194,13 @@ def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
     if config.ssh_tunnel and config.ssh_tunnel.enabled:
         ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
 
-        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+        with ssh_tunnel.get_tunnel(connection_params["host"], connection_params["port"] or 27017) as tunnel:
             if tunnel is None:
                 raise ConnectionError("Can't open tunnel to SSH server")
 
             return inner(tunnel.local_bind_host, tunnel.local_bind_port)
 
-    return inner(config.host, config.port)
+    return inner(connection_params["host"], connection_params["port"] or 27017)
 
 
 def _build_query(
@@ -232,45 +315,94 @@ def _get_table(collection: Collection, collection_name: str, schema_info: list[t
 
 
 def mongo_source(
-    host: str,
-    port: int,
-    database: str,
+    connection_string: str,
     collection_names: list[str],
     is_incremental: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
-    user: Optional[str] = None,
-    password: Optional[str] = None,
-    auth_source: str = "admin",
-    tls: bool = False,
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    ssh_tunnel: SSHTunnelConfig | None = None,
 ) -> SourceResponse:
     collection_name = collection_names[0]
     if not collection_name:
         raise ValueError("Collection name is missing")
 
-    connection_kwargs = {
-        "host": host,
-        "port": port,
-        "serverSelectionTimeoutMS": 5000,
-    }
+    connection_params = _parse_connection_string(connection_string)
 
-    if user and password:
-        connection_kwargs.update(
-            {
-                "username": user,
-                "password": password,
-                "authSource": auth_source,
+    if not connection_params["database"]:
+        raise ValueError("Database name is required in connection string")
+
+    # Handle SSH tunnel
+    if ssh_tunnel and ssh_tunnel.enabled:
+        ssh_tunnel_obj = SSHTunnel.from_config(ssh_tunnel)
+        with ssh_tunnel_obj.get_tunnel(connection_params["host"], connection_params["port"] or 27017) as tunnel:
+            if tunnel is None:
+                raise ConnectionError("Can't open tunnel to SSH server")
+
+            # For tunneled connections, modify the connection string to use tunnel endpoints
+            if connection_params["is_srv"]:
+                # For SRV connections, we can't easily modify the connection string
+                # Fall back to manual connection parameters
+                connection_kwargs = {
+                    "host": tunnel.local_bind_host,
+                    "port": tunnel.local_bind_port,
+                    "serverSelectionTimeoutMS": 5000,
+                }
+
+                if connection_params["user"] and connection_params["password"]:
+                    connection_kwargs.update(
+                        {
+                            "username": connection_params["user"],
+                            "password": connection_params["password"],
+                            "authSource": connection_params["auth_source"],
+                        }
+                    )
+
+                if connection_params["tls"]:
+                    connection_kwargs["tls"] = True
+
+                client = MongoClient(**connection_kwargs)
+            else:
+                # For regular connections, modify the connection string
+                from urllib.parse import urlparse, urlunparse
+
+                parsed = urlparse(connection_string)
+                # Replace host and port in the connection string
+                new_netloc = (
+                    f"{parsed.username}:{parsed.password}@{tunnel.local_bind_host}:{tunnel.local_bind_port}"
+                    if parsed.username
+                    else f"{tunnel.local_bind_host}:{tunnel.local_bind_port}"
+                )
+                tunneled_connection_string = urlunparse(parsed._replace(netloc=new_netloc))
+                client = MongoClient(tunneled_connection_string, serverSelectionTimeoutMS=5000)
+    else:
+        # No SSH tunnel - use original connection logic
+        if connection_params["is_srv"]:
+            client = MongoClient(connection_string, serverSelectionTimeoutMS=5000)
+        else:
+            connection_kwargs = {
+                "host": connection_params["host"],
+                "port": connection_params["port"] or 27017,
+                "serverSelectionTimeoutMS": 5000,
             }
-        )
 
-    if tls:
-        connection_kwargs["tls"] = True
+            if connection_params["user"] and connection_params["password"]:
+                connection_kwargs.update(
+                    {
+                        "username": connection_params["user"],
+                        "password": connection_params["password"],
+                        "authSource": connection_params["auth_source"],
+                    }
+                )
 
-    client = MongoClient(**connection_kwargs)
-    db = client[database]
+            if connection_params["tls"]:
+                connection_kwargs["tls"] = True
+
+            client = MongoClient(**connection_kwargs)
+
+    db = client[connection_params["database"]]
     collection = db[collection_name]
 
     # Build query
@@ -326,9 +458,69 @@ def mongo_source(
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
 
-        # New connection for data reading
-        read_client = MongoClient(**connection_kwargs)
-        read_db = read_client[database]
+        # New connection for data reading - reuse the same connection logic
+        if ssh_tunnel and ssh_tunnel.enabled:
+            ssh_tunnel_obj = SSHTunnel.from_config(ssh_tunnel)
+            with ssh_tunnel_obj.get_tunnel(connection_params["host"], connection_params["port"] or 27017) as tunnel:
+                if tunnel is None:
+                    raise ConnectionError("Can't open tunnel to SSH server")
+
+                if connection_params["is_srv"]:
+                    connection_kwargs = {
+                        "host": tunnel.local_bind_host,
+                        "port": tunnel.local_bind_port,
+                        "serverSelectionTimeoutMS": 5000,
+                    }
+
+                    if connection_params["user"] and connection_params["password"]:
+                        connection_kwargs.update(
+                            {
+                                "username": connection_params["user"],
+                                "password": connection_params["password"],
+                                "authSource": connection_params["auth_source"],
+                            }
+                        )
+
+                    if connection_params["tls"]:
+                        connection_kwargs["tls"] = True
+
+                    read_client = MongoClient(**connection_kwargs)
+                else:
+                    from urllib.parse import urlparse, urlunparse
+
+                    parsed = urlparse(connection_string)
+                    new_netloc = (
+                        f"{parsed.username}:{parsed.password}@{tunnel.local_bind_host}:{tunnel.local_bind_port}"
+                        if parsed.username
+                        else f"{tunnel.local_bind_host}:{tunnel.local_bind_port}"
+                    )
+                    tunneled_connection_string = urlunparse(parsed._replace(netloc=new_netloc))
+                    read_client = MongoClient(tunneled_connection_string, serverSelectionTimeoutMS=5000)
+        else:
+            if connection_params["is_srv"]:
+                read_client = MongoClient(connection_string, serverSelectionTimeoutMS=5000)
+            else:
+                connection_kwargs = {
+                    "host": connection_params["host"],
+                    "port": connection_params["port"] or 27017,
+                    "serverSelectionTimeoutMS": 5000,
+                }
+
+                if connection_params["user"] and connection_params["password"]:
+                    connection_kwargs.update(
+                        {
+                            "username": connection_params["user"],
+                            "password": connection_params["password"],
+                            "authSource": connection_params["auth_source"],
+                        }
+                    )
+
+                if connection_params["tls"]:
+                    connection_kwargs["tls"] = True
+
+                read_client = MongoClient(**connection_kwargs)
+
+        read_db = read_client[connection_params["database"]]
         read_collection = read_db[collection_name]
 
         try:
