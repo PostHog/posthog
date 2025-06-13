@@ -46,8 +46,12 @@ pub fn session_recording_config_response(
             let key = cfg.get("key");
             let variant = cfg.get("variant");
             match (key, variant) {
-                (Some(k), Some(v)) => Some(json!({"flag": k, "variant": v})),
-                (Some(k), None) => Some(k.clone()),
+                (Some(Value::String(k)), Some(Value::String(v))) => {
+                    Some(json!({"flag": k, "variant": v}))
+                }
+                (Some(Value::String(k)), None | Some(Value::Null)) => {
+                    Some(Value::String(k.clone()))
+                }
                 _ => None,
             }
         }
