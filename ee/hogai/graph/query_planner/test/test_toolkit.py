@@ -3,7 +3,7 @@ from textwrap import dedent
 
 from freezegun import freeze_time
 
-from ee.hogai.graph.taxonomy_agent.toolkit import FinalAnswerTool, TaxonomyAgentToolkit
+from ee.hogai.graph.query_planner.toolkit import FinalAnswerTool, TaxonomyAgentToolkit
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping

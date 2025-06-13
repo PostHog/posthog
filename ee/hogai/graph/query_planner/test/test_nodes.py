@@ -1,8 +1,8 @@
 from django.test import override_settings
 from langchain_core.agents import AgentAction
 
-from ee.hogai.graph.taxonomy_agent.nodes import QueryPlannerNode, QueryPlannerToolsNode
-from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.utils.types import AssistantState
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
