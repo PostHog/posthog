@@ -63,28 +63,16 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
 
 def update_stale_cohort_metrics() -> None:
     now = timezone.now()
-    stale_cohorts = (
-        Cohort.objects.filter(
-            Q(last_calculation__isnull=False),
-            deleted=False,
-            is_calculating=False,
-            errors_calculating__lte=20,
-        )
-        .exclude(is_static=True)
-        .values_list("last_calculation", flat=True)
-    )
+    base_queryset = Cohort.objects.filter(
+        Q(last_calculation__isnull=False),
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
 
-    stale_24h = stale_36h = stale_48h = 0
-    for last_calc in stale_cohorts:
-        if last_calc <= now - relativedelta(hours=48):
-            stale_48h += 1
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=36):
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=24):
-            stale_24h += 1
+    stale_24h = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=24)).count()
+    stale_36h = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=36)).count()
+    stale_48h = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=48)).count()
 
     COHORTS_STALE_COUNT_GAUGE.labels(hours="24").set(stale_24h)
     COHORTS_STALE_COUNT_GAUGE.labels(hours="36").set(stale_36h)
