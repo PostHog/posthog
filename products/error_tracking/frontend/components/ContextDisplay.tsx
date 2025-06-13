@@ -25,7 +25,7 @@ export function ContextDisplay({
     loading,
 }: ContextDisplayProps): JSX.Element {
     return (
-        <div className={cn('pt-8 transition-[width] duration-200', className)}>
+        <div className={className}>
             {match(loading)
                 .with(true, () => (
                     <div className="flex justify-center w-full h-32 items-center">
