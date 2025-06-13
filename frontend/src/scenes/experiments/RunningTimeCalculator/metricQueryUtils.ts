@@ -9,11 +9,11 @@ import {
     isExperimentMeanMetric,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment } from '~/types'
 import { BaseMathType, CountPerActorMathType, FunnelVizType, PropertyMathType } from '~/types'
 
 import type { EventConfig } from './runningTimeCalculatorLogic'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 // Creates the correct identifier properties for a series item based on metric type
 const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Record<string, any> => {
