@@ -49,7 +49,7 @@ class HogFlow(UUIDModel):
 
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(default=dict, null=True, blank=True)
-    conversion = models.JSONField(default=dict)
+    conversion = models.JSONField(default=dict, null=True, blank=True)
     exit_condition = models.CharField(max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION)
 
     edges = models.JSONField(default=dict)
