@@ -249,8 +249,17 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         Whoops! You're initializing the JS SDK multiple times
                                     </p>
                                     <p className="text-sm mt-1">
-                                        This creates duplicate events and wastes resources. Just initialize once at your
-                                        app's entry point.
+                                        This can create duplicate events, and cause incorrect results in insights, among
+                                        other problems.
+                                    </p>
+                                    <p className="text-sm mt-1">
+                                        It's likely you've installed the library to more than one directory. You'll want
+                                        to make sure you only have it installed in one location, and that your code is
+                                        updated to use that single instance of the library.
+                                    </p>
+                                    <p className="text-sm mt-1">
+                                        Initialize the SDK only once, at the top of your script or in your entry point
+                                        file.
                                     </p>
                                     <div className="mt-2">
                                         <Link
@@ -294,12 +303,6 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 size="small"
                                 className="ph-no-capture"
                             />
-                            <div className="mt-2 text-xs text-muted">
-                                <p>
-                                    Solution: Remove redundant initializations. Initialize the SDK only once at the top
-                                    of your script or in your entry point file.
-                                </p>
-                            </div>
                         </div>
                     </Section>
                 )}
@@ -370,11 +373,9 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             />
 
                             {/* Show documentation links for outdated SDKs in this category */}
-                            {hasOutdatedSDKs && (
+                            {hasOutdatedSDKs && categorySDKs.length > 0 && (
                                 <div className="mt-2">
-                                    {outdatedSDKs.map((sdk) => (
-                                        <SdkLinks key={sdk.type} sdkType={sdk.type} />
-                                    ))}
+                                    <SdkLinks sdkType={categorySDKs[0].type} />
                                 </div>
                             )}
                         </div>

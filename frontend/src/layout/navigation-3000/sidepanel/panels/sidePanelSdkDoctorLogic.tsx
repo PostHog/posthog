@@ -301,9 +301,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         if (versions.size > 1) {
                             hasMultipleVersions = true
                             problematicSessions.add(sessionId)
-
-                            // Log for debugging
-                            // console.log(`[SDK Doctor] Session ${sessionId} has multiple SDK versions:`, Array.from(versions))
                         }
                     })
 
