@@ -151,6 +151,8 @@ class Organization(UUIDModel):
         choices=DefaultExperimentStatsMethod.choices,
         default=DefaultExperimentStatsMethod.BAYESIAN,
         help_text="Default statistical method for new experiments in this organization.",
+        null=True,
+        blank=True,
     )
 
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
