@@ -21,7 +21,12 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('conditional_branch'),
         config: z.object({
-            conditions: z.array(z.any()),
+            conditions: z.array(
+                z.object({
+                    filter: z.any(), // type this stronger
+                    on_match: z.string(), // TODO: Can we type this more directly to an edge?
+                })
+            ),
         }),
     }),
     z.object({
