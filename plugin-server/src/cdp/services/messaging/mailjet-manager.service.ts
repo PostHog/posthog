@@ -43,7 +43,7 @@ export interface MailjetEvent {
     mj_list_id?: string
 }
 
-export const eventTypeToCategory = {
+export const EVENT_TYPE_TO_CATEGORY = {
     sent: 'email_sent',
     open: 'email_opened',
     click: 'email_clicked',
@@ -53,13 +53,13 @@ export const eventTypeToCategory = {
     unsub: 'email_unsubscribed',
 }
 
-export const mailjetWebhookEvents = new Counter({
+export const mailjetWebhookEventsCounter = new Counter({
     name: 'mailjet_webhook_events_total',
     help: 'Total number of Mailjet webhook events received',
     labelNames: ['event_type'],
 })
 
-export const mailjetWebhookErrors = new Counter({
+export const mailjetWebhookErrorsCounter = new Counter({
     name: 'mailjet_webhook_errors_total',
     help: 'Total number of Mailjet webhook processing errors',
     labelNames: ['error_type'],
@@ -69,7 +69,9 @@ export class MessagingMailjetManagerService {
     constructor(private hub: Hub) {}
 
     // eslint-disable-next-line @typescript-eslint/require-await
-    public async handleWebhook(req: express.Request): Promise<{ status: number; message?: string }> {
+    public async handleWebhook(
+        req: express.Request & { rawBody?: Buffer }
+    ): Promise<{ status: number; message?: string }> {
         const signature = req.headers['x-mailjet-signature'] as string
         const timestamp = req.headers['x-mailjet-timestamp'] as string
 
@@ -77,11 +79,8 @@ export class MessagingMailjetManagerService {
             return { status: 403, message: 'Missing required headers or body' }
         }
 
-        const payload = `${timestamp}.${req.rawBody.toString()}`
-        const hmac = crypto
-            .createHmac('sha256', this.hub.MAILJET_SECRET_KEY || '')
-            .update(payload)
-            .digest()
+        const payload = `${timestamp}.${req.rawBody?.toString()}`
+        const hmac = crypto.createHmac('sha256', this.hub.MAILJET_SECRET_KEY).update(payload).digest()
 
         try {
             const signatureBuffer = Buffer.from(signature, 'hex')
@@ -89,23 +88,24 @@ export class MessagingMailjetManagerService {
                 hmac.length !== signatureBuffer.length ||
                 !crypto.timingSafeEqual(new Uint8Array(hmac), new Uint8Array(signatureBuffer))
             ) {
-                mailjetWebhookErrors.inc({ error_type: 'invalid_signature' })
+                mailjetWebhookErrorsCounter.inc({ error_type: 'invalid_signature' })
                 logger.error('Invalid signature', { signature, timestamp, payload })
                 return { status: 403, message: 'Invalid signature' }
             }
 
             // Track Mailjet webhook metrics
+            // TODO: Zod validation
             const event = req.body as MailjetEvent
-            const category = eventTypeToCategory[event.event as keyof typeof eventTypeToCategory]
+            const category = EVENT_TYPE_TO_CATEGORY[event.event as keyof typeof EVENT_TYPE_TO_CATEGORY]
 
             if (event) {
-                mailjetWebhookEvents.inc({ event_type: category })
+                mailjetWebhookEventsCounter.inc({ event_type: category })
                 logger.info('Mailjet webhook event', { event, category })
             }
 
             return { status: 200, message: 'OK' }
         } catch (error) {
-            mailjetWebhookErrors.inc({ error_type: error.name || 'unknown' })
+            mailjetWebhookErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('Mailjet webhook error', { error })
             throw error
         }
