@@ -80,6 +80,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
@@ -500,6 +501,10 @@ export const experimentLogic = kea<experimentLogicType>([
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
+        duplicateMetric: ({ metricIndex, isSecondary }: { metricIndex: number; isSecondary: boolean }) => ({
+            metricIndex,
+            isSecondary,
+        }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
@@ -664,6 +669,30 @@ export const experimentLogic = kea<experimentLogicType>([
                             },
                         },
                     } as ExperimentFunnelsQuery
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                duplicateMetric: (state, { metricIndex, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    const originalMetric = metrics[metricIndex]
+
+                    if (!originalMetric) {
+                        return state
+                    }
+
+                    const name = originalMetric.name
+                        ? `${originalMetric.name} (copy)`
+                        : originalMetric.kind === NodeKind.ExperimentMetric
+                        ? `${getDefaultMetricTitle(originalMetric)} (copy)`
+                        : undefined
+
+                    const newMetric = { ...originalMetric, id: undefined, name }
+                    metrics.splice(metricIndex + 1, 0, newMetric)
 
                     return {
                         ...state,
