@@ -1036,7 +1036,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.current_file_size = 0
 
         self.files_uploaded: list[str] = []
-
         self.current_buffer = bytearray()
         self.pending_uploads: dict[int, asyncio.Task] = {}  # part_number -> Future
         self.completed_parts: dict[int, CompletedPartTypeDef] = {}  # part_number -> part_info
@@ -1053,7 +1052,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         if self._s3_client is None:
             config: dict[str, typing.Any] = {
                 "max_pool_connections": self.max_concurrent_uploads
-                * 2,  # Increase connection pool, so to ensure we're not limited by this
+                * 5,  # Increase connection pool, so to ensure we're not limited by this
             }
             if self.s3_inputs.use_virtual_style_addressing:
                 config["s3"] = {"addressing_style": "virtual"}
@@ -1211,35 +1210,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 self.upload_id,
             )
             raise
-        finally:
-            # Always release upload semaphore
-            self.upload_semaphore.release()
 
     def _get_current_key(self) -> str:
         """Generate the key for the current file"""
-        key_prefix = get_s3_key_prefix(self.s3_inputs)
-
-        try:
-            file_extension = FILE_FORMAT_EXTENSIONS[self.s3_inputs.file_format]
-        except KeyError:
-            raise UnsupportedFileFormatError(self.s3_inputs.file_format, "S3")
-
-        base_file_name = f"{self.s3_inputs.data_interval_start}-{self.s3_inputs.data_interval_end}"
-        # to maintain backwards compatibility with the old file naming scheme
-        if self.s3_inputs.max_file_size_mb is not None:
-            base_file_name = f"{base_file_name}-{self.current_file_index}"
-        if self.s3_inputs.compression is not None:
-            file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[self.s3_inputs.compression]}"
-        else:
-            file_name = base_file_name + f".{file_extension}"
-
-        key = posixpath.join(key_prefix, file_name)
-
-        if posixpath.isabs(key):
-            # Keys are relative to root dir, so this would add an extra "/"
-            key = posixpath.relpath(key, "/")
-
-        return key
+        return get_s3_key(self.s3_inputs, self.current_file_index)
 
     async def _start_new_file(self):
         """Start a new file (reset state for file splitting)"""
@@ -1259,15 +1233,10 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         try:
             # Upload any remaining data in buffer
             if len(self.current_buffer) > 0:
-                # for now, let's ignore this so our tests use multi part uploads too
-                # if not self.upload_id:
-                #     # Small file - direct upload
-                #     await self._single_file_upload_current()
-                # else:
-                # Upload final part
                 await self._upload_final_part()
 
             # Wait for all pending uploads for this file and check for errors
+            # TODO - maybe we can improve error handling here
             if self.pending_uploads:
                 try:
                     await asyncio.gather(*self.pending_uploads.values())
@@ -1298,6 +1267,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
     def _on_upload_complete(self, task: asyncio.Task, part_number: int):
         """Callback called when an upload task completes (success or failure)"""
+        self.upload_semaphore.release()
+
         # Remove from pending uploads immediately
         self.pending_uploads.pop(part_number, None)
 
@@ -1338,11 +1309,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             # Finalize the current/last file
             await self._finalize_current_file()
 
-            # If no files were created, we might have a small single file
-            # if self.total_files_created == 0 and len(self.current_buffer) > 0:
-            #     await self._single_file_upload_current()
-            #     self.total_files_created = 1
-
         except Exception:
             # Cleanup on error
             if self.upload_id:
@@ -1351,7 +1317,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                     await client.abort_multipart_upload(
                         Bucket=self.s3_inputs.bucket_name, Key=self._get_current_key(), UploadId=self.upload_id
                     )
-                except:
+                except Exception:
                     pass  # Best effort cleanup
             raise
         finally:
@@ -1363,7 +1329,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 await self._s3_client_ctx.__aexit__(None, None, None)
                 self._s3_client = None
                 self._s3_client_ctx = None
-            # gc.collect()
 
         # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
         # containing the list of files.  This is used to check if the export is complete.
@@ -1373,7 +1338,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
             await self.logger.ainfo("All uploads completed. Number of files uploaded = %s", len(self.files_uploaded))
 
-    # for now, let's ignore this so our tests use multi part uploads too
+    # TODO - maybe we can support upload small files without the need for multipart uploads
+    # we just want to ensure we test both versions of the code path
     # async def _single_file_upload_current(self):
     #     """Handle small files that don't need multipart - uses current key"""
     #     data = bytes(self.current_buffer)

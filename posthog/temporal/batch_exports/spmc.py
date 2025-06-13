@@ -1255,24 +1255,6 @@ class ConsumerFromStage:
                         await self.finalize_file()
                         current_file_size = 0
 
-                # Log progress periodically
-                # if batch_count % 100 == 0:
-                #     progress = self.get_progress_info()
-                #     if max_file_size_bytes:
-                #         print(
-                #             f"Processed {batch_count} batches, "
-                #             f"current file #{progress['current_file_index']} "
-                #             f"({progress['current_file_size']:,} bytes), "
-                #             f"uploaded {progress['parts_completed']} parts, "
-                #             f"{progress['parts_pending']} pending"
-                #         )
-                #     else:
-                #         print(
-                #             f"Processed {batch_count} batches, "
-                #             f"uploaded {progress['parts_completed']} parts, "
-                #             f"{progress['parts_pending']} pending"
-                #         )
-
             # Finalize transformer and consume any remaining data
             for chunk in transformer.finalize():
                 await self.consume_chunk(chunk)
