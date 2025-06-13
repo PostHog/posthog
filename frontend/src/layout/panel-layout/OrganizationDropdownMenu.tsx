@@ -1,4 +1,4 @@
-import { IconChevronRight, IconPlusSmall, IconUser } from '@posthog/icons'
+import { IconChevronRight, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
@@ -20,10 +20,10 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
-import { panelLayoutLogic } from './panelLayoutLogic'
-import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { Combobox, ComboboxContent, ComboboxItem, ComboboxSearch } from 'lib/ui/Combobox/Combobox'
+import { Label } from 'lib/ui/Label/Label'
 import { PopoverPrimitive, PopoverPrimitiveContent, PopoverPrimitiveTrigger } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
+import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function OrganizationDropdownMenu(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -81,12 +81,10 @@ export function OrganizationDropdownMenu(): JSX.Element {
             `}
             >
                 <Combobox>
-                    <ComboboxSearch placeholder="Search this list..." autoFocus/>
-
+                    <ComboboxSearch placeholder="Search organization..." autoFocus/>
                     <ComboboxContent>
-                        <ComboboxItem asChild onClick={() => console.log('clicked Pineapple')}>
-                            <ButtonPrimitive menuItem>Pineapple</ButtonPrimitive>
-                        </ComboboxItem>
+                        <Label intent="menu" className='px-2'>Organizations</Label>
+                        <div className="-mx-1 my-1 h-px bg-border-primary" />
                         {currentOrganization && (
                             <ComboboxItem asChild>
                                 <ButtonPrimitive
@@ -134,9 +132,11 @@ export function OrganizationDropdownMenu(): JSX.Element {
                         ))}
                        
                         {preflight?.can_create_org && (
-                            <ComboboxItem asChild>
-                                <ButtonPrimitive
-                                    menuItem
+                            <>
+                                <div className="-mx-1 my-1 h-px bg-border-primary" />
+                                <ComboboxItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
                                     data-attr="new-organization-button"
                                     onClick={() =>
                                         guardAvailableFeature(
@@ -157,11 +157,11 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                     New organization
                                 </ButtonPrimitive>
                             </ComboboxItem>
+                            </>
                         )}
                     </ComboboxContent>
                 </Combobox>
-                <DropdownMenuLabel>Organizations</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+
             </PopoverPrimitiveContent>
         </PopoverPrimitive>
 

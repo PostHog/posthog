@@ -74,16 +74,18 @@ export const ComboboxSearch = forwardRef<HTMLInputElement, ComboboxSearchProps>(
         const { value, setValue } = useComboboxContext()
 
         return (
-            <ListBox.Item asChild virtualFocusIgnore>
-                <TextInputPrimitive
-                    ref={ref}
-                    autoFocus={autoFocus}
-                    placeholder={placeholder}
-                    className={cn(comboboxVariants({ className }))}
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                />
-            </ListBox.Item>
+            <div className="p-1">
+                <ListBox.Item asChild virtualFocusIgnore>
+                    <TextInputPrimitive
+                        ref={ref}
+                        autoFocus={autoFocus}
+                        placeholder={placeholder}
+                        className={cn(comboboxVariants({ className }))}
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                    />
+                </ListBox.Item>
+            </div>
         )
     }
 )
@@ -111,7 +113,7 @@ export const ComboboxContent = ({ children, className }: ComboboxContentProps) =
     })
 
     return (
-        <ul className={cn('flex flex-col gap-px p-1', className)}>
+        <ul className={cn('flex flex-col gap-px px-1 pb-1', className)}>
             {filteredItems}
         </ul>
     )

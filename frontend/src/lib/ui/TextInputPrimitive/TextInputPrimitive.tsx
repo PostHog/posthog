@@ -3,13 +3,13 @@ import { cva, type VariantProps } from 'cva'
 import { cn } from 'lib/utils/css-classes'
 
 const textInputVariants = cva({
-    base: 'w-full rounded border border-primary  p-2 text-sm',
+    base: 'w-full rounded border border-primary p-2 text-sm',
     variants: {
         variant: {
             default: 'border-primary bg-surface-primary hover:border-tertiary',
         },
         size: {
-            default: 'h-10',
+            default: 'h-[2rem]',
             sm: 'h-8 px-2 text-xs',
             lg: 'h-12 px-4 text-base',
         },
@@ -33,8 +33,9 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
     const {
         autoFocus,
         variant,
-        size,
+        size = 'default',
         type = 'text',
+        className,
         ...rest
     } = props
 
@@ -69,7 +70,7 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                 textInputVariants({ 
                     variant, 
                     size, 
-                    className: rest.className 
+                    className 
                 })
             )}
             {...rest}
