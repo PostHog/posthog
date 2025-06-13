@@ -191,14 +191,14 @@ ROOT_DASHBOARD_CONTEXT_PROMPT = """
 Description: {{.}}
 {{/description}}
 
-### Dashboard Insights
+Dashboard insights:
 
 {{{insights}}}
 """.strip()
 
 ROOT_INSIGHTS_CONTEXT_PROMPT = """
 # Insights
-The user has provided the following insights.
+The user has provided the following insights, which may be releveant to the question at hand:
 
 {{{insights}}}
 """.strip()
