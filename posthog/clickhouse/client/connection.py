@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from contextlib import contextmanager
@@ -5,14 +6,16 @@ from enum import Enum
 from functools import cache
 from collections.abc import Mapping
 
+import clickhouse_connect.datatypes.registry
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import Client as HttpClient, httputil
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
 
-
+from posthog import temporal
 from posthog.settings import data_stores
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.utils import patchable
 
 
@@ -79,6 +82,56 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     return __user_dict[user] if user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
 
 
+class ProxyClient2:
+    def __init__(self, client: ClickHouseClient):
+        self._client = client
+
+    def execute(
+        self,
+        query,
+        params=None,
+        with_column_types=False,
+        external_tables=None,
+        query_id=None,
+        settings=None,
+        types_check=False,
+        columnar=False,
+    ):
+        if query_id:
+            settings["query_id"] = query_id
+        with self._client.read_query(query=query, query_parameters=params, query_id=query_id) as result_data:
+            # result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+
+            result = json.load(result_data)
+
+            # we must play with result summary here
+
+            written_rows = int(result.get("summary", {}).get("written_rows", 0))
+            if written_rows > 0:
+                return written_rows
+
+            # column_names = []
+            # column_types = []
+            # for (col_name, type_name) in result.get("meta", []):
+            #     column_names.append(col_name)
+            #     col_type = clickhouse_connect.datatypes.registry.get_from_name(type_name)
+            #     column_types.append(col_type)
+            if with_column_types:
+                column_types_driver_format = [
+                    (col_name, clickhouse_connect.datatypes.registry.get_from_name(col_type))
+                    for (col_name, col_type) in result.get("meta", [])
+                ]
+                return result.get("data"), column_types_driver_format
+            return result.get("data")
+
+    # Implement methods for session managment: https://peps.python.org/pep-0343/ so ProxyClient can be used in all places a clickhouse_driver.Client is.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
 class ProxyClient:
     def __init__(self, client: HttpClient):
         self._client = client
@@ -143,6 +196,11 @@ def get_http_client(**overrides):
     yield ProxyClient(get_client(**kwargs))
 
 
+def get_http_client2(**overrides) -> ProxyClient2:
+    with temporal.common.clickhouse.get_client() as client:
+        yield ProxyClient2(client)
+
+
 def get_kwargs_for_client(
     workload: Workload = Workload.DEFAULT,
     team_id=None,
@@ -195,7 +253,7 @@ def get_client_from_pool(
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
-        return get_http_client(**kwargs)
+        return get_http_client2(**kwargs)
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
 
