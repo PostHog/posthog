@@ -1,6 +1,6 @@
 import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xyflow/react'
 
-import { Optional } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, Optional } from '~/types'
 
 import {
     BOTTOM_HANDLE_POSITION,
@@ -14,6 +14,7 @@ import {
 } from '../constants'
 import { ToolbarNode } from '../Toolbar'
 import type { HogFlowAction, HogFlowEdge } from '../types'
+import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
 // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
 export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFlowEdge>[]): Node<HogFlowAction>[] => {
@@ -50,6 +51,8 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
                     on_error: 'continue',
                     created_at: 0,
                     updated_at: 0,
+                    inputs: {},
+                    inputs_schema: [],
                 },
                 draggable: false,
                 selectable: false,
@@ -167,6 +170,75 @@ export const getNodeHandles = (nodeId: string, nodeType: HogFlowAction['type']):
             ]
     }
 }
+
+export const getNodeInputs = (
+    nodeType: HogFlowAction['type']
+): { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] } => {
+    switch (nodeType) {
+        case 'message':
+            return {
+                inputs: {
+                    name: { value: '' },
+                    email: { value: NEW_TEMPLATE },
+                },
+                inputs_schema: [
+                    {
+                        type: 'string',
+                        key: 'name',
+                        label: 'Name',
+                        required: false,
+                    },
+                    {
+                        type: 'email',
+                        key: 'email',
+                        label: 'Email',
+                        required: true,
+                    },
+                ],
+            }
+        case 'delay':
+            return {
+                inputs: {
+                    name: { value: '' },
+                    duration: { value: '' },
+                },
+                inputs_schema: [
+                    {
+                        type: 'string',
+                        key: 'name',
+                        label: 'Name',
+                        required: false,
+                    },
+                    {
+                        type: 'string',
+                        key: 'duration',
+                        label: 'Duration (minutes)',
+                        required: true,
+                    },
+                ],
+            }
+        case 'conditional_branch':
+            return {
+                inputs: {
+                    name: { value: '' },
+                },
+                inputs_schema: [
+                    {
+                        type: 'string',
+                        key: 'name',
+                        label: 'Name',
+                        required: false,
+                    },
+                ],
+            }
+        default:
+            return {
+                inputs: {},
+                inputs_schema: [],
+            }
+    }
+}
+
 export const createNewNode = (
     toolbarNode: ToolbarNode,
     nodeId?: string,
@@ -185,6 +257,7 @@ export const createNewNode = (
             on_error: 'continue',
             created_at: 0,
             updated_at: 0,
+            ...getNodeInputs(toolbarNode.type),
         },
         handles: getNodeHandles(id, toolbarNode.type),
         position: {
@@ -240,6 +313,8 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
             config: null,
             created_at: 0,
             updated_at: 0,
+            inputs: {},
+            inputs_schema: [],
         },
         handles: getNodeHandles('trigger_node', 'trigger'),
         position: { x: 0, y: 0 },
@@ -257,6 +332,8 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
             config: null,
             created_at: 0,
             updated_at: 0,
+            inputs: {},
+            inputs_schema: [],
         },
         handles: getNodeHandles('exit_node', 'exit'),
         position: { x: 0, y: 100 },
