@@ -294,6 +294,7 @@ export type HogFlowInvocationContext = {
     event?: any // TODO: Type better
     variables?: Record<string, any>
     currentActionId?: string
+    actionStepCount?: number
 }
 
 // Mostly copied from frontend types
