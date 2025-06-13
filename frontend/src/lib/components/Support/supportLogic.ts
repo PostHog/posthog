@@ -445,6 +445,9 @@ export const supportLogic = kea<supportLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
+        openEmailForm: async () => {
+            billingLogic.actions.loadBilling()
+        },
         updateUrlParams: async () => {
             // Only include non-text fields in the URL parameters
             // This prevents focus loss when typing in text fields
@@ -527,16 +530,35 @@ export const supportLogic = kea<supportLogicType>([
                 const activeAddons =
                     platformAndSupportProduct?.addons?.filter((a) => a.subscribed && !a.included_with_main_product) ||
                     []
+
+                // Also check for addons that might be included with main product but still indicate enterprise
+                const allAddons = platformAndSupportProduct?.addons || []
+
                 const hasScaleAddon = activeAddons.some((a) => a.type === 'scale')
                 const hasTeamsAddon = activeAddons.some((a) => a.type === 'teams')
                 const hasBoostAddon = activeAddons.some((a) => a.type === 'boost')
 
-                // Check if current plan is enterprise OR if enterprise addon is subscribed
                 const hasEnterpriseAddon = activeAddons.some((a) => a.type === 'enterprise')
+                const hasEnterpriseInAllAddons = allAddons.some((a) => a.type === 'enterprise' && a.subscribed)
+                const hasEnterpriseProduct = billing.products?.some(
+                    (product) =>
+                        product.type?.toLowerCase().includes('enterprise') ||
+                        product.name?.toLowerCase().includes('enterprise')
+                )
+
+                // Fallback for Enterprise customers with unusual billing configurations
+                const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f'] // Airbus
+                const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(
+                    userLogic?.values?.user?.organization?.id || ''
+                )
+
+                // Enterprise detection
                 const hasEnterprisePlan =
                     hasLegacyEnterprisePlan ||
                     (currentPlan?.plan_key?.includes('enterprise') ?? false) ||
-                    hasEnterpriseAddon
+                    hasEnterpriseAddon ||
+                    hasEnterpriseInAllAddons ||
+                    hasEnterpriseProduct
 
                 // Check if organization was created within the last 3 months
                 const orgCreatedAt = currentOrganization?.created_at
@@ -551,7 +573,7 @@ export const supportLogic = kea<supportLogicType>([
                 // Update the checks to include trials
                 const hasBoostAddonOrTrial = hasBoostAddon || hasBoostTrial
                 const hasScaleAddonOrTrial = hasScaleAddon || hasScaleTrial
-                const hasEnterpriseAddonOrTrial = hasEnterprisePlan || hasEnterpriseTrial
+                const hasEnterpriseAddonOrTrial = hasEnterprisePlan || hasEnterpriseTrial || isKnownEnterpriseOrg
 
                 // Determine plan level based on priority
                 if (hasEnterpriseAddonOrTrial) {
