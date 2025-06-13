@@ -1019,13 +1019,11 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
-        max_memory_buffer: int = 250 * 1024 * 1024,  # 250MB total buffer
     ):
         super().__init__(data_interval_start, data_interval_end)
 
         self.s3_inputs = s3_inputs
         self.part_size = part_size
-        self.max_memory_buffer = max_memory_buffer
         self.max_concurrent_uploads = max_concurrent_uploads
         self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
 
@@ -1045,8 +1043,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.part_counter = 1
         self.upload_id: str | None = None
 
-        # Backpressure control
-        self.memory_semaphore = asyncio.Semaphore(max_memory_buffer // part_size)
         self._finalized = False
 
     async def _get_s3_client(self) -> "S3Client":
@@ -1108,8 +1104,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         part_number = self.part_counter
         self.part_counter += 1
 
-        # Acquire memory semaphore (blocks if too many uploads in flight)
-        await self.memory_semaphore.acquire()
+        # Acquire upload semaphore (blocks if too many uploads in flight)
+        await self.upload_semaphore.acquire()
 
         # Create upload task
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
@@ -1136,77 +1132,76 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             raise NoUploadInProgressError()
 
         try:
-            async with self.upload_semaphore:
-                await self.logger.ainfo(
-                    "Uploading file number %s part %s with upload id %s",
-                    self.current_file_index,
-                    part_number,
-                    self.upload_id,
-                )
-                current_key = self._get_current_key()
-                client = await self._get_s3_client()
+            await self.logger.ainfo(
+                "Uploading file number %s part %s with upload id %s",
+                self.current_file_index,
+                part_number,
+                self.upload_id,
+            )
+            current_key = self._get_current_key()
+            client = await self._get_s3_client()
 
-                # Retry logic for upload_part
-                response: UploadPartOutputTypeDef | None = None
-                attempt = 0
+            # Retry logic for upload_part
+            response: UploadPartOutputTypeDef | None = None
+            attempt = 0
 
-                while response is None:
-                    upload_start = time.time()
-                    try:
-                        response = await client.upload_part(
-                            Bucket=self.s3_inputs.bucket_name,
-                            Key=current_key,
-                            PartNumber=part_number,
-                            UploadId=self.upload_id,
-                            Body=data,
+            while response is None:
+                upload_start = time.time()
+                try:
+                    response = await client.upload_part(
+                        Bucket=self.s3_inputs.bucket_name,
+                        Key=current_key,
+                        PartNumber=part_number,
+                        UploadId=self.upload_id,
+                        Body=data,
+                    )
+
+                except botocore.exceptions.ClientError as err:
+                    error_code = err.response.get("Error", {}).get("Code", None)
+                    attempt += 1
+
+                    await self.logger.ainfo(
+                        "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
+                        self.current_file_index,
+                        part_number,
+                        error_code,
+                        attempt,
+                        max_attempts,
+                    )
+
+                    if error_code is not None and error_code == "RequestTimeout":
+                        if attempt >= max_attempts:
+                            raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
+
+                        retry_delay = min(
+                            max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
                         )
+                        await self.logger.ainfo("Retrying part %s upload in %s seconds", part_number, retry_delay)
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        raise
 
-                    except botocore.exceptions.ClientError as err:
-                        error_code = err.response.get("Error", {}).get("Code", None)
-                        attempt += 1
+            upload_time = time.time() - upload_start
+            part_info: CompletedPartTypeDef = {"ETag": response["ETag"], "PartNumber": part_number}
 
-                        await self.logger.ainfo(
-                            "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
-                            self.current_file_index,
-                            part_number,
-                            error_code,
-                            attempt,
-                            max_attempts,
-                        )
+            # Store completed part info
+            self.completed_parts[part_number] = part_info
 
-                        if error_code is not None and error_code == "RequestTimeout":
-                            if attempt >= max_attempts:
-                                raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
+            # Calculate transfer speed
+            part_size_mb = len(data) / (1024 * 1024)
+            upload_speed_mbps = part_size_mb / upload_time if upload_time > 0 else 0
 
-                            retry_delay = min(
-                                max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
-                            )
-                            await self.logger.ainfo("Retrying part %s upload in %s seconds", part_number, retry_delay)
-                            await asyncio.sleep(retry_delay)
-                            continue
-                        else:
-                            raise
-
-                upload_time = time.time() - upload_start
-                part_info: CompletedPartTypeDef = {"ETag": response["ETag"], "PartNumber": part_number}
-
-                # Store completed part info
-                self.completed_parts[part_number] = part_info
-
-                # Calculate transfer speed
-                part_size_mb = len(data) / (1024 * 1024)
-                upload_speed_mbps = part_size_mb / upload_time if upload_time > 0 else 0
-
-                await self.logger.ainfo(
-                    "Finished uploading file number %s part %s with upload id %s. File size: %sMB, upload time: %s, speed: %s MB/s",
-                    self.current_file_index,
-                    part_number,
-                    self.upload_id,
-                    part_size_mb,
-                    upload_time,
-                    upload_speed_mbps,
-                )
-                return part_info
+            await self.logger.ainfo(
+                "Finished uploading file number %s part %s with upload id %s. File size: %sMB, upload time: %s, speed: %s MB/s",
+                self.current_file_index,
+                part_number,
+                self.upload_id,
+                part_size_mb,
+                upload_time,
+                upload_speed_mbps,
+            )
+            return part_info
 
         except Exception:
             await self.logger.aexception(
@@ -1217,10 +1212,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             )
             raise
         finally:
-            # Always release memory semaphore
-            self.memory_semaphore.release()
-            # Explicitly delete data to free memory immediately
-            del data
+            # Always release upload semaphore
+            self.upload_semaphore.release()
 
     def _get_current_key(self) -> str:
         """Generate the key for the current file"""
@@ -1404,7 +1397,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         part_data = bytes(self.current_buffer)
         part_number = self.part_counter
 
-        await self.memory_semaphore.acquire()
+        await self.upload_semaphore.acquire()
 
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
         upload_task.add_done_callback(lambda task: self._on_upload_complete(task, part_number))
