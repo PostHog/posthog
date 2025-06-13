@@ -119,7 +119,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
         let distinct_id = format!("distinct_id_{}", i);
 
         let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None)
+            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
                 .get_match(&flags[0], None, None)
                 .unwrap();
 
@@ -1210,7 +1210,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         let distinct_id = format!("distinct_id_{}", i);
 
         let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None)
+            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
                 .get_match(&flags[0], None, None)
                 .unwrap();
 

@@ -1,4 +1,7 @@
-use crate::{api::types::FlagsResponse, flags::flag_matching::FeatureFlagMatcher};
+use crate::{
+    api::types::FlagsResponse,
+    flags::{flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher},
+};
 use uuid::Uuid;
 
 use super::types::FeatureFlagEvaluationContext;
@@ -8,6 +11,8 @@ pub async fn evaluate_feature_flags(
     context: FeatureFlagEvaluationContext,
     request_id: Uuid,
 ) -> FlagsResponse {
+    let group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
+
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
         context.team_id,
@@ -15,6 +20,7 @@ pub async fn evaluate_feature_flags(
         context.reader,
         context.writer,
         context.cohort_cache,
+        Some(group_type_mapping_cache),
         context.groups,
     );
 
