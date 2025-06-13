@@ -1831,6 +1831,7 @@ class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
     ALL = "all"
     PRODUCT = "product"
     COHORT = "cohort"
+    COUNTRY = "country"
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
