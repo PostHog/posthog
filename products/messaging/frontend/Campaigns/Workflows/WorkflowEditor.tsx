@@ -20,20 +20,35 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { OnWorkflowChange } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { DEFAULT_EDGE_OPTIONS } from './constants'
+import { NodeDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
-import { NodeDetailsPanel, StepDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { addDropzoneNodes, createEdgesForNewNode, createNewNode, DEFAULT_EDGES, DEFAULT_NODES } from './Nodes/utils'
 import { Toolbar, ToolbarNode } from './Toolbar'
 import type { HogFlowAction, HogFlowEdge } from './types'
 
 // Inner component that encapsulates React Flow
-function WorkflowEditorContent(): JSX.Element {
+function WorkflowEditorContent({ onChange }: { onChange: OnWorkflowChange }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(DEFAULT_NODES)
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(DEFAULT_EDGES)
+
+    useEffect(() => {
+        onChange({
+            actions: nodes.map((node) => node.data),
+            edges: edges.map((edge) => ({
+                from: edge.source,
+                to: edge.target,
+                // TODO(team-messaging): Decide if we need this edge type
+                type: 'continue',
+                index: edge.data?.index || 0,
+            })),
+        })
+    }, [nodes, edges, onChange])
+
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
     const [toolbarNodeUsed, setToolbarNodeUsed] = useState<ToolbarNode>()
@@ -249,10 +264,10 @@ function WorkflowEditorContent(): JSX.Element {
 }
 
 // TODO: Set up workflow update callback
-export function WorkflowEditor(): JSX.Element {
+export function WorkflowEditor({ onChange }: { onChange: OnWorkflowChange }): JSX.Element {
     return (
         <ReactFlowProvider>
-            <WorkflowEditorContent />
+            <WorkflowEditorContent onChange={onChange} />
         </ReactFlowProvider>
     )
 }

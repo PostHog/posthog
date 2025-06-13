@@ -1,10 +1,12 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { campaignLogic } from './campaignLogic'
 import { CampaignOverview } from './CampaignOverview'
 import { campaignSceneLogic, CampaignSceneLogicProps } from './campaignSceneLogic'
 import { CampaignWorkflow } from './CampaignWorkflow'
@@ -17,6 +19,9 @@ export const scene: SceneExport = {
 
 export function CampaignScene({ id }: { id?: string } = {}): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
+
+    const { campaignChanged, originalCampaign, isCampaignSubmitting } = useValues(campaignLogic({ id }))
+    const { submitCampaign, resetCampaign } = useActions(campaignLogic({ id }))
 
     const tabs = [
         {
@@ -33,7 +38,31 @@ export function CampaignScene({ id }: { id?: string } = {}): JSX.Element {
 
     return (
         <div className="flex flex-col space-y-4">
-            <PageHeader />
+            <PageHeader
+                buttons={
+                    <>
+                        {campaignChanged && (
+                            <LemonButton
+                                data-attr="cancel-message-template"
+                                type="secondary"
+                                onClick={() => resetCampaign(originalCampaign)}
+                            >
+                                Discard changes
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            form="campaign"
+                            onClick={submitCampaign}
+                            loading={isCampaignSubmitting}
+                            disabledReason={campaignChanged ? undefined : 'No changes to save'}
+                        >
+                            {id === 'new' ? 'Create' : 'Save'}
+                        </LemonButton>
+                    </>
+                }
+            />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.messagingCampaignTab(id, tab))}

@@ -7,6 +7,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ErrorTrackingRule, ErrorTrackingRuleType } from 'products/error_tracking/frontend/configuration/rules/types'
+import { HogFlow } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -52,6 +53,7 @@ import {
     CommentType,
     ConversationDetail,
     CoreMemory,
+    CyclotronJobFiltersType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -82,7 +84,6 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
-    HogFunctionFiltersType,
     HogFunctionIconResponse,
     HogFunctionKind,
     HogFunctionStatus,
@@ -1302,6 +1303,14 @@ export class ApiRequest {
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
     }
+
+    public hogFlows(): ApiRequest {
+        return this.environments().current().addPathComponent('hog_flows')
+    }
+
+    public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
+        return this.hogFlows().addPathComponent(hogFlowId)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -2324,7 +2333,7 @@ const api = {
             kinds,
             excludeKinds,
         }: {
-            filter_groups?: HogFunctionFiltersType[]
+            filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
             kinds?: HogFunctionKind[]
             excludeKinds?: HogFunctionKind[]
@@ -3442,6 +3451,23 @@ const api = {
             data: Partial<MessageTemplate>
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
+        },
+    },
+    hogFlows: {
+        async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
+            return await new ApiRequest().hogFlows().get()
+        },
+        async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).get()
+        },
+        async createHogFlow(data: Partial<HogFlow>): Promise<HogFlow> {
+            return await new ApiRequest().hogFlows().create({ data })
+        },
+        async updateHogFlow(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).update({ data })
+        },
+        async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).delete()
         },
     },
 

@@ -82,7 +82,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
+        team_id = self.context["team_id"]
         validated_data["created_by"] = request.user
+        validated_data["team_id"] = team_id
 
         return super().create(validated_data=validated_data)
 
@@ -99,7 +101,7 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at"]
 
 
-class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
