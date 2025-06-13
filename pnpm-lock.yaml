@@ -900,8 +900,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.250.2
-        version: 1.250.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.252.0
+        version: 1.252.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.6.0
         version: 3.6.0
@@ -14318,6 +14318,10 @@ packages:
     resolution: {integrity: sha512-QSa9EBe+uwlGTFmHsPKokv3B/oEMQZxfqW0QqNCyhpa6mB1afzulwn8hihglqAb2pOw+BJgNlmXQ8la2VeHB7w==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postcss@8.5.5:
+    resolution: {integrity: sha512-d/jtm+rdNT8tpXuHY5MMtcbJFBkhXE6593XVR9UoGCH8jSFGci7jGvMGH5RYd5PBJW+00NZQt6gf7CbagJCrhg==}
+    engines: {node: ^10 || ^12 || >=14}
+
   postgres-array@2.0.0:
     resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
     engines: {node: '>=4'}
@@ -14373,8 +14377,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.250.2:
-    resolution: {integrity: sha512-g/H9lJhjhsYPnpxntqp36osK7oJ6CFqul2+mVUkaacAJUG4DqCG8iawsSnZvvUmapjapbf2HUA7PCRrpRsl06A==}
+  posthog-js@1.252.0:
+    resolution: {integrity: sha512-Mm72gKYYYaQGilxLPPH+KXF8TcveloOvsMemEz0jna0tV0O++n9SJ/dko+U2ePb+FajZ4vqVvfmkHSIILXdgKg==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -14418,6 +14422,9 @@ packages:
 
   preact@10.26.8:
     resolution: {integrity: sha512-1nMfdFjucm5hKvq0IClqZwK4FJkGXhRrQstOQ3P4vp8HxKrJEMFcY6RdBRVTdfQS/UlnX6gfbPuTvaqx/bDoeQ==}
+
+  preact@10.26.9:
+    resolution: {integrity: sha512-SSjF9vcnF27mJK1XyFMNJzFd5u3pQiATFqoaDy03XuN00u4ziveVVEGt5RKJrDR8MHE/wJo9Nnad56RLzS2RMA==}
 
   prelude-ls@1.1.2:
     resolution: {integrity: sha512-ESF23V4SKG6lVSGZgYNpbsiaAkdab6ZgOxe52p7+Kid3W3u3bxR4Vfd/o21dmN7jSt0IwgZ4v5MUd26FEtXE9w==}
@@ -29820,7 +29827,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.26.8
+      preact: 10.26.9
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -33344,6 +33351,13 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
+  postcss@8.5.5:
+    dependencies:
+      nanoid: 3.3.11
+      picocolors: 1.1.1
+      source-map-js: 1.2.1
+    optional: true
+
   postgres-array@2.0.0: {}
 
   postgres-bytea@1.0.0: {}
@@ -33390,11 +33404,11 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.250.2(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.252.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.26.8
+      preact: 10.26.9
       web-vitals: 4.2.4
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
@@ -33431,6 +33445,8 @@ snapshots:
   preact@10.26.6: {}
 
   preact@10.26.8: {}
+
+  preact@10.26.9: {}
 
   prelude-ls@1.1.2: {}
 
@@ -34740,7 +34756,7 @@ snapshots:
 
   rrweb-snapshot@2.0.0-alpha.18:
     dependencies:
-      postcss: 8.5.4
+      postcss: 8.5.5
     optional: true
 
   run-async@2.4.1: {}
