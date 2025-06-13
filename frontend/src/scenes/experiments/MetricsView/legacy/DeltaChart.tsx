@@ -631,6 +631,7 @@ export function DeltaChart({
                 isSecondary={isSecondary}
                 result={result}
                 experimentId={experimentId as ExperimentIdType}
+                experiment={experiment}
             />
         </DeltaChartContext.Provider>
     )
