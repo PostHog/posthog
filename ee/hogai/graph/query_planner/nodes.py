@@ -256,8 +256,8 @@ class QueryPlannerNode(AssistantNode):
     def _model(self) -> ChatAnthropic:
         return ChatAnthropic(
             model="claude-sonnet-4-20250514",
-            thinking={"type": "enabled", "budget_tokens": 12000},
-            max_tokens=4000,
+            thinking={"type": "enabled", "budget_tokens": 8000},
+            max_tokens=3000,
             model_kwargs={"extra_headers": {"anthropic-beta": "interleaved-thinking-2025-05-14"}},
             streaming=True,
             stream_usage=True,
