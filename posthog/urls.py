@@ -55,6 +55,8 @@ from .views import (
     robots_txt,
     security_txt,
     stats,
+    preferences_page,
+    update_preferences,
 )
 from posthog.api.query import progress
 
@@ -239,6 +241,9 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+    # Message preferences
+    path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
+    opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
 
 if settings.DEBUG:

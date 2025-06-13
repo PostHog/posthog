@@ -106,6 +106,7 @@ class OrganizationSerializer(
             "members_can_invite",
             "member_count",
             "is_ai_data_processing_approved",
+            "default_experiment_stats_method",
         ]
         read_only_fields = [
             "id",
