@@ -6,7 +6,7 @@ from posthog.tasks.environments_rollback import environments_rollback_migration
 
 
 class TestEnvironmentsRollbackTask(TransactionTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.organization = Organization.objects.create(name="Test Organization")
         self.user = User.objects.create_user(
@@ -21,7 +21,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
             level=OrganizationMembership.Level.ADMIN,
         )
 
-    def test_environments_rollback_task_success(self):
+    def test_environments_rollback_task_success(self) -> None:
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -60,7 +60,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(detached_project.name, staging_env.name)
         self.assertEqual(detached_project.organization, self.organization)
 
-    def test_environments_rollback_task_multiple_sources_to_one_target(self):
+    def test_environments_rollback_task_multiple_sources_to_one_target(self) -> None:
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -99,7 +99,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(staging_env.project_id, staging_env.id)
         self.assertEqual(dev_env.project_id, dev_env.id)
 
-    def test_environments_rollback_task_multiple_projects_same_project_pairs(self):
+    def test_environments_rollback_task_multiple_projects_same_project_pairs(self) -> None:
         project_alpha = Team.objects.create(organization=self.organization, name="Project Alpha")
         project_beta = Team.objects.create(organization=self.organization, name="Project Beta")
 
@@ -151,7 +151,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(alpha_staging_env.project_id, alpha_staging_env.id)
         self.assertEqual(beta_staging_env.project_id, beta_staging_env.id)
 
-    def test_environments_rollback_task_same_source_and_target(self):
+    def test_environments_rollback_task_same_source_and_target(self) -> None:
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -171,7 +171,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         production_env.refresh_from_db()
         self.assertEqual(production_env.project_id, main_project.id)
 
-    def test_environments_rollback_task_nonexistent_organization(self):
+    def test_environments_rollback_task_nonexistent_organization(self) -> None:
         nonexistent_organization_id = 99999
         with self.assertRaises(Organization.DoesNotExist):
             environments_rollback_migration(
@@ -180,7 +180,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
                 user_id=self.user.id,
             )
 
-    def test_environments_rollback_task_nonexistent_user(self):
+    def test_environments_rollback_task_nonexistent_user(self) -> None:
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -195,7 +195,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
                 user_id=nonexistent_user_id,
             )
 
-    def test_environments_rollback_task_prevents_cross_project_migration(self):
+    def test_environments_rollback_task_prevents_cross_project_migration(self) -> None:
         project_alpha = Team.objects.create(organization=self.organization, name="Project Alpha")
         project_beta = Team.objects.create(organization=self.organization, name="Project Beta")
 
