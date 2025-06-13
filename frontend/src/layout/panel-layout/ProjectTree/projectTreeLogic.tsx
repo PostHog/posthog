@@ -438,7 +438,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
             (viableItems, folderStates, checkedItems, users, onlyFolders): TreeDataItem[] => {
                 // Saved queries is a special type used in queryDatabase
-                const viableFileteredItems = viableItems.filter(
+                const viableFilteredItems = viableItems.filter(
                     (item) => !item.path.includes(UNFILED_SAVED_QUERIES_PATH)
                 )
 
