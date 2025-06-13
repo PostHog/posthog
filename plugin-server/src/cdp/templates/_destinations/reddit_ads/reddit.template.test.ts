@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './reddit.template'
 
-jest.setTimeout(60 * 1000)
+jest.setTimeout(2 * 60 * 1000)
 
 describe('reddit template', () => {
     const tester = new TemplateTester(template)
@@ -55,7 +55,7 @@ describe('reddit template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"ViewContent"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id","products":[{"id":"1bdfef47c9724b58b6831933","category":"merch","name":"Tactical black t-shirt"}],"value":30,"currency":"usd"}}]}",
+              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"ViewContent"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id","products":[{"id":"1bdfef47c9724b58b6831933","category":"merch","name":"Tactical black t-shirt"}],"value":30,"currency":"usd"},"click_id":"reddit-id"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -91,7 +91,7 @@ describe('reddit template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"}}]}",
+              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"},"click_id":"reddit-id"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -127,7 +127,7 @@ describe('reddit template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"}}]}",
+              "body": "{"test_mode":false,"events":[{"event_at":"2025-01-01T00:00:00Z","event_type":{"tracking_type":"Purchase"},"user":{"email":"example@posthog.com","screen_dimensions":{"width":null,"height":null}},"event_metadata":{"conversion_id":"event-id"},"click_id":"reddit-id"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",

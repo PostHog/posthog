@@ -11,6 +11,7 @@ from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
+from posthog.api.batch_imports import BatchImportViewSet
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
     data_modeling_job,
@@ -462,12 +463,14 @@ register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "envi
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
+
 register_grandfathered_environment_nested_viewset(
     r"elements",
     ElementViewSet,
     "environment_elements",
     ["team_id"],  # TODO: Can be removed?
 )
+
 environment_sessions_recordings_router, legacy_project_session_recordings_router = (
     register_grandfathered_environment_nested_viewset(
         r"session_recordings",
@@ -667,6 +670,13 @@ projects_router.register(
     r"hog_function_templates",
     hog_function_template.PublicHogFunctionTemplateViewSet,
     "project_hog_function_templates",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"managed_migrations",
+    BatchImportViewSet,
+    "project_managed_migrations",
     ["project_id"],
 )
 

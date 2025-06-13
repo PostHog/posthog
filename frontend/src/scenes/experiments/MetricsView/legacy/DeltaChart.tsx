@@ -18,12 +18,12 @@ import {
 } from '../../experimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
 import { VariantTag } from '../../ExperimentView/components'
+import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { useChartColors } from '../shared/colors'
 import { GridLines } from '../shared/GridLines'
 import { MetricHeader } from '../shared/MetricHeader'
 import { getDefaultMetricTitle } from '../shared/utils'
-import { ChartEmptyState } from './ChartEmptyState'
 import { ChartModal } from './ChartModal'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
@@ -660,6 +660,7 @@ export function DeltaChart({
                 isSecondary={isSecondary}
                 result={result}
                 experimentId={experimentId as ExperimentIdType}
+                experiment={experiment}
             />
         </DeltaChartContext.Provider>
     )

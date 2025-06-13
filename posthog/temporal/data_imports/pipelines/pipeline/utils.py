@@ -48,7 +48,11 @@ class DuplicatePrimaryKeysException(Exception):
     pass
 
 
-class QueryTimeout(Exception):
+class QueryTimeoutException(Exception):
+    pass
+
+
+class TemporaryFileSizeExceedsLimitException(Exception):
     pass
 
 

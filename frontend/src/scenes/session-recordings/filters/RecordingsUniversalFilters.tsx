@@ -325,6 +325,7 @@ export const RecordingsUniversalFilters = ({
                             setIsFiltersExpanded(!isFiltersExpanded)
                         }}
                         fullWidth
+                        data-attr="filter-recordings-button"
                     >
                         Filters{' '}
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}

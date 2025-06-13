@@ -72,18 +72,20 @@ fn upload_chunks(
     for upload in uploads {
         info!("Uploading chunk {}", upload.chunk_id);
 
-        let mut params = vec![("chunk_id", &upload.chunk_id)];
+        let mut params: Vec<(&'static str, &str)> =
+            vec![("chunk_id", &upload.chunk_id), ("multipart", "true")];
         if let Some(id) = &release_id {
             params.push(("release_id", id));
         }
 
+        let part = reqwest::blocking::multipart::Part::bytes(upload.data).file_name("file");
+        let form = reqwest::blocking::multipart::Form::new().part("file", part);
+
         let res = client
             .post(url)
+            .multipart(form)
             .header("Authorization", format!("Bearer {}", token))
-            .header("Content-Type", "application/octet-stream")
-            .header("Content-Disposition", "attachment; filename='chunk'")
             .query(&params)
-            .body(upload.data)
             .send()
             .context(format!("While uploading chunk to {}", url))?;
 
