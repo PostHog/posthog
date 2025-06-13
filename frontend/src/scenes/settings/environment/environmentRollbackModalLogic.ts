@@ -174,10 +174,23 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
                 return
             }
 
+            // For each project, map all OTHER environments to the selected target environment
+            const environmentMappings: Record<string, number> = {}
+            values.projectsWithEnvironments.forEach((project) => {
+                const targetEnvironmentId = values.selectedEnvironments[project.id]
+                if (targetEnvironmentId) {
+                    project.environments.forEach((env) => {
+                        if (env.id !== targetEnvironmentId) {
+                            environmentMappings[env.id.toString()] = targetEnvironmentId
+                        }
+                    })
+                }
+            })
+
             try {
                 await api.create(
                     `api/organizations/${values.currentOrganization.id}/environments_rollback/`,
-                    values.selectedEnvironments
+                    environmentMappings
                 )
 
                 lemonToast.warning(
