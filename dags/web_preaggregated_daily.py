@@ -193,29 +193,44 @@ def partition_web_analytics_data_by_team(
     successfully_team_ids = []
     failed_team_ids = []
 
-    for team_id in team_ids:
-        team_s3_path = f"{source_s3_path.replace('.native', '')}/{team_id}/data.native"
+    session = chdb.session.Session()
+    try:
+        temp_db = f"temp_analytics_{context.run_id.replace('-', '_')}"
+        session.query(f"CREATE DATABASE IF NOT EXISTS {temp_db} ENGINE = Atomic")
 
-        partition_query = f"""
-        INSERT INTO FUNCTION s3({get_s3_function_args(team_s3_path)}, '{structure}')
-        SELECT *
-        FROM s3({get_s3_function_args(source_s3_path)}, '{structure}')
-        WHERE team_id = {team_id}
-        SETTINGS s3_truncate_on_insert=true
-        """
+        temp_table = f"{temp_db}.source_data"
 
-        try:
-            context.log.info(f"Partitioning data for team {team_id}")
-            context.log.info(f"Query: {partition_query}")
+        session.query(f"""
+            CREATE TABLE {temp_table} ENGINE = Memory AS
+            SELECT * FROM s3({get_s3_function_args(source_s3_path)})
+        """)
 
-            chdb.query(partition_query)
+        context.log.info(f"Loaded source data into temporary table {temp_table}")
 
-            successfully_team_ids.append(team_s3_path)
-            context.log.info(f"Successfully partitioned data for team {team_id} to: {team_s3_path}")
+        for team_id in team_ids:
+            team_s3_path = f"{source_s3_path.replace('.native', '')}/{team_id}/data.native"
 
-        except Exception as e:
-            context.log.exception(f"Failed to partition data for team {team_id}: {str(e)}")
-            failed_team_ids.append(team_id)
+            partition_query = f"""
+            INSERT INTO FUNCTION s3({get_s3_function_args(team_s3_path)}, '{structure}')
+            SELECT *
+            FROM {temp_table}
+            WHERE team_id = {team_id}
+            SETTINGS s3_truncate_on_insert=true
+            """
+
+            try:
+                context.log.info(f"Partitioning data for team {team_id}")
+                session.query(partition_query)
+
+                successfully_team_ids.append(team_s3_path)
+                context.log.info(f"Successfully partitioned data for team {team_id} to: {team_s3_path}")
+
+            except Exception as e:
+                context.log.exception(f"Failed to partition data for team {team_id}: {str(e)}")
+                failed_team_ids.append(team_id)
+
+    finally:
+        session.cleanup()
 
     return dagster.Output(
         value=successfully_team_ids,
