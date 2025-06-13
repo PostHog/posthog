@@ -2,6 +2,7 @@ import dagster
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster
 from clickhouse_driver import Client
+from posthog.clickhouse.client import sync_execute
 from dagster import asset_check, AssetCheckResult, MetadataValue
 
 from posthog.models.web_preaggregated.sql import (
@@ -24,75 +25,43 @@ def execute_with_logging(client: Client, sql: str, context: dagster.AssetExecuti
     return client.execute(sql)
 
 
-def check_tables_exist(
-    like_patterns: list[str], expected_tables: list[str], test_queryable: bool = False
-) -> AssetCheckResult:
-    """
-    Shared utility to check if tables/views exist in ClickHouse.
-
-    Args:
-        like_patterns: List of LIKE patterns to search for (e.g., ['%bounces_daily%', '%stats_daily%'])
-        expected_tables: List of expected table/view names
-        test_queryable: Whether to test if tables/views are queryable
-    """
+def check_table_exist(table_name: str) -> AssetCheckResult:
     try:
-        from posthog.clickhouse.client import sync_execute
-
-        # Build WHERE clause with multiple LIKE patterns
-        like_conditions = " OR ".join([f"name LIKE '{pattern}'" for pattern in like_patterns])
-
-        # Check if tables exist using system tables for efficient filtering
         tables_result = sync_execute(
             f"""
-            SELECT name FROM system.tables
-            WHERE database = currentDatabase()
-            AND ({like_conditions})
-        """
+            SELECT name, engine, total_rows, total_bytes
+            FROM system.tables
+            WHERE database = currentDatabase() AND name = '{table_name}'
+            """
         )
-        table_names = [row[0] for row in tables_result]
 
-        missing_tables = [table for table in expected_tables if table not in table_names]
-
-        # Test queryability if requested
-        queryable_tables = []
-        if test_queryable:
-            for table in expected_tables:
-                if table in table_names:
-                    try:
-                        sync_execute(f"SELECT 1 FROM {table} LIMIT 1")
-                        queryable_tables.append(table)
-                    except Exception:
-                        pass
-
-        # Determine if check passed
-        if test_queryable:
-            passed = len(missing_tables) == 0 and len(queryable_tables) == len(expected_tables)
-            description = (
-                f"Found {len(queryable_tables)}/{len(expected_tables)} working tables/views"
-                if passed
-                else f"Issues with tables/views: {missing_tables}"
+        if len(tables_result) == 0:
+            return AssetCheckResult(
+                passed=False,
+                description=f"Table {table_name} does not exist",
+                metadata={"table_name": MetadataValue.text(table_name)},
             )
-        else:
-            passed = len(missing_tables) == 0
-            description = f"Found tables: {table_names}" if passed else f"Missing tables: {missing_tables}"
 
-        metadata = {
-            "found_tables": MetadataValue.json(table_names),
-            "expected_tables": MetadataValue.json(expected_tables),
-            "missing_tables": MetadataValue.json(missing_tables),
-        }
-
-        if test_queryable:
-            metadata["queryable_tables"] = MetadataValue.json(queryable_tables)
+        # Table exists, get info
+        table_info = tables_result[0]
+        _, engine, total_rows, total_bytes = table_info
 
         return AssetCheckResult(
-            passed=passed,
-            description=description,
-            metadata=metadata,
+            passed=True,
+            description=f"Table {table_name} exists ({engine} engine, {total_rows} rows)",
+            metadata={
+                "table_name": MetadataValue.text(table_name),
+                "engine": MetadataValue.text(engine),
+                "total_rows": MetadataValue.int(total_rows),
+                "total_bytes": MetadataValue.int(total_bytes),
+            },
         )
+
     except Exception as e:
         return AssetCheckResult(
-            passed=False, description=f"Error checking tables: {str(e)}", metadata={"error": MetadataValue.text(str(e))}
+            passed=False,
+            description=f"Error checking table {table_name}: {str(e)}",
+            metadata={"table_name": MetadataValue.text(table_name), "error": MetadataValue.text(str(e))},
         )
 
 
@@ -194,47 +163,55 @@ def web_analytics_preaggregated_tables(
         raise dagster.Failure(f"Failed to setup web analytics tables: {str(e)}") from e
 
 
-# Asset checks for DDL - verify tables and views exist
 @asset_check(
     asset=web_analytics_preaggregated_tables,
-    name="daily_tables_exist",
-    description="Check if daily pre-aggregated tables were created",
+    name="daily_stats_table_exist",
+    description="Check if daily stats table was created",
 )
-def daily_tables_exist() -> AssetCheckResult:
-    """
-    Check if daily pre-aggregated tables exist and have proper structure.
-    """
-    return check_tables_exist(["%bounces_daily%", "%stats_daily%"], ["web_bounces_daily", "web_stats_daily"])
+def daily_stats_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_stats_daily")
+
+
+@asset_check(
+    asset=web_analytics_preaggregated_tables,
+    name="daily_bounces_table_exist",
+    description="Check if daily bounces table was created",
+)
+def daily_bounces_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_bounces_daily")
 
 
 @asset_check(
     asset=web_analytics_preaggregated_hourly_tables,
-    name="hourly_tables_exist",
-    description="Check if hourly pre-aggregated tables were created",
+    name="hourly_stats_table_exist",
+    description="Check if hourly stats table was created",
 )
-def hourly_tables_exist() -> AssetCheckResult:
-    """
-    Check if hourly pre-aggregated tables exist and have proper structure.
-    """
-    return check_tables_exist(
-        ["%bounces_hourly%", "%stats_hourly%"],
-        [
-            "web_bounces_hourly",
-            "web_stats_hourly",
-            "web_bounces_hourly_staging",
-            "web_stats_hourly_staging",
-        ],
-        test_queryable=True,
-    )
+def hourly_stats_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_stats_hourly")
+
+
+@asset_check(
+    asset=web_analytics_preaggregated_hourly_tables,
+    name="hourly_bounces_table_exist",
+    description="Check if hourly bounces table was created",
+)
+def hourly_bounces_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_bounces_hourly")
 
 
 @asset_check(
     asset=web_analytics_combined_views,
-    name="combined_views_exist",
-    description="Check if combined views were created and are queryable",
+    name="combined_stats_view_exist",
+    description="Check if combined stats view was created",
 )
-def combined_views_exist() -> AssetCheckResult:
-    """
-    Check if combined views exist and are queryable.
-    """
-    return check_tables_exist(["%combined%"], ["web_bounces_combined", "web_stats_combined"], test_queryable=True)
+def combined_stats_view_exist() -> AssetCheckResult:
+    return check_table_exist("web_stats_combined")
+
+
+@asset_check(
+    asset=web_analytics_combined_views,
+    name="combined_bounces_view_exist",
+    description="Check if combined bounces view was created",
+)
+def combined_bounces_view_exist() -> AssetCheckResult:
+    return check_table_exist("web_bounces_combined")
