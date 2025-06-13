@@ -24,6 +24,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
@@ -79,15 +80,20 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             ? props.sourceQuery.variables ?? undefined
                             : undefined
 
-                    const response = await performQuery<HogQLMetadata>({
-                        kind: NodeKind.HogQLMetadata,
-                        language: props.language as HogLanguage,
-                        query: query,
-                        filters: props.metadataFilters,
-                        globals: props.globals,
-                        sourceQuery: props.sourceQuery,
-                        variables,
-                    })
+                    const response = await performQuery<HogQLMetadata>(
+                        setLatestVersionsOnQuery(
+                            {
+                                kind: NodeKind.HogQLMetadata,
+                                language: props.language as HogLanguage,
+                                query: query,
+                                filters: props.metadataFilters,
+                                globals: props.globals,
+                                sourceQuery: props.sourceQuery,
+                                variables,
+                            },
+                            { recursion: false }
+                        )
+                    )
                     breakpoint()
                     props.onMetadata?.(response)
                     return [query, response]

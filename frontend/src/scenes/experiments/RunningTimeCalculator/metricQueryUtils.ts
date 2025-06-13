@@ -13,6 +13,7 @@ import type { Experiment } from '~/types'
 import { BaseMathType, CountPerActorMathType, FunnelVizType, PropertyMathType } from '~/types'
 
 import type { EventConfig } from './runningTimeCalculatorLogic'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 // Creates the correct identifier properties for a series item based on metric type
 const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Record<string, any> => {
@@ -84,7 +85,7 @@ export const getTotalCountQuery = (
 ): TrendsQuery => {
     const baseProps = getSeriesItemProps(metric)
 
-    return {
+    return setLatestVersionsOnQuery({
         kind: NodeKind.TrendsQuery,
         series: [
             {
@@ -101,7 +102,7 @@ export const getTotalCountQuery = (
         trendsFilter: {},
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
         dateRange: getQueryDateRange(),
-    } as TrendsQuery
+    }) as TrendsQuery
 }
 
 export const getSumQuery = (
@@ -118,7 +119,7 @@ export const getSumQuery = (
               }
             : {}
 
-    return {
+    return setLatestVersionsOnQuery({
         kind: NodeKind.TrendsQuery,
         series: [
             {
@@ -136,7 +137,7 @@ export const getSumQuery = (
         trendsFilter: {},
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
         dateRange: getQueryDateRange(),
-    } as TrendsQuery
+    }) as TrendsQuery
 }
 
 export const getFunnelQuery = (
@@ -146,7 +147,7 @@ export const getFunnelQuery = (
 ): FunnelsQuery => {
     const baseProps = getSeriesItemProps(metric)
 
-    return {
+    return setLatestVersionsOnQuery{
         kind: NodeKind.FunnelsQuery,
         series: [
             {
@@ -162,5 +163,5 @@ export const getFunnelQuery = (
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
         dateRange: getQueryDateRange(),
         interval: 'day',
-    } as FunnelsQuery
+    }) as FunnelsQuery
 }
