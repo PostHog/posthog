@@ -377,8 +377,6 @@ class OAuthTokenView(TokenView):
     To comply with RFC 6749, the data must be sent as x-www-form-urlencoded.
     """
 
-    authentication_classes = []
-    permission_classes = []
     pass
 
 
@@ -391,30 +389,20 @@ class OAuthRevokeTokenView(RevokeTokenView):
     - token_type_hint(optional): The type of token to revoke - either "access_token" or "refresh_token"
     """
 
-    authentication_classes = []
-    permission_classes = []
     pass
 
 
 class OAuthIntrospectTokenView(IntrospectTokenView):
-    authentication_classes = []
-    permission_classes = []
     pass
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):
-    authentication_classes = []
-    permission_classes = []
     pass
 
 
 class OAuthJwksInfoView(JwksInfoView):
-    authentication_classes = []
-    permission_classes = []
     pass
 
 
 class OAuthUserInfoView(UserInfoView):
-    authentication_classes = []
-    permission_classes = []
     pass

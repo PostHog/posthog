@@ -6,6 +6,7 @@ from django.test import override_settings
 from freezegun import freeze_time
 import jwt
 from rest_framework import status
+from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -825,7 +826,6 @@ class TestOAuthAPI(APIBaseTest):
     def test_serializer_requires_user_in_context(self):
         data = {
             **self.base_authorization_post_body,
-            "access_level": OAuthApplicationAccessLevel.ALL.value,
         }
 
         with self.assertRaises(ValueError) as cm:
@@ -838,3 +838,312 @@ class TestOAuthAPI(APIBaseTest):
 
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
         self.assertTrue(serializer.is_valid())
+
+    def test_cannot_scope_to_unauthorized_organization(self):
+        from posthog.models import Organization
+
+        other_org = Organization.objects.create(name="Other Organization")
+
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+            "scoped_organizations": [str(other_org.id)],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertIn(
+            f"You must be a member of organization '{other_org.id}'", str(serializer.errors["scoped_organizations"][0])
+        )
+
+    def test_cannot_scope_to_unauthorized_team(self):
+        from posthog.models import Organization
+
+        other_org = Organization.objects.create(name="Other Organization")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": [other_team.id],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertIn(f"You must be a member of team '{other_team.id}'", str(serializer.errors["scoped_teams"][0]))
+
+    def test_malformed_organization_uuid_rejected(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+            "scoped_organizations": ["invalid-uuid", "not-a-uuid-at-all"],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertIn("Invalid organization UUID", str(serializer.errors["scoped_organizations"][0]))
+
+    def test_nonexistent_team_rejected(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": [99999, 88888],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertIn("do not exist", str(serializer.errors["scoped_teams"][0]))
+
+    def test_authorization_code_reuse_prevented(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_data = {**self.base_token_body, "code": code}
+
+        response1 = self.post("/oauth/token/", token_data)
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        response2 = self.post("/oauth/token/", token_data)
+        self.assertEqual(response2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response2.json()["error"], "invalid_grant")
+
+    def test_pkce_code_verifier_validation(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_data = {**self.base_token_body, "code": code, "code_verifier": "wrong_verifier"}
+
+        response = self.post("/oauth/token/", token_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+
+    def test_redirect_uri_exact_match_required(self):
+        malicious_data = {**self.base_authorization_post_body, "redirect_uri": "https://example.com/callback/malicious"}
+
+        response = self.client.post("/oauth/authorize/", malicious_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_scope_persistence_through_refresh(self):
+        scoped_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": [self.team.id],
+        }
+
+        response = self.client.post("/oauth/authorize/", scoped_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        refresh_token = token_response.json()["refresh_token"]
+
+        for _ in range(3):
+            refresh_data = {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            }
+
+            refresh_response = self.post("/oauth/token/", refresh_data)
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+
+            new_access_token = refresh_response.json()["access_token"]
+            db_token = OAuthAccessToken.objects.get(token=new_access_token)
+            self.assertEqual(db_token.scoped_teams, [self.team.id])
+
+            refresh_token = refresh_response.json()["refresh_token"]
+
+    def test_revoked_refresh_token_invalidates_access_tokens(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        access_token = token_response.json()["access_token"]
+        refresh_token = token_response.json()["refresh_token"]
+
+        userinfo_response = self.client.get("/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"})
+        self.assertEqual(userinfo_response.status_code, status.HTTP_200_OK)
+
+        revoke_data = {
+            "token": refresh_token,
+            "token_type_hint": "refresh_token",
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        revoke_response = self.post("/oauth/revoke/", revoke_data)
+        self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
+
+        db_refresh_token = OAuthRefreshToken.objects.get(token=refresh_token)
+        self.assertIsNotNone(db_refresh_token.revoked)
+
+        userinfo_response_after_revoke = self.client.get(
+            "/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"}
+        )
+        self.assertEqual(userinfo_response_after_revoke.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_client_credentials_required_for_confidential_clients(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_data_no_secret = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": "test_confidential_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        response = self.post("/oauth/token/", token_data_no_secret)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_wrong_client_credentials_rejected(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_data_wrong_secret = {
+            **self.base_token_body,
+            "code": code,
+            "client_secret": "wrong_secret",
+        }
+
+        response = self.post("/oauth/token/", token_data_wrong_secret)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_cannot_use_authorization_code_with_different_client(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_data_different_client = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": "test_public_client_id",
+            "client_secret": "test_public_client_secret",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        response = self.post("/oauth/token/", token_data_different_client)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+
+    def test_refresh_token_rotation_invalidates_old_token(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        old_refresh_token = token_response.json()["refresh_token"]
+
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": old_refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        refresh_response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        new_refresh_token = refresh_response.json()["refresh_token"]
+
+        self.assertNotEqual(old_refresh_token, new_refresh_token)
+
+        retry_old_token = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(retry_old_token.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(retry_old_token.json()["error"], "invalid_grant")
+
+    def test_mixed_scoped_access_levels_rejected(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+            "scoped_organizations": [str(self.organization.id)],
+            "scoped_teams": [self.team.id],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+
+    def test_application_isolation_different_users(self):
+        from posthog.models import User, Organization, OrganizationMembership
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_user = User.objects.create_user(email="other@test.com", password="password", first_name="Other")
+        OrganizationMembership.objects.create(user=other_user, organization=other_org)
+
+        self.client.force_login(other_user)
+
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(grant.user, other_user)
+        self.assertNotEqual(grant.user, self.user)
+
+    def test_authorization_code_expires_correctly(self):
+        with freeze_time("2025-01-01 00:00:00") as frozen_time:
+            response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+            code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+            frozen_time.tick(delta=timedelta(minutes=6))
+
+            token_data = {**self.base_token_body, "code": code}
+            response = self.post("/oauth/token/", token_data)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["error"], "invalid_grant")
+
+    def test_public_client_pkce_enforcement(self):
+        public_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("error=invalid_request", redirect_to)
+
+    def test_invalid_grant_type_rejected(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_data = {
+            **self.base_token_body,
+            "code": code,
+            "grant_type": "password",
+        }
+
+        response = self.post("/oauth/token/", token_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
+    def test_userinfo_endpoint_requires_valid_token(self):
+        response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_userinfo_endpoint_with_expired_token(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        access_token = token_response.json()["access_token"]
+
+        db_token = OAuthAccessToken.objects.get(token=access_token)
+        db_token.expires = timezone.now() - timedelta(hours=1)
+        db_token.save()
+
+        response = self.client.get("/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
