@@ -5,6 +5,15 @@ import { HogFunctionTemplate } from '../../types'
 const build_inputs = (): HogFunctionInputSchemaType[] => {
     return [
         {
+            key: 'rdt_cid',
+            type: 'string',
+            label: 'Reddit Click ID (rdt_cid)',
+            description: 'The Reddit click ID (rdt_cid) associated with this conversion.',
+            default: '{person.properties.rdt_cid ?? person.properties.$initial_rdt_cid}',
+            secret: false,
+            required: false,
+        },
+        {
             key: 'eventProperties',
             type: 'dictionary',
             description:
@@ -75,6 +84,10 @@ let eventData := {
     'user': userProperties,
     'event_metadata': eventProperties,
 };
+
+if (not empty(inputs.rdt_cid)) {
+    eventData['click_id'] := inputs.rdt_cid;
+}
 
 let events := [eventData];
 

@@ -43,9 +43,9 @@ class PostHogConfig(AppConfig):
             logger.info(
                 "posthog_config_ready",
                 settings_debug=settings.DEBUG,
-                server_gateway_interface=os.environ.get("SERVER_GATEWAY_INTERFACE"),
+                server_gateway_interface=settings.SERVER_GATEWAY_INTERFACE,
             )
-            if os.environ.get("SERVER_GATEWAY_INTERFACE") == "WSGI":
+            if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
                 async_to_sync(initialize_self_capture_api_token)()
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":

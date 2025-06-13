@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
-import { MetricTitle } from '../MetricsView/MetricTitle'
+import { MetricTitle } from '../MetricsView/shared/MetricTitle'
 import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
