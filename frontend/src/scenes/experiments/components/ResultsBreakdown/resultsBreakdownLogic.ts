@@ -11,7 +11,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -195,7 +195,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         }
 
         // bail if unsupported metric type
-        if (metric.kind !== NodeKind.ExperimentMetric) {
+        if (metric.kind !== NodeKind.ExperimentMetric || metric.metric_type !== ExperimentMetricType.FUNNEL) {
             return
         }
 
