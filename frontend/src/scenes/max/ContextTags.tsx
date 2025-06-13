@@ -1,6 +1,6 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 import { MaxDashboardContext, MaxInsightContext } from './maxTypes'
 
@@ -92,10 +92,10 @@ export function ContextSummary({
     }
 
     const tooltipContent = (
-        <div className="flex flex-col gap-1 p-1 max-w-xs">
+        <div className="flex flex-col gap-1 max-w-xs">
             {allItems.map((item, index) => (
-                <div key={index} className="flex items-center gap-1 text-xs">
-                    {item.icon}
+                <div key={index} className="flex items-center gap-1">
+                    {React.cloneElement(item.icon, { className: 'text-base' })}
                     <span>{item.name}</span>
                 </div>
             ))}
