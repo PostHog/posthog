@@ -1,7 +1,6 @@
 import json
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
-import traceback
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
@@ -228,7 +227,6 @@ class Assistant:
                     )
                 )
             except Exception as e:
-                traceback.print_exc()
                 # Reset the state, so that the next generation starts from the beginning.
                 self._graph.update_state(config, PartialAssistantState.get_reset_state())
 
