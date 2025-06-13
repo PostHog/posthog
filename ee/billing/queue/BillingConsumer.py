@@ -104,7 +104,7 @@ class BillingConsumer(SQSConsumer):
         data = body.get("data", {})
 
         if not organization_id:
-            logger.exception("Billing customer update is missing organization_id")
+            logger.error("Billing customer update is missing organization_id")
             return
 
         logger.info(f"Processing billing customer update for {organization_id}")
