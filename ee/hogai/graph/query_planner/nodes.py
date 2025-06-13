@@ -349,6 +349,8 @@ class QueryPlannerNode(AssistantNode):
                     {
                         "type": "thinking",
                         "thinking": thinking_content,
+                        # Anthropic requires us to carry over their signature of the thinking block, as that proves
+                        # the thinking actually comes from Claude and wasn't tampered with. Extra abuse caution by them.
                         "signature": thinking_signature,
                     },
                 )
