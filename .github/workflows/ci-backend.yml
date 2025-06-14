@@ -59,8 +59,9 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
-              id: backend-filter
+              id: filter
               with:
+                  list-files: 'escape'
                   filters: |
                       backend:
                         # Avoid running backend tests for irrelevant changes
