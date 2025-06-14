@@ -20,8 +20,8 @@ export interface CampaignSceneLogicProps {
 export const campaignSceneLogic = kea<campaignSceneLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignSceneLogic']),
     props({ id: 'new' } as CampaignSceneLogicProps),
-    connect((props: CampaignSceneLogicProps) => ({
-        values: [campaignLogic(props), ['campaign']],
+    connect(() => ({
+        values: [campaignLogic, ['campaign']],
     })),
     actions({
         setCurrentTab: (tab: CampaignTab) => ({ tab }),

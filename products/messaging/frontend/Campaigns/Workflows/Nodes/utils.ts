@@ -1,6 +1,7 @@
 import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xyflow/react'
+import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
-import { Optional } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, Optional } from '~/types'
 
 import {
     BOTTOM_HANDLE_POSITION,
@@ -50,6 +51,8 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
                     on_error: 'continue',
                     created_at: 0,
                     updated_at: 0,
+                    inputs: {},
+                    inputs_schema: [],
                 },
                 draggable: false,
                 selectable: false,
@@ -167,6 +170,86 @@ export const getNodeHandles = (nodeId: string, nodeType: HogFlowAction['type']):
             ]
     }
 }
+
+export const getNodeInputs = (
+    nodeType: HogFlowAction['type']
+): { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] } => {
+    switch (nodeType) {
+        case 'message':
+            return {
+                inputs: {
+                    name: { value: '' },
+                    email: { value: NEW_TEMPLATE },
+                },
+                inputs_schema: [
+                    {
+                        type: 'string',
+                        key: 'name',
+                        label: 'Name',
+                        required: false,
+                    },
+                    {
+                        type: 'email',
+                        key: 'email',
+                        label: 'Email',
+                        required: true,
+                    },
+                ],
+            }
+        case 'delay':
+            // TODO(messaging-team): Add a dropdown for the duration unit, add new number input from #33673
+            return {
+                inputs: {
+                    name: { value: '' },
+                    duration: { value: '' },
+                },
+                inputs_schema: [
+                    {
+                        type: 'string',
+                        key: 'name',
+                        label: 'Name',
+                        required: false,
+                    },
+                    {
+                        type: 'string',
+                        key: 'duration',
+                        label: 'Duration (minutes)',
+                        required: true,
+                    },
+                ],
+            }
+        case 'wait_for_condition':
+            // TODO(messaging-team): Add condition filter, add a dropdown for the duration unit, add new number input from #33673
+            return {
+                inputs: {
+                    name: { value: '' },
+                },
+                inputs_schema: [],
+            }
+        case 'conditional_branch':
+            // TODO(messaging-team): Add condition filter
+            return {
+                inputs: {
+                    name: { value: '' },
+                },
+                inputs_schema: [
+                    {
+                        type: 'string',
+                        key: 'name',
+                        label: 'Name',
+                        required: false,
+                    },
+                ],
+            }
+        default:
+            // Default: show the "This function does not require any input variables."
+            return {
+                inputs: {},
+                inputs_schema: [],
+            }
+    }
+}
+
 export const createNewNode = (
     toolbarNode: ToolbarNode,
     nodeId?: string,
@@ -185,6 +268,7 @@ export const createNewNode = (
             on_error: 'continue',
             created_at: 0,
             updated_at: 0,
+            ...getNodeInputs(toolbarNode.type),
         },
         handles: getNodeHandles(id, toolbarNode.type),
         position: {
@@ -240,6 +324,8 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
             config: null,
             created_at: 0,
             updated_at: 0,
+            inputs: {},
+            inputs_schema: [],
         },
         handles: getNodeHandles('trigger_node', 'trigger'),
         position: { x: 0, y: 0 },
@@ -257,6 +343,8 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
             config: null,
             created_at: 0,
             updated_at: 0,
+            inputs: {},
+            inputs_schema: [],
         },
         handles: getNodeHandles('exit_node', 'exit'),
         position: { x: 0, y: 100 },
