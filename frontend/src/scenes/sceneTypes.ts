@@ -101,6 +101,7 @@ export enum Scene {
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',
+    OAuthAuthorize = 'OAuthAuthorize',
     HogFunction = 'HogFunction',
     DataPipelines = 'DataPipelines',
     DataPipelinesNew = 'DataPipelinesNew',

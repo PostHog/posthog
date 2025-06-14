@@ -182,6 +182,7 @@ export const urls = {
     messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
     messagingSenders: (): string => '/messaging/senders',
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
     hogFunction: (id: string): string => `/functions/${id}`,
