@@ -1,4 +1,5 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
 
 import {
     ExperimentFunnelsQuery,
@@ -68,7 +69,7 @@ export function ChartModal({
                 </>
             ) : (
                 <ResultsBreakdown result={result} experiment={experiment}>
-                    {({ query, breakdownResults }) => (
+                    {({ query, breakdownResults, breakdownResultsLoading }) => (
                         <>
                             {query && (
                                 <div className="flex justify-end">
@@ -82,6 +83,7 @@ export function ChartModal({
                                 </div>
                             </LemonBanner>
                             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
+                            {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
                                 <ResultsQuery query={query} breakdownResults={breakdownResults} />
                             )}
