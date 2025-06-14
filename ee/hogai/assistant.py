@@ -292,43 +292,30 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case (
-                AssistantNodeName.TRENDS_PLANNER
-                | AssistantNodeName.TRENDS_PLANNER_TOOLS
-                | AssistantNodeName.FUNNEL_PLANNER
-                | AssistantNodeName.FUNNEL_PLANNER_TOOLS
-                | AssistantNodeName.RETENTION_PLANNER
-                | AssistantNodeName.RETENTION_PLANNER_TOOLS
-                | AssistantNodeName.SQL_PLANNER
-                | AssistantNodeName.SQL_PLANNER_TOOLS
-            ):
+            case AssistantNodeName.QUERY_PLANNER | AssistantNodeName.QUERY_PLANNER_TOOLS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
                         for action, _ in intermediate_steps:
+                            assert isinstance(action.tool_input, dict)
                             match action.tool:
                                 case "retrieve_event_properties":
-                                    substeps.append(f"Exploring `{action.tool_input}` event's properties")
+                                    substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
                                 case "retrieve_entity_properties":
-                                    substeps.append(f"Exploring {action.tool_input} properties")
+                                    substeps.append(f"Exploring {action.tool_input['entity']} properties")
                                 case "retrieve_event_property_values":
-                                    assert isinstance(action.tool_input, dict)
                                     substeps.append(
-                                        f"Analyzing `{action.tool_input['property_name']}` event's property `{action.tool_input['event_name']}`"
+                                        f"Analyzing `{action.tool_input['event_name']}` event's property `{action.tool_input['property_name']}`"
                                     )
                                 case "retrieve_entity_property_values":
-                                    assert isinstance(action.tool_input, dict)
                                     substeps.append(
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
                                 case "retrieve_action_properties" | "retrieve_action_property_values":
-                                    id = (
-                                        action.tool_input
-                                        if isinstance(action.tool_input, str)
-                                        else action.tool_input["action_id"]
-                                    )
                                     try:
-                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
+                                        action_model = Action.objects.get(
+                                            pk=action.tool_input["action_id"], team__project_id=self._team.project_id
+                                        )
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action properties")
                                         elif action.tool == "retrieve_action_property_values" and isinstance(

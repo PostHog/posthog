@@ -467,14 +467,11 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_insight_type=tool_call.args["query_kind"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "search_documentation":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
@@ -486,12 +483,8 @@ class RootNodeTools(AssistantNode):
             last_message = new_state.messages[-1]
             if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
                 return PartialAssistantState(
-                    messages=new_state.messages[
-                        len(state.messages) :
-                    ],  # we send all messages from the tool call onwards
-                    root_tool_call_id=None,  # Tool handled already
-                    root_tool_insight_plan=None,  # No insight plan here
-                    root_tool_insight_type=None,  # No insight type here
+                    # we send all messages from the tool call onwards
+                    messages=new_state.messages[len(state.messages) :],
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
@@ -505,9 +498,6 @@ class RootNodeTools(AssistantNode):
                         visible=True,
                     )
                 ],
-                root_tool_call_id=None,  # Tool handled already
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
@@ -518,7 +508,7 @@ class RootNodeTools(AssistantNode):
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
-            if state.root_tool_insight_type:
+            if state.root_tool_insight_plan:
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"
