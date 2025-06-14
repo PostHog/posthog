@@ -22,6 +22,7 @@ import type {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -138,7 +139,7 @@ export const getQuery =
                 /**
                  * return a TrendsQuery
                  */
-                return {
+                return setLatestVersionsOnQuery({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts,
                     dateRange,
@@ -161,13 +162,13 @@ export const getQuery =
                             ...getMathProperties(source),
                         },
                     ],
-                } as TrendsQuery
+                }) as TrendsQuery
             })
             .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
                 /**
                  * return a FunnelsQuery
                  */
-                return {
+                return setLatestVersionsOnQuery({
                     kind: NodeKind.FunnelsQuery,
                     filterTestAccounts,
                     // only add breakdownFilter if it's not empty. It has no default value.
@@ -175,7 +176,7 @@ export const getQuery =
                     dateRange,
                     funnelsFilter,
                     series: getFunnelSeries(funnelMetric),
-                } as FunnelsQuery
+                }) as FunnelsQuery
             })
             .otherwise(() => undefined)
     }
