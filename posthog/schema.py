@@ -7463,7 +7463,7 @@ class RevenueAnalyticsConfig(BaseModel):
         extra="forbid",
     )
     events: Optional[list[RevenueAnalyticsEventItem]] = []
-    filterTestAccounts: Optional[bool] = False
+    filter_test_accounts: Optional[bool] = False
     goals: Optional[list[RevenueAnalyticsGoal]] = []
 
 

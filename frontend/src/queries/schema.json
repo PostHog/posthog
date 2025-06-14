@@ -17992,7 +17992,7 @@
                     },
                     "type": "array"
                 },
-                "filterTestAccounts": {
+                "filter_test_accounts": {
                     "default": false,
                     "type": "boolean"
                 },
@@ -18004,7 +18004,7 @@
                     "type": "array"
                 }
             },
-            "required": ["events", "goals", "filterTestAccounts"],
+            "required": ["events", "goals", "filter_test_accounts"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
