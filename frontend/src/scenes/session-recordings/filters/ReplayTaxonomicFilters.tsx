@@ -28,7 +28,7 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
     const properties = [
         {
             key: 'visited_page',
-            propertyFilterType: PropertyFilterType.Recording,
+            propertyFilterType: PropertyFilterType.ReplayURL,
             taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
         },
         {

@@ -12,6 +12,7 @@ import {
     isEventPropertyFilter,
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
+    isReplayURLFilter,
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -24,7 +25,6 @@ import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepa
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
-    EntityTypes,
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
@@ -161,6 +161,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const properties: RecordingsQuery['properties'] = []
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
     const having_predicates: RecordingsQuery['having_predicates'] = []
+    const visited_page: RecordingsQuery['visited_page'] = []
 
     const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
     const durationFilter = universalFilters.duration[0]
@@ -176,25 +177,13 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
             actions.push(f)
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
+        } else if (isReplayURLFilter(f)) {
+            visited_page.push(f)
         } else if (isHogQLPropertyFilter(f)) {
             properties.push(f)
         } else if (isAnyPropertyfilter(f)) {
             if (isRecordingPropertyFilter(f)) {
-                if (f.key === 'visited_page') {
-                    events.push({
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: EntityTypes.EVENTS,
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$current_url',
-                                value: f.value,
-                                operator: f.operator,
-                            },
-                        ],
-                    })
-                } else if (f.key === 'snapshot_source' && f.value) {
+                if (f.key === 'snapshot_source' && f.value) {
                     having_predicates.push(f)
                 }
             } else {
@@ -212,6 +201,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         events,
         actions,
         console_log_filters,
+        visited_page,
         having_predicates,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
@@ -649,9 +639,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const eventFilters = filterValues.filter(isEventFilter)
                 const eventPropertyFilters = filterValues.filter(isEventPropertyFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
-                const hasVisitedPageFilter = filterValues
-                    .filter(isRecordingPropertyFilter)
-                    .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
                 const hasEventsProperties = !!eventPropertyFilters.length
@@ -662,7 +649,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions || hasVisitedPageFilter) {
+                // TODO: we could here convert visited page to a pageview filter to try and match events - but it should work without this
+                if (hasActions) {
                     return { matchType: 'backend', filters }
                 }
 
