@@ -353,6 +353,24 @@ export function SidePanelSupport(): JSX.Element {
                                 </LemonButton>
                             </Section>
 
+                            {/* Report a bug */}
+                            <Section title="Report a bug">
+                                <p>
+                                    Found a bug or issue? Help us improve PostHog by reporting it on GitHub where our
+                                    engineering team can track and fix it.
+                                </p>
+                                <LemonButton
+                                    type="secondary"
+                                    fullWidth
+                                    center
+                                    to="https://github.com/PostHog/posthog/issues/new?template=bug_report.md"
+                                    targetBlank
+                                    className="mt-2"
+                                >
+                                    Report a bug on GitHub
+                                </LemonButton>
+                            </Section>
+
                             {/* Add support hours and table */}
                             <div className="mb-2">
                                 <strong>Support is open Monday - Friday</strong>
