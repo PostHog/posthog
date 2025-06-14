@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { lemonToast, Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -7,6 +7,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { UNFILED_SAVED_QUERIES_PATH } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -436,8 +437,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         projectTree: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
             (viableItems, folderStates, checkedItems, users, onlyFolders): TreeDataItem[] => {
+                // Saved queries is a special type used in queryDatabase
+                const viableFilteredItems = viableItems.filter(
+                    (item) => !item.path.includes(UNFILED_SAVED_QUERIES_PATH)
+                )
+
                 const children = convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems.map((i) => ({ ...i, protocol: 'project://' })),
+                    imports: viableFileteredItems.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -1025,6 +1031,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         addFolder: ({ folder, editAfter, callback }) => {
+            // Prevent creating folders that start with UNFILED_SAVED_QUERIES_PATH. Special case used in queryDatabase sidebar
+            if (folder === UNFILED_SAVED_QUERIES_PATH) {
+                lemonToast.error('Saved queries is a reserved path in this folder')
+                return
+            }
+
             // Like Mac, we don't allow duplicate folder names
             // So we need to increment the folder name until we find a unique one
             let folderName = folder

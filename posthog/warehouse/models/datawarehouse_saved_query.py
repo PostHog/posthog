@@ -6,12 +6,15 @@ import uuid
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
+from django.db.models import QuerySet
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.schema import HogQLQueryModifiers
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -43,7 +46,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(FileSystemSyncMixin, CreatedMetaFields, UUIDModel, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
 
@@ -211,6 +214,25 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             name=self.name,
             query=self.query["query"],
             fields=fields,
+        )
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: Team) -> QuerySet["DataWarehouseSavedQuery"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="saved_query", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._create_in_folder or "Unfiled/Saved queries",
+            type="saved_query",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/sql?open_view={self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
         )
 
 

@@ -9,6 +9,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { UNFILED_SAVED_QUERIES_PATH } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -54,7 +55,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     actions({
         loadUnfiledItems: true,
 
-        loadFolder: (folder: string) => ({ folder }),
+        loadFolder: (folder: string, reset: boolean = false) => ({ folder, reset }),
         loadFolderIfNotLoaded: (folderId: string) => ({ folderId }),
         loadFolderStart: (folder: string) => ({ folder }),
         loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
@@ -354,6 +355,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         folderLoadOffset: [
             {} as Record<string, number>,
             {
+                loadFolder: (state, { folder, reset }) => {
+                    return { ...state, [folder]: reset ? 0 : state[folder] ?? 0 }
+                },
                 loadFolderSuccess: (state, { folder, offsetIncrease }) => {
                     return { ...state, [folder]: offsetIncrease + (state[folder] ?? 0) }
                 },
@@ -708,15 +712,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadFolder: async ({ folder }) => {
+        loadFolder: async ({ folder, reset }) => {
             const currentState = values.folderStates[folder]
-            if (currentState === 'loading' || currentState === 'loaded') {
+            if (currentState === 'loading' || (currentState === 'loaded' && !reset)) {
                 return
             }
             actions.loadFolderStart(folder)
             try {
                 const previousFiles = values.folders[folder] || []
-                const offset = values.folderLoadOffset[folder] ?? 0
+                const offset = reset ? 0 : values.folderLoadOffset[folder] ?? 0
                 const response = await api.fileSystem.list({
                     parent: folder,
                     depth: splitPath(folder).length + 1,
@@ -773,6 +777,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             }
             if (!item.id) {
                 lemonToast.error("Sorry, can't move an unsaved item (no id)")
+                return
+            }
+            // Prevent creating folders that start with UNFILED_SAVED_QUERIES_PATH. Special case used in queryDatabase sidebar
+            if (newPath === UNFILED_SAVED_QUERIES_PATH) {
+                lemonToast.error('Saved queries is a reserved path in this folder')
                 return
             }
             actions.queueAction(
