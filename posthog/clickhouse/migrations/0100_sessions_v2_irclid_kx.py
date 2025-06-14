@@ -1,8 +1,8 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.raw_sessions.migrations import (
-    BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL,
     DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL,
+    SHARDED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL,
     WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL,
 )
 from posthog.models.raw_sessions.sql import (
@@ -12,16 +12,13 @@ from posthog.models.raw_sessions.sql import (
 )
 
 operations = [
-    # drop the mv, so we are no longer receiving events from the sessions table
-    run_sql_with_exceptions(DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL()),
-    # now we can alter the target tables
-    run_sql_with_exceptions(BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
-    run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
-    run_sql_with_exceptions(
-        BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
-    ),
-    run_sql_with_exceptions(WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
-    # and then recreate the materialized view and view
-    run_sql_with_exceptions(RAW_SESSIONS_TABLE_MV_SQL()),
-    run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL()),
+    # Drop the MV first to avoid insertions during migration
+    run_sql_with_exceptions(DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(), node_role=NodeRole.DATA),
+    # Modify tables
+    run_sql_with_exceptions(SHARDED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(), node_role=NodeRole.DATA, sharded=True),
+    run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(), node_role=NodeRole.DATA),
+    # Recreate view and MV
+    run_sql_with_exceptions(RAW_SESSIONS_TABLE_MV_SQL(), node_role=NodeRole.DATA),
+    run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(), node_role=NodeRole.ALL),
 ]
