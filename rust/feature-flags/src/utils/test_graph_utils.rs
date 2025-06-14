@@ -379,4 +379,161 @@ mod tests {
             assert_eq!(graph.edge_count(), 3);
         }
     }
+
+    mod evaluation_stages {
+        use super::*;
+
+        #[test]
+        fn test_linear_chain_stages() {
+            // 1 -> 2 -> 3
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::from([3])),
+                TestItem::new(3, HashSet::new()),
+            ];
+
+            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let stages = graph.evaluation_stages().unwrap();
+
+            assert_eq!(stages.len(), 3);
+            assert_eq!(
+                stages[0].iter().map(|item| item.id).collect::<Vec<_>>(),
+                vec![3]
+            );
+            assert_eq!(
+                stages[1].iter().map(|item| item.id).collect::<Vec<_>>(),
+                vec![2]
+            );
+            assert_eq!(
+                stages[2].iter().map(|item| item.id).collect::<Vec<_>>(),
+                vec![1]
+            );
+        }
+
+        #[test]
+        fn test_multiple_independent_nodes_stages() {
+            let items = vec![
+                TestItem::new(1, HashSet::new()),
+                TestItem::new(2, HashSet::new()),
+                TestItem::new(3, HashSet::new()),
+            ];
+
+            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let stages = graph.evaluation_stages().unwrap();
+
+            assert_eq!(stages.len(), 1);
+            let stage_zero: HashSet<_> = stages[0].iter().map(|item| item.id).collect();
+            assert_eq!(stage_zero, HashSet::from([1, 2, 3]));
+        }
+
+        #[test]
+        fn test_multiple_disconnected_subgraphs_stages() {
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::from([3])),
+                TestItem::new(3, HashSet::new()),
+                TestItem::new(4, HashSet::from([5])),
+                TestItem::new(5, HashSet::new()),
+                TestItem::new(6, HashSet::new()),
+            ];
+
+            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let stages = graph.evaluation_stages().unwrap();
+
+            let expected_stages: Vec<HashSet<_>> = vec![
+                HashSet::from([3, 5, 6]),
+                HashSet::from([2, 4]),
+                HashSet::from([1]),
+            ];
+
+            assert_eq!(stages.len(), expected_stages.len());
+
+            assert!(
+                stages
+                    .iter()
+                    .zip(expected_stages.iter())
+                    .all(|(actual, expected)| {
+                        actual.iter().map(|item| item.id).collect::<HashSet<_>>() == *expected
+                    }),
+                "Stages do not match expected order"
+            );
+        }
+
+        #[test]
+        fn test_complex_dag_stages() {
+            let items = vec![
+                TestItem::new(1, HashSet::from([2, 3])),
+                TestItem::new(2, HashSet::from([4])),
+                TestItem::new(3, HashSet::from([4])),
+                TestItem::new(4, HashSet::new()),
+            ];
+
+            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let stages = graph.evaluation_stages().unwrap();
+
+            let expected_stages: Vec<HashSet<_>> = vec![
+                HashSet::from([4]),
+                HashSet::from([2, 3]),
+                HashSet::from([1]),
+            ];
+
+            assert_eq!(stages.len(), expected_stages.len());
+
+            assert!(
+                stages
+                    .iter()
+                    .zip(expected_stages.iter())
+                    .all(|(actual, expected)| {
+                        actual.iter().map(|item| item.id).collect::<HashSet<_>>() == *expected
+                    }),
+                "Stages do not match expected order"
+            );
+        }
+
+        #[test]
+        fn test_evaluation_stages_complex_shared_dependencies() {
+            // Notice 4 is at different levels, but only evaluated once.
+            // 1 -> 2 -> 3 -> 4
+            // 5 -> 4 -> 6
+            // 6
+            // 7
+            // 8 -> 9
+            // 9
+
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::from([3])),
+                TestItem::new(3, HashSet::from([4])),
+                TestItem::new(4, HashSet::from([6])),
+                TestItem::new(5, HashSet::from([4])),
+                TestItem::new(6, HashSet::new()),
+                TestItem::new(7, HashSet::new()),
+                TestItem::new(8, HashSet::from([9])),
+                TestItem::new(9, HashSet::new()),
+            ];
+
+            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let stages = graph.evaluation_stages().unwrap();
+
+            let expected_stages: Vec<HashSet<_>> = vec![
+                HashSet::from([6, 7, 9]),
+                HashSet::from([4, 8]),
+                HashSet::from([3, 5]),
+                HashSet::from([2]),
+                HashSet::from([1]),
+            ];
+
+            assert_eq!(stages.len(), expected_stages.len());
+
+            assert!(
+                stages
+                    .iter()
+                    .zip(expected_stages.iter())
+                    .all(|(actual, expected)| {
+                        actual.iter().map(|item| item.id).collect::<HashSet<_>>() == *expected
+                    }),
+                "Stages do not match expected order"
+            );
+        }
+    }
 }
