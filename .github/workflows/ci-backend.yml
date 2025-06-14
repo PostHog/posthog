@@ -192,7 +192,7 @@ jobs:
                   fi
 
                   # Initialize comment body
-                  COMMENT_BODY="## Migration SQL Changes\n\n"
+                  COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
                   # Process each changed migration file
                   for file in $CHANGED_FILES; do
@@ -207,7 +207,7 @@ jobs:
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
                       
                       # Add to comment body
-                      COMMENT_BODY+="### $file\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                      COMMENT_BODY+="#### [`$file`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
                   done
 
