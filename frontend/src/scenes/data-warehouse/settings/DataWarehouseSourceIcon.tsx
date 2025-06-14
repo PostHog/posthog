@@ -106,7 +106,7 @@ export function DataWarehouseSourceIcon({
         Mailjet: IconMailjet,
         Redshift: IconRedshift,
         GoogleSheets: IconGoogleSheets,
-        Mongodb: IconMongodb,
+        MongoDB: IconMongodb,
         TemporalIO: IconTemporalIO,
         DoIt: IconDoIt,
     }[type]
