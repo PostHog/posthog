@@ -19,11 +19,11 @@ import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { CyclotronJobInputs } from '~/lib/components/CyclotronJob/CyclotronJobInputs'
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
-import { HogFunctionInputs } from '../configuration/HogFunctionInputs'
 
 const humanize = (value: string): string => {
     const fallback = typeof value === 'string' ? value ?? '' : ''
@@ -135,11 +135,12 @@ export function HogFunctionMapping({
                     buttonCopy="Add event matcher"
                 />
                 <Group name={['mappings', index]}>
-                    <HogFunctionInputs
+                    <CyclotronJobInputs
                         configuration={mapping as HogFunctionConfigurationType}
                         setConfigurationValue={(key, value) => {
                             onChange({ ...mapping, [key]: value })
                         }}
+                        showSource={showSource}
                     />
                 </Group>
                 {showSource ? (
