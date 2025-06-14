@@ -70,13 +70,9 @@ def update_stale_cohort_metrics() -> None:
         errors_calculating__lte=20,
     ).exclude(is_static=True)
 
-    stale_24h = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=24)).count()
-    stale_36h = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=36)).count()
-    stale_48h = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=48)).count()
-
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="24").set(stale_24h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="36").set(stale_36h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="48").set(stale_48h)
+    for hours in [24, 36, 48]:
+        stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
+        COHORTS_STALE_COUNT_GAUGE.labels(hours=str(hours)).set(stale_count)
 
     stuck_count = (
         Cohort.objects.filter(
