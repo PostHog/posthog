@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 import numpy as np
-from enum import Enum
 
 
 class StatisticError(Exception):
@@ -13,19 +12,6 @@ class InvalidStatisticError(StatisticError):
     """Raised when statistic inputs are invalid."""
 
     pass
-
-
-class DifferenceType(Enum):
-    """Types of difference calculations."""
-
-    RELATIVE = "relative"
-    ABSOLUTE = "absolute"
-
-
-class TestType(Enum):
-    """Available test types."""
-
-    TWO_SIDED = "two_sided"
 
 
 @dataclass

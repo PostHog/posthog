@@ -1,6 +1,6 @@
 import numpy as np
 
-from .statistics import (
+from ..shared.statistics import (
     AnyStatistic,
     SampleMeanStatistic,
     ProportionStatistic,
