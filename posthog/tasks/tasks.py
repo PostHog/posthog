@@ -840,3 +840,10 @@ def count_items_in_playlists() -> None:
         logger.exception("Failed to import task to count items in playlists", error=ie)
     else:
         enqueue_recordings_that_match_playlist_filters()
+
+
+@shared_task(ignore_result=True)
+def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
+    from posthog.tasks.environments_rollback import environments_rollback_migration
+
+    environments_rollback_migration(organization_id, environment_mappings, user_id)
