@@ -21,6 +21,7 @@ export const storiesLogic = kea<storiesLogicType>([
         setOpenStoriesModal: (openStoriesModal: boolean) => ({ openStoriesModal }),
         markStoryAsViewed: (storyId: string) => ({ storyId }),
         loadViewedStories: true,
+        toggleStoriesCollapsed: true,
     }),
 
     loaders(() => ({
@@ -57,6 +58,12 @@ export const storiesLogic = kea<storiesLogicType>([
             0,
             {
                 setActiveStoryIndex: (_, { storyIndex }) => storyIndex,
+            },
+        ],
+        storiesCollapsed: [
+            false,
+            {
+                toggleStoriesCollapsed: (state) => !state,
             },
         ],
     }),
