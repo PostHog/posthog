@@ -787,7 +787,7 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
-    # add the data in sentry's scope in case there's an exception
+    # add the data in the scope in case there's an exception
     with posthoganalytics.new_context():
         if isinstance(data, dict):
             posthoganalytics.tag("data", data)
