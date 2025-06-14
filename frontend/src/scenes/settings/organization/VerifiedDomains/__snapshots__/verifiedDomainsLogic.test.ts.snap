@@ -146,6 +146,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               "revenueProperty": "subscription_value",
             },
           ],
+          "filter_test_accounts": false,
           "goals": [
             {
               "due_date": "2020-12-31",

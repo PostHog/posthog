@@ -1,5 +1,7 @@
+import os
 import re
 import sys
+import select
 from typing import Optional
 
 from django.core.management import call_command
@@ -55,8 +57,7 @@ def validate_migration_sql(sql) -> bool:
                     default_value = default_match.group(1).strip()
                     # Check if it's a constant (string literal, number, boolean, or simple constant like NOW())
                     if (
-                        default_value.startswith("'")
-                        and default_value.endswith("'")  # String literal
+                        (default_value.startswith("'") and default_value.endswith("'"))  # String literal
                         or re.match(r"^-?\d+(\.\d+)?$", default_value)  # Number
                         or default_value.upper() in ["TRUE", "FALSE", "NULL"]  # Boolean/NULL
                         or default_value.upper()
@@ -147,10 +148,18 @@ class Command(BaseCommand):
             except (IndexError, CommandError):
                 pass
 
-        migrations = sys.stdin.readlines()
+        # Wait for stdin with 1 second timeout
+        if select.select([sys.stdin], [], [], 1)[0]:
+            migrations = sys.stdin.readlines()
+        else:
+            if os.getenv("CI"):
+                print("\n\n\033[91mNo migrations provided in CI - this is likely a mistake")
+                sys.exit(1)
+            print("No stdin detected, using default migrations - only useful for testing purposes.")
+            migrations = []
 
         if not migrations:
-            migrations = ["posthog/migrations/0339_add_session_recording_storage_version.py"]
+            migrations = ["posthog/migrations/0770_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
 
         if len(migrations) > 1:
             print(
