@@ -1743,10 +1743,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             '*',
                             ...survey.questions.map((q, i) => {
                                 if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    return `arrayStringConcat(getSurveyResponse(${i}, '${q.id}', true), ', ') -- ${q.question}`
+                                    return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${q.question}`
                                 }
                                 // Use the new condition that checks both formats
-                                return `getSurveyResponse(${i}, '${q.id}') -- ${q.question}`
+                                return `${getSurveyResponse(q, i)} -- ${q.question}`
                             }),
                             'timestamp',
                             'person',
