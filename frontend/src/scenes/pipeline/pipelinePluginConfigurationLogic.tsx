@@ -51,7 +51,6 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
     }
 }
 
-// Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
 export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationLogicType>([
     props({} as PipelinePluginConfigurationLogicProps),
     key(({ pluginId, pluginConfigId }: PipelinePluginConfigurationLogicProps) => {

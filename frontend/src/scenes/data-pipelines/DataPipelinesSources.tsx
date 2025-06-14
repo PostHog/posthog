@@ -12,11 +12,16 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
-export function DataPipelinesSources(): JSX.Element {
+export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
     const newButton = (
-        <LemonButton to={urls.dataPipelinesNew('source')} type="primary" icon={<IconPlusSmall />} size="small">
+        <LemonButton
+            to={newUrl ?? urls.dataPipelinesNew('source')}
+            type="primary"
+            icon={<IconPlusSmall />}
+            size="small"
+        >
             New source
         </LemonButton>
     )
@@ -24,7 +29,7 @@ export function DataPipelinesSources(): JSX.Element {
     return (
         <>
             <PageHeader buttons={newButton} />
-            <div className="deprecated-space-y-4">
+            <div className="space-y-4">
                 {!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0 ? (
                     <ProductIntroduction
                         productName="Data Warehouse Source"
@@ -38,12 +43,14 @@ export function DataPipelinesSources(): JSX.Element {
                 ) : null}
 
                 <FlaggedFeature flag="cdp-hog-sources">
-                    <h2>Event sources</h2>
-                    <p>
-                        PostHog can expose a webhook that you can configure however you need to receive data from a 3rd
-                        party with no in-between service necessary
-                    </p>
-                    <HogFunctionList logicKey="data-pipelines-hog-functions-source-webhook" type="source_webhook" />
+                    <div>
+                        <h2>Event sources</h2>
+                        <p>
+                            PostHog can expose a webhook that you can configure however you need to receive data from a
+                            3rd party with no in-between service necessary
+                        </p>
+                        <HogFunctionList logicKey="data-pipelines-hog-functions-source-webhook" type="source_webhook" />
+                    </div>
                 </FlaggedFeature>
 
                 <div>

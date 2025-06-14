@@ -469,8 +469,6 @@ export function HogFunctionTest(): JSX.Element {
                                                 <div>
                                                     {type === 'broadcast'
                                                         ? 'The test broadcast will be sent with this sample data:'
-                                                        : type === 'email'
-                                                        ? 'The provider will be tested with this sample data:'
                                                         : 'Here are all the global variables you can use in your code:'}
                                                 </div>
                                                 {sampleGlobalsError ? (

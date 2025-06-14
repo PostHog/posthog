@@ -32,12 +32,12 @@ import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilt
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import MaxTool from 'scenes/max/MaxTool'
-import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -286,7 +286,7 @@ export function HogFunctionConfiguration({
 
                                         <div className="flex flex-col flex-1 justify-start items-start py-1">
                                             <span className="font-semibold">{configuration.name}</span>
-                                            {template && <DestinationTag status={template.status} />}
+                                            {template && <HogFunctionStatusTag status={template.status} />}
                                         </div>
 
                                         {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
@@ -355,7 +355,7 @@ export function HogFunctionConfiguration({
                                                 <Link subtle className="flex flex-wrap gap-1 items-center p-2">
                                                     Built from template:
                                                     <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                    <DestinationTag status={hogFunction.template.status} />
+                                                    <HogFunctionStatusTag status={hogFunction.template.status} />
                                                     {templateHasChanged ? (
                                                         <LemonTag type="success">Update available!</LemonTag>
                                                     ) : null}

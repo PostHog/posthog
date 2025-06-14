@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'beta',
+    status: 'hidden',
     type: 'source_webhook',
     id: 'template-source-webhook',
     name: 'HTTP Incoming Webhook',
