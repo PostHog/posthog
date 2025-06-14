@@ -337,4 +337,46 @@ mod tests {
             assert_eq!(graph.edge_count(), 1);
         }
     }
+
+    mod build_from_nodes_tests {
+        use super::*;
+
+        #[test]
+        fn test_build_multiple_independent_nodes() {
+            // Independent nodes: 1, 2, 3
+            let items = vec![
+                TestItem::new(1, HashSet::new()),
+                TestItem::new(2, HashSet::new()),
+                TestItem::new(3, HashSet::new()),
+            ];
+
+            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            assert_eq!(graph.node_count(), 3);
+            assert_eq!(graph.edge_count(), 0);
+        }
+
+        #[test]
+        fn test_build_multiple_subgraphs() {
+            // Build a forest with disconnected subgraphs:
+            // Subgraph 1: 1 -> 2 -> 3
+            // Subgraph 2: 4 -> 5
+            // Subgraph 3: 6
+
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::from([3])),
+                TestItem::new(3, HashSet::new()),
+                TestItem::new(4, HashSet::from([5])),
+                TestItem::new(5, HashSet::new()),
+                TestItem::new(6, HashSet::new()),
+            ];
+
+            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+
+            // Total nodes: 6
+            assert_eq!(graph.node_count(), 6);
+            // Total edges: 3 (1->2, 2->3, 4->5)
+            assert_eq!(graph.edge_count(), 3);
+        }
+    }
 }

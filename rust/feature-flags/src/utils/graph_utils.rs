@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use petgraph::{algo::toposort, graph::DiGraph};
 
@@ -33,9 +33,6 @@ impl std::fmt::Display for DependencyType {
 pub struct DependencyGraph<T: DependencyProvider> {
     graph: DiGraph<T, ()>,
 }
-
-/// Maps dependency IDs to their corresponding node indices in the graph
-type NodeMap<T> = HashMap<<T as DependencyProvider>::Id, petgraph::graph::NodeIndex>;
 
 impl<T> DependencyGraph<T>
 where
@@ -75,48 +72,72 @@ where
     /// DAG invariants:
     /// - All dependencies must be evaluated before evaluating dependents.
     /// - Cycles indicate invalid configuration and must be rejected.
-    pub fn new(initial_item: T, items: &[T]) -> Result<Self, T::Error> {
-        let mut graph = DiGraph::new();
-        let mut node_map = NodeMap::<T>::new();
+    pub fn new(root: T, pool: &[T]) -> Result<Self, T::Error> {
+        let lookup: HashMap<T::Id, T> = pool
+            .iter()
+            .map(|item| (item.get_id(), item.clone()))
+            .collect();
+
+        let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
+        queue.push_back(root.get_id());
+        visited.insert(root.get_id());
 
-        let initial_id = initial_item.get_id();
-        let initial_node = graph.add_node(initial_item);
-        node_map.insert(initial_id, initial_node);
-        queue.push_back(initial_id);
+        let mut nodes_to_include = vec![root.clone()];
 
-        while let Some(item_id) = queue.pop_front() {
-            let current_node = node_map[&item_id];
-            let item = &graph[current_node];
-            let dependencies = item.extract_dependencies()?;
+        while let Some(current_id) = queue.pop_front() {
+            let current_node = lookup.get(&current_id).ok_or_else(|| {
+                FlagError::DependencyNotFound(T::dependency_type(), current_id.into())
+            })?;
 
-            for dep_id in dependencies {
-                if dep_id == item_id {
-                    return Err(
-                        FlagError::DependencyCycle(T::dependency_type(), dep_id.into()).into(),
-                    );
+            for dep in current_node.extract_dependencies()? {
+                // Strict: fail if dependency is not present in pool
+                let dep_node = lookup.get(&dep).ok_or_else(|| {
+                    FlagError::DependencyNotFound(T::dependency_type(), dep.into())
+                })?;
+
+                if visited.insert(dep) {
+                    nodes_to_include.push(dep_node.clone());
+                    queue.push_back(dep);
                 }
-
-                let dep_node = if !node_map.contains_key(&dep_id) {
-                    Self::find_and_add_node(items, dep_id, &mut graph, &mut node_map, &mut queue)?
-                } else {
-                    node_map[&dep_id]
-                };
-
-                // Safe to add edge without checking: BFS processes each node exactly once,
-                // and HashSet ensures unique dependencies per node
-                graph.add_edge(current_node, dep_node, ());
             }
         }
 
-        match toposort(&graph, None) {
-            Ok(_) => Ok(Self { graph }),
-            Err(cycle) => Err(FlagError::DependencyCycle(
-                T::dependency_type(),
-                graph[cycle.node_id()].get_id().into(),
-            )
-            .into()),
+        Self::build_from_nodes(&nodes_to_include)
+    }
+
+    /// Builds a full dependency graph from the provided set of nodes.
+    /// Strictly validates cycles and self-referential edges.
+    /// Supports multiple roots and independent subgraphs and independent nodes.
+    pub fn build_from_nodes(nodes: &[T]) -> Result<Self, T::Error> {
+        let mut graph = DiGraph::new();
+        let mut id_map = HashMap::new();
+
+        // Insert all nodes first
+        for node in nodes {
+            let idx = graph.add_node(node.clone());
+            id_map.insert(node.get_id(), idx);
         }
+
+        // Insert edges (strict: only between known nodes)
+        for node in nodes {
+            let source_idx = id_map[&node.get_id()];
+            for dep_id in node.extract_dependencies()? {
+                if let Some(target_idx) = id_map.get(&dep_id) {
+                    graph.add_edge(source_idx, *target_idx, ());
+                }
+            }
+        }
+
+        // Validate cycles after full wiring.
+        // Use toposort to detect cycles because it gives us the Id of the node that causes the cycle.
+        if let Err(e) = toposort(&graph, None) {
+            let cycle_start_node = e.node_id();
+            let cycle_id = graph[cycle_start_node].get_id().into();
+            return Err(FlagError::DependencyCycle(T::dependency_type(), cycle_id).into());
+        }
+
+        Ok(Self { graph })
     }
 
     /// Traverses the graph in reverse topological order (dependencies first)
@@ -148,31 +169,6 @@ where
     /// Helper to get a node's ID as an i64
     fn get_node_id(&self, index: petgraph::graph::NodeIndex) -> i64 {
         self.graph[index].get_id().into()
-    }
-
-    fn find_and_add_node(
-        items: &[T],
-        item_id: T::Id,
-        graph: &mut DiGraph<T, ()>,
-        node_map: &mut NodeMap<T>,
-        queue: &mut VecDeque<T::Id>,
-    ) -> Result<petgraph::graph::NodeIndex, T::Error> {
-        let item = items
-            .iter()
-            .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| FlagError::DependencyNotFound(T::dependency_type(), item_id.into()))?;
-
-        let node = match node_map.entry(item_id) {
-            Entry::Occupied(entry) => *entry.get(),
-            Entry::Vacant(entry) => {
-                let node = graph.add_node(item.clone());
-                entry.insert(node);
-                queue.push_back(item_id);
-                node
-            }
-        };
-
-        Ok(node)
     }
 
     #[cfg(test)]
