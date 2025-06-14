@@ -90,7 +90,7 @@ exports[`segment templates template segment-absmartly matches expected result 1`
           "label": "Goal Properties",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$lib ?? 'segment'}",
@@ -168,7 +168,7 @@ exports[`segment templates template segment-absmartly matches expected result 1`
           "label": "Goal Properties",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$lib ?? 'segment'}",
@@ -246,7 +246,7 @@ exports[`segment templates template segment-absmartly matches expected result 1`
           "label": "Goal Properties",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$lib ?? 'segment'}",
@@ -306,7 +306,7 @@ exports[`segment templates template segment-absmartly matches expected result 1`
           "label": "ABsmartly Exposure Payload",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$lib ?? 'segment'}",
@@ -634,7 +634,7 @@ exports[`segment templates template segment-accoil-analytics matches expected re
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -757,7 +757,7 @@ exports[`segment templates template segment-accoil-analytics matches expected re
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -1526,7 +1526,7 @@ exports[`segment templates template segment-airship matches expected result 1`] 
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "customEvents",
@@ -1749,7 +1749,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Extra Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "Product Clicked",
@@ -1905,7 +1905,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Extra Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "Conversion Event",
@@ -2061,7 +2061,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Extra Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "Conversion Event",
@@ -2180,7 +2180,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Extra Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "Product Viewed",
@@ -2299,7 +2299,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Extra Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "Product List Filtered",
@@ -2527,7 +2527,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -2536,7 +2536,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -2991,7 +2991,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -3000,7 +3000,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -3429,7 +3429,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -3438,7 +3438,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -3884,7 +3884,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -3893,7 +3893,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -4312,7 +4312,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -7980,7 +7980,7 @@ exports[`segment templates template segment-attentive matches expected result 1`
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.uuid}",
@@ -8092,7 +8092,7 @@ exports[`segment templates template segment-blend-ai matches expected result 1`]
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -8441,7 +8441,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -8564,7 +8564,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyUser",
@@ -8624,7 +8624,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "label": "Group Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyGroup",
@@ -8709,7 +8709,7 @@ exports[`segment templates template segment-canny matches expected result 1`] = 
           "label": "Group Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
@@ -8879,7 +8879,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -8888,7 +8888,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -8984,7 +8984,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -8993,7 +8993,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -9098,7 +9098,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Group Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -9107,7 +9107,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -9212,7 +9212,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -9221,7 +9221,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -9326,7 +9326,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -9335,7 +9335,7 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -9556,7 +9556,7 @@ exports[`segment templates template segment-clevertap matches expected result 1`
           "label": "Person Attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.id}",
@@ -9659,7 +9659,7 @@ exports[`segment templates template segment-cloud-gwen matches expected result 1
           "label": "Data",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "sendEvent",
@@ -9804,7 +9804,7 @@ exports[`segment templates template segment-drip matches expected result 1`] = `
           "label": "Custom fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.email}",
@@ -9936,7 +9936,7 @@ exports[`segment templates template segment-drip matches expected result 1`] = `
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -10021,7 +10021,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -10030,7 +10030,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "label": "User Fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
@@ -10196,7 +10196,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "label": "User Fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.email ?? person.properties.email}",
@@ -10362,7 +10362,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "label": "Page View Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -10371,7 +10371,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "label": "User Fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
@@ -10633,7 +10633,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "label": "Object Fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.id}",
@@ -10727,7 +10727,7 @@ exports[`segment templates template segment-equals matches expected result 1`] =
           "label": "Data",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "send",
@@ -10821,7 +10821,7 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -10926,7 +10926,7 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyUserV2",
@@ -11025,7 +11025,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
           "label": "Segment Event",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "sendEvent",
@@ -11067,7 +11067,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
           "label": "Segment Event",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "sendEvent",
@@ -11109,7 +11109,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
           "label": "Segment Event",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "sendEvent",
@@ -11151,7 +11151,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
           "label": "Segment Event",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "sendEvent",
@@ -11245,7 +11245,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Event Metadata",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.id ?? event.distinct_id}",
@@ -11449,7 +11449,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Extra",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.merchantId}",
@@ -11716,7 +11716,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Player Custom Attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.referrerCode}",
@@ -11855,7 +11855,7 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -11891,7 +11891,7 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -11951,7 +11951,7 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyUser",
@@ -12045,7 +12045,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -12123,7 +12123,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -12201,7 +12201,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -12270,7 +12270,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -12348,7 +12348,7 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -12478,7 +12478,7 @@ exports[`segment templates template segment-hyperengage matches expected result 
           "label": "Event properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -12719,7 +12719,7 @@ exports[`segment templates template segment-hyperengage matches expected result 
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -12933,7 +12933,7 @@ exports[`segment templates template segment-hyperengage matches expected result 
           "label": "Account properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.plan ?? person.properties.plan_name}",
@@ -13199,7 +13199,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "label": "Event properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -13208,7 +13208,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "label": "Event Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {
@@ -13408,7 +13408,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "label": "Account properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.website}",
@@ -13644,7 +13644,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {
@@ -14107,7 +14107,7 @@ exports[`segment templates template segment-iqm matches expected result 1`] = `
           "label": "Data",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "postEvent",
@@ -14229,7 +14229,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "label": "Event Data Fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.uuid}",
@@ -14325,7 +14325,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "label": "User Data Fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.phone}",
@@ -14466,7 +14466,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "label": "Event Data Fields",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "event.properties.products",
@@ -14692,7 +14692,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
           "label": "Context properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.uuid}",
@@ -14770,7 +14770,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.kameleoonVisitorCode}",
@@ -14797,7 +14797,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
           "label": "Context properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -14893,7 +14893,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
           "label": "User Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.kameleoonVisitorCode}",
@@ -14989,7 +14989,7 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
           "label": "User Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.kameleoonVisitorCode}",
@@ -15110,7 +15110,7 @@ exports[`segment templates template segment-koala-cloud matches expected result 
           "label": "Event properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -15128,7 +15128,7 @@ exports[`segment templates template segment-koala-cloud matches expected result 
           "label": "Context properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -15137,7 +15137,7 @@ exports[`segment templates template segment-koala-cloud matches expected result 
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$ip}",
@@ -15206,7 +15206,7 @@ exports[`segment templates template segment-koala-cloud matches expected result 
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -15224,7 +15224,7 @@ exports[`segment templates template segment-koala-cloud matches expected result 
           "label": "Context properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$ip}",
@@ -15372,7 +15372,7 @@ exports[`segment templates template segment-launchdarkly matches expected result
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -15599,7 +15599,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -15617,7 +15617,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -15713,7 +15713,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -15731,7 +15731,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -15827,7 +15827,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {},
@@ -15845,7 +15845,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -15914,7 +15914,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "User Properties",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyUser",
@@ -15974,7 +15974,7 @@ exports[`segment templates template segment-launchpad matches expected result 1`
           "label": "Group Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.id}",
@@ -16140,7 +16140,7 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -16245,7 +16245,7 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -16350,7 +16350,7 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -16724,7 +16724,7 @@ exports[`segment templates template segment-metronome-actions matches expected r
           "label": "properties",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "sendEvent",
@@ -17220,7 +17220,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -17229,7 +17229,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {
@@ -17664,7 +17664,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -17673,7 +17673,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {
@@ -18126,7 +18126,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -18135,7 +18135,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {
@@ -18570,7 +18570,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -18579,7 +18579,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": {
@@ -18681,7 +18681,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyUser",
@@ -18741,7 +18741,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Group Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "groupIdentifyUser",
@@ -20755,7 +20755,7 @@ exports[`segment templates template segment-movable-ink matches expected result 
           "label": "Data",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "sendEntireEvent",
@@ -21842,7 +21842,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "label": "Event properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -21851,7 +21851,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "forwardTrackEvent",
@@ -21938,7 +21938,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "label": "User traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -21947,7 +21947,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "forwardIdentifyEvent",
@@ -22043,7 +22043,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "label": "Group traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.context}",
@@ -22052,7 +22052,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "label": "Event context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "forwardGroupEvent",
@@ -25007,7 +25007,7 @@ exports[`segment templates template segment-podscribe matches expected result 1`
           "label": "Segment Library",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$raw_user_agent}",
@@ -25138,7 +25138,7 @@ exports[`segment templates template segment-podscribe matches expected result 1`
           "label": "Segment Library",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$raw_user_agent}",
@@ -25269,7 +25269,7 @@ exports[`segment templates template segment-podscribe matches expected result 1`
           "label": "Segment Library",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$raw_user_agent}",
@@ -25363,7 +25363,7 @@ exports[`segment templates template segment-prodeology matches expected result 1
           "label": "Event properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -25399,7 +25399,7 @@ exports[`segment templates template segment-prodeology matches expected result 1
           "label": "Context properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.uuid}",
@@ -25468,7 +25468,7 @@ exports[`segment templates template segment-prodeology matches expected result 1
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.name}",
@@ -25486,7 +25486,7 @@ exports[`segment templates template segment-prodeology matches expected result 1
           "label": "Context properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -25564,7 +25564,7 @@ exports[`segment templates template segment-prodeology matches expected result 1
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -25651,7 +25651,7 @@ exports[`segment templates template segment-prodeology matches expected result 1
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -25799,7 +25799,7 @@ exports[`segment templates template segment-pushwoosh matches expected result 1`
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -25970,7 +25970,7 @@ exports[`segment templates template segment-pushwoosh matches expected result 1`
           "label": "Custom Attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "updateUserProfile",
@@ -27321,7 +27321,7 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -27330,7 +27330,7 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
           "label": "User Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event.properties.$app_version}",
@@ -27599,7 +27599,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -27608,7 +27608,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -27686,7 +27686,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties}",
@@ -27695,7 +27695,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -27773,7 +27773,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties}",
@@ -27782,7 +27782,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.name}",
@@ -27923,7 +27923,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Context",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties}",
@@ -27932,7 +27932,7 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
           "label": "Event properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -28186,7 +28186,7 @@ exports[`segment templates template segment-saleswings matches expected result 1
           "label": "Custom Attribute Values",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "submitTrackEvent",
@@ -28309,7 +28309,7 @@ exports[`segment templates template segment-saleswings matches expected result 1
           "label": "Custom Attribute Values",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "submitIdentifyEvent",
@@ -28519,7 +28519,7 @@ exports[`segment templates template segment-saleswings matches expected result 1
           "label": "Custom Attribute Values",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "submitScreenEvent",
@@ -28874,7 +28874,7 @@ exports[`segment templates template segment-sprig matches expected result 1`] = 
           "label": "Attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyUser",
@@ -29317,7 +29317,7 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
           "label": "Additional Attribution",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "impression",
@@ -29395,7 +29395,7 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
           "label": "Additional Attribution",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "click",
@@ -29542,7 +29542,7 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
           "label": "Additional Attribution",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "impression",
@@ -29620,7 +29620,7 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
           "label": "Additional Attribution",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "click",
@@ -29714,7 +29714,7 @@ exports[`segment templates template segment-usermaven matches expected result 1`
           "label": "Event Attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.id}",
@@ -29973,7 +29973,7 @@ exports[`segment templates template segment-usermaven matches expected result 1`
           "label": "Custom attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -30196,7 +30196,7 @@ exports[`segment templates template segment-usermaven matches expected result 1`
           "label": "Company custom attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.distinct_id}",
@@ -30658,7 +30658,7 @@ exports[`segment templates template segment-usermotion matches expected result 1
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identify",
@@ -30727,7 +30727,7 @@ exports[`segment templates template segment-usermotion matches expected result 1
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "group",
@@ -30796,7 +30796,7 @@ exports[`segment templates template segment-usermotion matches expected result 1
           "label": "Context properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties}",
@@ -30805,7 +30805,7 @@ exports[`segment templates template segment-usermotion matches expected result 1
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "track",
@@ -30908,7 +30908,7 @@ exports[`segment templates template segment-userpilot-cloud matches expected res
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyUser",
@@ -30968,7 +30968,7 @@ exports[`segment templates template segment-userpilot-cloud matches expected res
           "label": "Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "identifyCompany",
@@ -31028,7 +31028,7 @@ exports[`segment templates template segment-userpilot-cloud matches expected res
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "trackEvent",
@@ -31157,7 +31157,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "label": "Track Event Metadata",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event ?? event.event}",
@@ -31252,7 +31252,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "label": "Track Event Metadata",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event ?? event.event}",
@@ -31347,7 +31347,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "label": "Track Event Metadata",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event ?? event.event}",
@@ -31494,7 +31494,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "label": "Metadata",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
@@ -31566,7 +31566,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "label": "Group Traits",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
@@ -31912,7 +31912,7 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
           "label": "Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.vwo_uuid}",
@@ -31930,7 +31930,7 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
           "label": "Page",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$ip}",
@@ -31999,7 +31999,7 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
           "label": "attributes",
           "required": true,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{person.properties.vwo_uuid}",
@@ -32017,7 +32017,7 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
           "label": "Page",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$ip}",
@@ -32104,7 +32104,7 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
           "label": "Page",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.properties.$ip}",
@@ -32317,7 +32317,7 @@ exports[`segment templates template segment-xtremepush matches expected result 1
           "label": "Event Properties",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
@@ -32400,7 +32400,7 @@ exports[`segment templates template segment-xtremepush matches expected result 1
           "label": "User Attributes",
           "required": false,
           "secret": false,
-          "type": "string",
+          "type": "dictionary",
         },
         {
           "default": "{event.timestamp}",
