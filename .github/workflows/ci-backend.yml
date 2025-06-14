@@ -46,17 +46,20 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        name: Determine need to run backend checks
+        name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
             backend: ${{ steps.filter.outputs.backend }}
+            backend_files: ${{ steps.filter.outputs.backend_files }}
+            migrations: ${{ steps.filter.outputs.migrations }}
+            migrations_files: ${{ steps.filter.outputs.migrations_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
-              id: filter
+              id: backend-filter
               with:
                   filters: |
                       backend:
@@ -90,6 +93,9 @@ jobs:
                         # These scripts are used in the CI
                         - bin/check_temporal_up
                         - bin/check_kafka_clickhouse_up
+                      migrations:
+                        - 'posthog/migrations/*.py'
+                        - 'products/**/migrations/*.py'
 
     backend-code-quality:
         needs: changes
@@ -170,23 +176,13 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Get changed migrations
-              id: changed-migration-files
-              if: github.event_name == 'pull_request'
-              run: |
-                  # Get list of changed migration files
-                  CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep -E 'migrations/.*\.py$')
-                  echo "changed_files<<EOF" >> $GITHUB_OUTPUT
-                  echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-                  echo "EOF" >> $GITHUB_OUTPUT
-
             - name: Check migrations and post comment
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   # Read the changed files from the output
-                  CHANGED_FILES="${{ steps.changed-migration-files.outputs.changed_files }}"
+                  CHANGED_FILES="${{ needs.changes.outputs.migrations_files }}"
 
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
@@ -247,7 +243,7 @@ jobs:
                   # added (A) in posthog/migrations/. We also want to ignore
                   # initial migrations (0001_*) as these are guaranteed to be
                   # run on initial setup where there is no data.
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
