@@ -10,7 +10,14 @@ import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { maxContextLogicType } from './maxContextLogicType'
-import { MaxContextOption, MaxContextShape, MaxDashboardContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContext,
+    MaxContextOption,
+    MaxContextShape,
+    MaxDashboardContext,
+    MaxEventContext,
+    MaxInsightContext,
+} from './maxTypes'
 
 const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
     const source = (insight.query as any)?.source
@@ -32,6 +39,22 @@ const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>)
     }
 }
 
+const eventToMaxContext = (event: EventDefinition): MaxEventContext => {
+    return {
+        id: event.id,
+        name: event.name,
+        description: event.description,
+    }
+}
+
+const actionToMaxContext = (action: ActionType): MaxActionContext => {
+    return {
+        id: action.id,
+        name: action.name || `Action ${action.id}`,
+        description: action.description || '',
+    }
+}
+
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['lib', 'ai', 'maxContextLogic']),
     connect(() => ({
@@ -43,8 +66,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
         disableCurrentPageContext: true,
         addOrUpdateContextInsight: (insight: Partial<QueryBasedInsightModel>) => ({ insight }),
         addOrUpdateContextDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
+        addOrUpdateContextEvent: (event: EventDefinition) => ({ event }),
+        addOrUpdateContextAction: (action: ActionType) => ({ action }),
         removeContextInsight: (id: string | number) => ({ id }),
         removeContextDashboard: (id: string | number) => ({ id }),
+        removeContextEvent: (id: string | number) => ({ id }),
+        removeContextAction: (id: string | number) => ({ id }),
         addOrUpdateActiveInsight: (insight: Partial<QueryBasedInsightModel>, autoAdd: boolean) => ({
             insight,
             autoAdd,
@@ -56,7 +83,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
         handleTaxonomicFilterChange: (
             value: string | number,
             groupType: TaxonomicFilterGroupType,
-            item: DashboardType | QueryBasedInsightModel | MaxContextOption
+            item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
         ) => ({ value, groupType, item }),
         resetContext: true,
     }),
@@ -112,6 +139,28 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 resetContext: () => [],
             },
         ],
+        contextEvents: [
+            [] as MaxEventContext[],
+            {
+                addOrUpdateContextEvent: (state: MaxEventContext[], { event }: { event: EventDefinition }) =>
+                    state.filter((stateEvent) => stateEvent.id !== event.id).concat(eventToMaxContext(event)),
+                removeContextEvent: (state: MaxEventContext[], { id }: { id: string | number }) => {
+                    return state.filter((event) => event.id !== id)
+                },
+                resetContext: () => [],
+            },
+        ],
+        contextActions: [
+            [] as MaxActionContext[],
+            {
+                addOrUpdateContextAction: (state: MaxActionContext[], { action }: { action: ActionType }) =>
+                    state.filter((stateAction) => stateAction.id !== action.id).concat(actionToMaxContext(action)),
+                removeContextAction: (state: MaxActionContext[], { id }: { id: string | number }) => {
+                    return state.filter((action) => action.id !== id)
+                },
+                resetContext: () => [],
+            },
+        ],
         activeInsights: [
             [] as MaxInsightContext[],
             {
@@ -158,6 +207,16 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 // Handle current page context selection
                 if (groupType === TaxonomicFilterGroupType.MaxAIContext && value === 'current_page') {
                     actions.enableCurrentPageContext()
+                    return
+                }
+
+                if (groupType === TaxonomicFilterGroupType.Events) {
+                    const event = item as EventDefinition
+                    actions.addOrUpdateContextEvent(event)
+                    return
+                } else if (groupType === TaxonomicFilterGroupType.Actions) {
+                    const action = item as ActionType
+                    actions.addOrUpdateContextAction(action)
                     return
                 }
 
@@ -325,7 +384,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             (contextOptions: MaxContextOption[]): TaxonomicFilterGroupType => {
                 return contextOptions.length > 0
                     ? TaxonomicFilterGroupType.MaxAIContext
-                    : TaxonomicFilterGroupType.Insights
+                    : TaxonomicFilterGroupType.Events
             },
         ],
         taxonomicGroupTypes: [
@@ -335,7 +394,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 if (contextOptions.length > 0) {
                     groupTypes.push(TaxonomicFilterGroupType.MaxAIContext)
                 }
-                groupTypes.push(TaxonomicFilterGroupType.Insights, TaxonomicFilterGroupType.Dashboards)
+                groupTypes.push(
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Insights,
+                    TaxonomicFilterGroupType.Dashboards
+                )
                 return groupTypes
             },
         ],
@@ -344,6 +408,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.hasData,
                 s.contextInsights,
                 s.contextDashboards,
+                s.contextEvents,
+                s.contextActions,
                 s.useCurrentPageContext,
                 s.activeInsights,
                 s.activeDashboard,
@@ -352,10 +418,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ],
             (
                 hasData: boolean,
-                contextInsights: MaxInsightContext[] | null,
-                contextDashboards: MaxDashboardContext[] | null,
+                contextInsights: MaxInsightContext[],
+                contextDashboards: MaxDashboardContext[],
+                contextEvents: MaxEventContext[],
+                contextActions: MaxActionContext[],
                 useCurrentPageContext: boolean,
-                activeInsights: MaxInsightContext[] | null,
+                activeInsights: MaxInsightContext[],
                 activeDashboard: MaxDashboardContext | null,
                 filtersOverride: DashboardFilter,
                 variablesOverride: Record<string, HogQLVariable> | null
@@ -363,7 +431,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 const context: MaxContextShape = {}
 
                 // Add context dashboards
-                if (contextDashboards && Object.keys(contextDashboards).length > 0) {
+                if (Object.keys(contextDashboards).length > 0) {
                     context.dashboards = Object.values(contextDashboards)
                 }
 
@@ -377,7 +445,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     ? [...(activeInsights || []), ...(contextInsights || [])]
                     : contextInsights
 
-                if (allInsights && allInsights.length > 0) {
+                if (allInsights.length > 0) {
                     // Get all insight IDs from dashboards to filter out duplicates
                     const dashboardInsightIds = new Set(
                         (context.dashboards || []).flatMap((dashboard) =>
@@ -419,6 +487,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     context.insights = Array.from(uniqueInsights.values())
                 }
 
+                if (Object.keys(contextEvents).length > 0) {
+                    context.events = contextEvents
+                }
+                if (Object.keys(contextActions).length > 0) {
+                    context.actions = contextActions
+                }
+
                 return hasData ? context : null
             },
         ],
@@ -426,20 +501,26 @@ export const maxContextLogic = kea<maxContextLogicType>([
             (s: any) => [
                 s.contextInsights,
                 s.contextDashboards,
+                s.contextEvents,
+                s.contextActions,
                 s.useCurrentPageContext,
                 s.activeInsights,
                 s.activeDashboard,
             ],
             (
-                contextInsights: MaxInsightContext[] | null,
-                contextDashboards: MaxDashboardContext[] | null,
+                contextInsights: MaxInsightContext[],
+                contextDashboards: MaxDashboardContext[],
+                contextEvents: MaxEventContext[],
+                contextActions: MaxActionContext[],
                 useCurrentPageContext: boolean,
-                activeInsights: MaxInsightContext[] | null,
+                activeInsights: MaxInsightContext[],
                 activeDashboard: MaxDashboardContext | null
             ): boolean => {
                 return (
-                    (contextInsights && contextInsights.length > 0) ||
-                    (contextDashboards && contextDashboards.length > 0) ||
+                    contextInsights.length > 0 ||
+                    contextDashboards.length > 0 ||
+                    contextEvents.length > 0 ||
+                    contextActions.length > 0 ||
                     (useCurrentPageContext && activeInsights && activeInsights.length > 0) ||
                     (useCurrentPageContext && activeDashboard !== null)
                 )

@@ -22,8 +22,10 @@ from posthog.schema import (
     HogQLQuery,
     HumanMessage,
     LifecycleQuery,
+    MaxActionContext,
     MaxContextShape,
     MaxDashboardContext,
+    MaxEventContext,
     MaxInsightContext,
     RetentionEntity,
     RetentionFilter,
@@ -853,6 +855,58 @@ Query results: 42 events
         self.assertIn("Dashboard Insights", result)
         self.assertIn("Insight: Dashboard Insight", result)
         self.assertNotIn("# Insights", result)
+
+    def test_format_ui_context_with_events(self):
+        # Create mock events
+        event1 = MaxEventContext(id=1, name="page_view")
+        event2 = MaxEventContext(id=2, name="button_click")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view", "button_click"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_events_with_descriptions(self):
+        # Create mock events with descriptions
+        event1 = MaxEventContext(id=1, name="page_view", description="User viewed a page")
+        event2 = MaxEventContext(id=2, name="button_click", description="User clicked a button")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_actions(self):
+        # Create mock actions
+        action1 = MaxActionContext(id=1, name="Sign Up")
+        action2 = MaxActionContext(id=2, name="Purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up", "Purchase"', result)
+        self.assertIn("<actions_context>", result)
+
+    def test_format_ui_context_with_actions_with_descriptions(self):
+        # Create mock actions with descriptions
+        action1 = MaxActionContext(id=1, name="Sign Up", description="User creates account")
+        action2 = MaxActionContext(id=2, name="Purchase", description="User makes a purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
+        self.assertIn("<actions_context>", result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):

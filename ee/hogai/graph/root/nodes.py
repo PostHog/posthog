@@ -173,8 +173,38 @@ class RootNodeUIContextMixin(AssistantNode):
                     .to_string()
                 )
 
-        if dashboard_context or insights_context:
-            return self._render_user_context_template(dashboard_context, insights_context)
+        # Format events context
+        events_context = ""
+        if ui_context.events:
+            event_details = []
+            for event in ui_context.events:
+                event_detail = f'"{event.name or f"Event {event.id}"}'
+                if event.description:
+                    event_detail += f": {event.description}"
+                event_detail += '"'
+                event_details.append(event_detail)
+
+            if event_details:
+                events_context = f"<events_context>Event names the user is referring to:\n{', '.join(event_details)}\n</events_context>"
+
+        # Format actions context
+        actions_context = ""
+        if ui_context.actions:
+            action_details = []
+            for action in ui_context.actions:
+                action_detail = f'"{action.name or f"Action {action.id}"}'
+                if action.description:
+                    action_detail += f": {action.description}"
+                action_detail += '"'
+                action_details.append(action_detail)
+
+            if action_details:
+                actions_context = f"<actions_context>Action names the user is referring to:\n{', '.join(action_details)}\n</actions_context>"
+
+        if dashboard_context or insights_context or events_context or actions_context:
+            return self._render_user_context_template(
+                dashboard_context, insights_context, events_context, actions_context
+            )
         return ""
 
     def _run_and_format_insight(
@@ -238,11 +268,16 @@ class RootNodeUIContextMixin(AssistantNode):
             capture_exception()
             return None
 
-    def _render_user_context_template(self, dashboard_context: str, insights_context: str) -> str:
+    def _render_user_context_template(
+        self, dashboard_context: str, insights_context: str, events_context: str, actions_context: str
+    ) -> str:
         """Render the user context template with the provided context strings."""
         template = PromptTemplate.from_template(ROOT_USER_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(
-            ui_context_dashboard=dashboard_context, ui_context_insights=insights_context
+            ui_context_dashboard=dashboard_context,
+            ui_context_insights=insights_context,
+            ui_context_events=events_context,
+            ui_context_actions=actions_context,
         ).to_string()
 
 
