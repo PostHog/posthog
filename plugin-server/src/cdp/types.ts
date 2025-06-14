@@ -292,7 +292,7 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     personId?: string
     event?: any // TODO: Type better
-    variables: Record<string, any>
+    variables?: Record<string, any>
     currentActionId?: string
 }
 
