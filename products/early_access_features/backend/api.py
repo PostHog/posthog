@@ -46,6 +46,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "documentationUrl",
             "flagKey",
         ]
+
         read_only_fields = fields
 
 
