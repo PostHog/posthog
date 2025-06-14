@@ -61,7 +61,7 @@ export const storiesLogic = kea<storiesLogicType>([
             },
         ],
         storiesCollapsed: [
-            false,
+            true,
             {
                 toggleStoriesCollapsed: (state) => !state,
             },

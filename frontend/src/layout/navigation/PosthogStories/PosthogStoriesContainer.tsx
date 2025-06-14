@@ -1,15 +1,40 @@
 import { IconPlaylist } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { storiesLogic } from './storiesLogic'
 import type { storyGroup } from './storiesMap'
 import { StoriesModal } from './StoriesModal'
 
 export const PosthogStoriesContainer = (): JSX.Element => {
-    const { stories, isStoryViewed, storiesCollapsed } = useValues(storiesLogic)
+    const { stories, isStoryViewed, storiesCollapsed, viewedStoriesLoading } = useValues(storiesLogic)
     const { setActiveGroupIndex, setOpenStoriesModal, setActiveStoryIndex, toggleStoriesCollapsed } =
         useActions(storiesLogic)
+
+    // Check if there are any unseen stories
+    const hasUnseenStories = stories.some((storyGroup) => storyGroup.stories.some((story) => !isStoryViewed(story.id)))
+
+    // Auto-open when there are unseen stories (only after viewed stories have loaded)
+    useEffect(() => {
+        if (!viewedStoriesLoading && hasUnseenStories && storiesCollapsed) {
+            toggleStoriesCollapsed()
+        }
+    }, [hasUnseenStories, storiesCollapsed, toggleStoriesCollapsed, viewedStoriesLoading])
+
+    // Sort stories so viewed groups appear at the end
+    const sortedStories = [...stories].sort((a, b) => {
+        const aViewed = a.stories.every((story) => isStoryViewed(story.id))
+        const bViewed = b.stories.every((story) => isStoryViewed(story.id))
+
+        if (aViewed && !bViewed) {
+            return 1
+        } // a goes to end
+        if (!aViewed && bViewed) {
+            return -1
+        } // b goes to end
+        return 0 // maintain original order for same type
+    })
 
     return (
         <>
@@ -25,18 +50,21 @@ export const PosthogStoriesContainer = (): JSX.Element => {
             </div>
             {!storiesCollapsed && (
                 <div className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto">
-                    {stories.map((storyGroup: storyGroup, index: number) => {
+                    {sortedStories.map((storyGroup: storyGroup) => {
                         const hasViewedEntireGroup = storyGroup.stories.every((story) => isStoryViewed(story.id))
                         const nextStoryIndex = hasViewedEntireGroup
                             ? 0
                             : storyGroup.stories.findIndex((story) => !isStoryViewed(story.id))
                         const nextStory = storyGroup.stories[nextStoryIndex]
 
+                        // Find original index for analytics
+                        const originalIndex = stories.findIndex((s) => s.id === storyGroup.id)
+
                         return (
                             <div
                                 key={storyGroup.id}
                                 className={`flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity ${
-                                    hasViewedEntireGroup ? 'opacity-60' : ''
+                                    hasViewedEntireGroup ? 'opacity-75' : ''
                                 }`}
                                 onClick={() => {
                                     posthog.capture('posthog_story_group_clicked', {
@@ -45,11 +73,15 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                         group_thumbnail_url: nextStory.thumbnailUrl,
                                     })
                                     setActiveStoryIndex(nextStoryIndex)
-                                    setActiveGroupIndex(index)
+                                    setActiveGroupIndex(originalIndex)
                                     setOpenStoriesModal(true)
                                 }}
                             >
-                                <div className="w-15 h-15 rounded-full p-[2px] bg-orange-500 relative">
+                                <div
+                                    className={`w-15 h-15 rounded-full p-[2px] relative ${
+                                        hasViewedEntireGroup ? 'bg-gray-300' : 'bg-orange-500'
+                                    }`}
+                                >
                                     <div className="w-full h-full rounded-full overflow-hidden bg-bg-light p-[2px]">
                                         <div className="w-full h-full rounded-full overflow-hidden relative">
                                             <img
