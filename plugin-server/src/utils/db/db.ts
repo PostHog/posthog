@@ -1313,7 +1313,7 @@ export class DB {
         }
 
         const selectResult: QueryResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             [teamId, groupTypeIndex, groupKey],
             'fetchGroup'
@@ -1340,7 +1340,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<number> {
         const result = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1379,7 +1379,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $4,
@@ -1420,7 +1420,7 @@ export class DB {
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $5,
