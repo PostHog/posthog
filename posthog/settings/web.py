@@ -85,6 +85,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
+    "posthog.middleware.AddSQLCommentMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
