@@ -14,19 +14,10 @@ class Migration(migrations.Migration):
             name="filter_test_accounts",
             field=models.BooleanField(default=False),
         ),
-        migrations.AlterField(
-            model_name="teamrevenueanalyticsconfig",
-            name="notified_first_sync",
-            field=models.BooleanField(default=False),
-        ),
         # These hack around the fact Django removes the default for no reason
         # so let's force it back
         migrations.RunSQL(
             sql="ALTER TABLE posthog_teamrevenueanalyticsconfig ALTER COLUMN filter_test_accounts SET DEFAULT false;",
-            reverse_sql="",  # noop
-        ),
-        migrations.RunSQL(
-            sql="ALTER TABLE posthog_teamrevenueanalyticsconfig ALTER COLUMN notified_first_sync SET DEFAULT false;",
             reverse_sql="",  # noop
         ),
     ]

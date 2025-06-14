@@ -16,7 +16,7 @@ class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
     base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
     filter_test_accounts = models.BooleanField(default=False)
-    notified_first_sync = models.BooleanField(default=False)
+    notified_first_sync = models.BooleanField(default=False, null=True)
 
     # Mangled fields incoming:
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
