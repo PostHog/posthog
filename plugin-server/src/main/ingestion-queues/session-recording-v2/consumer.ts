@@ -73,10 +73,10 @@ export class SessionRecordingIngester {
                     parsedDate: metadataSwitchoverDate.toISOString(),
                 })
             } else {
-                logger.warn('SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime', {
-                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
-                })
-                metadataSwitchoverDate = null
+                throw new Error(
+                    'SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime: ' +
+                        config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
+                )
             }
         }
 
