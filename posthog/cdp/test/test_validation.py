@@ -42,6 +42,7 @@ def create_example_inputs_schema():
             "required": True,
         },
         {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+        {"key": "number", "type": "number", "label": "Number", "required": False},
     ]
 
 
@@ -63,6 +64,7 @@ def create_example_inputs():
                 "event_url": "{f'{event.url}-test'}",
             },
         },
+        "number": {"value": 42},
     }
 
 
@@ -105,6 +107,14 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "type": "dictionary",
                     "key": "headers",
                     "label": "Headers",
+                    "required": False,
+                    "secret": False,
+                    "hidden": False,
+                },
+                {
+                    "type": "number",
+                    "key": "number",
+                    "label": "Number",
                     "required": False,
                     "secret": False,
                     "hidden": False,
@@ -184,6 +194,10 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                         ]
                     },
                     "order": 3,
+                },
+                "number": {
+                    "value": 42,
+                    "order": 4,
                 },
             }
         )
