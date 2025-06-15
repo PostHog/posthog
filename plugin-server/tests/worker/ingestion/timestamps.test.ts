@@ -8,6 +8,9 @@ import {
     toYearMonthDayInTimezone,
 } from '../../../src/worker/ingestion/timestamps'
 
+// used for parseEventTimestamp arg that is never referenced in this code path
+const StubTeamId = 2
+
 describe('parseDate()', () => {
     const timestamps = [
         '2021-10-29',
@@ -50,7 +53,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls.length).toEqual(0)
 
         expect(timestamp.toISO()).toEqual('2021-10-29T01:34:00.000Z')
@@ -65,7 +68,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls.length).toEqual(0)
 
         expect(timestamp.toISO()).toEqual('2021-10-30T03:02:00.000Z')
@@ -80,7 +83,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls).toEqual([
             [
                 'ignored_invalid_timestamp',
@@ -104,7 +107,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls.length).toEqual(0)
 
         expect(timestamp.toISO()).toEqual('2021-10-29T01:34:00.000Z')
@@ -117,7 +120,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls.length).toEqual(0)
 
         expect(timestamp.toISO()).toEqual(event.timestamp)
@@ -131,7 +134,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls.length).toEqual(0)
 
         expect(timestamp.toUTC().toISO()).toEqual('2021-10-29T01:43:54.000Z')
@@ -144,7 +147,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls.length).toEqual(0)
 
         expect(timestamp.toUTC().toISO()).toEqual('2021-10-29T01:43:54.000Z')
@@ -160,7 +163,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls).toEqual([
             [
                 'ignored_invalid_timestamp',
@@ -187,7 +190,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls).toEqual([
             [
                 'ignored_invalid_timestamp',
@@ -213,7 +216,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls).toEqual([
             [
                 'event_timestamp_in_future',
@@ -241,7 +244,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
         expect(callbackMock.mock.calls).toEqual([
             [
                 'event_timestamp_in_future',
@@ -268,7 +271,7 @@ describe('parseEventTimestamp()', () => {
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
-        const timestamp = parseEventTimestamp(event, callbackMock)
+        const timestamp = parseEventTimestamp(StubTeamId, event, false, callbackMock)
 
         expect(callbackMock.mock.calls).toEqual([
             [

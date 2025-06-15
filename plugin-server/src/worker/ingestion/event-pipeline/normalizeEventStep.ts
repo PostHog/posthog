@@ -10,7 +10,7 @@ export function normalizeEventStep(event: PluginEvent, processPerson: boolean): 
     try {
         event = normalizeEvent(event)
         event = normalizeProcessPerson(event, processPerson)
-        timestamp = parseEventTimestamp(event)
+        timestamp = parseEventTimestamp(event.team_id, event, false)
     } catch (error) {
         logger.warn('⚠️', 'Failed normalizing event', {
             team_id: event.team_id,
