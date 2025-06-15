@@ -79,7 +79,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             [] as (string | undefined)[],
             {
                 increaseCurrentPage: (state, { timestamp }: { timestamp: string | undefined }) => [...state, timestamp],
-                decreaseCurrentPage: (state) => [...state.filter((_, i) => i !== state.length - 1)],
+                decreaseCurrentPage: (state) => state.filter((_, i) => i !== state.length - 1),
                 resetCurrentPage: () => [],
             },
         ],
@@ -87,9 +87,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             [] as string[],
             {
                 expandRow: (state, { eventId }: { eventId: string }) => [...state, eventId],
-                collapseRow: (state, { eventId }: { eventId: string }) => [
-                    ...state.filter((id: string) => id !== eventId),
-                ],
+                collapseRow: (state, { eventId }: { eventId: string }) => state.filter((id: string) => id !== eventId),
                 resetCollapsedRows: () => [],
             },
         ],
@@ -103,9 +101,8 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             [] as string[],
             {
                 selectForRetry: (state, { eventIds }: { eventIds: string[] }) => [...new Set([...state, ...eventIds])],
-                deselectForRetry: (state, { eventIds }: { eventIds: string[] }) => [
-                    ...state.filter((id: string) => !eventIds.includes(id)),
-                ],
+                deselectForRetry: (state, { eventIds }: { eventIds: string[] }) =>
+                    state.filter((id: string) => !eventIds.includes(id)),
                 resetSelectedForRetry: () => [],
             },
         ],

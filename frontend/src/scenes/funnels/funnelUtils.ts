@@ -545,7 +545,7 @@ export const appendToCorrelationConfig = (
 
     const oldCorrelationConfig = oldCurrentTeam.correlation_config
 
-    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
+    const configList = Array.from(new Set(currentValue.concat([configValue])))
 
     const correlationConfig = {
         ...oldCorrelationConfig,

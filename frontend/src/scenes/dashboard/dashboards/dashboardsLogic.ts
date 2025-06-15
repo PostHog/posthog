@@ -66,7 +66,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             {
                 setFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...state,
                         ...filters,
                     }),
             },
