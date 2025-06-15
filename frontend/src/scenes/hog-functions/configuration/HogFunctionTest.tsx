@@ -289,7 +289,7 @@ export function HogFunctionTest(): JSX.Element {
                                                         disabledReason={(() => {
                                                             try {
                                                                 JSON.parse(testInvocation.globals)
-                                                            } catch (e) {
+                                                            } catch {
                                                                 return 'Invalid globals JSON'
                                                             }
                                                             return undefined

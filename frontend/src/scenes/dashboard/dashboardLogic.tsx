@@ -152,6 +152,7 @@ async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Prom
         if (activePromises.size < limit && remainingTasks.length > 0) {
             void startTask(remainingTasks.shift()!)
         } else {
+            // eslint-disable-next-line no-await-in-loop
             await Promise.race(activePromises)
         }
     }
@@ -1411,7 +1412,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Start polling for results
                 tile.insight = refreshedInsight!
                 actions.refreshAllDashboardItems({ tiles: [tile], action: REFRESH_DASHBOARD_ITEM_ACTION })
-            } catch (e: any) {
+            } catch {
                 actions.setRefreshError(insight.short_id)
             }
         },
@@ -1453,6 +1454,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         while (attempt < maxAttempts) {
                             try {
+                                // eslint-disable-next-line no-await-in-loop
                                 const syncInsight = await getSingleInsight(
                                     values.currentTeamId,
                                     insight,
@@ -1477,6 +1479,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         break // Exit retry loop
                                     }
                                     const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
+                                    // eslint-disable-next-line no-await-in-loop
                                     await wait(delay)
                                     continue // Retry
                                 }

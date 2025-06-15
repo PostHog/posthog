@@ -108,7 +108,7 @@ export const membersLogic = kea<membersLogicType>([
                 try {
                     const res = await api.organizationMembers.scopedApiKeys.list(member.user.uuid)
                     return res
-                } catch (e) {
+                } catch {
                     return null
                 }
             },
