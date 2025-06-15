@@ -16,14 +16,18 @@ use v2_batch_ingestion::process_batch_v2;
 use ahash::AHashSet;
 use update_cache::Cache;
 
-use tokio::sync::mpsc::{self, error::TrySendError};
+use tokio::sync::mpsc::error::TrySendError;
 use tracing::{error, warn};
 
-use crate::metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT;
+use crate::{
+    measuring_channel::{MeasuringReceiver, MeasuringSender},
+    metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT,
+};
 
 pub mod api;
 pub mod app_context;
 pub mod config;
+pub mod measuring_channel;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
@@ -36,7 +40,7 @@ pub async fn update_consumer_loop(
     config: Config,
     cache: Arc<Cache>,
     context: Arc<AppContext>,
-    mut channel: mpsc::Receiver<Update>,
+    mut channel: MeasuringReceiver<Update>,
 ) {
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
@@ -46,7 +50,8 @@ pub async fn update_consumer_loop(
         while batch.len() < config.update_batch_size {
             context.worker_liveness.report_healthy().await;
 
-            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT).set(channel.len() as f64);
+            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT)
+                .set(channel.get_inflight_messages_count() as f64);
 
             let remaining_capacity = config.update_batch_size - batch.len();
             // We race these two, so we can escape this loop and do a small batch if we've been waiting too long
@@ -83,6 +88,8 @@ pub async fn update_consumer_loop(
 
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
+        // this should only be performed here, per *update batch* as it's
+        // more expensive now that this is 3 per-def-type caches in a trenchcoat
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
@@ -135,10 +142,6 @@ async fn process_batch_v1(
     context: Arc<AppContext>,
     mut batch: Vec<Update>,
 ) {
-    // unused in v2 as a throttling mechanism, but still useful to measure
-    let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
-    metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
-
     // We split our update batch into chunks, one per transaction. We know each update touches
     // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
     // which helps us with inter-pod deadlocking and retries.
@@ -160,7 +163,7 @@ async fn process_batch_v1(
             // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
             // if we still fail, we drop the batch and clear it's content from the cached update set, because
             // we assume everything in it will be seen again.
-            while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
+            while let Err(e) = m_context.issue(&mut chunk).await {
                 tries += 1;
                 if tries > BATCH_UPDATE_MAX_ATTEMPTS {
                     let chunk_len = chunk.len() as u64;
@@ -197,8 +200,8 @@ async fn process_batch_v1(
 pub async fn update_producer_loop(
     config: Config,
     consumer: SingleTopicConsumer,
-    channel: mpsc::Sender<Update>,
     shared_cache: Arc<Cache>,
+    channel: MeasuringSender<Update>,
 ) {
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
@@ -220,9 +223,13 @@ pub async fn update_producer_loop(
             }
         };
 
-        // TODO(eli): librdkafka auto_commit is probably making this a no-op anyway. we may want to
-        // extend the autocommit time interval either way to ensure we replay consumed messages that
-        // could be part of a lost batch or chunk during a redeploy. stay tuned...
+        // NOTE: we extended the autocommit interval in production envs to 20 seconds
+        // as a temporary remediation for events already buffered in a pod's internal
+        // queue being skipped when the consumer group rebalances or the service is
+        // redeployed. Long-term fix: start tracking max partition offsets in the
+        // Update batches and commit them only when each batch succeeds. This will
+        // not be perfect, as batch writes are async and can complete out of order,
+        // but is better than what we're doing right now
         let curr_offset = offset.get_value();
         match offset.store() {
             Ok(_) => (),

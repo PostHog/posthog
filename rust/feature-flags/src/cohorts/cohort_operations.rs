@@ -295,10 +295,9 @@ pub fn evaluate_dynamic_cohorts(
     // Keep the topological sort to handle dependencies correctly
     let sorted_cohort_ids_as_graph_nodes =
         toposort(&cohort_dependency_graph, None).map_err(|e| {
-            FlagError::DependencyCycle(
-                DependencyType::Cohort,
-                format!("Cyclic dependency detected: {:?}", e),
-            )
+            let cycle_start_id = e.node_id();
+            let cohort_id = cohort_dependency_graph[cycle_start_id] as i64;
+            FlagError::DependencyCycle(DependencyType::Cohort, cohort_id)
         })?;
 
     let mut evaluation_results = HashMap::new();
@@ -306,14 +305,9 @@ pub fn evaluate_dynamic_cohorts(
     // Iterate through the sorted nodes in reverse order
     for node in sorted_cohort_ids_as_graph_nodes.into_iter().rev() {
         let cohort_id = cohort_dependency_graph[node];
-        let cohort =
-            cohorts
-                .iter()
-                .find(|c| c.id == cohort_id)
-                .ok_or(FlagError::DependencyNotFound(
-                    DependencyType::Cohort,
-                    cohort_id.into(),
-                ))?;
+        let cohort = cohorts.iter().find(|c| c.id == cohort_id).ok_or_else(|| {
+            FlagError::DependencyNotFound(DependencyType::Cohort, cohort_id.into())
+        })?;
 
         let dependencies = cohort.extract_dependencies()?;
 
@@ -635,6 +629,82 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             FlagError::CohortFiltersParsingError
+        ));
+    }
+
+    fn create_test_cohort_instance(id: CohortId, depends_on: Option<CohortId>) -> Cohort {
+        Cohort {
+            id,
+            name: Some(format!("Cohort {}", id)),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: depends_on.map(|dep_id| {
+                json!({
+                    "properties": {
+                        "type": "OR",
+                        "values": [{
+                            "type": "OR",
+                            "values": [{
+                                "key": "id",
+                                "type": "cohort",
+                                "value": dep_id,
+                                "negation": false
+                            }]
+                        }]
+                    }
+                })
+            }),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: json!({}),
+            created_by_id: None,
+        }
+    }
+
+    #[test]
+    fn test_build_cohort_dependency_graph_cycle_detection() {
+        // Create four cohorts that form a cycle: 2 -> 3 -> 4 -> 2
+        // Cohort 1 is not part of the cycle but depends on 2
+        let cohort_1 = create_test_cohort_instance(1, Some(2)); // 1 depends on 2
+        let cohort_2 = create_test_cohort_instance(2, Some(3)); // 2 depends on 3
+        let cohort_3 = create_test_cohort_instance(3, Some(4)); // 3 depends on 4
+        let cohort_4 = create_test_cohort_instance(4, Some(2)); // 4 depends on 2 (starts the cycle)
+
+        let cohorts = vec![cohort_1.clone(), cohort_2, cohort_3, cohort_4];
+
+        // Try to build the graph starting from cohort 1
+        let result = build_cohort_dependency_graph(cohort_1.id, &cohorts);
+
+        // Verify we got a cycle error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            FlagError::DependencyCycle(DependencyType::Cohort, 4)
+        ));
+    }
+
+    #[test]
+    fn test_build_cohort_dependency_graph_cycle_detection_handles_self_referential_node() {
+        let self_referential_cohort = create_test_cohort_instance(1, Some(1)); // 1 depends on itself
+
+        let cohorts = vec![self_referential_cohort.clone()];
+
+        // Try to build the graph starting from cohort 1
+        let result = build_cohort_dependency_graph(self_referential_cohort.id, &cohorts);
+
+        // Verify we got a cycle error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            FlagError::DependencyCycle(DependencyType::Cohort, 1)
         ));
     }
 }

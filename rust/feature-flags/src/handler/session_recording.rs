@@ -40,19 +40,11 @@ pub fn session_recording_config_response(
     });
     let minimum_duration = team.session_recording_minimum_duration_milliseconds;
 
-    // linked_flag logic
-    let linked_flag = match &team.session_recording_linked_flag {
-        Some(cfg) => {
-            let key = cfg.get("key");
-            let variant = cfg.get("variant");
-            match (key, variant) {
-                (Some(k), Some(v)) => Some(json!({"flag": k, "variant": v})),
-                (Some(k), None) => Some(k.clone()),
-                _ => None,
-            }
-        }
-        None => None,
-    };
+    let linked_flag = get_linked_flag_value(
+        team.session_recording_linked_flag
+            .clone()
+            .map(|mut v| v.take()),
+    );
 
     let rrweb_script_config = if !config.session_replay_rrweb_script.is_empty() {
         let is_team_allowed = match &config.session_replay_rrweb_script_allowed_teams {
@@ -158,6 +150,25 @@ fn hostname_in_allowed_url_list(allowed: &Vec<String>, hostname: Option<&str>) -
     false
 }
 
+fn get_linked_flag_value(linked_flag_config: Option<Value>) -> Option<Value> {
+    match &linked_flag_config {
+        Some(cfg) => {
+            let key = cfg.get("key");
+            let variant = cfg.get("variant");
+            match (key, variant) {
+                (Some(Value::String(k)), Some(Value::String(v))) => {
+                    Some(json!({"flag": k, "variant": v}))
+                }
+                (Some(Value::String(k)), None | Some(Value::Null)) => {
+                    Some(Value::String(k.clone()))
+                }
+                _ => None,
+            }
+        }
+        None => None,
+    }
+}
+
 fn on_permitted_recording_domain(recording_domains: &Vec<String>, headers: &HeaderMap) -> bool {
     let origin = headers.get("Origin").and_then(|v| v.to_str().ok());
     let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
@@ -171,4 +182,23 @@ fn on_permitted_recording_domain(recording_domains: &Vec<String>, headers: &Head
     });
 
     is_authorized_web_client || is_authorized_mobile_client
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_get_linked_flag_value_with_null_variant() {
+        let config = json!({
+            "id": 105969,
+            "key": "record_sessions",
+            "variant": null
+        });
+
+        let result = get_linked_flag_value(Some(config));
+
+        assert_eq!(result, Some(Value::String("record_sessions".to_string())));
+    }
 }

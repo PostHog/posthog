@@ -1,6 +1,7 @@
 import { IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
@@ -17,6 +18,8 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
     const { search, filteredGroups, filteredRoles, filteredMembers, userGroupsLoading, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
     const { setSearch } = useActions(assigneeSelectLogic)
+    const userGroupsEnabled = useFeatureFlag('USER_GROUPS_ENABLED')
+
     return (
         <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
             <LemonInput type="search" placeholder="Search" autoFocus value={search} onChange={setSearch} fullWidth />
@@ -59,29 +62,31 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                     }
                 />
 
-                <Section
-                    title="Groups"
-                    loading={userGroupsLoading}
-                    search={!!search}
-                    type="user_group"
-                    items={filteredGroups.map((group) => ({
-                        id: group.id,
-                        type: 'group',
-                        group: group,
-                    }))}
-                    onSelect={onChange}
-                    activeId={assignee?.id}
-                    emptyState={
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            to={urls.settings('environment-error-tracking', 'user-groups')}
-                        >
-                            <div className="text-secondary">Create user group</div>
-                        </LemonButton>
-                    }
-                />
+                {userGroupsEnabled && (
+                    <Section
+                        title="Groups"
+                        loading={userGroupsLoading}
+                        search={!!search}
+                        type="user_group"
+                        items={filteredGroups.map((group) => ({
+                            id: group.id,
+                            type: 'group',
+                            group: group,
+                        }))}
+                        onSelect={onChange}
+                        activeId={assignee?.id}
+                        emptyState={
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                to={urls.settings('environment-error-tracking', 'user-groups')}
+                            >
+                                <div className="text-secondary">Create user group</div>
+                            </LemonButton>
+                        }
+                    />
+                )}
 
                 <Section
                     title="Users"
