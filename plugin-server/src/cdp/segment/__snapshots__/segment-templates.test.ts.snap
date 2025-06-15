@@ -10721,7 +10721,7 @@ exports[`segment templates template segment-equals matches expected result 1`] =
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "",
+          "default": "{event}",
           "description": "Payload to deliver to Equals. Detaults to sending the entire Segment payload.",
           "key": "data",
           "label": "Data",
@@ -11019,7 +11019,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "",
+          "default": "{event}",
           "description": "The raw Segment event",
           "key": "segmentEvent",
           "label": "Segment Event",
@@ -11061,7 +11061,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "",
+          "default": "{event}",
           "description": "The raw Segment event",
           "key": "segmentEvent",
           "label": "Segment Event",
@@ -11103,7 +11103,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "",
+          "default": "{event}",
           "description": "The raw Segment event",
           "key": "segmentEvent",
           "label": "Segment Event",
@@ -11145,7 +11145,7 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "",
+          "default": "{event}",
           "description": "The raw Segment event",
           "key": "segmentEvent",
           "label": "Segment Event",
@@ -14101,7 +14101,7 @@ exports[`segment templates template segment-iqm matches expected result 1`] = `
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "",
+          "default": "{event}",
           "description": "The data to be sent to IQM",
           "key": "data",
           "label": "Data",
@@ -20749,7 +20749,7 @@ exports[`segment templates template segment-movable-ink matches expected result 
           "type": "dictionary",
         },
         {
-          "default": "",
+          "default": "{event}",
           "description": "Payload to deliver to webhook URL (JSON-encoded).",
           "key": "data",
           "label": "Data",
