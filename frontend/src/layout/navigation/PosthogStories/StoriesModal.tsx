@@ -1,5 +1,6 @@
 import './StoriesModal.scss'
 
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -126,17 +127,10 @@ export const StoriesModal = (): JSX.Element | null => {
     )
 
     const handlePrevious = useCallback(() => {
-        if (activeStoryIndex === 0 && activeGroupIndex > 0) {
-            setActiveGroupIndex(activeGroupIndex - 1)
-            setActiveStoryIndex(storyGroups[activeGroupIndex - 1].stories.length - 1)
-            sendStoryEndEvent('previous')
-        } else if (activeStoryIndex > 0) {
+        if (activeStoryIndex > 0) {
             setActiveStoryIndex(activeStoryIndex - 1)
-            sendStoryEndEvent('previous')
-        } else {
-            setActiveStoryIndex(0)
         }
-    }, [activeGroup, activeStoryIndex, activeGroupIndex, storyGroups, setActiveStoryIndex, setActiveGroupIndex])
+    }, [activeStoryIndex, setActiveStoryIndex])
 
     const handleStoryStart = useCallback(
         (index: number) => {
@@ -177,6 +171,28 @@ export const StoriesModal = (): JSX.Element | null => {
         [activeGroup, activeStoryIndex]
     )
 
+    const handleNext = useCallback(() => {
+        if (activeStoryIndex < maxStoryIndex - 1) {
+            sendStoryEndEvent('next')
+            setActiveStoryIndex(activeStoryIndex + 1)
+        } else if (!isLastStoryGroup) {
+            sendStoryEndEvent('next')
+            setActiveGroupIndex(activeGroupIndex + 1)
+            setActiveStoryIndex(0)
+        }
+    }, [
+        activeStoryIndex,
+        maxStoryIndex,
+        isLastStoryGroup,
+        activeGroupIndex,
+        sendStoryEndEvent,
+        setActiveStoryIndex,
+        setActiveGroupIndex,
+    ])
+
+    const canGoPrevious = activeStoryIndex > 0
+    const canGoNext = activeStoryIndex < maxStoryIndex - 1
+
     if (!openStoriesModal || !activeGroup) {
         return null
     }
@@ -204,33 +220,72 @@ export const StoriesModal = (): JSX.Element | null => {
 
     return (
         <LemonModal isOpen={openStoriesModal} onClose={() => handleClose(true)} simple className="StoriesModal__modal">
-            <Stories
-                stories={stories}
-                defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
-                width="100%"
-                height="100%"
-                currentIndex={activeStoryIndex}
-                onNext={() => {
-                    if (!activeGroup?.stories[activeStoryIndex]) {
-                        return
-                    }
-                    sendStoryEndEvent('next')
-                    setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))
-                }}
-                onPrevious={handlePrevious}
-                onAllStoriesEnd={() => handleClose(false)}
-                onStoryEnd={() => {
-                    sendStoryEndEvent('ended_naturally')
-                    setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))
-                }}
-                onStoryStart={handleStoryStart}
-                storyContainerStyles={{
-                    maxWidth: `${dimensions.width}px`,
-                    minWidth: `${dimensions.width}px`,
-                    maxHeight: `${dimensions.height}px`,
-                    minHeight: `${dimensions.height}px`,
-                }}
-            />
+            <div className="relative cursor-pointer">
+                <Stories
+                    stories={stories}
+                    defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
+                    width="100%"
+                    height="100%"
+                    currentIndex={activeStoryIndex}
+                    onNext={() => {
+                        if (!activeGroup?.stories[activeStoryIndex]) {
+                            return
+                        }
+                        sendStoryEndEvent('next')
+
+                        // Check if this is the last story in the current group
+                        if (activeStoryIndex >= maxStoryIndex - 1) {
+                            // Last story in group - close the modal
+                            setOpenStoriesModal(false)
+                        } else {
+                            // Not last story - advance to next story in group
+                            setActiveStoryIndex(activeStoryIndex + 1)
+                        }
+                    }}
+                    onPrevious={handlePrevious}
+                    onAllStoriesEnd={() => handleClose(false)}
+                    onStoryEnd={() => {
+                        sendStoryEndEvent('ended_naturally')
+
+                        // Check if this is the last story in the current group
+                        if (activeStoryIndex >= maxStoryIndex - 1) {
+                            // Last story in group - close the modal
+                            setOpenStoriesModal(false)
+                        } else {
+                            // Not last story - advance to next story in group
+                            setActiveStoryIndex(activeStoryIndex + 1)
+                        }
+                    }}
+                    onStoryStart={handleStoryStart}
+                    storyContainerStyles={{
+                        maxWidth: `${dimensions.width}px`,
+                        minWidth: `${dimensions.width}px`,
+                        maxHeight: `${dimensions.height}px`,
+                        minHeight: `${dimensions.height}px`,
+                    }}
+                />
+
+                {/* Navigation arrows */}
+                {canGoPrevious && (
+                    <button
+                        onClick={handlePrevious}
+                        className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10"
+                        title="Previous story"
+                    >
+                        <IconChevronLeft className="w-4 h-4" />
+                    </button>
+                )}
+
+                {canGoNext && (
+                    <button
+                        onClick={handleNext}
+                        className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10"
+                        title="Next story"
+                    >
+                        <IconChevronRight className="w-4 h-4" />
+                    </button>
+                )}
+            </div>
         </LemonModal>
     )
 }
