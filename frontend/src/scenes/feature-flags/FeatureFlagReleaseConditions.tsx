@@ -524,7 +524,7 @@ export function FeatureFlagReleaseConditions({
                                             <>
                                                 {' '}
                                                 Cohort-based targeting{' '}
-                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
+                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-cohort-as-a-feature-flag-target">
                                                     doesn't support dynamic behavioral cohorts.
                                                 </Link>{' '}
                                             </>
