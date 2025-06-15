@@ -8,6 +8,9 @@ import { Params } from 'scenes/sceneTypes'
 import { OrganizationType } from '~/types'
 import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
+import { USAGE_TYPES } from './constants'
+import type { BillingFilters, BillingUsageInteractionProps } from './types'
+
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
         return ''
@@ -332,5 +335,33 @@ export function updateBillingSearchParams<T>(searchParams: Params, key: string, 
         searchParams[key] = value
     } else {
         delete searchParams[key]
+    }
+}
+
+/**
+ * Builds properties for billing usage and spend interaction events
+ */
+export function buildTrackingProperties(
+    action: BillingUsageInteractionProps['action'],
+    values: {
+        filters: BillingFilters
+        dateFrom: string
+        dateTo: string
+        excludeEmptySeries: boolean
+        teamOptions: { key: string; label: string }[]
+    }
+): BillingUsageInteractionProps {
+    return {
+        action,
+        filters: values.filters,
+        date_from: values.dateFrom,
+        date_to: values.dateTo,
+        exclude_empty: values.excludeEmptySeries,
+        usage_types_count: values.filters.usage_types?.length || 0,
+        usage_types_total: USAGE_TYPES.length,
+        teams_count: values.filters.team_ids?.length || 0,
+        teams_total: values.teamOptions.length,
+        has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
+        interval: values.filters.interval || 'day',
     }
 }
