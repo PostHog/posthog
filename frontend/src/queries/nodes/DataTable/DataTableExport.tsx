@@ -9,6 +9,11 @@ import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
 
 import {
+    shouldOptimizeForExport,
+    transformColumnsForExport,
+    transformQuerySourceForExport,
+} from '~/queries/nodes/DataTable/exportTransformers'
+import {
     defaultDataTableColumns,
     extractExpressionComment,
     removeExpressionComment,
@@ -31,36 +36,46 @@ export async function startDownload(
     exportCall: (exportData: TriggerExportProps) => void,
     format: ExporterFormat = ExporterFormat.CSV
 ): Promise<void> {
+    const shouldOptimize = shouldOptimizeForExport(query)
+
+    let exportSource = query.source
+
+    // Remove person column from the source otherwise export fails when there's 1000+ records
+    if (shouldOptimize && isEventsQuery(query.source)) {
+        exportSource = transformQuerySourceForExport(query.source)
+    }
+
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
-        : { source: query.source }
+        : { source: exportSource }
+
     if (!exportContext) {
         throw new Error('Unsupported node type')
     }
 
     if (onlySelectedColumns) {
-        exportContext['columns'] = (
+        let columns = (
             (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')
 
-        if (isEventsQuery(query.source)) {
-            exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                removeExpressionComment(c) === 'person' ? 'person.properties.email' : c
-            )
+        // Apply export optimizations to columns
+        if (shouldOptimize && isEventsQuery(query.source)) {
+            columns = transformColumnsForExport(columns)
         } else if (isPersonsNode(query.source)) {
-            exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                removeExpressionComment(c) === 'person' ? 'email' : c
-            )
+            columns = columns.map((c: string) => (removeExpressionComment(c) === 'person' ? 'email' : c))
         }
-        if (exportContext['columns'].includes('person')) {
-            exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                c === 'person' ? 'person.distinct_ids.0' : c
-            )
+
+        if (columns.includes('person')) {
+            columns = columns.map((c: string) => (c === 'person' ? 'person.distinct_ids.0' : c))
         }
-        exportContext['columns'] = exportContext['columns'].filter((n: string) => !columnDisallowList.includes(n))
+
+        columns = columns.filter((n: string) => !columnDisallowList.includes(n))
+
+        exportContext['columns'] = columns
     }
+
     exportCall({
         export_format: format,
         export_context: exportContext,
