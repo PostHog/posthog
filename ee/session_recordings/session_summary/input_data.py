@@ -32,6 +32,10 @@ COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT = [
 ]
 
 
+def get_team(team_id: int) -> Team:
+    return Team.objects.get(id=team_id)
+
+
 def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = False) -> RecordingMetadata:
     events_obj = SessionReplayEvents()
     if not local_reads_prod:
