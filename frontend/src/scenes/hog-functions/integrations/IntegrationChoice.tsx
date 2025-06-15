@@ -7,13 +7,13 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType } from '~/types'
 
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
-    schema?: HogFunctionInputSchemaType
+    schema?: CyclotronJobInputSchemaType
     integration?: string
     beforeRedirect?: () => void
 }
