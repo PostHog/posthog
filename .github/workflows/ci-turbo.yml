@@ -3,6 +3,20 @@ name: Turbo CI
 on:
     pull_request:
 
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+    REDIS_URL: 'redis://localhost'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    TEST: 1
+    CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    OBJECT_STORAGE_ENABLED: 'True'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
 jobs:
     turbo-affected-4:
         timeout-minutes: 30
@@ -98,3 +112,103 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
+
+    tach-affected-4:
+        timeout-minutes: 30
+        name: Tach Affected
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                # os: [depot-ubuntu-22.04, depot-ubuntu-22.04-4]
+                os: [depot-ubuntu-22.04-4]
+
+        steps:
+            - name: Check out code
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              with:
+                  # Just fetch the current commit/PR head
+                  fetch-depth: 1
+
+            - name: Detect architecture
+              if: ${{ runner.os == 'Linux' || runner.os == 'macOS' }}
+              run: |
+                  ARCH=$(uname -m)
+                  echo "ARCH=$ARCH" >> $GITHUB_ENV
+
+            # Conditionally fetch the base branch so Turborepo can compare against it
+            - name: Fetch base branch
+              run: |
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    git fetch origin refs/heads/${GITHUB_BASE_REF}:refs/heads/${GITHUB_BASE_REF} --depth=1
+                    echo "BASE_BRANCH=${GITHUB_BASE_REF}" >> $GITHUB_ENV
+                  else
+                    git fetch origin refs/heads/master:refs/heads/master --depth=1
+                    echo "BASE_BRANCH=master" >> $GITHUB_ENV
+                  fi
+
+            # Copies the fully versioned UDF xml file for use in CI testing
+            - name: Stop/Start stack with Docker Compose
+              shell: bash
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+
+                  max_attempts=3
+                  attempt=1
+                  delay=5
+
+                  while [ $attempt -le $max_attempts ]; do
+                      echo "Attempt $attempt of $max_attempts to start stack..."
+                      
+                      if docker compose -f docker-compose.dev.yml down && \
+                         docker compose -f docker-compose.dev.yml up -d; then
+                          echo "Stack started successfully"
+                          exit 0
+                      fi
+                      
+                      echo "Failed to start stack on attempt $attempt"
+                      
+                      if [ $attempt -lt $max_attempts ]; then
+                          sleep_time=$((delay * 2 ** (attempt - 1)))
+                          echo "Waiting ${sleep_time} seconds before retry..."
+                          sleep $sleep_time
+                      fi
+                      
+                      attempt=$((attempt + 1))
+                  done
+
+                  echo "Failed to start stack after $max_attempts attempts"
+                  exit 1
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              shell: bash
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              with:
+                  enable-cache: true
+                  pyproject-file: 'pyproject.toml'
+
+            - name: Setup Python deps
+              run: |
+                  set -e
+                  set -m
+
+                  echo ">>> [Python] Installing SAML (python3-saml) dependencies..."
+                  sudo apt-get update
+                  sudo apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+
+                  echo ">>> [Python] Installing dependencies..."
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Tach Test
+              run: |
+                  tach test --base=${BASE_BRANCH} -- products common
