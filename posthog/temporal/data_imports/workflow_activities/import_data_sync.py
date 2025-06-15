@@ -347,6 +347,35 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     shutdown_monitor=shutdown_monitor,
                 )
 
+        elif model.pipeline.source_type == ExternalDataSource.Type.MONGO:
+            from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, mongo_source
+
+            mongo_config = MongoSourceConfig.from_dict(model.pipeline.job_inputs)
+
+            source = mongo_source(
+                connection_string=mongo_config.connection_string,
+                collection_names=endpoints,
+                is_incremental=schema.is_incremental,
+                logger=logger,
+                team_id=inputs.team_id,
+                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.is_incremental
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                ssh_tunnel=mongo_config.ssh_tunnel,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
         elif model.pipeline.source_type in [
             ExternalDataSource.Type.MSSQL,
         ]:
