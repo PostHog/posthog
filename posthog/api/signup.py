@@ -107,6 +107,9 @@ class SignupSerializer(serializers.Serializer):
             password_validation.validate_password(value)
         return value
 
+    def validate_email(self, value):
+        return value.lower()
+
     def is_email_auto_verified(self):
         return self.is_social_signup
 
@@ -356,7 +359,7 @@ class SocialSignupSerializer(serializers.Serializer):
                 "Inactive social login session. Go to /login and log in before continuing."
             )
 
-        email = request.session.get("email")
+        email = request.session.get("email").lower()
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
         first_name = validated_data["first_name"]
