@@ -1,0 +1,232 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc"],
+    "env": {
+        "builtin": true
+    },
+    "ignorePatterns": [
+        "node_modules",
+        "dist",
+        "build",
+        "rust",
+        "plugin-server",
+        "livestream",
+        "common/hogvm/typescript",
+        "common/plugin_transpiler",
+        "common/hogvm/__tests__/**/__snapshots__/**",
+        "cypress/cypress.e2e.config.ts",
+        ".eslintrc.js",
+        "jest.config.ts",
+        "common/hogvm/typescript/dist",
+        "common/hogvm/typescript/jest.config.js",
+        "common/plugin_transpiler/dist",
+        "common/plugin_transpiler/build.mjs",
+        "common/hogvm/__tests__/__snapshots__"
+    ],
+    "rules": {
+        "react-hooks/rules-of-hooks": "error",
+        "react-hooks/exhaustive-deps": "warn",
+        "react/jsx-curly-brace-presence": [
+            "error",
+            {
+                "props": "never",
+                "children": "never",
+                "propElementValues": "always"
+            }
+        ],
+        "no-console": [
+            "error",
+            {
+                "allow": ["info", "warn", "error"]
+            }
+        ],
+        "no-debugger": "error",
+        "react/prop-types": "off",
+        "react/react-in-jsx-scope": "off",
+        "react/no-unescaped-entities": "off",
+        "react/jsx-no-target-blank": "off",
+        "react/self-closing-comp": [
+            "error",
+            {
+                "component": true,
+                "html": true
+            }
+        ],
+        "no-unused-vars": [
+            "error",
+            {
+                "ignoreRestSiblings": true,
+                "destructuredArrayIgnorePattern": "^_$"
+            }
+        ],
+        "@typescript-eslint/prefer-ts-expect-error": "error",
+        "@typescript-eslint/no-empty-function": "off",
+        "@typescript-eslint/no-inferrable-types": "off",
+        "@typescript-eslint/ban-ts-comment": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/explicit-function-return-type": [
+            "error",
+            {
+                "allowExpressions": true
+            }
+        ],
+        "@typescript-eslint/explicit-module-boundary-types": [
+            "error",
+            {
+                "allowArgumentsExplicitlyTypedAsAny": true
+            }
+        ],
+        "curly": "error",
+        "no-restricted-imports": [
+            "error",
+            {
+                "paths": [
+                    {
+                        "name": "dayjs",
+                        "message": "Do not directly import dayjs. Only import the dayjs exported from lib/dayjs."
+                    },
+                    {
+                        "name": "chart.js",
+                        "message": "Do not directly import chart.js. Only import the Chart and friends exported from lib/Chart."
+                    },
+                    {
+                        "name": "chart.js/auto",
+                        "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from lib/Chart."
+                    }
+                ]
+            }
+        ],
+        "react/forbid-dom-props": [
+            "error",
+            {
+                "forbid": [
+                    {
+                        "propName": "style",
+                        "message": "style should be avoided in favor of utility CSS classes - see https://storybook.posthog.net/?path=/docs/lemon-ui-utilities--overview"
+                    }
+                ]
+            }
+        ],
+        "react/forbid-elements": [
+            "error",
+            {
+                "forbid": [
+                    {
+                        "element": "Layout",
+                        "message": "use utility classes instead"
+                    },
+                    {
+                        "element": "Tabs",
+                        "message": "use <LemonTabs> instead"
+                    },
+                    {
+                        "element": "Space",
+                        "message": "use flex or space utility classes instead"
+                    },
+                    {
+                        "element": "Spin",
+                        "message": "use Spinner instead"
+                    },
+                    {
+                        "element": "Badge",
+                        "message": "use LemonBadge instead"
+                    },
+                    {
+                        "element": "InputNumber",
+                        "message": "use LemonInput with type=\"number\" instead"
+                    },
+                    {
+                        "element": "Collapse",
+                        "message": "use <LemonCollapse> instead"
+                    },
+                    {
+                        "element": "Slider",
+                        "message": "use <LemonSlider> instead"
+                    },
+                    {
+                        "element": "Checkbox",
+                        "message": "use <LemonCheckbox> instead"
+                    },
+                    {
+                        "element": "MonacoEditor",
+                        "message": "use <CodeEditor> instead"
+                    },
+                    {
+                        "element": "Typography",
+                        "message": "use utility classes instead"
+                    },
+                    {
+                        "element": "Input.TextArea",
+                        "message": "use <LemonTextArea> instead"
+                    },
+                    {
+                        "element": "ReactMarkdown",
+                        "message": "use <LemonMarkdown> instead"
+                    },
+                    {
+                        "element": "a",
+                        "message": "use <Link> instead"
+                    },
+                    {
+                        "element": "Tag",
+                        "message": "use <LemonTag> instead"
+                    },
+                    {
+                        "element": "Alert",
+                        "message": "use <LemonBanner> instead"
+                    },
+                    {
+                        "element": "ReactJson",
+                        "message": "use <JSONViewer> for dark mode support instead"
+                    },
+                    {
+                        "element": "Radio",
+                        "message": "use <LemonRadio> instead"
+                    },
+                    {
+                        "element": "Skeleton",
+                        "message": "use <LemonSkeleton> instead"
+                    },
+                    {
+                        "element": "Divider",
+                        "message": "use <LemonDivider> instead"
+                    },
+                    {
+                        "element": "Popconfirm",
+                        "message": "use <LemonDialog> instead"
+                    }
+                ]
+            }
+        ],
+        "no-constant-binary-expression": "error",
+        "no-constant-condition": "off",
+        "no-prototype-builtins": "off",
+        "no-irregular-whitespace": "off",
+        "no-useless-rename": "error",
+        "require-await": "off",
+        "no-accumulating-spread": "error",
+        "no-useless-call": "error",
+        "no-await-in-loop": "error",
+        "import/no-restricted-paths": [
+            "error",
+            {
+                "zones": [
+                    {
+                        "target": "./frontend/**",
+                        "from": "./ee/frontend/**",
+                        "message": "EE licensed TypeScript should only be accessed via the posthogEE objects. Use `import posthogEE from '@posthog/ee/exports'`"
+                    }
+                ]
+            }
+        ],
+        "no-else-return": "warn"
+    },
+    "overrides": [
+        {
+            "files": ["*.stories.tsx"],
+            "rules": {
+                "react-hooks/rules-of-hooks": "off"
+            }
+        }
+    ]
+}
