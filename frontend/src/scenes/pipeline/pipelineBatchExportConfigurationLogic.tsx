@@ -799,7 +799,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         client_email: jsonConfig.client_email,
                         token_uri: jsonConfig.token_uri,
                     })
-                } catch (e) {
+                } catch {
                     actions.setConfigurationManualErrors({
                         json_config_file: 'The config file is not valid',
                     })

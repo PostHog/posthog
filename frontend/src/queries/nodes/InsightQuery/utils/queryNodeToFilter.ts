@@ -103,8 +103,11 @@ export const seriesToActionsAndEvents = (
 export const hiddenLegendItemsToKeys = (
     hidden_items: number[] | string[] | undefined
 ): Record<string, boolean | undefined> | undefined =>
-    // @ts-expect-error
-    hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => ({ ...k, [b]: true }), {})
+    // @ts-expect-error - TS 4.9 is too dumb for this
+    hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => {
+        k[b] = true
+        return k
+    }, {} as Record<string, boolean | undefined>)
 
 export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,

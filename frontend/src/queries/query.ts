@@ -31,13 +31,9 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 //get export context for a given query
-export function queryExportContext<N extends DataNode>(
-    query: N,
-    methodOptions?: ApiMethodOptions,
-    refresh?: boolean
-): OnlineExportContext | QueryExportContext {
+export function queryExportContext<N extends DataNode>(query: N): OnlineExportContext | QueryExportContext {
     if (isDataTableNode(query) || isDataVisualizationNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
+        return queryExportContext(query.source)
     } else if (isInsightQueryNode(query)) {
         return { source: query }
     } else if (isPersonsNode(query)) {
@@ -55,10 +51,14 @@ export async function pollForResults(
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+        // we're polling, this is as intended
+        // eslint-disable-next-line no-await-in-loop
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
         try {
+            // we're polling, this is as intended
+            // eslint-disable-next-line no-await-in-loop
             const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
             if (statusResponse.complete) {
                 return statusResponse

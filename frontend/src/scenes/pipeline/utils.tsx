@@ -103,7 +103,8 @@ export async function loadPaginatedResults(
         if (!url) {
             break
         }
-
+        // we're fetching the next page, this is as intended
+        // eslint-disable-next-line no-await-in-loop
         const { results: partialResults, next } = await api.get(url)
         results = results.concat(partialResults)
         url = next
@@ -261,8 +262,9 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
     return []
 }
 
-export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
+export function usePipelineNodeMenuCommonItems(
+    node: Transformation | SiteApp | ImportApp | Destination
+): LemonMenuItem[] {
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
@@ -295,13 +297,12 @@ export async function loadPluginsFromUrl(url: string): Promise<Record<number, Pl
     return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
 }
 
-export function pipelinePluginBackedNodeMenuCommonItems(
+export function usePipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [
@@ -314,7 +315,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                 }),
             disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
         },
-        ...pipelineNodeMenuCommonItems(node),
+        ...usePipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
                   {

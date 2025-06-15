@@ -14,6 +14,7 @@ const checkFileDownloaded = async (filename: string, timeout: number, delayMs = 
     const fullFileName = `${downloadDirectory}/${filename}`
 
     while (Date.now() - start < timeout) {
+        // eslint-disable-next-line no-await-in-loops
         await new Promise((res) => setTimeout(res, delayMs))
 
         if (fs.existsSync(fullFileName)) {
@@ -59,7 +60,7 @@ export default defineConfig({
             try {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
                 require('cypress-terminal-report/src/installLogsPrinter')(on)
-            } catch (e) {}
+            } catch {}
 
             on('before:browser:launch', (browser, launchOptions) => {
                 if (browser.name === 'chrome') {
@@ -106,7 +107,7 @@ export default defineConfig({
 
                 async resetInsightCache() {
                     const redisClient = await createClient()
-                        .on('error', (err) => console.log('Redis client error', err))
+                        .on('error', (err) => console.error('Redis client error', err))
                         .connect()
                     // Clear cache
                     for await (const key of redisClient.scanIterator({
