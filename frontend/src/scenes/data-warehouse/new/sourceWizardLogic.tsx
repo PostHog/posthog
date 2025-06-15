@@ -1076,8 +1076,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         payload: {
-                            ...(state.payload ?? {}),
-                            ...(source.payload ?? {}),
+                            ...state.payload,
+                            ...source.payload,
                         },
                     }
                 },

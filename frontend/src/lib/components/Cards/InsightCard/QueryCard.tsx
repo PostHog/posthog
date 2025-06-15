@@ -38,7 +38,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
+            style={{ ...divProps?.style, ...theme?.boxStyle }}
             ref={ref}
         >
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
