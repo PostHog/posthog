@@ -866,6 +866,10 @@ class Producer:
             if filters_str:
                 filters_str = f"AND {filters_str}"
 
+            if str(team_id) in settings.BATCH_EXPORT_FILTER_OUT_OLD_EVENTS_TEAM_IDS and full_range[0] is not None:
+                filters_str += f" AND events.timestamp >= {{lower_bound_timestamp:DateTime64}}"
+                parameters["lower_bound_timestamp"] = full_range[0] - dt.timedelta(days=90)
+
             if str(team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS or not order_columns:
                 order = ""
             else:
