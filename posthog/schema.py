@@ -3110,6 +3110,24 @@ class MatchedRecording(BaseModel):
     session_id: Optional[str] = None
 
 
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: Union[str, int]
+    name: Optional[str] = None
+
+
+class MaxEventContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: Union[str, int]
+    name: Optional[str] = None
+
+
 class NewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11233,7 +11251,9 @@ class MaxContextShape(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actions: Optional[list[MaxActionContext]] = None
     dashboards: Optional[list[MaxDashboardContext]] = None
+    events: Optional[list[MaxEventContext]] = None
     filters_override: Optional[DashboardFilter] = None
     insights: Optional[list[MaxInsightContext]] = None
     variables_override: Optional[dict[str, HogQLVariable]] = None

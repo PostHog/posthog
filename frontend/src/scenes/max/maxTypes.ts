@@ -17,10 +17,24 @@ export interface MaxDashboardContext {
     filters: DashboardFilter
 }
 
+export interface MaxEventContext {
+    id: string | integer
+    name?: string
+    description?: string
+}
+
+export interface MaxActionContext {
+    id: string | integer
+    name?: string
+    description?: string
+}
+
 // The main shape for the UI context sent to the backend
 export interface MaxContextShape {
     dashboards?: MaxDashboardContext[]
     insights?: MaxInsightContext[]
+    events?: MaxEventContext[]
+    actions?: MaxActionContext[]
     filters_override?: DashboardFilter
     variables_override?: Record<string, HogQLVariable>
 }
