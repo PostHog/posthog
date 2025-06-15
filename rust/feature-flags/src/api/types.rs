@@ -97,8 +97,9 @@ pub struct ConfigResponse {
     pub supported_compression: Vec<String>,
 
     /// If set, disables autocapture
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "autocapture_opt_out")]
-    pub autocapture_opt_out: bool,
+    pub autocapture_opt_out: Option<bool>,
 
     /// Originally capturePerformance was replay only and so boolean true
     /// is equivalent to { network_timing: true }
