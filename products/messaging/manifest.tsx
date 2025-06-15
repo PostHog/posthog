@@ -61,7 +61,8 @@ export const manifest: ProductManifest = {
     urls: {
         messagingCampaigns: (): string => '/messaging/campaigns',
         messagingCampaign: (id: string): string => `/messaging/campaigns/${id}/overview`,
-        messagingCampaignTab: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'overview'}`,
+        messagingCampaignTab: (id?: string, tab?: string): string =>
+            `/messaging/campaigns/${id || 'new'}/${tab || 'overview'}`,
         messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
         messagingBroadcasts: (): string => '/messaging/broadcasts',
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,

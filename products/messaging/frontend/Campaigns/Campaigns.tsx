@@ -1,20 +1,15 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { MessagingTabs } from '../MessagingTabs'
-import { CampaignScene } from './CampaignScene'
 import { campaignsLogic } from './campaignsLogic'
 import { CampaignsTable } from './CampaignsTable'
 
 export function Campaigns(): JSX.Element {
-    const { campaignId } = useValues(campaignsLogic)
-    return campaignId ? (
-        <CampaignScene />
-    ) : (
+    return (
         <>
             <MessagingTabs key="campaigns-tabs" />
             <PageHeader

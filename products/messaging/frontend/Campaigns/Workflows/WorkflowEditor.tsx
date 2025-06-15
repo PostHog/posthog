@@ -22,19 +22,34 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { OnWorkflowChange } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
-import { DEFAULT_EDGE_OPTIONS } from './constants'
+import { getDefaultEdgeOptions } from './constants'
 import { NodeDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
-import { addDropzoneNodes, createEdgesForNewNode, createNewNode, DEFAULT_EDGES, DEFAULT_NODES } from './Nodes/utils'
+import {
+    addDropzoneNodes,
+    createEdgesForNewNode,
+    createNewNode,
+    getEdgesFromHogFlow,
+    getNodesFromHogFlow,
+} from './Nodes/utils'
 import { Toolbar, ToolbarNode } from './Toolbar'
-import type { HogFlowAction, HogFlowEdge } from './types'
+import type { HogFlow, HogFlowAction, HogFlowEdge } from './types'
 
 // Inner component that encapsulates React Flow
-function WorkflowEditorContent({ onChange }: { onChange: OnWorkflowChange }): JSX.Element {
+function WorkflowEditorContent({
+    initialValues,
+    onChange,
+}: {
+    initialValues: HogFlow
+    onChange: OnWorkflowChange
+}): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(DEFAULT_NODES)
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(DEFAULT_EDGES)
+    const initialNodes = useMemo(() => getNodesFromHogFlow(initialValues), [initialValues])
+    const initialEdges = useMemo(() => getEdgesFromHogFlow(initialValues), [initialValues])
+
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(initialNodes)
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(initialEdges)
 
     useEffect(() => {
         onChange({
@@ -47,7 +62,8 @@ function WorkflowEditorContent({ onChange }: { onChange: OnWorkflowChange }): JS
                 index: edge.data?.index || 0,
             })),
         })
-    }, [nodes, edges, onChange])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [nodes.length, edges.length])
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
@@ -73,7 +89,7 @@ function WorkflowEditorContent({ onChange }: { onChange: OnWorkflowChange }): JS
 
     // Layout the graph on mount.
     useLayoutEffect(() => {
-        void updateAndLayout({ nodes: DEFAULT_NODES, edges: DEFAULT_EDGES })
+        void updateAndLayout({ nodes: initialNodes, edges: initialEdges })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -191,18 +207,15 @@ function WorkflowEditorContent({ onChange }: { onChange: OnWorkflowChange }): JS
                 const remainingEdges = acc.filter((edge) => !connectedEdges.includes(edge))
 
                 const createdEdges = incomers.flatMap(({ id: source }) =>
-                    outgoers.map(
-                        ({ id: target }) =>
-                            ({
-                                id: `${source}->${target}${sourceHandle ? `:${sourceHandle}` : ''}`,
-                                source,
-                                target,
-                                sourceHandle,
-                                targetHandle,
-                                label: sourceLabel,
-                                ...DEFAULT_EDGE_OPTIONS,
-                            } as Edge<HogFlowEdge>)
-                    )
+                    outgoers.map(({ id: target }) => ({
+                        id: `${source}->${target}${sourceHandle ? `:${sourceHandle}` : ''}`,
+                        source,
+                        target,
+                        sourceHandle,
+                        targetHandle,
+                        label: sourceLabel,
+                        ...getDefaultEdgeOptions(),
+                    }))
                 )
 
                 return [...remainingEdges, ...createdEdges]
@@ -264,10 +277,16 @@ function WorkflowEditorContent({ onChange }: { onChange: OnWorkflowChange }): JS
 }
 
 // TODO: Set up workflow update callback
-export function WorkflowEditor({ onChange }: { onChange: OnWorkflowChange }): JSX.Element {
+export function WorkflowEditor({
+    initialValues,
+    onChange,
+}: {
+    initialValues: HogFlow
+    onChange: OnWorkflowChange
+}): JSX.Element {
     return (
         <ReactFlowProvider>
-            <WorkflowEditorContent onChange={onChange} />
+            <WorkflowEditorContent initialValues={initialValues} onChange={onChange} />
         </ReactFlowProvider>
     )
 }

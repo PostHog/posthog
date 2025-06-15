@@ -17,22 +17,23 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id, tab } }): CampaignSceneLogicProps => ({ id: id || 'new', tab: tab || 'overview' }),
 }
 
-export function CampaignScene({ id }: { id?: string } = {}): JSX.Element {
+export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
-    const { campaignChanged, originalCampaign, isCampaignSubmitting } = useValues(campaignLogic({ id }))
-    const { submitCampaign, resetCampaign } = useActions(campaignLogic({ id }))
+    const logic = campaignLogic(props)
+    const { campaignChanged, originalCampaign, isCampaignSubmitting } = useValues(logic)
+    const { submitCampaign, resetCampaign } = useActions(logic)
 
     const tabs = [
         {
             label: 'Overview',
             key: 'overview',
-            content: <CampaignOverview />,
+            content: <CampaignOverview {...props} />,
         },
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <CampaignWorkflow />,
+            content: <CampaignWorkflow {...props} />,
         },
     ]
 
@@ -58,14 +59,14 @@ export function CampaignScene({ id }: { id?: string } = {}): JSX.Element {
                             loading={isCampaignSubmitting}
                             disabledReason={campaignChanged ? undefined : 'No changes to save'}
                         >
-                            {id === 'new' ? 'Create' : 'Save'}
+                            {props.id === 'new' ? 'Create' : 'Save'}
                         </LemonButton>
                     </>
                 }
             />
             <LemonTabs
                 activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.messagingCampaignTab(id, tab))}
+                onChange={(tab) => router.actions.push(urls.messagingCampaignTab(props.id, tab))}
                 tabs={tabs}
             />
         </div>
