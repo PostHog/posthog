@@ -148,19 +148,23 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
+    person_properties = {"$initial_referring_domain": "https://google.com"}
+    person_result = "Organic Search"
+    poe_properties = {"$initial_referring_domain": "https://facebook.com", "$initial_utm_medium": "cpc"}
+    poe_result = "Paid Social"
+
     def setUp(self):
         super().setUp()
-        person_properties = {"$initial_referring_domain": "https://google.com", "utm_source": "google"}
-        self.google_person = _create_person(
+        self.person = _create_person(
             team_id=self.team.pk,
             distinct_ids=["1"],
-            properties=person_properties,
+            properties=self.person_properties,
             created_at=datetime(2025, 5, 28, 12),
         )
         _create_event(
             distinct_id="1",
             event="$pageview",
-            person_properties=person_properties,
+            person_properties=self.poe_properties,
             timestamp=datetime(2025, 5, 28, 12),
             team=self.team,
         )
@@ -170,28 +174,28 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(
             parse_select("select $virt_initial_channel_type from persons where id = {person_id}"),
             self.team,
-            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == "Organic Search"
+        assert response.results[0][0] == self.person_result
 
     def test_virtual_event_person_properties(self):
         response = execute_hogql_query(
             parse_select("select person.$virt_initial_channel_type from events where person.id = {person_id}"),
             self.team,
-            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == "Organic Search"
+        assert response.results[0][0] == self.person_result
 
     def test_virtual_event_poe_properties(self):
         response = execute_hogql_query(
             parse_select("select events.poe.$virt_initial_channel_type from events where person.id = {person_id}"),
             self.team,
-            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == "Organic Search"
+        assert response.results[0][0] == self.poe_result
 
     def test_virtual_event_pdi_properties(self):
         response = execute_hogql_query(
@@ -199,13 +203,18 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
                 "select events.pdi.person.$virt_initial_channel_type from events where person.id = {person_id}"
             ),
             self.team,
-            placeholders={"person_id": ast.Constant(value=self.google_person.uuid)},
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
         )
         assert len(response.results) == 1
-        assert response.results[0][0] == "Organic Search"
+        assert response.results[0][0] == self.person_result
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):
+        expected = (
+            self.person_result
+            if mode in [PersonsOnEventsMode.DISABLED, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED]
+            else self.poe_result
+        )
         query = TrendsQuery(
             **{
                 "kind": "TrendsQuery",
@@ -215,8 +224,10 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
                 "modifiers": {
                     "personsOnEventsMode": mode,
                 },
-            }
+            },
+            dateRange=DateRange(date_from="all", date_to=None),
         )
         tqr = TrendsQueryRunner(team=self.team, query=query)
         # test that it doesn't throw
-        tqr.calculate()
+        results = tqr.calculate().results
+        assert results[0]["breakdown_value"] == [expected]
