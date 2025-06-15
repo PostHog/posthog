@@ -131,6 +131,7 @@ export function LemonModal({
                             size="small"
                             onClick={onClose}
                             aria-label="close"
+                            data-attr="lemon-modal-close-button"
                             onMouseEnter={() => setIgnoredOverlayClickCount(0)}
                         />
                     </Tooltip>
