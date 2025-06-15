@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
+import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { SidePanelTab } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -80,6 +81,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { isDev } = useValues(preflightLogic)
+    const { pinnedFolder } = useValues(pinnedFolderLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -108,7 +110,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         }
     }
 
-    const navItems = [
+    const allNavItems = [
         ...(isLayoutNavCollapsed
             ? [
                   {
@@ -144,6 +146,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         {
             identifier: 'Products',
             id: 'Products',
+            urlIfPinned: 'products://',
             icon: <IconCdCase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -155,6 +158,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         {
             identifier: 'Project',
             id: 'Project',
+            urlIfPinned: 'project://',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -171,6 +175,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         {
             identifier: 'Data',
             id: 'Data',
+            urlIfPinned: 'data://',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -182,6 +187,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         {
             identifier: 'People',
             id: 'People',
+            urlIfPinned: 'people://',
             icon: <IconPeople />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -194,6 +200,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         {
             identifier: 'Shortcuts',
             id: 'Shortcuts',
+            urlIfPinned: 'shortcuts://',
             icon: <IconShortcut />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -214,6 +221,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             tooltipDocLink: 'https://posthog.com/docs/data/events',
         },
     ]
+    const navItems = allNavItems.filter(
+        (item) => !item.urlIfPinned || item.urlIfPinned !== (pinnedFolder || 'products://')
+    )
 
     return (
         <>
