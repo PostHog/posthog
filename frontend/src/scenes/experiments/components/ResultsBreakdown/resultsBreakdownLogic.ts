@@ -1,6 +1,8 @@
-import { actions, afterMount, kea, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { match, P } from 'ts-pattern'
 
 import { performQuery } from '~/queries/query'
@@ -11,7 +13,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -55,6 +57,10 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
     } as ResultBreakdownLogicProps),
 
     path((key) => ['scenes', 'experiment', 'experimentResultBreakdownLogic', key]),
+
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({
         loadBreakdownResults: true,
@@ -186,7 +192,13 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         ],
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values }) => {
+        const isEnabled = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN]
+
+        if (!isEnabled) {
+            return
+        }
+
         const { metric, experiment } = props
 
         // bail if no valid props
@@ -195,7 +207,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         }
 
         // bail if unsupported metric type
-        if (metric.kind !== NodeKind.ExperimentMetric) {
+        if (metric.kind !== NodeKind.ExperimentMetric || metric.metric_type !== ExperimentMetricType.FUNNEL) {
             return
         }
 
