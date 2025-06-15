@@ -5354,7 +5354,7 @@ export type CyclotronJobInvocationGlobalsWithInputs = Partial<CyclotronJobInvoca
     inputs?: Record<string, any>
 }
 
-export type CyclotronJobTestInvocationResult = {
+export type HogFunctionTestInvocationResult = {
     status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any
