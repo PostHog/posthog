@@ -1,5 +1,5 @@
 import { DatabaseSchemaField, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSourceSyncSchema } from '~/types'
 
 export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
 
@@ -91,4 +91,10 @@ const typeSizes = {
 
 export const sizeOfInBytes = (value: any): number => {
     return (typeSizes[typeof value] || (() => 0))(value)
+}
+
+export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['sync_type']>, string> = {
+    full_refresh: 'Full refresh',
+    incremental: 'Incremental',
+    append: 'Append only',
 }
