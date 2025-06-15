@@ -16,6 +16,7 @@ import {
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { logsLogic } from 'products/logs/frontend/logsLogic'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -117,6 +118,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventMetadataPropertyDefinitions'],
             taxonomicFilterPreferencesLogic,
             ['eventOrdering'],
+            logsLogic,
+            ['dateRange as logsDateRange'],
         ],
     })),
     actions(() => ({
@@ -166,7 +169,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(({ values }) => ({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
@@ -471,8 +474,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                 : undefined,
                             exclude_hidden: true,
+                            dateRange: values.logsDateRange,
                         }).url,
-                        valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/logs/values`, {
+                                key,
+                                dateRange: values.logsDateRange,
+                            }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Log attributes',
@@ -808,7 +816,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     .join('')
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
             if (item) {

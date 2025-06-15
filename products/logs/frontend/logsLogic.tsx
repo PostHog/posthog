@@ -20,58 +20,6 @@ const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
 
-    urlToAction(({ actions, values }) => {
-        const urlToAction = (_: any, params: Params): void => {
-            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
-                actions.setDateRange(params.dateRange)
-            }
-            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(params.filterGroup, false)
-            }
-            if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
-                actions.setSearchTerm(params.searchTerm)
-            }
-            if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
-                actions.setSeverityLevels(params.severityLevels)
-            }
-            if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
-                actions.setServiceNames(params.serviceNames)
-            }
-        }
-        return {
-            '*': urlToAction,
-        }
-    }),
-
-    actionToUrl(({ actions, values }) => {
-        const buildURL = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            }
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'searchTerm', values.searchTerm, '')
-                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
-                updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
-                updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
-                actions.runQuery(300)
-                return params
-            })
-        }
-
-        return {
-            setDateRange: () => buildURL(),
-            setFilterGroup: () => buildURL(),
-            setSearchTerm: () => buildURL(),
-            setSeverityLevels: () => buildURL(),
-            setServiceNames: () => buildURL(),
-        }
-    }),
-
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
@@ -278,6 +226,58 @@ export const logsLogic = kea<logsLogicType>([
                 index >= 0 ? breakdowns.splice(index, 1) : breakdowns.push(key)
                 actions.setExpandedAttributeBreaksdowns(breakdowns)
             },
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
+                actions.setDateRange(params.dateRange)
+            }
+            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
+                actions.setFilterGroup(params.filterGroup, false)
+            }
+            if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
+                actions.setSearchTerm(params.searchTerm)
+            }
+            if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
+                actions.setSeverityLevels(params.severityLevels)
+            }
+            if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
+                actions.setServiceNames(params.serviceNames)
+            }
+        }
+        return {
+            '*': urlToAction,
+        }
+    }),
+
+    actionToUrl(({ actions, values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'searchTerm', values.searchTerm, '')
+                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
+                updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
+                updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
+                updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
+                actions.runQuery(300)
+                return params
+            })
+        }
+
+        return {
+            setDateRange: () => buildURL(),
+            setFilterGroup: () => buildURL(),
+            setSearchTerm: () => buildURL(),
+            setSeverityLevels: () => buildURL(),
+            setServiceNames: () => buildURL(),
         }
     }),
 ])
