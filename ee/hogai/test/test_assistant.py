@@ -186,7 +186,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
 
     @patch(
-        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
+        "ee.hogai.graph.trends.nodes.QueryPlannerNode.run",
         return_value=PartialAssistantState(
             intermediate_steps=[
                 (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
@@ -219,7 +219,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 "message",
                 {
                     "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For TrendsPlannerNode
+                    "content": "Picking relevant events and properties",  # For QueryPlannerNode
                     "substeps": [],
                 },
             ),
@@ -227,7 +227,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 "message",
                 {
                     "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For TrendsPlannerToolsNode
+                    "content": "Picking relevant events and properties",  # For QueryPlannerToolsNode
                     "substeps": [],
                 },
             ),
@@ -235,7 +235,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
     @patch(
-        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
+        "ee.hogai.graph.trends.nodes.QueryPlannerNode.run",
         return_value=PartialAssistantState(
             intermediate_steps=[
                 # Compare with toolkit.py to see supported AgentAction shapes. The list below is supposed to include ALL
@@ -281,7 +281,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 "message",
                 {
                     "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For TrendsPlannerNode
+                    "content": "Picking relevant events and properties",  # For QueryPlannerNode
                     "substeps": [],
                 },
             ),
@@ -289,7 +289,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 "message",
                 {
                     "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For TrendsPlannerToolsNode
+                    "content": "Picking relevant events and properties",  # For QueryPlannerToolsNode
                     "substeps": [
                         "Exploring session properties",
                         "Exploring `$pageview` event's properties",
@@ -305,7 +305,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         action = Action.objects.create(team=self.team, name="Marius Tech Tips")
 
         with patch(
-            "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
+            "ee.hogai.graph.trends.nodes.QueryPlannerNode.run",
             return_value=PartialAssistantState(
                 intermediate_steps=[
                     (
@@ -347,7 +347,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     "message",
                     {
                         "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",  # For TrendsPlannerNode
+                        "content": "Picking relevant events and properties",  # For QueryPlannerNode
                         "substeps": [],
                     },
                 ),
@@ -355,7 +355,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     "message",
                     {
                         "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",  # For TrendsPlannerToolsNode
+                        "content": "Picking relevant events and properties",  # For QueryPlannerToolsNode
                         "substeps": [
                             "Exploring `Marius Tech Tips` action properties",
                             "Analyzing `video_name` action property of `Marius Tech Tips`",
@@ -382,7 +382,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with (
             patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock,
-            patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as planner_mock,
+            patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model") as planner_mock,
         ):
             config: RunnableConfig = {
                 "configurable": {
@@ -449,7 +449,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self._test_human_in_the_loop("retention")
 
     def test_ai_messages_appended_after_interrupt(self):
-        with patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
+        with patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model") as mock:
             graph = (
                 InsightsAssistantGraph(self.team)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
@@ -569,7 +569,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_trends_flow(
@@ -636,7 +636,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_funnel_flow(
@@ -710,7 +710,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_retention_flow(
@@ -784,7 +784,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock):
@@ -1000,7 +1000,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_exits_infinite_loop_after_fourth_attempt(
@@ -1167,7 +1167,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     def test_insights_tool_mode_flow(self, query_executor_mock, planner_mock, generator_mock):
         """Test that the insights tool mode works correctly."""
@@ -1228,7 +1228,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     def test_insights_tool_mode_invalid_insight_type(self, query_executor_mock, planner_mock, generator_mock):
         """Test that insights tool mode handles invalid insight types correctly."""
@@ -1442,7 +1442,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
     @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     def test_create_and_query_insight_contextual_tool(
