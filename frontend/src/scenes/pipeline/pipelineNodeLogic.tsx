@@ -29,20 +29,8 @@ type HogFunctionNodeId = {
     backend: PipelineBackend.HogFunction
     id: string
 }
-type ManagedSourceId = {
-    backend: PipelineBackend.ManagedSource
-    id: string
-}
-type DataWarehouseId = {
-    backend: PipelineBackend.SelfManagedSource
-    id: number | string
-}
-export type PipelineNodeLimitedType =
-    | PluginNodeId
-    | BatchExportNodeId
-    | HogFunctionNodeId
-    | ManagedSourceId
-    | DataWarehouseId
+
+export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -122,14 +110,6 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                         return { backend: PipelineBackend.HogFunction, id: `${id}`.replace('hog-', '') }
                     }
 
-                    if (id.indexOf('managed') === 0) {
-                        return { backend: PipelineBackend.ManagedSource, id: `${id}`.replace('managed-', '') }
-                    }
-
-                    if (id.indexOf('self-managed') === 0) {
-                        return { backend: PipelineBackend.SelfManagedSource, id: `${id}`.replace('self-managed-', '') }
-                    }
-
                     return { backend: PipelineBackend.BatchExport, id }
                 }
 
@@ -158,6 +138,15 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
         [urls.pipelineNode(props.stage as PipelineStage, props.id, ':nodeTab')]: ({ nodeTab }) => {
             if (nodeTab !== values.currentTab && Object.values(PipelineNodeTab).includes(nodeTab as PipelineNodeTab)) {
                 actions.setCurrentTab(nodeTab as PipelineNodeTab)
+            }
+
+            // Redirect managed sources to the new data warehouse source page
+            if (
+                typeof props.id === 'string' &&
+                (props.id.startsWith('managed-') || props.id.startsWith('self-managed-'))
+            ) {
+                router.actions.replace(urls.dataWarehouseSource(props.id.toString()))
+                return
             }
 
             // Set the project tree ref from the URL

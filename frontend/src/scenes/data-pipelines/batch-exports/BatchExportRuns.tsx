@@ -9,10 +9,13 @@ import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
+import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { isRunInProgress } from './utils'
+
+function isRunInProgress(run: BatchExportRun): boolean {
+    return ['Running', 'Starting'].includes(run.status)
+}
 
 export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
     const logic = batchExportRunsLogic({ id })
@@ -53,7 +56,7 @@ function BatchExportRunsFilters({ id }: { id: string }): JSX.Element {
     const { setDateRange, switchLatestRuns, loadRuns } = useActions(logic)
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex gap-2 items-center">
             <LemonButton onClick={loadRuns} loading={loading} type="secondary" icon={<IconRefresh />} size="small">
                 Refresh
             </LemonButton>
@@ -329,7 +332,7 @@ export function BatchExportRunsGrouped({
 
 function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Element {
     return (
-        <span className="flex items-center gap-1">
+        <span className="flex gap-1 items-center">
             <LemonButton
                 size="small"
                 type="secondary"
@@ -365,7 +368,7 @@ function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Ele
 
 function RunCancelButton({ run, cancelRun }: { run: BatchExportRun; cancelRun: any }): JSX.Element {
     return (
-        <span className="flex items-center gap-1">
+        <span className="flex gap-1 items-center">
             <LemonButton
                 size="small"
                 type="secondary"

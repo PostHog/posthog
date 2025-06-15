@@ -1,14 +1,14 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
-import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
+import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { hogFunctionTemplateListLogic, HogFunctionTemplateListLogicProps } from './hogFunctionTemplateListLogic'
 
@@ -20,7 +20,9 @@ export function HogFunctionTemplateList({
     const { loading, filteredTemplates, filters, templates, canEnableHogFunction, urlForTemplate } = useValues(
         hogFunctionTemplateListLogic(props)
     )
-    const { loadHogFunctionTemplates, setFilters, resetFilters } = useActions(hogFunctionTemplateListLogic(props))
+    const { loadHogFunctionTemplates, setFilters, resetFilters, registerInterest } = useActions(
+        hogFunctionTemplateListLogic(props)
+    )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     useEffect(() => loadHogFunctionTemplates(), [props.type])
@@ -68,7 +70,7 @@ export function HogFunctionTemplateList({
                                     title={
                                         <>
                                             {template.name}
-                                            {template.status && <DestinationTag status={template.status} />}
+                                            {template.status && <HogFunctionStatusTag status={template.status} />}
                                         </>
                                     }
                                     description={template.description}
@@ -80,10 +82,23 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
+                            if (template.status === 'coming_soon') {
+                                return (
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="request-destination"
+                                        icon={<IconMegaphone />}
+                                        className="whitespace-nowrap"
+                                        onClick={() => registerInterest(template)}
+                                    >
+                                        Notify me
+                                    </LemonButton>
+                                )
+                            }
                             return canEnableHogFunction(template) ? (
                                 <LemonButton
                                     type="primary"
-                                    data-attr={`new-${PipelineStage.Destination}`}
+                                    data-attr="new-destination"
                                     icon={<IconPlusSmall />}
                                     to={urlForTemplate(template)}
                                     fullWidth

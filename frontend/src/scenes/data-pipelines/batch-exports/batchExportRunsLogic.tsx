@@ -7,8 +7,8 @@ import { dayjs } from 'lib/dayjs'
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
+import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
-import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
 
 const DEFAULT_DATE_FROM = '-2d'
 export interface BatchExportRunsLogicProps {
@@ -21,7 +21,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     path((key) => ['scenes', 'pipeline', 'batchExportRunsLogic', key]),
     connect((props: BatchExportRunsLogicProps) => ({
         values: [
-            pipelineBatchExportConfigurationLogic({
+            batchExportConfigurationLogic({
                 id: props.id,
                 service: null,
             }),
