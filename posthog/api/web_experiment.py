@@ -151,6 +151,10 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     authentication_classes = [TemporaryTokenAuthentication]
     queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at").all()
 
+    def safely_get_queryset(self, queryset):
+        queryset = queryset.exclude(deleted=True)
+        return queryset
+
 
 @csrf_exempt
 @action(methods=["GET"], detail=True)
