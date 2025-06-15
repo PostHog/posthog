@@ -15,20 +15,27 @@ export async function promiseRetry<T>(
     name: string,
     retries = defaultRetryConfig.MAX_RETRIES_DEFAULT,
     retryIntervalMillis: number = defaultRetryConfig.RETRY_INTERVAL_DEFAULT,
-    previousError?: Error
+    previousError?: Error,
+    nonRetriableErrorTypes?: (new (...args: any[]) => Error)[]
 ): Promise<T> {
     if (retries <= 0) {
         logger.error('🚨', `Final retry failure for ${name}`, { previousError })
         return Promise.reject(previousError)
     }
     return fn().catch(async (error) => {
+        // Check if error is non-retriable
+        if (nonRetriableErrorTypes && nonRetriableErrorTypes.some((ErrorType) => error instanceof ErrorType)) {
+            logger.debug('🚫', `failed ${name}, non-retriable error encountered`, { error })
+            return Promise.reject(error)
+        }
+
         logger.debug('🔁', `failed ${name}, retrying`, { error })
         const nextInterval = Math.min(
             retryIntervalMillis * defaultRetryConfig.BACKOFF_FACTOR,
             defaultRetryConfig.MAX_INTERVAL
         )
         await new Promise((resolve) => setTimeout(resolve, retryIntervalMillis))
-        return promiseRetry(fn, name, retries - 1, nextInterval, error)
+        return promiseRetry(fn, name, retries - 1, nextInterval, error, nonRetriableErrorTypes)
     })
 }
 

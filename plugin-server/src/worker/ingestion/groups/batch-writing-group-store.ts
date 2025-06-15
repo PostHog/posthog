@@ -98,9 +98,24 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                                 () => this.updateGroupOptimistically(update),
                                 'updateGroupOptimistically',
                                 this.options.maxOptimisticUpdateRetries,
-                                this.options.optimisticUpdateRetryInterval
+                                this.options.optimisticUpdateRetryInterval,
+                                undefined,
+                                [MessageSizeTooLarge]
                             )
                         } catch (error) {
+                            // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
+                            if (error instanceof MessageSizeTooLarge) {
+                                await captureIngestionWarning(
+                                    this.db.kafkaProducer,
+                                    update.team_id,
+                                    'group_upsert_message_size_too_large',
+                                    {
+                                        groupTypeIndex: update.group_type_index,
+                                        groupKey: update.group_key,
+                                    }
+                                )
+                                return
+                            }
                             logger.warn('⚠️', 'Falling back to direct upsert after max retries', {
                                 teamId: update.team_id,
                                 groupTypeIndex: update.group_type_index,
