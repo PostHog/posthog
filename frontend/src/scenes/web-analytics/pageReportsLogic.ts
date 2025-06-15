@@ -9,6 +9,7 @@ import {
     TrendsQuery,
     WebPageURLSearchQuery,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -124,16 +125,18 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             {
                 loadPagesUrls: async ({ searchTerm }: { searchTerm: string }) => {
                     try {
-                        const response = await api.query<WebPageURLSearchQuery>({
-                            kind: NodeKind.WebPageURLSearchQuery,
-                            searchTerm: searchTerm,
-                            stripQueryParams: values.stripQueryParams,
-                            dateRange: {
-                                date_from: values.dateFilter.dateFrom,
-                                date_to: values.dateFilter.dateTo,
-                            },
-                            properties: [],
-                        })
+                        const response = await api.query<WebPageURLSearchQuery>(
+                            setLatestVersionsOnQuery({
+                                kind: NodeKind.WebPageURLSearchQuery,
+                                searchTerm: searchTerm,
+                                stripQueryParams: values.stripQueryParams,
+                                dateRange: {
+                                    date_from: values.dateFilter.dateFrom,
+                                    date_to: values.dateFilter.dateTo,
+                                },
+                                properties: [],
+                            })
+                        )
 
                         return response.results
                     } catch (error) {
