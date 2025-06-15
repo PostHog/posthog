@@ -1,11 +1,16 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
+export enum ItemName {
+    Tables = 'tables',
+    Sources = 'sources',
+}
+
 interface PaginationControlsProps {
     hasMoreItems: boolean
     showAll: boolean
     onToggleShowAll: () => void
     totalCount: number
-    itemName: string // 'tables' or 'sources'
+    itemName: ItemName
     maxItemsToShow: number
     additionalControls?: React.ReactNode
 }

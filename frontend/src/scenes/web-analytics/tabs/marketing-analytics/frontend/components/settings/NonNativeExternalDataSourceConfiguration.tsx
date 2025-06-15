@@ -24,7 +24,7 @@ export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
     }
 
     return (
-        <SharedExternalDataSourceConfiguration
+        <SharedExternalDataSourceConfiguration<ExternalDataSource['source_type']>
             title="Non Native Data Warehouse Sources Configuration"
             description="Configure data warehouse sources to display marketing analytics in PostHog. You'll need to map the required columns for each table to enable the functionality."
             tables={tables}

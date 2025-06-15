@@ -2,19 +2,17 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
-import { ExternalDataSource, ManualLinkSourceType } from '~/types'
-
-interface AddSourceDropdownProps {
-    sources: ExternalDataSource['source_type'][] | ManualLinkSourceType[]
-    onSourceAdd: (source: any) => void // any because different files have different handler types
+interface AddSourceDropdownProps<T> {
+    sources: T[]
+    onSourceAdd: (source: T) => void
     buttonText?: string
 }
 
-export function AddSourceDropdown({
+export function AddSourceDropdown<T extends string>({
     sources,
     onSourceAdd,
     buttonText = 'Add new source',
-}: AddSourceDropdownProps): JSX.Element {
+}: AddSourceDropdownProps<T>): JSX.Element {
     return (
         <LemonDropdown
             className="my-1"

@@ -5,15 +5,13 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useState } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
-import { ExternalDataSource, ManualLinkSourceType } from '~/types'
-
 import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { AddSourceDropdown } from './AddSourceDropdown'
 import { ColumnMappingModal } from './ColumnMappingModal'
-import { PaginationControls } from './PaginationControls'
+import { ItemName, PaginationControls } from './PaginationControls'
 import { StatusIcon } from './StatusIcon'
 
 const MAX_TABLES_TO_SHOW = 3
@@ -29,23 +27,23 @@ export type SimpleDataWarehouseTable = {
     sourceUrl?: string
 }
 
-interface SharedExternalDataSourceConfigurationProps {
+interface SharedExternalDataSourceConfigurationProps<T extends string> {
     title: string
     description: string
     tables: ExternalTable[]
     loading: boolean
-    validSources: ExternalDataSource['source_type'][] | ManualLinkSourceType[]
-    onSourceAdd: (source: any) => void // Need any because self-managed and non-native sources have different types
+    validSources: T[]
+    onSourceAdd: (source: T) => void
 }
 
-export function SharedExternalDataSourceConfiguration({
+export function SharedExternalDataSourceConfiguration<T extends string>({
     title,
     description,
     tables,
     loading,
     validSources,
     onSourceAdd,
-}: SharedExternalDataSourceConfigurationProps): JSX.Element {
+}: SharedExternalDataSourceConfigurationProps<T>): JSX.Element {
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
 
@@ -147,9 +145,9 @@ export function SharedExternalDataSourceConfiguration({
                 showAll={showAll}
                 onToggleShowAll={() => setShowAll(!showAll)}
                 totalCount={tablesToUse.length}
-                itemName="tables"
+                itemName={ItemName.Tables}
                 maxItemsToShow={MAX_TABLES_TO_SHOW}
-                additionalControls={<AddSourceDropdown sources={validSources} onSourceAdd={onSourceAdd} />}
+                additionalControls={<AddSourceDropdown<T> sources={validSources} onSourceAdd={onSourceAdd} />}
             />
             <LemonTable
                 rowKey={(item) => item.id}

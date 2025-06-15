@@ -12,7 +12,7 @@ import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { AddSourceDropdown } from './AddSourceDropdown'
 import { ListDisplay } from './ListDisplay'
-import { PaginationControls } from './PaginationControls'
+import { ItemName, PaginationControls } from './PaginationControls'
 import { StatusIcon } from './StatusIcon'
 
 const MAX_SOURCES_TO_SHOW = 5
@@ -117,10 +117,10 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                 showAll={showAll}
                 onToggleShowAll={() => setShowAll(!showAll)}
                 totalCount={sourcesToUse.length}
-                itemName="sources"
+                itemName={ItemName.Sources}
                 maxItemsToShow={MAX_SOURCES_TO_SHOW}
                 additionalControls={
-                    <AddSourceDropdown
+                    <AddSourceDropdown<ExternalDataSource['source_type']>
                         sources={VALID_MARKETING_SOURCES}
                         onSourceAdd={(source) => {
                             router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))

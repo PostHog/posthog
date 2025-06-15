@@ -13,6 +13,12 @@ interface ColumnMappingModalProps {
     onClose: () => void
 }
 
+enum FieldStatus {
+    Complete = 'complete',
+    Empty = 'empty',
+    Partial = 'partial',
+}
+
 export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModalProps): JSX.Element {
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const { sources_map } = useValues(marketingAnalyticsSettingsLogic)
@@ -29,7 +35,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
     }
 
     // Get the current mapping from the sources_map to ensure we have the latest data
-    const currentSourceMap = sources_map[table.source_map_id] || {}
+    const currentSourceMap = sources_map[table.source_map_id] ?? {}
 
     const isColumnTypeCompatible = (
         columnType: string,
@@ -39,7 +45,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
     }
 
     const renderColumnMappingDropdown = (fieldName: keyof typeof MARKETING_ANALYTICS_SCHEMA): JSX.Element => {
-        const currentValue = currentSourceMap[fieldName]
+        const currentValue = currentSourceMap[fieldName] ?? null
         const expectedTypes = MARKETING_ANALYTICS_SCHEMA[fieldName]
         const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
 
@@ -64,7 +70,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
 
         return (
             <LemonSelect
-                value={currentValue || null}
+                value={currentValue}
                 onChange={(value) => updateSourceMapping(table.source_map_id, fieldName, value)}
                 options={columnOptions}
                 placeholder="Select..."
@@ -81,21 +87,21 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
         )
     }
 
-    const getFieldStatus = (fieldName: string): 'complete' | 'empty' => {
+    const getFieldStatus = (fieldName: string): FieldStatus => {
         const mapping = currentSourceMap[fieldName]
         if (!mapping || mapping.trim() === '') {
-            return 'empty'
+            return FieldStatus.Empty
         }
-        return 'complete'
+        return FieldStatus.Complete
     }
 
-    const getStatusIcon = (status: 'complete' | 'partial' | 'empty'): JSX.Element => {
+    const getStatusIcon = (status: FieldStatus): JSX.Element => {
         switch (status) {
-            case 'complete':
+            case FieldStatus.Complete:
                 return <IconCheck className="text-success text-sm" />
-            case 'partial':
+            case FieldStatus.Partial:
                 return <IconWarning className="text-warning text-sm" />
-            case 'empty':
+            case FieldStatus.Empty:
                 return <IconX className="text-muted text-sm" />
         }
     }
@@ -106,11 +112,9 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
     }).length
 
     const clearAllMappings = (): void => {
-        if (currentSourceMap) {
-            Object.keys(currentSourceMap).forEach((fieldName) => {
-                updateSourceMapping(table.source_map_id, fieldName, null)
-            })
-        }
+        Object.keys(currentSourceMap).forEach((fieldName) => {
+            updateSourceMapping(table.source_map_id, fieldName, null)
+        })
     }
 
     return (
