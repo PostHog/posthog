@@ -502,10 +502,7 @@ export const RecordingsUniversalFiltersEmbed = ({
     )
 }
 
-const RecordingsUniversalFilterGroup = ({
-    size = 'small',
-    totalFiltersCount,
-}: {
+const RecordingsUniversalFilterGroup = ({}: {
     size?: LemonButtonProps['size']
     totalFiltersCount?: number
 }): JSX.Element => {
@@ -522,7 +519,7 @@ const RecordingsUniversalFilterGroup = ({
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                        <RecordingsUniversalFilterGroup />
 
                         <Popover
                             overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}

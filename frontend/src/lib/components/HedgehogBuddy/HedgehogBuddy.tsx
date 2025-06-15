@@ -835,7 +835,7 @@ export class HedgehogActor {
                                     }px`,
                                     backgroundSize: (SPRITE_SIZE / SPRITE_SIZE) * X_FRAMES * 100 + '%',
                                     filter: imageFilter as any,
-                                    ...(this.mainAnimation.spriteInfo.style ?? {}),
+                                    ...this.mainAnimation.spriteInfo.style,
                                 }}
                             />
                         ) : null}
@@ -872,7 +872,7 @@ export class HedgehogActor {
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
                                     }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
-                                    ...(this.overlayAnimation.spriteInfo.style ?? {}),
+                                    ...this.overlayAnimation.spriteInfo.style,
                                 }}
                             />
                         ) : null}

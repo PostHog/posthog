@@ -60,7 +60,7 @@ module.exports = {
                 // 1. Check if it's a known property for potential fixing
                 const knownPropertyEnum = propertyStringToEnum[value]
                 // 2. Check if it *starts* with $survey_ for general reporting
-                const startsWithSurvey = /^\$survey_/.test(value)
+                const startsWithSurvey = value.startsWith('$survey_')
 
                 if (startsWithSurvey) {
                     // It starts with $survey_, so report it.

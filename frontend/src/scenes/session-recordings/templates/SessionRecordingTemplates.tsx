@@ -32,7 +32,6 @@ const allCategories: ReplayTemplateCategory[] = replayTemplates
     .filter((category, index, self) => self.indexOf(category) === index)
 
 const NestedFilterGroup = ({
-    rootKey,
     buttonTitle,
     selectOne,
 }: {
@@ -49,7 +48,7 @@ const NestedFilterGroup = ({
                 {filterGroup.values.map((filterOrGroup, index) => {
                     return isUniversalGroupFilterLike(filterOrGroup) ? (
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <NestedFilterGroup rootKey={rootKey} />
+                            <NestedFilterGroup />
                         </UniversalFilters.Group>
                     ) : (
                         <UniversalFilters.Value

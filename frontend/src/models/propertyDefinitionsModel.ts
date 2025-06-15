@@ -216,7 +216,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 setOptions: (state, { key, values, allowCustomValues }) => ({
                     ...state,
                     [key]: {
-                        values: [...Array.from(new Set(values))],
+                        values: Array.from(new Set(values)),
                         status: 'loaded',
                         allowCustomValues,
                     },

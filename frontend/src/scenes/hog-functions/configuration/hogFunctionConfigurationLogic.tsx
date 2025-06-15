@@ -1183,7 +1183,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             const config: HogFunctionConfigurationType = {
                 ...baseConfig,
-                ...(cache.configFromUrl ?? {}),
+                ...cache.configFromUrl,
             }
 
             if (values.template?.mapping_templates) {
