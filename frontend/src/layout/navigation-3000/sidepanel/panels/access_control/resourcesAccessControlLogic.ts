@@ -55,6 +55,8 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
 
                 updateResourceAccessControls: async ({ accessControls }) => {
                     for (const control of accessControls) {
+                        // TODO: optimize
+                        // eslint-disable-next-line no-await-in-loop
                         await api.put<AccessControlTypeRole>('api/projects/@current/global_access_controls', {
                             ...control,
                         })
@@ -99,13 +101,10 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                 // Find all acs without a roles (they are the default ones)
                 const accessControlByResource = accessControls
                     .filter((control) => !control.role && !control.organization_member)
-                    .reduce(
-                        (acc, control) => ({
-                            ...acc,
-                            [control.resource]: control,
-                        }),
-                        {} as Record<APIScopeObject, AccessControlTypeRole>
-                    )
+                    .reduce((acc, control) => {
+                        acc[control.resource] = control as AccessControlTypeRole
+                        return acc
+                    }, {} as Record<APIScopeObject, AccessControlTypeRole>)
 
                 return { accessControlByResource }
             },
@@ -152,10 +151,10 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                         const accessControlByResource = accessControls
                             .filter((control: AccessControlType) => control.organization_member === member.id)
                             .reduce(
-                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => ({
-                                    ...acc,
-                                    [control.resource]: control as AccessControlTypeRole,
-                                }),
+                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => {
+                                    acc[control.resource] = control as AccessControlTypeRole
+                                    return acc
+                                },
                                 {} as Record<APIScopeObject, AccessControlTypeRole>
                             )
 
@@ -187,10 +186,10 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                         const accessControlByResource = accessControls
                             .filter((control: AccessControlType) => control.role === role.id)
                             .reduce(
-                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => ({
-                                    ...acc,
-                                    [control.resource]: control as AccessControlTypeRole,
-                                }),
+                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => {
+                                    acc[control.resource] = control as AccessControlTypeRole
+                                    return acc
+                                },
                                 {} as Record<APIScopeObject, AccessControlTypeRole>
                             )
 

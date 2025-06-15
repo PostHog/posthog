@@ -20,7 +20,7 @@ export const variableDataLogic = kea<variableDataLogicType>([
                     try {
                         await api.insightVariables.delete(variableId)
                         lemonToast.success('Variable deleted successfully')
-                    } catch (error) {
+                    } catch {
                         lemonToast.error('Failed to delete variable')
                     }
                     return values.variables.filter((variable) => variable.id !== variableId)

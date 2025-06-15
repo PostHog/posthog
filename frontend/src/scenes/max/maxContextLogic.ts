@@ -223,6 +223,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                             await breakpoint(50)
                             while (!dashboardLogicInstance.values.dashboard) {
+                                // eslint-disable-next-line no-await-in-loop
                                 await breakpoint(50)
                             }
 
@@ -234,6 +235,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                     (status: RefreshStatus) => status.loading
                                 )
                             ) {
+                                // eslint-disable-next-line no-await-in-loop
                                 await breakpoint(50)
                             }
                         } finally {
@@ -257,6 +259,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                             await breakpoint(50)
                             while (!insightLogicInstance.values.insight.query) {
+                                // eslint-disable-next-line no-await-in-loop
                                 await breakpoint(50)
                             }
 

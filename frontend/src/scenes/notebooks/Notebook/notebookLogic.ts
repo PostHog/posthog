@@ -58,6 +58,7 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
     }, 2000)
 
     while (!waitForEditor()) {
+        // eslint-disable-next-line no-await-in-loop
         await new Promise((resolve) => setTimeout(resolve, 10))
     }
     clearTimeout(timeout)

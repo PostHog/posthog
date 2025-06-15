@@ -2403,7 +2403,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             urlsByDomain.set(key, [])
                         }
                         urlsByDomain.get(key)!.push(url)
-                    } catch (e) {
+                    } catch {
                         // Silently skip URLs that can't be parsed
                     }
                 }

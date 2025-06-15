@@ -2,7 +2,7 @@ import { LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
-import { memo } from 'react'
+import React from 'react'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 
 import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'
@@ -232,7 +232,7 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
     )
 }
 
-function _SurveyStatsSummary(): JSX.Element {
+export const SurveyStatsSummary = React.memo(function SurveyStatsSummary(): JSX.Element {
     const {
         filterSurveyStatsByDistinctId,
         processedSurveyStats,
@@ -263,6 +263,4 @@ function _SurveyStatsSummary(): JSX.Element {
             <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
         </SurveyStatsContainer>
     )
-}
-
-export const SurveyStatsSummary = memo(_SurveyStatsSummary)
+})

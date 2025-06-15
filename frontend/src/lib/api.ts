@@ -260,7 +260,7 @@ export function getCookie(name: string): string | null {
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch (e) {
+    } catch {
         return null
     }
 }
@@ -2664,7 +2664,7 @@ const api = {
                 if (textLines) {
                     return textLines.split('\n')
                 }
-            } catch (e) {
+            } catch {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
             return []
@@ -3709,6 +3709,8 @@ const api = {
                 break
             }
 
+            // we're fetching the next page, this is as intended
+            // eslint-disable-next-line no-await-in-loop
             const { results: partialResults, next } = await api.get(url)
             results = results.concat(partialResults)
             url = next

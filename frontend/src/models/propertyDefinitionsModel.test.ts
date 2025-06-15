@@ -170,6 +170,7 @@ describe('the property definitions model', () => {
         it('handles network errors', async () => {
             // run twice to assure errors get retried
             for (let i = 0; i < 2; i++) {
+                // eslint-disable-next-line no-await-in-loop
                 await expectLogic(logic, () => {
                     logic.actions.loadPropertyDefinitions(['network error'], PropertyDefinitionType.Event)
                 })

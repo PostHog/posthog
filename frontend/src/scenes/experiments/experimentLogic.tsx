@@ -1190,7 +1190,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch (error) {
+            } catch {
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
@@ -1287,6 +1287,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     for (const query of metrics) {
                         const insightQuery = toInsightVizNode(query)
 
+                        // TODO: fix this
+                        // eslint-disable-next-line no-await-in-loop
                         await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
                             name: query.name || undefined,
                             query: insightQuery,
@@ -1339,7 +1341,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     let isValid
                     try {
                         isValid = featureFlagEligibleForExperiment(matchingFlag)
-                    } catch (error) {
+                    } catch {
                         isValid = false
                     }
                     actions.setValidExistingFeatureFlag(isValid ? matchingFlag : null)

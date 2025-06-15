@@ -1,10 +1,13 @@
 .eslintrc.js
 jest.config.ts
 node_modules
+dist
+build
 rust
 livestream
+plugin-server
 common/hogvm/__tests__/__snapshots__
 common/hogvm/typescript/dist
 common/hogvm/typescript/jest.config.js
-common/plugin_transpiler/dist
-common/plugin_transpiler/build.mjs
+common/hogvm/typescript
+common/plugin_transpiler

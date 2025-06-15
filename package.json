@@ -59,6 +59,7 @@
         "eslint-plugin-simple-import-sort": "^10.0.0",
         "eslint-plugin-storybook": "^0.6.15",
         "eslint-plugin-unused-imports": "^3.1.0",
+        "oxlint": "^1.1.0",
         "prettier": "^2.8.8",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.3.0",
@@ -88,35 +89,33 @@
             "prettier --write"
         ],
         "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "oxlint --fix --quiet",
+            "eslint --cache --fix",
             "prettier --write"
         ],
         "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "oxlint --fix --quiet",
+            "eslint --cache --fix",
             "prettier --write"
         ],
-        "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+        "frontend/**/*.{js,jsx,mjs,ts,tsx}": [
+            "oxlint --fix --quiet",
+            "eslint --cache --fix",
             "prettier --write"
         ],
-        "products/*/manifest.tsx": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
+        "products/**/*.{js,jsx,mjs,ts,tsx}": [
+            "oxlint --fix --quiet",
+            "eslint --cache --fix",
             "prettier --write"
         ],
         "common/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "frontend/*.mjs": [
-            "eslint -c .eslintrc.js --fix",
+            "oxlint --fix --quiet",
+            "eslint --cache --fix",
             "prettier --write"
         ],
         "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+            "oxlint --fix --quiet",
+            "eslint --cache --fix",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [

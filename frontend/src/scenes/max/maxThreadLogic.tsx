@@ -307,6 +307,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 })
 
                 while (true) {
+                    // eslint-disable-next-line no-await-in-loop
                     const { done, value } = await reader.read()
                     parser.feed(decoder.decode(value))
                     if (done) {

@@ -4,25 +4,6 @@
     "env": {
         "builtin": true
     },
-    "ignorePatterns": [
-        "node_modules",
-        "dist",
-        "build",
-        "rust",
-        "plugin-server",
-        "livestream",
-        "common/hogvm/typescript",
-        "common/plugin_transpiler",
-        "common/hogvm/__tests__/**/__snapshots__/**",
-        "cypress/cypress.e2e.config.ts",
-        ".eslintrc.js",
-        "jest.config.ts",
-        "common/hogvm/typescript/dist",
-        "common/hogvm/typescript/jest.config.js",
-        "common/plugin_transpiler/dist",
-        "common/plugin_transpiler/build.mjs",
-        "common/hogvm/__tests__/__snapshots__"
-    ],
     "rules": {
         "react-hooks/rules-of-hooks": "error",
         "react-hooks/exhaustive-deps": "warn",

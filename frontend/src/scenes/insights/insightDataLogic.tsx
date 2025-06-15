@@ -133,7 +133,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
 
                 return {
-                    ...queryExportContext(sourceQuery, undefined, undefined),
+                    ...queryExportContext(sourceQuery),
                     filename,
                 } as ExportContext
             },

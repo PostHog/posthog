@@ -174,7 +174,10 @@ export function getAllClickTargets(
     const shadowElements = allElements
         .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
-        .reduce((a, b) => [...a, ...b], [])
+        .reduce((a, b) => {
+            a.push(...b)
+            return a
+        }, [])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
         .map((e) => trimElement(e, targetSelector))
         .filter((e) => e)
