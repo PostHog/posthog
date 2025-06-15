@@ -91,6 +91,23 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
     return config
 
 
+# KLUDGE: this is duplicated in posthog/api/decide.py
+def _should_have_custom_rrweb_script(team_id: int) -> bool:
+    if settings.SESSION_REPLAY_RRWEB_SCRIPT is None:
+        return False
+
+    max_allowed = settings.SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS
+
+    if max_allowed == "*":
+        return True
+
+    try:
+        max_team_id = int(max_allowed)
+        return team_id < max_team_id
+    except (ValueError, TypeError):
+        return False
+
+
 class RemoteConfig(UUIDModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
@@ -175,10 +192,7 @@ class RemoteConfig(UUIDModel):
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
+            if _should_have_custom_rrweb_script(team.pk):
                 rrweb_script_config = {
                     "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
                 }

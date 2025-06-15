@@ -553,49 +553,36 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 None,
                 None,
                 {"scriptConfig": None},
-                False,
             ],
             [
                 "must have allowlist",
                 "new-recorder",
                 None,
                 {"scriptConfig": None},
-                False,
             ],
             [
                 "ignores empty allowlist",
                 "new-recorder",
-                [],
+                "",
                 {"scriptConfig": None},
-                False,
             ],
             [
                 "wild card works",
                 "new-recorder",
-                ["*"],
+                "*",
                 {"scriptConfig": {"script": "new-recorder"}},
-                False,
-            ],
-            [
-                "can have wild card and team id",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
             ],
             [
                 "allow list can exclude",
                 "new-recorder",
-                ["9999", "9998"],
+                "-1",
                 {"scriptConfig": None},
-                False,
             ],
             [
                 "allow list can include",
                 "new-recorder",
-                ["9999", "9998"],
+                "99999",
                 {"scriptConfig": {"script": "new-recorder"}},
-                True,
             ],
         ]
     )
@@ -603,9 +590,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self,
         _name: str,
         rrweb_script_name: str | None,
-        team_allow_list: list[str] | None,
+        max_team_setting: str | None,
         expected: dict,
-        include_team_in_allowlist: bool,
     ) -> None:
         self._update_team(
             {
@@ -613,12 +599,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             }
         )
 
-        if team_allow_list and include_team_in_allowlist:
-            team_allow_list.append(f"{self.team.id}")
-
         with self.settings(
             SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
+            SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS=max_team_setting,
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
