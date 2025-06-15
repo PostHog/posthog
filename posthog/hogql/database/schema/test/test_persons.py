@@ -1,7 +1,8 @@
-import unittest
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.schema import (
     PersonsOnEventsMode,
     InsightActorsQuery,
@@ -183,7 +184,6 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0][0] == "Organic Search"
 
-    @unittest.expectedFailure
     def test_virtual_event_poe_properties(self):
         response = execute_hogql_query(
             parse_select("select events.poe.$virt_initial_channel_type from events where person.id = {person_id}"),
@@ -203,3 +203,20 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(response.results) == 1
         assert response.results[0][0] == "Organic Search"
+
+    @parameterized.expand([e.value for e in PersonsOnEventsMode])
+    def test_virtual_property_in_trend(self, mode):
+        query = TrendsQuery(
+            **{
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
+                "trendsFilter": {},
+                "breakdownFilter": {"breakdowns": [{"property": "$virt_initial_channel_type", "type": "person"}]},
+                "modifiers": {
+                    "personsOnEventsMode": mode,
+                },
+            }
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=query)
+        # test that it doesn't throw
+        tqr.calculate()
