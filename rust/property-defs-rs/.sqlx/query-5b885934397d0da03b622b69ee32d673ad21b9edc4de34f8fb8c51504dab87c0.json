@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping \n                 WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "team_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_type_index",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int4Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5b885934397d0da03b622b69ee32d673ad21b9edc4de34f8fb8c51504dab87c0"
+}
