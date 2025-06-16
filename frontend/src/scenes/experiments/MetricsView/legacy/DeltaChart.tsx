@@ -4,8 +4,6 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createContext, useContext, useState } from 'react'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
@@ -23,7 +21,6 @@ import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { useChartColors } from '../shared/colors'
 import { GridLines } from '../shared/GridLines'
 import { MetricHeader } from '../shared/MetricHeader'
-import { getDefaultMetricTitle } from '../shared/utils'
 import { ChartModal } from './ChartModal'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
@@ -482,30 +479,6 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
     )
 }
 
-/**
- * High order function that takes an experiment and the primary status of the metric, and returns
- * a function that, given a metric, returns the updated slice of the experiment object.
- */
-const duplicateMetric =
-    (experiment: Experiment, isPrimary: boolean) =>
-    (metric: ExperimentMetric): Partial<Experiment> => {
-        const name = metric.name
-            ? `${metric.name} (copy)`
-            : metric.kind === NodeKind.ExperimentMetric
-            ? `${getDefaultMetricTitle(metric)} (copy)`
-            : undefined
-
-        const newMetric = { ...metric, id: undefined, name }
-        const metricsKey = isPrimary ? 'metrics' : 'metrics_secondary'
-        const metrics = [...experiment[metricsKey]]
-        const originalIndex = metrics.findIndex((m) => m === metric)
-        metrics.splice(originalIndex + 1, 0, newMetric)
-
-        return {
-            [metricsKey]: metrics,
-        }
-    }
-
 // Main DeltaChart component
 export function DeltaChart({
     isSecondary,
@@ -541,7 +514,7 @@ export function DeltaChart({
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const { openVariantDeltaTimeseriesModal, setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
+    const { openVariantDeltaTimeseriesModal, duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
 
     // Loading state
     const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
@@ -568,8 +541,6 @@ export function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
-    const onDuplicateMetric = duplicateMetric(experiment, !isSecondary)
-
     // Metric title panel
     const metricTitlePanel = (
         <MetricHeader
@@ -577,8 +548,8 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
-            onDuplicateMetricClick={(metric) => {
-                setExperiment(onDuplicateMetric(metric))
+            onDuplicateMetricClick={() => {
+                duplicateMetric({ metricIndex, isSecondary })
                 updateExperimentMetrics()
             }}
         />
@@ -660,6 +631,7 @@ export function DeltaChart({
                 isSecondary={isSecondary}
                 result={result}
                 experimentId={experimentId as ExperimentIdType}
+                experiment={experiment}
             />
         </DeltaChartContext.Provider>
     )

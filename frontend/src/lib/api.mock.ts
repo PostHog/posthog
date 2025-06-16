@@ -7,6 +7,7 @@ import {
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -157,7 +158,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ],
     },
     flags_persistence_default: false,
-    access_control_version: 'v1',
     has_completed_onboarding_for: {
         product_analytics: true,
     },
@@ -195,6 +195,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     available_product_features: [],
     member_count: 2,
     logo_media_id: null,
+    default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
