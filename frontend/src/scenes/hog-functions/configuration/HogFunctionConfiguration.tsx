@@ -256,6 +256,12 @@ export function HogFunctionConfiguration({
                             may result in some events failing to be delivered.
                         </LemonBanner>
                     </div>
+                ) : ['template-google-ads'].includes(templateId ?? '') ? (
+                    <div>
+                        <LemonBanner type="warning">
+                            This is an experimental destination that we do not provide official support for.
+                        </LemonBanner>
+                    </div>
                 ) : null}
 
                 <Form
