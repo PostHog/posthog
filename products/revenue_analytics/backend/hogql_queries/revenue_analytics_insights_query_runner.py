@@ -130,7 +130,8 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         # However, because we're already likely joining with the subquery because
         # we might be filtering on item, we need to be extra safe here and guarantee
         # there's no join with the subquery before adding this one
-        if query.select_from is not None:
+        subquery = self._subquery_for_view(join_to)
+        if subquery is not None and query.select_from is not None:
             has_subquery_join = False
             current_join: ast.JoinExpr | None = query.select_from
             while current_join is not None:
@@ -142,7 +143,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             if not has_subquery_join:
                 query.select_from = self.append_joins(
                     query.select_from,
-                    [self.create_subquery_join(join_to, self._subquery_for_view(join_to))],
+                    [self.create_subquery_join(join_to, subquery)],
                 )
 
         return query
@@ -167,7 +168,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         else:
             raise ValueError(f"Invalid group by: {group_by}")
 
-    def _subquery_for_view(self, view: type[RevenueAnalyticsBaseView]) -> ast.SelectSetQuery:
+    def _subquery_for_view(self, view: type[RevenueAnalyticsBaseView]) -> ast.SelectSetQuery | None:
         charge_subquery, customer_subquery, invoice_item_subquery, product_subquery = self.revenue_subqueries
         if view == RevenueAnalyticsProductView:
             return product_subquery
