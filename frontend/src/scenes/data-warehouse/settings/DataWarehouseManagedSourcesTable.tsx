@@ -6,7 +6,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataJobStatus, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataJobStatus } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
@@ -41,11 +41,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     key: 'name',
                     render: (_, source) => (
                         <LemonTableLink
-                            to={urls.pipelineNode(
-                                PipelineStage.Source,
-                                `managed-${source.id}`,
-                                PipelineNodeTab.Schemas
-                            )}
+                            to={urls.dataWarehouseSource(`managed-${source.id}`)}
                             title={SOURCE_DETAILS[source.source_type]?.label ?? source.source_type}
                             description={source.prefix}
                         />

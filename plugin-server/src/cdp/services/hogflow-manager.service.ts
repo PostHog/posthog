@@ -1,3 +1,5 @@
+import { PostgresUse } from '~/src/utils/db/postgres'
+
 import { HogFlow } from '../../schema/hogflow'
 import { Hub, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -5,12 +7,24 @@ import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
 
-// TODO: Add these once DB models created
-// const HOG_FLOW_FIELDS = [
-//     'id',
-//     'team_id',
-//     'name',
-// ]
+// TODO: Make sure we only have fields we truly need
+const HOG_FLOW_FIELDS = [
+    'id',
+    'team_id',
+    'name',
+    'description',
+    'version',
+    'status',
+    'created_at',
+    'updated_at',
+    'trigger',
+    'trigger_masking',
+    'conversion',
+    'exit_condition',
+    'edges',
+    'actions',
+    'abort_action',
+]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 
@@ -64,7 +78,7 @@ export class HogFlowManagerService {
             return acc
         }, {})
 
-        const teamItemIds = await this.getHogFlowIdsForTeam(teamIds)
+        const teamItemIds = await this.getHogFlowIdsForTeams(teamIds)
         const allIds = Object.values(teamItemIds).flat()
         const items = await this.lazyLoader.getMany(allIds)
 
@@ -79,7 +93,7 @@ export class HogFlowManagerService {
         return result
     }
 
-    public async getHogFlowIdsForTeam(teamIds: Team['id'][]): Promise<Record<Team['id'], string[]>> {
+    public async getHogFlowIdsForTeams(teamIds: Team['id'][]): Promise<Record<Team['id'], string[]>> {
         const result = teamIds.reduce<Record<Team['id'], string[]>>((acc, teamId) => {
             acc[teamId] = []
             return acc
@@ -118,50 +132,43 @@ export class HogFlowManagerService {
         this.lazyLoader.markForRefresh(hogFlowIds)
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {
-        // TEMPORARY: Waiting for DB models to be implemented
-        return Promise.resolve({})
+        logger.info('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
+        const response = await this.hub.postgres.query<HogFlowTeamInfo>(
+            PostgresUse.COMMON_READ,
+            `SELECT id, team_id, version FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
+            [teamIds],
+            'fetchAllTeamHogFlows'
+        )
 
-        // logger.info('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
-        // const response = await this.hub.postgres.query<Pick<HogFlow, 'id' | 'team_id' | 'version'>>(
-        //     PostgresUse.COMMON_READ,
-        //     `SELECT id, team_id FROM posthog_hogflow WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
-        //     [teamIds],
-        //     'fetchAllTeamHogFlows'
-        // )
+        const byTeam: Record<string, HogFlowTeamInfo[]> = {}
 
-        // const byTeam: Record<string, HogFlowTeamInfo[]> = {}
+        for (const item of response.rows) {
+            const teamId = item.team_id.toString()
+            if (!byTeam[teamId]) {
+                byTeam[teamId] = []
+            }
+            byTeam[teamId].push(item)
+        }
 
-        // for (const item of response.rows) {
-        //     const teamId = item.team_id.toString()
-        //     if (!byTeam[teamId]) {
-        //         byTeam[teamId] = []
-        //     }
-        //     byTeam[teamId].push(item)
-        // }
-
-        // return byTeam
+        return byTeam
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private async fetchHogFlows(ids: string[]): Promise<Record<string, HogFlow | undefined>> {
-        return Promise.resolve({})
+        logger.info('[HogFlowManager]', 'Fetching hog flows', { ids })
 
-        // logger.info('[HogFlowManager]', 'Fetching hog flows', { ids })
+        const response = await this.hub.postgres.query<HogFlow>(
+            PostgresUse.COMMON_READ,
+            `SELECT ${HOG_FLOW_FIELDS.join(', ')} FROM posthog_hogflow WHERE id = ANY($1)`,
+            [ids],
+            'fetchHogFlows'
+        )
 
-        // const response = await this.hub.postgres.query<HogFlow>(
-        //     PostgresUse.COMMON_READ,
-        //     `SELECT ${HOG_FLOW_FIELDS.join(', ')} FROM posthog_hogflow WHERE id = ANY($1)`,
-        //     [ids],
-        //     'fetchHogFlows'
-        // )
+        const items = response.rows
 
-        // const items = response.rows
-
-        // return items.reduce<Record<string, HogFlow | undefined>>((acc, item) => {
-        //     acc[item.id] = item
-        //     return acc
-        // }, {})
+        return items.reduce<Record<string, HogFlow | undefined>>((acc, item) => {
+            acc[item.id] = item
+            return acc
+        }, {})
     }
 }
