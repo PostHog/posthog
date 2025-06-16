@@ -25,6 +25,8 @@ export class HogFlowActionRunner {
                 id: triggerAction.id,
                 startedAt: DateTime.now(),
             }
+
+            // TODO: For the trigger action we need to assume that we have already been "started" this way and move on...
         }
 
         const action = invocation.hogFlow.actions.find((action) => action.id === currentAction.id)
