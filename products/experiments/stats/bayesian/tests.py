@@ -68,8 +68,8 @@ class BayesianResult:
 
     @property
     def is_decisive(self) -> bool:
-        """Whether result shows clear preference (chance to win > 95% or < 5%)."""
-        return self.chance_to_win > 0.95 or self.chance_to_win < 0.05
+        """Whether result shows clear preference (chance to win > ci_level or < 1 - ci_level)."""
+        return self.chance_to_win > self.ci_level or self.chance_to_win < 1 - self.ci_level
 
     @property
     def preferred_variation(self) -> str:
