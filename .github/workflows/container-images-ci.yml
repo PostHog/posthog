@@ -36,7 +36,7 @@ jobs:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
         # Only on PostHog/posthog, as there's no docker login on forks
-        if: ${{ github.event.pull_request.head.repo.full_name == 'org/repo'  }}
+        if: ${{ github.event.pull_request.head.repo.full_name  == github.repository }}
 
         steps:
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
