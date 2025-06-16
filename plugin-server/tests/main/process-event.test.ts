@@ -10,9 +10,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { captureTeamEvent } from '~/src/utils/posthog'
-import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { captureTeamEvent } from '~/utils/posthog'
+import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
+import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 
 import {
     ClickHouseEvent,
