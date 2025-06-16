@@ -35,18 +35,20 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
         description: (
             <>
                 The function has been disabled indefinitely due to too many slow or failed requests. Please check your
-                config. Updating your function will move it back to the "degraded" state for testing. If it performs
-                well, it will then be moved to the healthy.
+                config. Updating your function will re-enable it.
             </>
         ),
     },
 }
 
 const DEFAULT_DISPLAY: DisplayOptions = {
-    tagType: 'default',
-    display: 'Unknown',
+    tagType: 'success',
+    display: 'Active',
     description: (
-        <>The function status is unknown. The status will be derived once enough invocations have been performed.</>
+        <>
+            The function is enabled but the function status is unknown. The status will be derived once enough
+            invocations have been performed.
+        </>
     ),
 }
 
@@ -64,22 +66,17 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
         return null
     }
 
-    const { tagType, display, description } =
-        hogFunction.type === 'site_app' || hogFunction.type === 'site_destination'
-            ? hogFunction.enabled
-                ? displayMap[HogWatcherState.healthy]
-                : DISABLED_MANUALLY_DISPLAY
-            : hogFunction.status?.state
-            ? displayMap[hogFunction.status.state]
-            : hogFunction.enabled
-            ? DEFAULT_DISPLAY
-            : DISABLED_MANUALLY_DISPLAY
+    const { tagType, display, description } = !hogFunction.enabled
+        ? DISABLED_MANUALLY_DISPLAY
+        : hogFunction.status?.state
+        ? displayMap[hogFunction.status.state]
+        : DEFAULT_DISPLAY
 
     return (
         <LemonDropdown
             overlay={
                 <>
-                    <div className="p-2 deprecated-space-y-2">
+                    <div className="p-2 deprecated-space-y-2 max-w-120">
                         <h2 className="flex gap-2 items-center m-0">
                             Function status - <LemonTag type={tagType}>{display}</LemonTag>
                         </h2>

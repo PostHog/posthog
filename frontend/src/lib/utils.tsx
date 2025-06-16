@@ -980,6 +980,7 @@ const dateOptionsMap = {
     w: 'week',
     d: 'day',
     h: 'hour',
+    M: 'minute',
 } as const
 
 export function dateFilterToText(
@@ -1042,6 +1043,9 @@ export function dateFilterToText(
                     break
                 case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
+                    break
+                case 'minute':
+                    date = dayjs().subtract(counter, 'm')
                     break
                 default:
                     date = dayjs().subtract(counter, 'd')
@@ -1111,6 +1115,9 @@ export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset
             break
         case 'hour':
             response = dayjsInstance.add(amount, 'hour')
+            break
+        case 'minute':
+            response = dayjsInstance.add(amount, 'minute')
             break
         default:
             throw new UnexpectedNeverError(unit)

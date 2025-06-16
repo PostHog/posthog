@@ -11,6 +11,7 @@ export enum ProductIntentContext {
     // Data Warehouse
     SELECTED_CONNECTOR = 'selected connector',
     SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
+    DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
 
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',

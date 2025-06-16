@@ -32,6 +32,14 @@ exports[`processAiEvent() smoke test every model processes gpt-4 1`] = `
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes gpt-4.1 1`] = `
+{
+  "$ai_input_cost_usd": 90,
+  "$ai_output_cost_usd": 45,
+  "$ai_total_cost_usd": 135,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes gpt-4-0125-preview 1`] = `
 {
   "$ai_input_cost_usd": 30,

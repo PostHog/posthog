@@ -45,6 +45,17 @@ def test_partition_range_validation():
         PartitionRange(lower="202401", upper="")
 
 
+def test_materialization_config_force_default():
+    # Test that force defaults to False
+    config = MaterializationConfig(
+        table="test_table",
+        columns=["test_column"],
+        indexes=[],
+        partitions=PartitionRange(lower="202401", upper="202403"),
+    )
+    assert config.force is False
+
+
 @contextlib.contextmanager
 def override_mergetree_settings(cluster: ClickhouseCluster, table: str, settings: Mapping[str, str]) -> Iterator[None]:
     def alter_table_add_settings(client: Client) -> None:
@@ -150,3 +161,22 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             )
 
             # XXX: ideally we'd assert here that the index now exists, but there is no way to do that like there is for columns
+
+            # Test force option: even though columns are already materialized, force should re-materialize them
+            force_materialize_config = MaterializationConfig(
+                table="sharded_events",
+                columns=[column.name],
+                indexes=[],
+                partitions=partitions,
+                force=True,
+            )
+
+            # When force=True, should return mutations for all partitions even though they're already materialized
+            remaining_partitions_by_shard = cluster.map_one_host_per_shard(
+                force_materialize_config.get_mutations_to_run
+            ).result()
+            for _shard_host, shard_mutations in remaining_partitions_by_shard.items():
+                assert len(shard_mutations) == 3
+                for mutation in shard_mutations.values():
+                    # mutations should only be for the column
+                    assert all("MATERIALIZE COLUMN" in command for command in mutation.commands)

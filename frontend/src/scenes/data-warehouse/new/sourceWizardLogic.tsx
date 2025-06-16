@@ -6,12 +6,15 @@ import api from 'lib/api'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
+    Breadcrumb,
     ExternalDataSourceCreatePayload,
+    externalDataSources,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     manualLinkSources,
@@ -43,15 +46,24 @@ const StripeCaption = (): JSX.Element => (
         <br />
         <br />
         Currently, <strong>read permissions are required</strong> for the following resources:
-        <br />
-        <code>Entire Connected resource type</code>, <code>Invoice</code>, <code>Customer</code>,{' '}
-        <code>Subscription</code>, <code>Product</code>, <code>Price</code>, <code>BalanceTransaction</code>, and{' '}
-        <code>Charge</code>.
+        <ul className="list-disc list-inside">
+            <li>
+                Under the <b>Core</b> resource type, select <i>read</i> for <b>Balance transaction sources</b>,{' '}
+                <b>Charges</b>, <b>Customer</b>, and <b>Product</b>
+            </li>
+            <li>
+                Under the <b>Billing</b> resource type, select <i>read</i> for <b>Invoice</b>, <b>Price</b>, and{' '}
+                <b>Subscription</b>
+            </li>
+            <li>
+                Under the <b>Connected</b> resource type, select <i>read</i> for the <b>entire resource</b>
+            </li>
+        </ul>
     </>
 )
 
 export const getHubspotRedirectUri = (): string =>
-    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { kind: 'hubspot' })}`
+    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { source: 'Hubspot' })}`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -740,6 +752,155 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         caption: '',
     },
+    TemporalIO: {
+        name: 'TemporalIO',
+        label: 'Temporal.io',
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'namespace',
+                label: 'Namespace',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'encryption_key',
+                label: 'Encryption key',
+                type: 'text',
+                required: false,
+                placeholder: '',
+            },
+            {
+                name: 'server_client_root_ca',
+                label: 'Server client root CA',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_certificate',
+                label: 'Client certificate',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_private_key',
+                label: 'Client private key',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        caption: '',
+    },
+    GoogleAds: {
+        name: 'GoogleAds',
+        label: 'Google Ads',
+        betaSource: true,
+        caption: (
+            <>
+                Ensure you have granted PostHog access to your Google Ads account as instructed in the
+                <Link to="https://posthog.com/docs/cdp/sources/google-ads" target="_blank">
+                    documentation
+                </Link>
+                .
+            </>
+        ),
+        fields: [
+            {
+                name: 'customer_id',
+                label: 'Customer ID',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+    },
+    DoIt: {
+        name: 'DoIt',
+        label: 'DoIt',
+        caption: '',
+        fields: [
+            {
+                name: 'api_key',
+                label: 'API key',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+    },
+    MetaAds: {
+        name: 'MetaAds',
+        label: 'Meta Ads',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    GoogleSheets: {
+        name: 'GoogleSheets',
+        label: 'Google Sheets',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mongodb: {
+        name: 'Mongodb',
+        label: 'MongoDB',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Klaviyo: {
+        name: 'Klaviyo',
+        label: 'Klaviyo',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mailchimp: {
+        name: 'Mailchimp',
+        label: 'Mailchimp',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Braze: {
+        name: 'Braze',
+        label: 'Braze',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mailjet: {
+        name: 'Mailjet',
+        label: 'Mailjet',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Redshift: {
+        name: 'Redshift',
+        label: 'Redshift',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (
@@ -798,7 +959,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (kind: string, searchParams?: any) => ({ kind, searchParams }),
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
         onBack: true,
         onNext: true,
@@ -966,6 +1127,32 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
+            (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.Pipeline,
+                        name: 'Data pipelines',
+                        path: urls.pipeline(PipelineTab.Overview),
+                    },
+                    {
+                        key: [Scene.Pipeline, 'sources'],
+                        name: `Sources`,
+                        path: urls.pipeline(PipelineTab.Sources),
+                    },
+                    {
+                        key: Scene.DataWarehouseSource,
+                        name:
+                            selectedConnector?.label ??
+                            (manualLinkingProvider
+                                ? manualConnectors.find((c) => c.type === manualLinkingProvider)?.name
+                                : 'New'),
+                    },
+                ]
+            },
+        ],
+
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
@@ -1040,7 +1227,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         manualConnectors: [
             () => [],
-            () =>
+            (): { name: string; type: ManualLinkSourceType }[] =>
                 manualLinkSources.map((source) => ({
                     name: manualLinkSourceMap[source],
                     type: source,
@@ -1204,11 +1391,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setIsLoading(false)
             }
         },
-        handleRedirect: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'hubspot': {
+        handleRedirect: async ({ source, searchParams }) => {
+            switch (source) {
+                case 'Hubspot': {
                     actions.updateSource({
-                        source_type: 'Hubspot',
+                        source_type: source,
                         payload: {
                             code: searchParams?.code,
                             redirect_uri: getHubspotRedirectUri(),
@@ -1216,20 +1403,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     })
                     return
                 }
-                case 'salesforce': {
-                    actions.updateSource({
-                        source_type: 'Salesforce',
-                    })
-                    break
-                }
-                case 'stripe': {
-                    actions.updateSource({
-                        source_type: 'Stripe',
-                    })
-                    break
-                }
+
                 default:
-                    lemonToast.error(`Something went wrong.`)
+                    // By default, we assume the source is a valid external data source
+                    if (externalDataSources.includes(source)) {
+                        actions.updateSource({
+                            source_type: source,
+                        })
+                    } else {
+                        lemonToast.error(`Something went wrong.`)
+                    }
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
@@ -1269,27 +1452,49 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             })
         },
     })),
-    urlToAction(({ actions }) => ({
-        [urls.pipelineNodeNew(PipelineStage.Source)]: (_, searchParams) => {
-            if (searchParams.kind == 'hubspot' && searchParams.code) {
-                actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                actions.handleRedirect(searchParams.kind, {
-                    code: searchParams.code,
-                })
-                actions.setStep(2)
+    urlToAction(({ actions, values }) => {
+        const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
+            const kind = searchParams.kind?.toLowerCase()
+            const source = values.connectors.find((s) => s.name.toLowerCase() === kind)
+            const manualSource = values.manualConnectors.find((s) => s.type.toLowerCase() === kind)
+
+            if (manualSource) {
+                actions.toggleManualLinkFormVisible(true)
+                actions.setManualLinkingProvider(manualSource.type)
+                return
             }
-            if (searchParams.kind == 'salesforce') {
-                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind)
-                actions.setStep(2)
+
+            if (source?.name === 'Hubspot') {
+                if (searchParams.code) {
+                    actions.selectConnector(source)
+                    actions.handleRedirect(source.name, {
+                        code: searchParams.code,
+                    })
+                    actions.setStep(2)
+                    return
+                }
+
+                window.open(values.addToHubspotButtonUrl() as string, '_self')
+                return
             }
-            if (searchParams.kind == 'stripe') {
-                actions.selectConnector(SOURCE_DETAILS['Stripe'])
-                actions.handleRedirect(searchParams.kind)
+
+            if (source) {
+                actions.selectConnector(source)
+                actions.handleRedirect(source.name)
                 actions.setStep(2)
+                return
             }
-        },
-    })),
+
+            actions.selectConnector(null)
+            actions.setStep(1)
+        }
+
+        return {
+            [urls.dataWarehouseSourceNew()]: handleUrlChange,
+            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
+        }
+    }),
+
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),

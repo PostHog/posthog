@@ -232,4 +232,14 @@ export const skins: Record<HedgehogSkin, { [key: string]: SpriteInfo }> = {
         walk: standardAnimations.walk,
         wave: standardAnimations.wave,
     },
+    robohog: {
+        stop: standardAnimations.stop,
+        fall: standardAnimations.fall,
+        jump: standardAnimations.jump,
+        walk: standardAnimations.walk,
+        wave: {
+            ...standardAnimations.wave,
+            frames: 23, // RoboHog has fewer `wave` frames than standard
+        },
+    },
 }

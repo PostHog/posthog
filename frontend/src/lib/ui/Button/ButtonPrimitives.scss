@@ -20,6 +20,7 @@
     font-weight: 400;
     color: var(--text-primary);
     cursor: pointer;
+    user-select: none;
     border-radius: var(--radius);
 
     svg {

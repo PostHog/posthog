@@ -1,18 +1,17 @@
-use std::sync::atomic::Ordering;
-
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
 
 use crate::{
-    config::FRAME_CONTEXT_LINES,
     error::{Error, FrameError, JsResolveErr, UnhandledError},
-    frames::{Context, ContextLine, Frame},
+    frames::Frame,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
+
+use super::utils::{add_raw_to_junk, get_context};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -197,6 +196,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             resolve_failure: None,
             junk_drawer: None,
             context: get_context(&token),
+            release: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -241,6 +241,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
             context: None,
+            release: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -277,51 +278,13 @@ impl From<&RawJSFrame> for Frame {
             resolve_failure: None,
             junk_drawer: None,
             context: None,
+            release: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
 
         res
     }
-}
-
-fn add_raw_to_junk(frame: &mut Frame, raw: &RawJSFrame) {
-    // UNWRAP: raw JS frames are definitely representable as json
-    frame.add_junk("raw_frame", raw.clone()).unwrap();
-}
-
-fn get_context(token: &SourceLocation) -> Option<Context> {
-    let file = token.file()?;
-    let token_line_num = token.line();
-    let src = file.source()?;
-
-    let line_limit = FRAME_CONTEXT_LINES.load(Ordering::Relaxed);
-    get_context_lines(src, token_line_num as usize, line_limit)
-}
-
-fn get_context_lines(src: &str, line: usize, context_len: usize) -> Option<Context> {
-    let start = line.saturating_sub(context_len).saturating_sub(1);
-
-    let mut lines = src.lines().enumerate().skip(start);
-    let before = (&mut lines)
-        .take(line - start)
-        .map(|(number, line)| ContextLine::new(number as u32, line))
-        .collect();
-
-    let line = lines
-        .next()
-        .map(|(number, line)| ContextLine::new(number as u32, line))?;
-
-    let after = lines
-        .take(context_len)
-        .map(|(number, line)| ContextLine::new(number as u32, line))
-        .collect();
-
-    Some(Context {
-        before,
-        line,
-        after,
-    })
 }
 
 #[cfg(test)]

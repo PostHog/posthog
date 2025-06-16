@@ -1,6 +1,7 @@
 import './AccountPopover.scss'
 
 import {
+    IconCake,
     IconCheckCircle,
     IconConfetti,
     IconCopy,
@@ -13,9 +14,10 @@ import {
     IconServer,
     IconShieldLock,
 } from '@posthog/icons'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -33,6 +35,7 @@ import {
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { getTreeItemsGames } from '~/products'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
@@ -261,7 +264,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={
-                            featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD]
+                            featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
                                 ? urls.organizationBillingSection('overview')
                                 : urls.organizationBilling()
                         }
@@ -269,7 +272,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >
-                        {featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD] ? 'Billing & Usage' : 'Billing'}
+                        {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
@@ -312,6 +315,24 @@ export function AccountPopoverOverlay(): JSX.Element {
                 </LemonButton>
                 <FeaturePreviewsButton />
             </AccountPopoverSection>
+            {featureFlags[FEATURE_FLAGS.GAME_CENTER] ? (
+                <AccountPopoverSection>
+                    <LemonSelect
+                        options={getTreeItemsGames().map((game) => ({ label: game.path, value: game.href || '' }))}
+                        value=""
+                        renderButtonContent={() => 'Games'}
+                        onChange={(value) => {
+                            router.actions.push(String(value))
+                            closeAccountPopover()
+                        }}
+                        dropdownPlacement="right-start"
+                        dropdownMatchSelectWidth={false}
+                        fullWidth
+                        icon={<IconCake />}
+                        type="tertiary"
+                    />
+                </AccountPopoverSection>
+            ) : null}
             {user?.is_staff && (
                 <AccountPopoverSection>
                     <DjangoAdmin />

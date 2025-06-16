@@ -30,7 +30,7 @@ import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, Survey, SurveyEventName } from '~/types'
+import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
@@ -39,6 +39,7 @@ import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
+    settingSectionId: 'environment-surveys',
 }
 
 export function Surveys(): JSX.Element {
@@ -66,6 +67,9 @@ export function Surveys(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
+                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                            Have any questions or feedback?
+                        </LemonButton>
                         <LemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
@@ -102,9 +106,6 @@ export function Surveys(): JSX.Element {
                             </Link>{' '}
                             to learn more.
                         </div>
-                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
-                            Have any questions or feedback?
-                        </LemonButton>
                     </>
                 }
                 tabbedPage
@@ -125,19 +126,7 @@ export function Surveys(): JSX.Element {
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions
-                        logicKey="surveys"
-                        type="destination"
-                        subTemplateIds={['survey-response']}
-                        filters={{
-                            events: [
-                                {
-                                    id: SurveyEventName.SENT,
-                                    type: 'events',
-                                },
-                            ],
-                        }}
-                    />
+                    <LinkedHogFunctions type="destination" subTemplateIds={['survey-response']} />
                 </>
             )}
 

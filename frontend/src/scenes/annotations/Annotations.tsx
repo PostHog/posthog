@@ -1,5 +1,5 @@
 import { IconPencil } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -14,6 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'
@@ -23,13 +24,21 @@ import {
     annotationScopeToLevel,
     annotationScopeToName,
 } from './annotationModalLogic'
+import { annotationsLogic } from './annotationsLogic'
 
 export function Annotations(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, timezone } = useValues(teamLogic)
+
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext, timezone, shouldShowEmptyState } =
-        useValues(annotationModalLogic)
-    const { loadAnnotationsNext, openModalToCreateAnnotation } = useActions(annotationModalLogic)
+
+    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+
+    const { filteredAnnotations, shouldShowEmptyState, annotationsLoading, scopeOptions, scope } =
+        useValues(annotationsLogic)
+    const { setScope } = useActions(annotationsLogic)
+
+    const { loadingNext, next } = useValues(annotationsModel)
+    const { loadAnnotationsNext } = useActions(annotationsModel)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -122,10 +131,16 @@ export function Annotations(): JSX.Element {
 
     return (
         <>
-            <p>
-                Annotations allow you to mark when certain changes happened so you can easily see how they impacted your
-                metrics.
-            </p>
+            <div className="flex flex-row items-center gap-2 justify-between">
+                <div>
+                    Annotations allow you to mark when certain changes happened so you can easily see how they impacted
+                    your metrics.
+                </div>
+                <div className="flex flex-row items-center gap-2">
+                    <div>Scope: </div>
+                    <LemonSelect options={scopeOptions} value={scope} onSelect={setScope} />
+                </div>
+            </div>
             <div data-attr="annotations-content">
                 <div className="mt-4">
                     <ProductIntroduction
@@ -135,7 +150,7 @@ export function Annotations(): JSX.Element {
                         description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
                         docsURL="https://posthog.com/docs/data/annotations"
                         action={() => openModalToCreateAnnotation()}
-                        isEmpty={annotations.length === 0 && !annotationsLoading}
+                        isEmpty={shouldShowEmptyState}
                         customHog={MicrophoneHog}
                     />
                 </div>
@@ -144,7 +159,7 @@ export function Annotations(): JSX.Element {
                         <LemonTable
                             data-attr="annotations-table"
                             rowKey="id"
-                            dataSource={annotations}
+                            dataSource={filteredAnnotations}
                             columns={columns}
                             defaultSorting={{
                                 columnKey: 'date_marker',

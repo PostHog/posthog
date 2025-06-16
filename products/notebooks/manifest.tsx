@@ -12,8 +12,10 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         notebook: {
+            name: 'Notebook',
             icon: <IconNotebook />,
             href: (ref: string) => urls.notebook(ref),
+            filterKey: 'notebook',
         },
     },
     treeItemsNew: [
@@ -23,7 +25,4 @@ export const manifest: ProductManifest = {
             href: urls.notebook('new'),
         },
     ],
-    fileSystemFilterTypes: {
-        notebook: { name: 'Notebooks' },
-    },
 }

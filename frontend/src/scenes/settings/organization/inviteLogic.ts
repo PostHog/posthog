@@ -1,5 +1,5 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -65,6 +65,8 @@ export const inviteLogic = kea<inviteLogicType>([
                 },
             },
         ],
+    })),
+    lazyLoaders(({ values }) => ({
         invites: [
             [] as OrganizationInviteType[],
             {
@@ -175,8 +177,5 @@ export const inviteLogic = kea<inviteLogicType>([
                 actions.showInviteModal()
             }
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: [actions.loadInvites],
     })),
 ])

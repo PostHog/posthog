@@ -4,7 +4,13 @@ import { Hub } from '../../types'
 import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
 import { CdpRedis } from '../redis'
-import { HogFunctionInvocationResult, HogFunctionTiming, HogFunctionType } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionTiming,
+    HogFunctionType,
+} from '../types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -48,20 +54,32 @@ type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunct
 // Having it as a celery task ID based on a file path is brittle and hard to test.
 export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
 
+// Check if the result is of type CyclotronJobInvocationHogFunction
+export const isHogFunctionResult = (
+    result: CyclotronJobInvocationResult
+): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+    return 'hogFunction' in result.invocation
+}
+
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
 
     constructor(private hub: Hub, private redis: CdpRedis) {
         this.costsMapping = {
             hog: {
-                lowerBound: this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS,
-                upperBound: this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS,
-                cost: this.hub.CDP_WATCHER_COST_TIMING,
+                lowerBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
+                upperBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                cost: this.hub.CDP_WATCHER_HOG_COST_TIMING,
+            },
+            async_function: {
+                lowerBound: this.hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
+                upperBound: this.hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
+                cost: this.hub.CDP_WATCHER_ASYNC_COST_TIMING,
             },
         }
 
         for (const [kind, mapping] of Object.entries(this.costsMapping)) {
-            if (mapping.lowerBound >= this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS) {
+            if (mapping.lowerBound >= mapping.upperBound) {
                 throw new Error(
                     `Lower bound for kind ${kind} of ${mapping.lowerBound}ms must be lower than upper bound of ${mapping.upperBound}ms. This is a configuration error.`
                 )
@@ -162,44 +180,35 @@ export class HogWatcherService {
         await this.onStateChange(id, state)
     }
 
-    public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
+    public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         // NOTE: Currently we only monitor hog code timings. We will have a separate config for async functions
 
-        const costs: Record<HogFunctionType['id'], number> = {}
+        const costs: Record<CyclotronJobInvocation['functionId'], number> = {}
         // Create a map to store the function types
-        const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
+        const functionTypes: Record<CyclotronJobInvocation['functionId'], HogFunctionType['type']> = {}
 
         results.forEach((result) => {
-            let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
-            // Store the function type for later use
-            functionTypes[result.invocation.hogFunction.id] = result.invocation.hogFunction.type
+            if (!isHogFunctionResult(result)) {
+                return
+            }
+
+            let cost = (costs[result.invocation.functionId] = costs[result.invocation.functionId] || 0)
+            functionTypes[result.invocation.functionId] = result.invocation.hogFunction.type
 
             if (result.finished) {
-                // Calculate cost based on individual timings, not the total
-                let costForTimings = 0
-
-                // Calculate cost for this individual timing
-
-                for (const timing of result.invocation.timings) {
+                // Process each timing entry individually instead of totaling them
+                for (const timing of result.invocation.state.timings) {
                     // Record metrics for this timing entry
                     hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
 
-                    const costMapping = this.costsMapping[timing.kind]
-
-                    if (costMapping) {
+                    const costConfig = this.costsMapping[timing.kind]
+                    if (costConfig) {
                         const ratio =
-                            Math.max(timing.duration_ms - costMapping.lowerBound, 0) /
-                            (costMapping.upperBound - costMapping.lowerBound)
-                        // Add to the total cost for this result
-                        costForTimings += Math.round(costMapping.cost * ratio)
+                            Math.max(timing.duration_ms - costConfig.lowerBound, 0) /
+                            (costConfig.upperBound - costConfig.lowerBound)
+                        cost += Math.round(costConfig.cost * ratio)
                     }
                 }
-
-                cost += costForTimings
-            }
-
-            if (result.error) {
-                cost += this.hub.CDP_WATCHER_COST_ERROR
             }
 
             costs[result.invocation.hogFunction.id] = cost

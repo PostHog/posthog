@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
+    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -15,6 +16,7 @@ import {
     ActionsNode,
     AnalyticsQueryResponseBase,
     BreakdownFilter,
+    CalendarHeatmapFilter,
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
@@ -35,6 +37,7 @@ import {
     TrendsFilter,
 } from '~/queries/schema/schema-general'
 import {
+    isCalendarHeatmapQuery,
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithCompare,
@@ -48,6 +51,8 @@ import {
 import {
     ActionFilter,
     BaseMathType,
+    CalendarHeatmapFilterType,
+    CalendarHeatmapMathType,
     DataWarehouseFilter,
     FilterType,
     FunnelExclusionLegacy,
@@ -75,6 +80,7 @@ const insightTypeToNodeKind: Record<
     [InsightType.PATHS]: NodeKind.PathsQuery,
     [InsightType.STICKINESS]: NodeKind.StickinessQuery,
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
+    [InsightType.CALENDAR_HEATMAP]: NodeKind.CalendarHeatmapQuery,
 }
 
 const actorsOnlyMathTypes = [
@@ -87,7 +93,9 @@ const actorsOnlyMathTypes = [
 
 const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstTimeForUserWithFilters]
 
-type FilterTypeActionsAndEvents = {
+const calendarHeatmapMathTypes = [CalendarHeatmapMathType.TotalCount, CalendarHeatmapMathType.UniqueUsers]
+
+export type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
     actions?: ActionFilter[]
     data_warehouse?: DataWarehouseFilter[]
@@ -128,6 +136,13 @@ export const legacyEntityToNode = (
             }
         } else if (mathAvailability === MathAvailability.FunnelsOnly) {
             if (funnelsMathTypes.includes(entity.math as any)) {
+                shared = {
+                    ...shared,
+                    math: entity.math as MathType,
+                }
+            }
+        } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
+            if (calendarHeatmapMathTypes.includes(entity.math as any)) {
                 shared = {
                     ...shared,
                     math: entity.math as MathType,
@@ -356,6 +371,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.trendsFilter = trendsFilterToQuery(filters)
     }
 
+    // calendar heatmap filter
+    if (isCalendarHeatmapFilter(filters) && isCalendarHeatmapQuery(query)) {
+        query.calendarHeatmapFilter = calendarHeatmapFilterToQuery(filters)
+    }
+
     // funnels filter
     if (isFunnelsFilter(filters) && isFunnelsQuery(query)) {
         query.funnelsFilter = funnelsFilterToQuery(filters)
@@ -436,9 +456,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         returningEntity: sanitizeRetentionEntity(filters.returning_entity),
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
-        meanRetentionCalculation:
-            filters.mean_retention_calculation ||
-            (typeof filters.show_mean === 'boolean' ? (filters.show_mean ? 'simple' : 'none') : 'simple'),
+        meanRetentionCalculation: filters.mean_retention_calculation || 'simple',
         cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
@@ -470,6 +488,13 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
         funnelPathType: filters.funnel_paths,
         funnelSource: filtersToQueryNode(filters.funnel_filter) as FunnelsQuery,
         funnelStep: filters.funnel_filter?.funnel_step,
+    }
+}
+
+export const calendarHeatmapFilterToQuery = (filters: Partial<CalendarHeatmapFilterType>): CalendarHeatmapFilter => {
+    // Reserved for future filter properties
+    return {
+        dummy: filters?.dummy,
     }
 }
 

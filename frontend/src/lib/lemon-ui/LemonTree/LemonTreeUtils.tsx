@@ -72,6 +72,7 @@ type TreeNodeDisplayIconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
     defaultNodeIcon?: React.ReactNode
+    size?: 'default' | 'narrow'
 }
 
 // Get display item for the tree node
@@ -80,15 +81,17 @@ export const TreeNodeDisplayIcon = ({
     item,
     expandedItemIds,
     defaultNodeIcon,
+    size = 'default',
 }: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
-    const isFolder = item.record?.type === 'folder'
+    const isFolder = item.record?.type === 'folder' || (item.children && item.children.length > 0)
     const isEmptyFolder = item.type === 'empty-folder'
     const isFile = item.record?.type === 'file'
-    let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
+    let iconElement: React.ReactNode | undefined = item.icon || defaultNodeIcon
 
     if (isFolder) {
-        iconElement = isOpen ? <IconFolderOpenFilled /> : <IconFolder />
+        // use provided icon as the default icon for folder nodes
+        iconElement = iconElement ?? (isOpen ? <IconFolderOpenFilled /> : <IconFolder />)
     }
 
     if (isEmptyFolder) {
@@ -100,7 +103,11 @@ export const TreeNodeDisplayIcon = ({
     }
 
     return (
-        <div className="h-[var(--lemon-tree-button-height)] flex gap-1 relative [&_svg]:size-4 items-start -ml-px">
+        <div
+            className={cn('h-[var(--lemon-tree-button-height)] flex gap-1 relative items-start ', {
+                '-ml-px': size === 'default',
+            })}
+        >
             {isFolder && (
                 <div
                     className={cn(

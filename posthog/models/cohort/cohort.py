@@ -2,7 +2,6 @@ import time
 from datetime import datetime
 from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
 
-import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
@@ -176,7 +175,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Cohorts",
+            base_folder=self._get_assigned_folder("Unfiled/Cohorts"),
             type="cohort",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
@@ -276,13 +275,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
-        use_hogql_cohorts = posthoganalytics.feature_enabled(
-            "enable_hogql_cohort_calculation",
-            str(self.team.organization_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-        )
-
         logger.warn(
             "cohort_calculation_started",
             id=self.pk,
@@ -292,9 +284,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(
-                self, pending_version, initiating_user_id=initiating_user_id, hogql=use_hogql_cohorts
-            )
+            count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
 
             self.last_calculation = timezone.now()

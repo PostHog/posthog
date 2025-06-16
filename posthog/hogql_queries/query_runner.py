@@ -5,14 +5,19 @@ from types import UnionType
 from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import get_traceparent, push_scope, set_tag
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
-from posthog.clickhouse.client.limit import get_api_personal_rate_limiter, get_app_org_rate_limiter
+from posthog.clickhouse.client.limit import (
+    get_api_personal_rate_limiter,
+    get_app_org_rate_limiter,
+    get_app_dashboard_queries_rate_limiter,
+)
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
@@ -32,7 +37,6 @@ from posthog.schema import (
     CacheMissResponse,
     DashboardFilter,
     DateRange,
-    EventsHeatMapQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -44,11 +48,13 @@ from posthog.schema import (
     GenericCachedQueryResponse,
     GroupsQuery,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    CalendarHeatmapQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -69,8 +75,8 @@ from posthog.schema import (
     WebOverviewQuery,
     WebStatsTableQuery,
 )
-from posthog.schema_helpers import to_dict, to_json
-from posthog.utils import generate_cache_key, get_from_dict_or_attr
+from posthog.schema_helpers import to_dict
+from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
 
@@ -211,11 +217,11 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "EventsHeatMapQuery":
-        from .web_analytics.web_active_hours_heatmap_query_runner import EventsHeatMapQueryRunner
+    if kind == "CalendarHeatmapQuery":
+        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
-        return EventsHeatMapQueryRunner(
-            query=cast(EventsHeatMapQuery | dict[str, Any], query),
+        return CalendarHeatmapQueryRunner(
+            query=cast(CalendarHeatmapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -307,11 +313,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "HogQLQuery":
+    if kind == "HogQLQuery" or kind == "HogQLASTQuery":
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | dict[str, Any], query),
+            query=cast(HogQLQuery | HogQLASTQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -401,12 +407,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
+    if kind == "RevenueAnalyticsGrowthRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+            RevenueAnalyticsGrowthRateQueryRunner,
         )
 
-        return RevenueAnalyticsOverviewQueryRunner(
+        return RevenueAnalyticsGrowthRateQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -414,12 +420,25 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsGrowthRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
-            RevenueAnalyticsGrowthRateQueryRunner,
+    if kind == "RevenueAnalyticsInsightsQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_insights_query_runner import (
+            RevenueAnalyticsInsightsQueryRunner,
         )
 
-        return RevenueAnalyticsGrowthRateQueryRunner(
+        return RevenueAnalyticsInsightsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
+        )
+
+        return RevenueAnalyticsOverviewQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -622,6 +641,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     is_query_service: bool = False
+    workload: Workload
 
     def __init__(
         self,
@@ -631,12 +651,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        workload: Workload = Workload.DEFAULT,
         extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
+        self.workload = workload
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -738,11 +760,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         else:
             # Whatever's in cache is malformed, so let's treat is as non-existent
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
-            with push_scope() as scope:
-                scope.set_tag("cache_key", cache_manager.cache_key)
-                capture_exception(
-                    ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
-                )
+            capture_exception(
+                ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it"),
+                {"cache_key": cache_manager.cache_key},
+            )
 
         if self.is_cached_response(cached_response_candidate):
             assert isinstance(cached_response, CachedResponse)
@@ -805,90 +826,98 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         cache_key = self.get_cache_key()
 
-        tag_queries(cache_key=cache_key)
-        tag_queries(sentry_trace=get_traceparent())
-        set_tag("cache_key", cache_key)
-        set_tag("query_type", getattr(self.query, "kind", "Other"))
-        if insight_id:
-            tag_queries(insight_id=insight_id)
-            set_tag("insight_id", str(insight_id))
-        if dashboard_id:
-            tag_queries(dashboard_id=dashboard_id)
-            set_tag("dashboard_id", str(dashboard_id))
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("cache_key", cache_key)
+            posthoganalytics.tag("query_type", getattr(self.query, "kind", "Other"))
 
-        self.query_id = query_id or self.query_id
-        CachedResponse: type[CR] = self.cached_response_type
-        cache_manager = QueryCacheManager(
-            team_id=self.team.pk,
-            cache_key=cache_key,
-            insight_id=insight_id,
-            dashboard_id=dashboard_id,
-        )
+            if insight_id:
+                posthoganalytics.tag("insight_id", str(insight_id))
+            if dashboard_id:
+                posthoganalytics.tag("dashboard_id", str(dashboard_id))
 
-        if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
-            # We should always kick off async calculation and disregard the cache
-            return QueryStatusResponse(
-                query_status=self.enqueue_async_calculation(
-                    refresh_requested=True, cache_manager=cache_manager, user=user
+            self.query_id = query_id or self.query_id
+            CachedResponse: type[CR] = self.cached_response_type
+            cache_manager = QueryCacheManager(
+                team_id=self.team.pk,
+                cache_key=cache_key,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+            )
+
+            if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
+                # We should always kick off async calculation and disregard the cache
+                return QueryStatusResponse(
+                    query_status=self.enqueue_async_calculation(
+                        refresh_requested=True, cache_manager=cache_manager, user=user
+                    )
                 )
-            )
-        elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-            # Let's look in the cache first
-            results = self.handle_cache_and_async_logic(
-                execution_mode=execution_mode, cache_manager=cache_manager, user=user
-            )
-            if results:
-                return results
+            elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+                # Let's look in the cache first
+                results = self.handle_cache_and_async_logic(
+                    execution_mode=execution_mode, cache_manager=cache_manager, user=user
+                )
+                if results:
+                    return results
 
-        last_refresh = datetime.now(UTC)
-        target_age = self.cache_target_age(last_refresh=last_refresh)
+            last_refresh = datetime.now(UTC)
+            target_age = self.cache_target_age(last_refresh=last_refresh)
 
-        # Avoid affecting cache key
-        # Add user based modifiers here, primarily for user specific feature flagging
-        if user:
-            self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
-            self.modifiers.useMaterializedViews = True
+            # Avoid affecting cache key
+            # Add user based modifiers here, primarily for user specific feature flagging
+            if user:
+                self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
+                self.modifiers.useMaterializedViews = True
 
-        concurrency_limit = self.get_api_queries_concurrency_limit()
-        with get_api_personal_rate_limiter().run(
-            is_api=self.is_query_service,
-            team_id=self.team.pk,
-            org_id=self.team.organization_id,
-            task_id=self.query_id,
-            limit=concurrency_limit,
-        ):
-            if self.is_query_service:
-                tag_queries(chargeable=1)
-
-            with get_app_org_rate_limiter().run(
-                org_id=self.team.organization_id, task_id=self.query_id, team_id=self.team.id
+            concurrency_limit = self.get_api_queries_concurrency_limit()
+            with get_api_personal_rate_limiter().run(
+                is_api=self.is_query_service,
+                team_id=self.team.pk,
+                org_id=self.team.organization_id,
+                task_id=self.query_id,
+                limit=concurrency_limit,
             ):
-                fresh_response_dict = {
-                    **self.calculate().model_dump(),
-                    "is_cached": False,
-                    "last_refresh": last_refresh,
-                    "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                    "cache_key": cache_key,
-                    "timezone": self.team.timezone,
-                    "cache_target_age": target_age,
-                }
-        if get_query_tag_value("trigger"):
-            fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
-        fresh_response = CachedResponse(**fresh_response_dict)
+                if self.is_query_service:
+                    tag_queries(chargeable=1)
 
-        # Don't cache debug queries with errors and export queries
-        has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
-            cache_manager.set_cache_data(
-                response=fresh_response_dict,
-                # This would be a possible place to decide to not ever keep this cache warm
-                # Example: Not for super quickly calculated insights
-                # Set target_age to None in that case
-                target_age=target_age,
-            )
-            QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
+                with get_app_org_rate_limiter().run(
+                    org_id=self.team.organization_id,
+                    task_id=self.query_id,
+                    team_id=self.team.id,
+                    is_api=get_query_tag_value("access_method") == "personal_api_key",
+                ):
+                    with get_app_dashboard_queries_rate_limiter().run(
+                        org_id=self.team.organization_id,
+                        dashboard_id=dashboard_id,
+                        task_id=self.query_id,
+                        team_id=self.team.id,
+                        is_api=get_query_tag_value("access_method") == "personal_api_key",
+                    ):
+                        fresh_response_dict = {
+                            **self.calculate().model_dump(),
+                            "is_cached": False,
+                            "last_refresh": last_refresh,
+                            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                            "cache_key": cache_key,
+                            "timezone": self.team.timezone,
+                            "cache_target_age": target_age,
+                        }
+            if get_query_tag_value("trigger"):
+                fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
+            fresh_response = CachedResponse(**fresh_response_dict)
 
-        return fresh_response
+            # Don't cache debug queries with errors and export queries
+            has_error: Optional[list] = fresh_response_dict.get("error", None)
+            if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+                cache_manager.set_cache_data(
+                    response=fresh_response_dict,
+                    # This would be a possible place to decide to not ever keep this cache warm
+                    # Example: Not for super quickly calculated insights
+                    # Set target_age to None in that case
+                    target_age=target_age,
+                )
+                QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
+
+            return fresh_response
 
     def get_api_queries_concurrency_limit(self):
         """

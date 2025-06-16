@@ -4,7 +4,6 @@ import {
     copyIndexHtml,
     copyPublicFolder,
     createHashlessEntrypoints,
-    gatherProductManifests,
     isDev,
     startDevServer,
 } from '@posthog/esbuilder'
@@ -17,7 +16,7 @@ startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
 writeExporterHtml()
-gatherProductManifests(__dirname)
+await import('./build-products.mjs')
 
 const common = {
     absWorkingDir: __dirname,
@@ -80,6 +79,7 @@ await buildInParallel(
                             '~/queries/nodes/InsightViz/InsightViz',
                             'lib/hog',
                             'scenes/activity/explore/EventDetails',
+                            'scenes/web-analytics/WebAnalyticsDashboard',
                         ]
 
                         // Patterns to match for denying imports
@@ -93,6 +93,7 @@ await buildInParallel(
                             /queries\/QueryEditor\/QueryEditor/,
                             /scenes\/billing/,
                             /scenes\/data-warehouse/,
+                            /LineGraph/,
                         ]
 
                         build.onResolve({ filter: /.*/ }, (args) => {
@@ -101,11 +102,6 @@ await buildInParallel(
                                 deniedPatterns.some((pattern) => pattern.test(args.path))
 
                             if (shouldDeny) {
-                                console.log(
-                                    'replacing',
-                                    args.path,
-                                    'with empty module. it is not allowed in the toolbar bundle.'
-                                )
                                 return {
                                     path: args.path,
                                     namespace: 'empty-module',

@@ -78,4 +78,5 @@ export function ActivityScene(): JSX.Element {
 export const scene: SceneExport = {
     component: ActivityScene,
     logic: activitySceneLogic,
+    settingSectionId: 'environment-autocapture',
 }

@@ -1320,7 +1320,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
     # PostgreSQL-style date/time functions
     "date_part": HogQLFunctionMeta(
-        "if({} = 'year', toYear({}), if({} = 'month', toMonth({}), if({} = 'day', toDayOfMonth({}), if({} = 'hour', toHour({}), if({} = 'minute', toMinute({}), if({} = 'second', toSecond({}), if({} = 'dow', toDayOfWeek({}), if({} = 'doy', toDayOfYear({}), if({} = 'quarter', toQuarter({}), null)))))))))",  # Maps to same implementation as extract
+        "if({0} = 'year', toYear({1}), if({0} = 'month', toMonth({1}), if({0} = 'day', toDayOfMonth({1}), if({0} = 'hour', toHour({1}), if({0} = 'minute', toMinute({1}), if({0} = 'second', toSecond({1}), if({0} = 'dow', toDayOfWeek({1}), if({0} = 'doy', toDayOfYear({1}), if({0} = 'quarter', toQuarter({1}), null)))))))))",  # Maps to same implementation as extract
         2,
         2,
         signatures=[
@@ -1328,6 +1328,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), DateType()), IntegerType()),
         ],
         using_placeholder_arguments=True,
+        using_positional_arguments=True,
     ),
     **{
         name: HogQLFunctionMeta(
@@ -1733,6 +1734,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxMap": HogQLFunctionMeta("maxMap", 1, 2, aggregate=True),
     "maxMapIf": HogQLFunctionMeta("maxMapIf", 2, 3, aggregate=True),
     "sumMerge": HogQLFunctionMeta("sumMerge", 1, 1, aggregate=True),
+    "sumMergeIf": HogQLFunctionMeta("sumMergeIf", 2, 2, aggregate=True),
     "sumState": HogQLFunctionMeta("sumState", 1, 1, aggregate=True),
     "sumStateIf": HogQLFunctionMeta("sumStateIf", 2, 2, aggregate=True),
     "medianArray": HogQLFunctionMeta("medianArrayOrNull", 1, 1, aggregate=True),
@@ -1757,6 +1759,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
     "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, 1, aggregate=True),
+    "uniqMergeIf": HogQLFunctionMeta("uniqMergeIf", 2, 2, aggregate=True),
     "uniqMap": HogQLFunctionMeta("uniqMap", 1, 1, aggregate=True),
     "uniqState": HogQLFunctionMeta("uniqState", 1, 1, aggregate=True),
     "uniqStateIf": HogQLFunctionMeta("uniqStateIf", 2, 2, aggregate=True),
@@ -1830,11 +1833,13 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsPosition": HogQLFunctionMeta("maxIntersectionsPosition", 2, 2, aggregate=True),
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
     "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 99, aggregate=True),
+    "md5": HogQLFunctionMeta("hex(MD5({}))", 1, 1, aggregate=True, using_placeholder_arguments=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
+    "explain_csp_report": HogQLFunctionMeta("explain_csp_report", 1, 1),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),

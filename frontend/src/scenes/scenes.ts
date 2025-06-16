@@ -73,18 +73,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.ErrorTracking]: {
-        projectBased: true,
-        name: 'Error tracking',
-    },
-    [Scene.ErrorTrackingConfiguration]: {
-        projectBased: true,
-        name: 'Error tracking configuration',
-    },
-    [Scene.ErrorTrackingIssue]: {
-        projectBased: true,
-        name: 'Error tracking issue',
-    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -108,6 +96,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Page reports',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.WebAnalyticsMarketing]: {
+        projectBased: true,
+        name: 'Marketing',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/marketing',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -442,6 +436,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
     },
+    [Scene.Links]: {
+        projectBased: true,
+        name: 'Links',
+    },
+    [Scene.Link]: {
+        projectBased: true,
+    },
     [Scene.SessionAttributionExplorer]: {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
@@ -472,10 +473,36 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Hog function',
     },
+    [Scene.DataPipelines]: {
+        projectBased: true,
+        name: 'Data pipelines',
+    },
+    [Scene.DataPipelinesNew]: {
+        projectBased: true,
+        name: 'New data pipeline',
+    },
+    [Scene.DataWarehouseSource]: {
+        projectBased: true,
+        name: 'Data warehouse source',
+    },
+    [Scene.DataWarehouseSourceNew]: {
+        projectBased: true,
+        name: 'New data warehouse source',
+    },
+    [Scene.LegacyPlugin]: {
+        projectBased: true,
+        name: 'Legacy plugin',
+    },
+    [Scene.Game368]: {
+        name: '368 Hedgehogs',
+        projectBased: true,
+    },
     ...productConfiguration,
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
+// NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
+export const forwardedRedirectQueryParams: string[] = ['invite_modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -545,6 +572,8 @@ export const redirects: Record<
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
     '/messaging': urls.messagingBroadcasts(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
+    '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
 
@@ -571,9 +600,11 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
+    [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
+    [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
@@ -611,10 +642,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
+    [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
-    [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
-    [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
-    [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],
+    [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
@@ -667,13 +697,20 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
+    [urls.links()]: [Scene.Links, 'links'],
+    [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
-    [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
+    [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
+    [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
+    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
+    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
+    [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
-    [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],
-    [urls.errorTrackingAlertNew(':templateId')]: [Scene.HogFunction, 'errorTrackingAlertNew'],
     ...productRoutes,
 }

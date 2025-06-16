@@ -268,6 +268,7 @@ mod test {
             failure_reason: None,
             created_at: Utc::now(),
             content_hash: None,
+            last_used: Some(Utc::now()),
         };
 
         record.save(&db).await.unwrap();
@@ -308,6 +309,7 @@ mod test {
             failure_reason: None,
             created_at: Utc::now(),
             content_hash: None,
+            last_used: Some(Utc::now()),
         };
 
         record.save(&db).await.unwrap();

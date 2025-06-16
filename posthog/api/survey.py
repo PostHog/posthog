@@ -25,14 +25,13 @@ from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
-    SURVEY_TARGETING_FLAG_PREFIX,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, SURVEY_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
@@ -44,7 +43,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -776,6 +775,20 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
+    def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
+        partial_responses_enabled = self.is_partial_responses_enabled()
+        if not partial_responses_enabled:
+            return f"""(
+                NOT JSONHas(properties, '{SurveyEventProperties.SURVEY_COMPLETED}')
+                OR JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_COMPLETED}') = true
+            )"""
+
+        unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+            base_conditions_sql=base_conditions_sql,
+        )
+
+        return f"uuid IN {unique_uuids_subquery}"
+
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
@@ -786,21 +799,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # If there are no surveys or none have a start date, there can be no responses.
             return Response({})
 
-        partial_responses_enabled = self.is_partial_responses_enabled()
-        partial_responses_filter = "1=1"
-        if partial_responses_enabled:
-            unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
-                base_conditions_sql=[
-                    "team_id = %(team_id)s",
-                    f"event = '{SurveyEventName.SENT}'",
-                    "timestamp >= %(timestamp)s",
-                ],
-                group_by_prefix_expressions=[
-                    f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
-                ],
-            )
-
-            partial_responses_filter = f"uuid IN {unique_uuids_subquery}"
+        partial_responses_filter = self._get_partial_responses_filter(
+            base_conditions_sql=[
+                "team_id = %(team_id)s",
+                "timestamp >= %(timestamp)s",
+            ],
+        )
 
         query = f"""
             SELECT
@@ -1002,20 +1006,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
 
-        partial_responses_enabled = self.is_partial_responses_enabled()
-
-        partial_responses_filter = "1=1"
-        if partial_responses_enabled:
-            unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
-                base_conditions_sql=[
-                    "team_id = %(team_id)s",
-                    f"event = '{SurveyEventName.SENT}'",
-                ],
-                group_by_prefix_expressions=[
-                    f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
-                ],
-            )
-            partial_responses_filter = f"uuid IN {unique_uuids_subquery}"
+        partial_responses_filter = self._get_partial_responses_filter(
+            base_conditions_sql=[
+                "team_id = %(team_id)s",
+            ],
+        )
 
         # Query 1: Base Stats (Similar to original query)
         base_stats_query = f"""

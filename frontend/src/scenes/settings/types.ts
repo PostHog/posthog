@@ -25,11 +25,13 @@ export type SettingSectionId =
     | 'environment-surveys'
     | 'environment-feature-flags'
     | 'environment-error-tracking'
+    | 'environment-csp-reporting'
     | 'environment-integrations'
     | 'environment-access-control'
     | 'environment-role-based-access-control'
     | 'environment-danger-zone'
     | 'environment-max'
+    | 'environment-marketing-analytics'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -50,6 +52,7 @@ export type SettingSectionId =
     | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
+    | 'user-notifications'
     | 'user-api-keys'
     | 'user-customization'
     | 'user-danger-zone'
@@ -82,6 +85,8 @@ export type SettingId =
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-suppression-rules'
+    | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'
@@ -104,6 +109,7 @@ export type SettingId =
     | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
+    | 'organization-experiment-stats-method'
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
@@ -122,6 +128,7 @@ export type SettingId =
     | 'session-join-mode'
     | 'bounce-rate-duration'
     | 'revenue-base-currency'
+    | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'session-table-version'
@@ -135,6 +142,9 @@ export type SettingId =
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
+    | 'csp-reporting'
+    | 'base-currency'
+    | 'marketing-settings'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

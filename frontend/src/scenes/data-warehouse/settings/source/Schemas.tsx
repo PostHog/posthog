@@ -14,15 +14,24 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useEffect, useState } from 'react'
 import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSourceSchema } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceSchema,
+    ExternalDataSourceType,
+    ProductKey,
+} from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
@@ -33,11 +42,36 @@ interface SchemasProps {
     id: string
 }
 
+const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
+
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
             <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
+            {source?.source_type && REVENUE_ENABLED_SOURCES.includes(source.source_type) && (
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="primary"
+                        className="mt-2"
+                        tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
+                        onClick={() => {
+                            addProductIntentForCrossSell({
+                                from: ProductKey.PRODUCT_ANALYTICS,
+                                to: ProductKey.DATA_WAREHOUSE,
+                                intent_context: ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE,
+                            })
+                            router.actions.push(urls.revenueAnalytics())
+                        }}
+                    >
+                        See data in Revenue analytics
+                        <LemonTag className="ml-2" type="warning" size="small">
+                            BETA
+                        </LemonTag>
+                    </LemonButton>
+                </div>
+            )}
         </BindLogic>
     )
 }
@@ -47,12 +81,14 @@ interface SchemaTableProps {
     isLoading: boolean
 }
 
-const StatusTagSetting: Record<string, LemonTagType> = {
+const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus, LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
-    Error: 'danger',
     Failed: 'danger',
     'Billing limits': 'danger',
+    'Billing limit too low': 'danger',
+    Cancelled: 'warning',
+    Paused: 'warning',
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
@@ -250,6 +286,10 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 return <div>No rows to query</div>
                             }
 
+                            if (schema.status === 'Running') {
+                                return <div>Syncing...</div>
+                            }
+
                             return <div>Not yet synced</div>
                         },
                     },
@@ -294,7 +334,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             const tagContent = (
                                 <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
                             )
-                            return schema.latest_error && schema.status === 'Error' ? (
+                            return schema.latest_error && schema.status === 'Failed' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
                             ) : (
                                 tagContent

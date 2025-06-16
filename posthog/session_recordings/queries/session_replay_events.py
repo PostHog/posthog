@@ -14,6 +14,7 @@ from posthog.models.team import Team
 from posthog.schema import HogQLQuery
 from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
+    RecordingBlockListing,
 )
 
 DEFAULT_EVENT_FIELDS = [
@@ -104,10 +105,42 @@ class SessionReplayEvents:
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
+                AND min_first_timestamp <= %(python_now)s
                 {optional_timestamp_clause}
             GROUP BY
                 session_id
         """
+        query = query.format(
+            optional_timestamp_clause=(
+                "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
+            )
+        )
+        return query
+
+    @staticmethod
+    def get_block_listing_query(
+        recording_start_time: Optional[datetime] = None,
+    ) -> LiteralString:
+        """
+        Helper function to build a query for session metadata, to be able to use
+        both in production and locally (for example, when testing session summary)
+        """
+        query = """
+                SELECT
+                    min(min_first_timestamp) as start_time,
+                    groupArrayArray(block_first_timestamps) as block_first_timestamps,
+                    groupArrayArray(block_last_timestamps) as block_last_timestamps,
+                    groupArrayArray(block_urls) as block_urls
+                FROM
+                    session_replay_events
+                    PREWHERE
+                    team_id = %(team_id)s
+                    AND session_id = %(session_id)s
+                    AND min_first_timestamp <= %(python_now)s
+                    {optional_timestamp_clause}
+                GROUP BY
+                    session_id
+                """
         query = query.format(
             optional_timestamp_clause=(
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
@@ -154,9 +187,45 @@ class SessionReplayEvents:
                 "team_id": team.pk,
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
+                "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
+        return recording_metadata
+
+    @staticmethod
+    def build_recording_block_listing(session_id: str, replay_response: list[tuple]) -> Optional[RecordingBlockListing]:
+        if len(replay_response) == 0:
+            return None
+        if len(replay_response) > 1:
+            raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
+
+        replay = replay_response[0]
+
+        return RecordingBlockListing(
+            start_time=replay[0],
+            block_first_timestamps=replay[1],
+            block_last_timestamps=replay[2],
+            block_urls=replay[3],
+        )
+
+    def list_blocks(
+        self,
+        session_id: str,
+        team: Team,
+        recording_start_time: Optional[datetime] = None,
+    ) -> Optional[RecordingBlockListing]:
+        query = self.get_block_listing_query(recording_start_time)
+        replay_response: list[tuple] = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "recording_start_time": recording_start_time,
+                "python_now": datetime.now(pytz.timezone("UTC")),
+            },
+        )
+        recording_metadata = self.build_recording_block_listing(session_id, replay_response)
         return recording_metadata
 
     def get_events_query(
@@ -328,12 +397,7 @@ def ttl_days(team: Team) -> int:
         # NOTE: We use file export as a proxy to see if they are subbed to Recordings
         is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_FILE_EXPORT)
         ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
-
-        # NOTE: The date we started reliably ingested data to blob storage
-        days_since_blob_ingestion = (datetime.now() - datetime(2023, 8, 1)).days
-
-        if days_since_blob_ingestion < ttl_days:
-            ttl_days = days_since_blob_ingestion
     else:
         ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
     return ttl_days

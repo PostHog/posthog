@@ -47,6 +47,7 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
+    deleted = models.BooleanField(default=False, null=True)
     type = models.CharField(max_length=40, choices=ExperimentType.choices, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
 
@@ -92,12 +93,12 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
-        base_qs = cls.objects.filter(team=team)
+        base_qs = cls.objects.filter(team=team).exclude(deleted=True)
         return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Experiments",
+            base_folder=self._get_assigned_folder("Unfiled/Experiments"),
             type="experiment",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
@@ -130,6 +131,10 @@ class ExperimentSavedMetric(RootTeamMixin, models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     query = models.JSONField()
+
+    # Metadata for the saved metric
+    # has things like if this metric was migrated from a legacy metric
+    metadata = models.JSONField(null=True, blank=True, default=dict)
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(default=timezone.now)

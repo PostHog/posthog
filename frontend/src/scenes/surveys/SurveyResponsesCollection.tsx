@@ -1,6 +1,7 @@
-import { LemonBanner, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 export function PartialResponsesShuffleQuestionsBanner(): JSX.Element | null {
@@ -29,22 +30,24 @@ export function SurveyResponsesCollection(): JSX.Element | null {
     return (
         <div className="flex flex-col gap-1">
             <LemonField.Pure
-                inline
-                label={
-                    <h3 className="mb-0 flex items-center gap-1">
-                        <LemonTag type="warning">BETA</LemonTag>
-                        Enable partial responses
-                    </h3>
-                }
-                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now. If you face any issues when using partial responses, please report it to us."
-                htmlFor="enable-partial-responses"
+                info="Storing the response for any question requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now"
+                label={<h3 className="mb-0">Response collection</h3>}
             >
-                <LemonSwitch
-                    id="enable-partial-responses"
-                    checked={!!survey.enable_partial_responses}
+                <LemonRadio
+                    value={survey.enable_partial_responses ? 'true' : 'false'}
                     onChange={(newValue) => {
-                        setSurveyValue('enable_partial_responses', newValue)
+                        setSurveyValue('enable_partial_responses', newValue === 'true')
                     }}
+                    options={[
+                        {
+                            value: 'true',
+                            label: 'Any question: when at least one question is answered, the response is stored',
+                        },
+                        {
+                            value: 'false',
+                            label: 'Complete survey: the response is stored when all questions are answered',
+                        },
+                    ]}
                 />
             </LemonField.Pure>
             <PartialResponsesShuffleQuestionsBanner />

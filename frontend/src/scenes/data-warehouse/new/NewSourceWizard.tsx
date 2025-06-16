@@ -1,13 +1,15 @@
-import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBell, IconCheck } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { SceneExport } from 'scenes/sceneTypes'
 
-import { ManualLinkSourceType, SourceConfig } from '~/types'
+import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import SchemaForm from '../external/forms/SchemaForm'
@@ -16,6 +18,11 @@ import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
+
+export const scene: SceneExport = {
+    component: NewSourceWizardScene,
+    logic: sourceWizardLogic,
+}
 
 export function NewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
@@ -67,7 +74,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         }
 
         return (
-            <div className="mt-4 flex flex-row justify-end gap-2">
+            <div className="flex flex-row gap-2 justify-end mt-4">
                 {canGoBack && (
                     <LemonButton
                         type="secondary"
@@ -139,12 +146,12 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     }
 
     const filteredConnectors = connectors.filter((n) => {
-        return !(n.name === 'BigQuery' && !featureFlags[FEATURE_FLAGS.BIGQUERY_DWH])
+        return !(n.name === 'GoogleAds' && !featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH])
     })
 
     return (
         <>
-            <h2 className="mt-4">Managed by PostHog</h2>
+            <h2 className="mt-4">Managed data warehouse sources</h2>
 
             <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
@@ -166,14 +173,24 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Name',
                         key: 'name',
                         render: (_, sourceConfig) => (
-                            <span className="font-semibold text-sm gap-1">
-                                {sourceConfig.label ?? sourceConfig.name}
-                            </span>
+                            <div className="flex flex-col">
+                                <span className="gap-1 text-sm font-semibold">
+                                    {sourceConfig.label ?? sourceConfig.name}
+                                    {sourceConfig.betaSource && (
+                                        <span>
+                                            {' '}
+                                            <LemonTag type="warning">BETA</LemonTag>
+                                        </span>
+                                    )}
+                                </span>
+                                {sourceConfig.unreleasedSource && (
+                                    <span>Get notified when {sourceConfig.label} is available to connect</span>
+                                )}
+                            </div>
                         ),
                     },
                     {
                         key: 'actions',
-                        width: 0,
                         render: (_, sourceConfig) => {
                             const isConnected = disableConnectedSources && sourceConfig.existingSource
 
@@ -185,7 +202,29 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                                             Connected
                                         </LemonTag>
                                     )}
-                                    {!isConnected && (
+                                    {!isConnected && sourceConfig.unreleasedSource === true && (
+                                        <LemonButton
+                                            className="my-2"
+                                            type="primary"
+                                            icon={<IconBell />}
+                                            onClick={() => {
+                                                // https://us.posthog.com/project/2/surveys/0190ff15-5032-0000-722a-e13933c140ac
+                                                posthog.capture(SurveyEventName.SENT, {
+                                                    [SurveyEventProperties.SURVEY_ID]:
+                                                        '0190ff15-5032-0000-722a-e13933c140ac',
+                                                    [`${SurveyEventProperties.SURVEY_RESPONSE}_ad030277-3642-4abf-b6b0-7ecb449f07e8`]:
+                                                        sourceConfig.label ?? sourceConfig.name,
+                                                })
+                                                posthog.capture('source_notify_me', {
+                                                    source: sourceConfig.label ?? sourceConfig.name,
+                                                })
+                                                lemonToast.success('Notification registered successfully')
+                                            }}
+                                        >
+                                            Notify me
+                                        </LemonButton>
+                                    )}
+                                    {!isConnected && !sourceConfig.unreleasedSource && (
                                         <LemonButton
                                             onClick={() => onClick(sourceConfig)}
                                             className="my-2"
@@ -206,7 +245,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 ]}
             />
 
-            <h2 className="mt-4">Self-managed</h2>
+            <h2 className="mt-4">Self-managed data warehouse sources</h2>
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}
@@ -226,7 +265,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Name',
                         key: 'name',
                         render: (_, sourceConfig) => (
-                            <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                            <span className="gap-1 text-sm font-semibold">{sourceConfig.name}</span>
                         ),
                     },
                     {

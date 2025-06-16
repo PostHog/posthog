@@ -11,7 +11,6 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,10 +20,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
+import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
@@ -51,15 +51,19 @@ export function Billing(): JSX.Element {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { location, searchParams } = useValues(router)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 
-    if (preflight && !isCloudOrDev) {
-        router.actions.push(urls.default())
-    }
+    useEffect(() => {
+        if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
+            router.actions.replace(urls.organizationBillingSection('overview'), searchParams)
+            return
+        }
+    }, [featureFlags, location.pathname, searchParams])
 
     useEffect(() => {
         if (billing) {
@@ -67,10 +71,9 @@ export function Billing(): JSX.Element {
         }
     }, [!!billing])
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        768: 'medium',
-    })
+    if (preflight && !isCloudOrDev) {
+        router.actions.push(urls.default())
+    }
 
     if (!billing && billingLoading) {
         return (
@@ -81,17 +84,7 @@ export function Billing(): JSX.Element {
     }
 
     if (restrictionReason) {
-        return (
-            <div className="deprecated-space-y-4">
-                <h1>Billing</h1>
-                <LemonBanner type="warning">{restrictionReason}</LemonBanner>
-                <div className="flex">
-                    <LemonButton type="primary" to={urls.default()}>
-                        Go back home
-                    </LemonButton>
-                </div>
-            </div>
-        )
+        return <BillingNoAccess reason={restrictionReason} />
     }
 
     if (!billing && !billingLoading) {
@@ -116,8 +109,9 @@ export function Billing(): JSX.Element {
 
     const products = billing?.products
     const platformAndSupportProduct = products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT)
+
     return (
-        <div ref={ref}>
+        <div className="@container">
             {showLicenseDirectInput && (
                 <>
                     <Form
@@ -166,17 +160,12 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            {(showBillingSummary || showCreditCTAHero || showBillingHero) && !!size && (
+            {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
                 <div
                     className={clsx(
                         'flex gap-6 max-w-300',
                         // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
-                        billing?.has_active_subscription
-                            ? {
-                                  'flex-col': size === 'small',
-                                  'flex-row': size !== 'small',
-                              }
-                            : 'flex-col-reverse'
+                        billing?.has_active_subscription ? 'flex-col @3xl:flex-row' : 'flex-col-reverse'
                     )}
                 >
                     {showBillingSummary && (
@@ -215,7 +204,7 @@ export function Billing(): JSX.Element {
             {products
                 ?.filter(
                     (product: BillingProductV2Type) =>
-                        !product.inclusion_only || product.plans.some((plan: BillingPlanType) => !plan.included_if)
+                        !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
                 )
                 ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>

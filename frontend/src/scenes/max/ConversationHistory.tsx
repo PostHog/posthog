@@ -1,11 +1,11 @@
 import { IconChevronLeft, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { userLogic } from 'scenes/userLogic'
 
-import { Conversation, ProductKey } from '~/types'
+import { Conversation, ConversationStatus, ProductKey } from '~/types'
 
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getConversationUrl } from './utils'
@@ -100,7 +100,11 @@ function ConversationCard({
             to={getConversationUrl({ pathname, search, conversationId: conversation.id, includeHash })}
         >
             <span className="flex-1 line-clamp-1">{conversation.title}</span>
-            <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+            {conversation.status === ConversationStatus.InProgress ? (
+                <Spinner className="h-4 w-4" />
+            ) : (
+                <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+            )}
         </Link>
     )
 }

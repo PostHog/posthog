@@ -20,7 +20,6 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -56,6 +55,8 @@ from .views import (
     robots_txt,
     security_txt,
     stats,
+    preferences_page,
+    update_preferences,
 )
 from posthog.api.query import progress
 
@@ -84,7 +85,7 @@ def handler500(request):
     Context: None
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"sentry_event_id": last_event_id()}))
+    return HttpResponseServerError(template.render())
 
 
 @ensure_csrf_cookie
@@ -174,7 +175,8 @@ urlpatterns = [
     *ee_urlpatterns,
     # api
     path("api/environments/<int:team_id>/progress/", progress),
-    opt_slash_path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
@@ -228,6 +230,7 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
+    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
@@ -238,6 +241,9 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+    # Message preferences
+    path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
+    opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
 
 if settings.DEBUG:

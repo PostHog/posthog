@@ -1,3 +1,5 @@
+import { MaxContextShape } from 'scenes/max/maxTypes'
+
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -21,6 +23,7 @@ export interface BaseAssistantMessage {
 export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
+    ui_context?: MaxContextShape
 }
 
 export interface AssistantFormOption {
@@ -104,8 +107,15 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
      * Tool call messages without a ui_payload are not passed through to the frontend.
      */
     ui_payload?: Record<string, any>
+    visible?: boolean
     content: string
     tool_call_id: string
 }
 
-export type AssistantContextualTool = 'search_session_recordings' | 'generate_hogql_query' | 'fix_hogql_query'
+export type AssistantContextualTool =
+    | 'search_session_recordings'
+    | 'generate_hogql_query'
+    | 'fix_hogql_query'
+    | 'analyze_user_interviews'
+    | 'create_and_query_insight'
+    | 'create_hog_transformation_function'
