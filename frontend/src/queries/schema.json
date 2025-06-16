@@ -18115,7 +18115,10 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "groupBy": {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    },
+                    "type": "array"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType"
@@ -18143,7 +18146,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort", "country"],
+            "enum": ["cohort", "country", "product"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {

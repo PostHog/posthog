@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 
-import { HogFlow, HogFlowAction } from '~/src/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 import { insertRow } from '~/tests/helpers/sql'
 
 import { Team } from '../../types'

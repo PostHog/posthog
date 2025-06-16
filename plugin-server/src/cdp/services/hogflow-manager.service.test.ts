@@ -1,8 +1,8 @@
-import { HogFlow } from '~/src/schema/hogflow'
-import { Hub } from '~/src/types'
-import { closeHub, createHub } from '~/src/utils/db/hub'
-import { PostgresUse } from '~/src/utils/db/postgres'
+import { HogFlow } from '~/schema/hogflow'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { Hub } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { PostgresUse } from '~/utils/db/postgres'
 
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogFlowManagerService } from './hogflow-manager.service'
