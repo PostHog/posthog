@@ -521,6 +521,14 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=True)
     def finish_upload(self, request, **kwargs):
+        content_hash = request.query_params.get("content_hash")
+
+        if not content_hash:
+            raise ValidationError(
+                code="content_hash_required",
+                detail="A content hash must be provided to complete symbol set upload.",
+            )
+
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
                 code="object_storage_required",
@@ -535,13 +543,14 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         content_length = s3_upload.get("ContentLength")
         if content_length > ONE_HUNDRED_MEGABYTES:
+            # TODO: add hook to remove from s3
             symbol_set.delete()
-            # raise ValidationError(
-            #     code="object_storage_required",
-            #     detail="Object storage must be available to allow source map uploads.",
-            # )
 
-        content_hash = request.query_params.get("content_hash")
+            raise ValidationError(
+                code="file_too_large",
+                detail="The uploaded symbol set file was too large.",
+            )
+
         symbol_set.content_hash = content_hash
         symbol_set.save()
 
