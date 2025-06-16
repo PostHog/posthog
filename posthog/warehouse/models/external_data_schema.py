@@ -513,6 +513,10 @@ def filter_mongo_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
     return results
 
 
+def get_mongo_schemas_for_source_type(job_inputs: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
+    return get_mongo_schemas(MongoSourceConfig.from_dict(job_inputs))
+
+
 def get_sql_schemas_for_source_type(
     source_type: ExternalDataSource.Type, job_inputs: dict[str, Any]
 ) -> dict[str, list[tuple[str, str]]]:
@@ -522,8 +526,6 @@ def get_sql_schemas_for_source_type(
         schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(job_inputs))
     elif source_type == ExternalDataSource.Type.MSSQL:
         schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(job_inputs))
-    elif source_type == ExternalDataSource.Type.MONGO:
-        schemas = get_mongo_schemas(MongoSourceConfig.from_dict(job_inputs))
     else:
         raise Exception("Unsupported source_type")
 

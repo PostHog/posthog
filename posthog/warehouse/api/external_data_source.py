@@ -87,6 +87,7 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mongo_incremental_fields,
     get_postgres_row_count,
     get_sql_schemas_for_source_type,
+    get_mongo_schemas_for_source_type,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -249,8 +250,6 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "client_email",
             "token_uri",
             "temporary-dataset",
-            # mongodb
-            "connection_string",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -957,21 +956,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not connection_params.get("database"):
             raise Exception("Database name is required in connection string")
 
-        # SSH tunnel handling
-        ssh_tunnel_obj = payload.get("ssh-tunnel", {})
-        using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
-        ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
-        ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
-        ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
-        ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
-        ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
-        ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
-        ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
-        ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
-
         # Validate database host (only for non-SRV connections)
         if not connection_params.get("is_srv") and not self._validate_database_host(
-            connection_params["host"], self.team_id, using_ssh_tunnel
+            connection_params["host"], self.team_id, False
         ):
             raise Exception("Cannot use internal database")
 
@@ -985,19 +972,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_type=source_type,
             job_inputs={
                 "connection_string": connection_string,
-                "ssh_tunnel_enabled": using_ssh_tunnel,
-                "ssh_tunnel_host": ssh_tunnel_host,
-                "ssh_tunnel_port": ssh_tunnel_port,
-                "ssh_tunnel_auth_type": ssh_tunnel_auth_type,
-                "ssh_tunnel_auth_type_username": ssh_tunnel_auth_type_username,
-                "ssh_tunnel_auth_type_password": ssh_tunnel_auth_type_password,
-                "ssh_tunnel_auth_type_passphrase": ssh_tunnel_auth_type_passphrase,
-                "ssh_tunnel_auth_type_private_key": ssh_tunnel_auth_type_private_key,
             },
             prefix=prefix,
         )
 
-        schemas = get_sql_schemas_for_source_type(source_type, new_source_model.job_inputs)
+        schemas = get_mongo_schemas_for_source_type(new_source_model.job_inputs)
 
         return new_source_model, list(schemas.keys())
 
@@ -1461,58 +1440,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Database name is required in connection string"},
                 )
 
-            ssh_tunnel_obj = request.data.get("ssh-tunnel", {})
-            using_ssh_tunnel = ssh_tunnel_obj.get("enabled", False)
-            ssh_tunnel_host = ssh_tunnel_obj.get("host", None)
-            ssh_tunnel_port = ssh_tunnel_obj.get("port", None)
-            ssh_tunnel_auth_type_obj = ssh_tunnel_obj.get("auth_type", {})
-            ssh_tunnel_auth_type = ssh_tunnel_auth_type_obj.get("selection", None)
-            ssh_tunnel_auth_type_username = ssh_tunnel_auth_type_obj.get("username", None)
-            ssh_tunnel_auth_type_password = ssh_tunnel_auth_type_obj.get("password", None)
-            ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
-            ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
-
-            ssh_tunnel = SSHTunnel(
-                enabled=using_ssh_tunnel,
-                host=ssh_tunnel_host,
-                port=ssh_tunnel_port,
-                auth_type=ssh_tunnel_auth_type,
-                username=ssh_tunnel_auth_type_username,
-                password=ssh_tunnel_auth_type_password,
-                passphrase=ssh_tunnel_auth_type_passphrase,
-                private_key=ssh_tunnel_auth_type_private_key,
-            )
-
-            if using_ssh_tunnel:
-                auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
-                if not auth_valid:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={
-                            "message": (
-                                auth_error_message
-                                if len(auth_error_message) > 0
-                                else "Invalid SSH tunnel auth settings"
-                            )
-                        },
-                    )
-
-                port_valid, port_error_message = ssh_tunnel.has_valid_port()
-                if not port_valid:
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={
-                            "message": (
-                                port_error_message
-                                if len(port_error_message) > 0
-                                else "Invalid SSH tunnel auth settings"
-                            )
-                        },
-                    )
-
             # Validate internal database (only for non-SRV connections)
             if not connection_params.get("is_srv") and not self._validate_database_host(
-                connection_params["host"], self.team_id, using_ssh_tunnel
+                connection_params["host"], self.team_id, False
             ):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1520,23 +1450,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             try:
-                result = get_sql_schemas_for_source_type(
-                    source_type,
+                result = get_mongo_schemas_for_source_type(
                     {
                         "connection_string": connection_string,
-                        "ssh_tunnel": {
-                            "host": ssh_tunnel.host,
-                            "port": ssh_tunnel.port,
-                            "enabled": ssh_tunnel.enabled,
-                            "auth": {
-                                "type": ssh_tunnel.auth_type,
-                                "username": ssh_tunnel.username,
-                                "password": ssh_tunnel.password,
-                                "private_key": ssh_tunnel.private_key,
-                                "passphrase": ssh_tunnel.passphrase,
-                            },
-                        },
-                    },
+                    }
                 )
                 if len(result.keys()) == 0:
                     return Response(
@@ -1547,11 +1464,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": f"MongoDB authentication failed: {str(e)}"},
-                )
-            except BaseSSHTunnelForwarderError as e:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": e.value or "Failed to connect to MongoDB database"},
                 )
             except Exception as e:
                 capture_exception(e)
