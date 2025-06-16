@@ -744,9 +744,7 @@ impl FeatureFlagMatcher {
         person_property_overrides: &Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Option<HashMap<String, Value>> {
-        person_property_overrides.as_ref().and_then(|overrides| {
-            locally_computable_property_overrides(&Some(overrides.clone()), flag_property_filters)
-        })
+        locally_computable_property_overrides(person_property_overrides, flag_property_filters)
     }
 
     /// Determines if a feature flag matches for the current context.
@@ -1044,16 +1042,20 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
+        let mut properties = match self.get_person_properties_from_cache() {
+            Ok(props) => props,
+            Err(_e) => HashMap::new(), // NB: if we can't find the properties in the cache, we return an empty HashMap because we just treat this person as one with no properties, essentially an anonymous user
+        };
+
+        // Apply any local overrides (merge them with cached properties)
         if let Some(overrides) =
             locally_computable_property_overrides(&property_overrides, flag_property_filters)
         {
-            Ok(overrides)
-        } else {
-            match self.get_person_properties_from_cache() {
-                Ok(props) => Ok(props),
-                Err(_e) => Ok(HashMap::new()), // NB: if we can't find the properties in the cache, we return an empty HashMap because we just treat this person as one with no properties, essentially an anonymous user
-            }
+            // Merge overrides with cached properties (overrides take precedence)
+            properties.extend(overrides);
         }
+
+        Ok(properties)
     }
 
     fn is_holdout_condition_match(

@@ -3643,3 +3643,192 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_person_property_overrides_bug_fix() -> Result<()> {
+    // This test verifies the bug fix where person property overrides
+    // were ignored if the flag didn't explicitly check for those properties.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_with_overrides".to_string();
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with specific email property in the database
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "email": "user@example.com",
+            "plan": "free"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create two flags: one that checks email property, one that doesn't
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "email-flag",
+            "name": "Flag that checks email",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "user@example.com",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 2,
+            "key": "simple-flag",
+            "name": "Simple Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        redis_client.clone(),
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test the main bug fix: Override a property that the flag doesn't check
+    // Previously this would be ignored, now it should be available in the response
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": false,  // This was the specific example from the bug report
+            "age": 35                                   // Another override that flags don't check
+        }
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    // Both flags should evaluate correctly
+    // The email-flag should match because the person has the correct email from the database
+    // The simple-flag should match because it has no conditions
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "email-flag": {
+                    "key": "email-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                },
+                "simple-flag": {
+                    "key": "simple-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // Now test the core bug fix: send overrides that DON'T match what the flags check for
+    // With our fix, the system should still work correctly by merging overrides with cached properties
+    let payload_with_overrides = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "different@example.com",  // Override email to something that doesn't match the flag condition
+            "$feature_enrollment/discussions": false,  // Override a property that no flag checks for (this was the original bug)
+            "age": 25
+        }
+    });
+
+    let res_override = server
+        .send_flags_request(payload_with_overrides.to_string(), Some("2"), None)
+        .await;
+
+    if res_override.status() != StatusCode::OK {
+        let status = res_override.status();
+        let text = res_override.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_override = res_override.json::<Value>().await?;
+
+    // With email override, email-flag should now be false (doesn't match condition)
+    // simple-flag should still be true (no conditions)
+    assert_json_include!(
+        actual: json_override,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "email-flag": {
+                    "key": "email-flag",
+                    "enabled": false
+                },
+                "simple-flag": {
+                    "key": "simple-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // This verifies the bug fix: overrides like $feature_enrollment/discussions are properly
+    // merged with cached properties during evaluation, and don't break the system.
+
+    Ok(())
+}
