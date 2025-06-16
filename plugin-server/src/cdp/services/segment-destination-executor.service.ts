@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
-import { PluginsServerConfig } from '~/src/types'
+import { PluginsServerConfig } from '~/types'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
