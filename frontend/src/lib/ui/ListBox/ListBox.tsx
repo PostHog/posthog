@@ -70,10 +70,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             recalculateFocusableElements()
             const elements = focusableElements.current
             if (!elements.length) return
-        
-            // Clear all previous focus markers
+
             elements.forEach((el) => el.removeAttribute('data-focused'))
-        
+
             if (virtualFocus) {
                 setVirtualFocusedElement(elements[0])
                 elements[0].setAttribute('data-focused', 'true')
@@ -114,6 +113,8 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         } else {
             elements[nextIndex]?.focus()
         }
+
+        elements[nextIndex]?.scrollIntoView({ block: 'nearest' })
 
         if (e.key === 'Enter') {
             e.preventDefault()
@@ -230,7 +231,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
 
 ListBoxItem.displayName = 'ListBox.Item'
 
-/** Compound component typing to preserve ListBox.Item on forwardRef */
+/** Compound typing for ListBox.Item subcomponent */
 type ListBoxType = React.ForwardRefExoticComponent<ListBoxProps & React.RefAttributes<ListBoxHandle>> & {
     Item: typeof ListBoxItem
 }

@@ -3,6 +3,7 @@ import { cn } from 'lib/utils/css-classes'
 import React, {
     createContext,
     forwardRef,
+    isValidElement,
     ReactNode,
     useContext,
     useEffect,
@@ -13,191 +14,207 @@ import { ListBox, ListBoxHandle } from '../ListBox/ListBox'
 import { TextInputPrimitive } from '../TextInputPrimitive/TextInputPrimitive'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
-// Styling variants
+/* ─────────────────────────────────────────── Styling ─────────────────────────────────────────── */
+
 const comboboxVariants = cva({
     base: 'w-full border-primary bg-surface-primary hover:border-tertiary rounded border border-primary p-2 text-sm',
 })
 
-// Context for shared state
-type ComboboxContextValue = {
-    value: string
-    setValue: (value: string) => void
-}
+/* ─────────────────────────────────────────── Context ─────────────────────────────────────────── */
 
-const ComboboxContext = createContext<ComboboxContextValue | null>(null)
-
+type ComboboxCtx = { value: string; setValue: (v: string) => void }
+const ComboboxContext = createContext<ComboboxCtx | null>(null)
 const useComboboxContext = () => {
-    const context = useContext(ComboboxContext)
-    if (!context) {
-        throw new Error('Combobox components must be used inside <Combobox>')
-    }
-    return context
+    const ctx = useContext(ComboboxContext)
+    if (!ctx) throw new Error('Combobox components must be used within <Combobox>')
+    return ctx
 }
 
-// Root Combobox
-type ComboboxBaseProps = {
+/* ─────────────────────────────────────────── Root ─────────────────────────────────────────── */
+
+type ComboboxProps = VariantProps<typeof comboboxVariants> & {
     className?: string
     children: ReactNode
-} & VariantProps<typeof comboboxVariants>
+}
 
-export const Combobox = forwardRef<HTMLDivElement, ComboboxBaseProps>(
-    ({ className, children }, ref) => {
-        const [value, setValue] = useState('')
-        const listBoxRef = useRef<ListBoxHandle>(null)
+export const Combobox = forwardRef<HTMLDivElement, ComboboxProps>(function Combobox(
+    { children, className },
+    ref
+) {
+    const [value, setValue] = useState('')
+    const listboxRef = useRef<ListBoxHandle>(null)
 
-        useEffect(() => {
-            listBoxRef.current?.focusFirstItem()
-        }, [value])
+    useEffect(() => listboxRef.current?.focusFirstItem(), [value])
 
-        return (
-            <ComboboxContext.Provider value={{ value, setValue }}>
-                <div ref={ref} className={cn('w-full', className)}>
-                    <ListBox ref={listBoxRef} className="w-full" virtualFocus>
-                        {children}
-                    </ListBox>
-                </div>
-            </ComboboxContext.Provider>
-        )
-    }
-)
+    return (
+        <ComboboxContext.Provider value={{ value, setValue }}>
+            <div ref={ref} className={cn('w-full', className)}>
+                <ListBox ref={listboxRef} className="w-full flex flex-col gap-px" virtualFocus>
+                    {children}
+                </ListBox>
+            </div>
+        </ComboboxContext.Provider>
+    )
+})
 
-Combobox.displayName = 'Combobox'
+/* ─────────────────────────────────────────── Search ─────────────────────────────────────────── */
 
-// Search Input
 type ComboboxSearchProps = {
     autoFocus?: boolean
     placeholder?: string
     className?: string
 }
 
-export const ComboboxSearch = forwardRef<HTMLInputElement, ComboboxSearchProps>(
-    ({ autoFocus, placeholder, className }, ref) => {
-        const { value, setValue } = useComboboxContext()
+export const ComboboxSearch = forwardRef<HTMLInputElement, ComboboxSearchProps>(function ComboboxSearch(
+    { autoFocus, placeholder, className },
+    ref
+) {
+    const { value, setValue } = useComboboxContext()
+    return (
+        <div className="p-1">
+            <ListBox.Item asChild virtualFocusIgnore>
+                <TextInputPrimitive
+                    ref={ref}
+                    autoFocus={autoFocus}
+                    placeholder={placeholder}
+                    className={cn(comboboxVariants({ className }))}
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                />
+            </ListBox.Item>
+        </div>
+    )
+})
 
-        return (
-            <div className="p-1">
-                <ListBox.Item asChild virtualFocusIgnore>
-                    <TextInputPrimitive
-                        ref={ref}
-                        autoFocus={autoFocus}
-                        placeholder={placeholder}
-                        className={cn(comboboxVariants({ className }))}
-                        value={value}
-                        onChange={(e) => setValue(e.target.value)}
-                    />
-                </ListBox.Item>
-            </div>
-        )
-    }
+/* ─────────────────────────────────────────── Subcomponents ─────────────────────────────────────────── */
+
+export const ComboboxGroup = ({ children }: { children: ReactNode }) => <>{children}</>
+
+type ItemBase = React.ComponentPropsWithoutRef<typeof ListBox.Item>
+export interface ComboboxItemProps extends ItemBase {
+    alwaysVisible?: boolean
+    filterValue?: string
+}
+export const ComboboxItem = forwardRef<React.ElementRef<typeof ListBox.Item>, ComboboxItemProps>(
+    (props, ref) => <ListBox.Item {...props} ref={ref} />
 )
 
-ComboboxSearch.displayName = 'ComboboxSearch'
+export const ComboboxEmpty = ({ children, className }: { children: ReactNode; className?: string }) => (
+    <div className={cn('px-2 py-1 text-sm text-muted-foreground', className)}>{children}</div>
+)
 
-// Content (filters children + empty state support)
-type ComboboxContentProps = {
-    children: ReactNode
-    className?: string
-}
+export const ComboboxFooter = ({ children, className }: { children: ReactNode; className?: string }) => (
+    <div className={cn('px-1 pb-1', className)}>{children}</div>
+)
 
-export const ComboboxContent = ({ children, className }: ComboboxContentProps) => {
+/* ─────────────────────────────────────────── Content ─────────────────────────────────────────── */
+
+export const ComboboxContent = ({ children, className }: { children: ReactNode; className?: string }) => {
     const { value } = useComboboxContext()
+    const trimmedValue = value.trim().toLowerCase()
 
-    const allChildren = React.Children.toArray(children)
-
-    const filteredItems = allChildren.filter((child) => {
-        if (!React.isValidElement(child)) return false
-
-        if (child.type === ComboboxItem) {
-            if (child.props.alwaysVisible) return true
-
-            const text = extractTextFromReactNode(child.props.children).toLowerCase()
-            return text.includes(value.toLowerCase())
-        }
-
-        return false
-    })
-
-    const emptyFallback = allChildren.find((child) => {
-        return React.isValidElement(child) && child.type === ComboboxEmpty
-    })
+    const filtered = trimmedValue === '' ? children : filterComboboxChildren(children, trimmedValue)
+    const pruned = pruneEmptyContainers(filtered)
+    const anyVisible = hasAnyVisibleComboboxItem(pruned)
+    const showEmpty = trimmedValue.length > 0 && !anyVisible
 
     return (
-        <ul className={cn('flex flex-col gap-px px-1 pb-1 max-h-[200px]', className)}>
-            <ScrollableShadows direction='vertical' styledScrollbars innerClassName='rounded'>
-            {filteredItems.length > 0 ? filteredItems : emptyFallback ?? null}
+        <ul className={cn('flex flex-col gap-px p-1', className)}>
+            <ScrollableShadows direction="vertical" styledScrollbars innerClassName="flex flex-col gap-px">
+                {showEmpty ? extractComboboxEmpty(children) : pruned}
             </ScrollableShadows>
         </ul>
     )
 }
 
-ComboboxContent.displayName = 'ComboboxContent'
+/* ─────────────────────────────────────────── Helpers ─────────────────────────────────────────── */
 
-// Item (now with alwaysVisible support)
-type ComboboxItemProps = React.ComponentPropsWithoutRef<typeof ListBox.Item> & {
-    alwaysVisible?: boolean
+const isElem = (c: ReactNode): c is React.ReactElement => isValidElement(c)
+const isItem = (c: ReactNode) => isElem(c) && c.type === ComboboxItem
+const isGroup = (c: ReactNode) => isElem(c) && c.type === ComboboxGroup
+const isEmptyNode = (c: ReactNode) => isElem(c) && c.type === ComboboxEmpty
+
+function extractText(node: ReactNode): string {
+    if (node == null) return ''
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(extractText).join('')
+    return isElem(node) ? extractText(node.props.children) : ''
 }
 
-export const ComboboxItem = forwardRef<React.ElementRef<typeof ListBox.Item>, ComboboxItemProps>(
-    (props, ref) => <ListBox.Item {...props} ref={ref} />
-)
+/* -- Filtering Pass -- */
 
-ComboboxItem.displayName = 'ComboboxItem'
+function filterComboboxChildren(children: ReactNode, searchValue: string): ReactNode {
+    return React.Children.map(children, (child) => {
+        if (!isValidElement(child)) return child
 
-// Empty state component
-type ComboboxEmptyProps = {
-    children: ReactNode
-    className?: string
+        if (isGroup(child)) {
+            const filteredChildren = filterComboboxChildren(child.props.children, searchValue)
+            return React.cloneElement(child, { ...child.props, children: filteredChildren })
+        }
+
+        if (isItem(child)) {
+            if (child.props.alwaysVisible) return child
+
+            const filterText = child.props.filterValue ?? extractText(child.props.children)
+            return filterText.toLowerCase().includes(searchValue) ? child : null
+        }
+
+        if (child.props?.children) {
+            const filteredNested = filterComboboxChildren(child.props.children, searchValue)
+            return React.cloneElement(child, { ...child.props, children: filteredNested })
+        }
+
+        return child
+    })
 }
 
-export const ComboboxEmpty = ({ children, className }: ComboboxEmptyProps) => {
-    return (
-        <div className={cn('px-2 py-1 text-sm text-muted-foreground', className)}>
-            {children}
-        </div>
-    )
+/* -- Prune Pass -- */
+
+function pruneEmptyContainers(children: ReactNode): ReactNode {
+    return React.Children.map(children, (child) => {
+        if (!isValidElement(child)) return child
+
+        if (isItem(child) || isEmptyNode(child)) return child
+
+        const prunedChildren = pruneEmptyContainers(child.props.children)
+        const hasRemaining = React.Children.toArray(prunedChildren).some(Boolean)
+
+        if (!hasRemaining) return null
+
+        return React.cloneElement(child, { ...child.props, children: prunedChildren })
+    })
 }
 
-ComboboxEmpty.displayName = 'ComboboxEmpty'
+/* -- Visible Check -- */
 
-// Helper to extract text from any nested child for filtering
-function extractTextFromReactNode(node: ReactNode): string {
-    if (typeof node === 'string' || typeof node === 'number') {
-        return node.toString()
-    }
+function hasAnyVisibleComboboxItem(children: ReactNode): boolean {
+    let found = false
 
-    if (Array.isArray(node)) {
-        return node.map(extractTextFromReactNode).join('')
-    }
+    React.Children.forEach(children, (child) => {
+        if (found) return
+        if (!isValidElement(child)) return
 
-    if (React.isValidElement(node)) {
-        return extractTextFromReactNode(node.props.children)
-    }
+        if (isItem(child)) {
+            found = true
+        } else if (child.props?.children) {
+            if (hasAnyVisibleComboboxItem(child.props.children)) {
+                found = true
+            }
+        }
+    })
 
-    return ''
+    return found
 }
 
-/** ✅ Example usage:
+/* -- Declarative Empty Extraction -- */
 
-<Combobox>
-    <ComboboxSearch placeholder="Search..." />
-
-    <ComboboxContent>
-        <ComboboxItem alwaysVisible asChild aria-disabled="true">
-            <ButtonPrimitive menuItem disabled>
-                Type to search...
-            </ButtonPrimitive>
-        </ComboboxItem>
-
-        <ComboboxItem asChild>
-            <ButtonPrimitive menuItem>Apple</ButtonPrimitive>
-        </ComboboxItem>
-
-        <ComboboxItem asChild>
-            <ButtonPrimitive menuItem>Banana</ButtonPrimitive>
-        </ComboboxItem>
-
-        <ComboboxEmpty>No results found</ComboboxEmpty>
-    </ComboboxContent>
-</Combobox>
-
-**/
+function extractComboboxEmpty(children: ReactNode): ReactNode {
+    let res: ReactNode = null
+    React.Children.forEach(children, (child) => {
+        if (res) return
+        if (!isValidElement(child)) return
+        if (isEmptyNode(child)) res = child
+        else if (child.props?.children) res = extractComboboxEmpty(child.props.children)
+    })
+    return res
+}

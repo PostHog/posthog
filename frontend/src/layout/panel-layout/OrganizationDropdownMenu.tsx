@@ -3,14 +3,6 @@ import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -20,7 +12,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxItem, ComboboxSearch } from 'lib/ui/Combobox/Combobox'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxFooter, ComboboxItem, ComboboxSearch } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
 import { PopoverPrimitive, PopoverPrimitiveContent, PopoverPrimitiveTrigger } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { panelLayoutLogic } from './panelLayoutLogic'
@@ -35,10 +27,6 @@ export function OrganizationDropdownMenu(): JSX.Element {
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
 
-    const orgnanizationsMapped = otherOrganizations.map((organization) => ({
-        label: organization.name,
-        value: organization.id,
-    }))
     return (
         <>
             <PopoverPrimitive >
@@ -82,14 +70,14 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 >
                     <Combobox>
                         <ComboboxSearch placeholder="Search organization..." autoFocus />
-                        <ComboboxContent>
+                        <ComboboxContent className='max-h-[300px]'>
                             <Label intent="menu" className='px-2'>Organizations</Label>
                             <div className="-mx-1 my-1 h-px bg-border-primary" />
 
                             <ComboboxEmpty>No organizations found</ComboboxEmpty>
 
                             {currentOrganization && (
-                                <ComboboxItem asChild>
+                                <ComboboxItem asChild filterValue={currentOrganization.name}>
                                     <ButtonPrimitive
                                         menuItem
                                         active
@@ -112,7 +100,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             )}
 
                             {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
+                                <ComboboxItem key={otherOrganization.id} asChild filterValue={otherOrganization.name}>
                                     <ButtonPrimitive
                                         menuItem
                                         onClick={() => updateCurrentOrganization(otherOrganization.id)}
@@ -133,338 +121,9 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                     </ButtonPrimitive>
                                 </ComboboxItem>
                             ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-                            {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
-                            ))}
-
-                            {preflight?.can_create_org && (
+                        </ComboboxContent>
+                        {preflight?.can_create_org && (
+                            <ComboboxFooter>
                                 <ComboboxItem asChild alwaysVisible>
                                     <ButtonPrimitive
                                         menuItem
@@ -488,126 +147,12 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                         New organization
                                     </ButtonPrimitive>
                                 </ComboboxItem>
-                            )}
-                        </ComboboxContent>
+                            </ComboboxFooter>
+                        )}
                     </Combobox>
 
                 </PopoverPrimitiveContent>
             </PopoverPrimitive>
-
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive
-                        className="max-w-[210px]"
-                        iconOnly={isLayoutNavCollapsed ? true : false}
-                        data-attr="tree-navbar-organization-dropdown-button"
-                    >
-                        {currentOrganization ? (
-                            <UploadedLogo
-                                name={currentOrganization.name}
-                                entityId={currentOrganization.id}
-                                mediaId={currentOrganization.logo_media_id}
-                                size={isLayoutNavCollapsed ? 'medium' : 'xsmall'}
-                            />
-                        ) : (
-                            <UploadedLogo
-                                name="?"
-                                entityId=""
-                                mediaId=""
-                                size={isLayoutNavCollapsed ? 'medium' : 'xsmall'}
-                            />
-                        )}
-                        {!isLayoutNavCollapsed && (
-                            <>
-                                <span className="truncate font-semibold">
-                                    {currentOrganization ? currentOrganization.name : 'Select organization'}
-                                </span>
-                                <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
-                            </>
-                        )}
-                    </ButtonPrimitive>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                    loop
-                    align="start"
-                    className={`
-                min-w-[200px] 
-                max-w-[var(--project-panel-inner-width)] 
-            `}
-                >
-                    <DropdownMenuLabel>Organizations</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {currentOrganization && (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                menuItem
-                                active
-                                tooltip={`Current organization: ${currentOrganization.name}`}
-                                tooltipPlacement="right"
-                                data-attr="tree-navbar-organization-dropdown-current-organization-button"
-                            >
-                                <UploadedLogo
-                                    size="xsmall"
-                                    name={currentOrganization.name}
-                                    entityId={currentOrganization.id}
-                                    mediaId={currentOrganization.logo_media_id}
-                                />
-                                <span className="truncate">{currentOrganization.name}</span>
-                                <div className="ml-auto">
-                                    <AccessLevelIndicator organization={currentOrganization} />
-                                </div>
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    )}
-                    {otherOrganizations.map((otherOrganization) => (
-                        <DropdownMenuItem key={otherOrganization.id} asChild>
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                tooltipPlacement="right"
-                                data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                            >
-                                <UploadedLogo
-                                    size="xsmall"
-                                    name={otherOrganization.name}
-                                    entityId={otherOrganization.id}
-                                    mediaId={otherOrganization.logo_media_id}
-                                />
-                                {otherOrganization.name}
-                                <div className="ml-auto">
-                                    <AccessLevelIndicator organization={otherOrganization} />
-                                </div>
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    ))}
-                    {preflight?.can_create_org && (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                menuItem
-                                data-attr="new-organization-button"
-                                onClick={() =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                        () => {
-                                            closeAccountPopover()
-                                            showCreateOrganizationModal()
-                                        },
-                                        {
-                                            guardOnCloud: false,
-                                        }
-                                    )
-                                }
-                                tooltip="Create a new organization"
-                                tooltipPlacement="right"
-                            >
-                                <IconPlusSmall className="size-4" />
-                                New organization
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    )}
-                </DropdownMenuContent>
-            </DropdownMenu>
         </>
     )
 }
