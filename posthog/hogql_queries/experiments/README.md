@@ -51,7 +51,7 @@ multiply(2, metric_events.step_1),
 
 This is the main input to the `aggregate_funnel_array` function. This part of the query simply transforms the events for each
 user into the format requried by the function. It requires an array of tuples, where each element represents an event for that
-user, it's timestamp and wether it satisfies any of the steps in the funnel or not or not.
+user, it's timestamp and whether it satisfies any of the steps in the funnel or not or not.
 
 ```sql
 arraySort(t -> t.1, groupArray(tuple(
