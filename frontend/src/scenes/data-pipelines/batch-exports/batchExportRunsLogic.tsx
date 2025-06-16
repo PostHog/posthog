@@ -6,7 +6,6 @@ import { dayjs } from 'lib/dayjs'
 
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
