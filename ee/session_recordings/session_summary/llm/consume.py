@@ -4,7 +4,7 @@ import os
 from typing import Any
 import openai
 import structlog
-from ee.session_recordings.session_summary.llm.call import stream_llm
+from ee.session_recordings.session_summary.llm.call import call_llm, stream_llm
 from ee.session_recordings.session_summary.output_data import (
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
@@ -75,8 +75,7 @@ def _convert_llm_content_to_session_summary_json(
         raw_content=content, allowed_event_ids=allowed_event_ids, session_id=session_id
     )
     if not raw_session_summary:
-        # If parsing fails, this chunk is incomplete, so skipping it.
-        # We'll accumulate more chunks until we get valid YAML again.
+        # If parsing fails, this chunk is incomplete or call response is hallucinated, so skipping it.
         return None
     # Enrich session summary with events metadata
     session_summary = enrich_raw_session_summary_with_meta(
@@ -98,6 +97,65 @@ def _convert_llm_content_to_session_summary_json(
             results_base_dir_path=os.environ["LOCAL_SESSION_SUMMARY_RESULTS_DIR"],
         )
     return json.dumps(session_summary.data)
+
+
+async def get_llm_session_summary(
+    summary_prompt: str,
+    user_pk: int,
+    allowed_event_ids: list[str],
+    session_id: str,
+    simplified_events_mapping: dict[str, list[Any]],
+    simplified_events_columns: list[str],
+    url_mapping_reversed: dict[str, str],
+    window_mapping_reversed: dict[str, str],
+    session_start_time_str: str,
+    session_duration: int,
+    system_prompt: str | None = None,
+) -> str:
+    try:
+        result = await call_llm(
+            input_prompt=summary_prompt, user_key=user_pk, session_id=session_id, system_prompt=system_prompt
+        )
+        raw_content = _get_raw_content(result, session_id)
+        if not raw_content:
+            raise ValueError(f"No content consumed when calling LLM for session summary, session_id {session_id}")
+        session_summary = _convert_llm_content_to_session_summary_json(
+            content=raw_content,
+            allowed_event_ids=allowed_event_ids,
+            session_id=session_id,
+            simplified_events_mapping=simplified_events_mapping,
+            simplified_events_columns=simplified_events_columns,
+            url_mapping_reversed=url_mapping_reversed,
+            window_mapping_reversed=window_mapping_reversed,
+            session_start_time_str=session_start_time_str,
+            session_duration=session_duration,
+            summary_prompt=summary_prompt,
+            final_validation=True,
+        )
+        if not session_summary:
+            raise ValueError(
+                f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
+            )
+        # If parsing succeeds, yield the new chunk
+        sse_event_to_send = serialize_to_sse_event(event_label="session-summary-stream", event_data=session_summary)
+        return sse_event_to_send
+    except (SummaryValidationError, ValueError) as err:
+        # The only way to raise such errors is data hallucinations and inconsistencies (like missing mapping data).
+        # Such exceptions should be retried as early as possible to decrease the latency of the call.
+        logger.exception(
+            f"Hallucinated data or inconsistencies in the session summary for session_id {session_id}: {err}",
+            session_id=session_id,
+            user_pk=user_pk,
+        )
+        raise ExceptionToRetry()
+    except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
+        # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
+        logger.exception(
+            f"Error calling LLM for session_id {session_id} by user {user_pk}: {err}",
+            session_id=session_id,
+            user_pk=user_pk,
+        )
+        raise ExceptionToRetry()
 
 
 async def stream_llm_session_summary(
