@@ -667,6 +667,14 @@ def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropert
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
     elif property.key == "cohort":
         return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
+    elif property.key == "coupon":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon"])
+    elif property.key == "coupon_id":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon_id"])
+    elif property.key == "initial_coupon":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon"])
+    elif property.key == "initial_coupon_id":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon_id"])
     elif property.key == "source":
         return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"])
     else:

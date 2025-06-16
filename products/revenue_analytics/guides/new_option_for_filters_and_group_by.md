@@ -140,7 +140,6 @@ Add the new case inside `append_group_by()`
 ```python
 def _get_subquery(self) -> ast.SelectQuery | None:
     if group_by == RevenueAnalyticsInsightsQueryGroupBy.COUNTRY:
-        subquery = customer_subquery
         join_to = RevenueAnalyticsCustomerView
         field_name = "country"
     elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COHORT:

@@ -98,29 +98,37 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
     def append_group_by(
         self, query: ast.SelectQuery, group_by: RevenueAnalyticsInsightsQueryGroupBy
     ) -> ast.SelectQuery:
-        _, customer_subquery, _, product_subquery = self.revenue_subqueries
+        _, customer_subquery, invoice_item_subquery, product_subquery = self.revenue_subqueries
 
-        subquery: ast.SelectSetQuery | None = None
         join_to: type[RevenueAnalyticsBaseView] | None = None
         field_name: str | None = None
         if group_by == RevenueAnalyticsInsightsQueryGroupBy.PRODUCT:
-            subquery = product_subquery
             join_to = RevenueAnalyticsProductView
             field_name = "name"
         elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COUNTRY:
-            subquery = customer_subquery
             join_to = RevenueAnalyticsCustomerView
             field_name = "country"
         elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COHORT:
-            subquery = customer_subquery
             join_to = RevenueAnalyticsCustomerView
             field_name = "cohort"
+        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COUPON:
+            join_to = RevenueAnalyticsInvoiceItemView
+            field_name = "coupon"
+        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COUPON_ID:
+            join_to = RevenueAnalyticsInvoiceItemView
+            field_name = "coupon_id"
+        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON:
+            join_to = RevenueAnalyticsCustomerView
+            field_name = "initial_coupon"
+        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON_ID:
+            join_to = RevenueAnalyticsCustomerView
+            field_name = "initial_coupon_id"
         else:
             raise ValueError(f"Invalid group by: {group_by}")
 
         # Join with the subquery to get access to the coalesced field
         # and also change the `breakdown_by` to include that
-        if subquery is not None and join_to is not None and field_name is not None:
+        if join_to is not None and field_name is not None:
             # This `if` is required to make mypy happy
             if (
                 query.select
@@ -148,7 +156,17 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             # However, because we're already likely joining with the subquery because
             # we might be filtering on item, we need to be extra safe here and guarantee
             # there's no join with the subquery before adding this one
-            if query.select_from is not None:
+            subquery: ast.SelectSetQuery | None = (
+                product_subquery
+                if join_to == RevenueAnalyticsProductView
+                else customer_subquery
+                if join_to == RevenueAnalyticsCustomerView
+                else invoice_item_subquery
+                if join_to == RevenueAnalyticsInvoiceItemView
+                else None
+            )
+
+            if subquery is not None and query.select_from is not None:
                 has_subquery_join = False
                 current_join: ast.JoinExpr | None = query.select_from
                 while current_join is not None:
