@@ -1,5 +1,5 @@
 import uuid
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Optional
 from freezegun import freeze_time
 
@@ -42,6 +42,10 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         super().setUp()
         self._materialize_required_columns()
         self._setup_test_data()
+
+    @abstractmethod
+    def _setup_test_data(self):
+        pass
 
     def _materialize_required_columns(self):
         for column in self.MATERIALIZED_COLUMNS:

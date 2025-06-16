@@ -252,7 +252,7 @@ class TestWebBouncesPreAggregated(WebAnalyticsPreAggregatedTestBase):
         expected_metrics = self._get_expected_metrics()
 
         query = WebOverviewQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-01"),
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
             properties=[],
             compareFilter=None,
         )
