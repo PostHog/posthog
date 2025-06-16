@@ -102,6 +102,16 @@ jobs:
             - name: Check builds correctly
               run: pnpm --filter=@posthog/plugin-server build
 
+            - name: Sanity check output
+              run: |
+                  cd plugin-server
+                  # We expect it to fail but check that the error isn't "Cannot find module"
+                  if node dist/index.js 2>&1 | grep -v "Cannot find module"; then
+                      echo "✅ Build is valid - failed as expected without module errors"
+                  else
+                      echo "❌ Build is invalid - failed with 'Cannot find module' error"
+                      exit 1
+                  fi
     tests:
         name: Plugin Server Tests (${{matrix.shard}}/3)
         needs: changes
