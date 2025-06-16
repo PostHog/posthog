@@ -4,7 +4,6 @@ import collections.abc
 import dataclasses
 import datetime as dt
 import enum
-import itertools
 import json
 import os
 import re
@@ -34,7 +33,6 @@ from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
 from posthog.warehouse.models import (
     DataWarehouseModelPath,
@@ -857,7 +855,9 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
 
             for label in inputs.failed:
                 tg.create_task(
-                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, None, inputs.team_id, progress="")
+                    update_saved_query_status(
+                        label, DataWarehouseSavedQuery.Status.FAILED, None, inputs.team_id, progress=""
+                    )
                 )
     except* Exception:
         await logger.aexception("Failed to update saved query status when finishing run")
@@ -1005,16 +1005,6 @@ class RunWorkflow(PostHogWorkflow):
         mat_views = [node for node in upstream["nodes"] if node["type"] == "view" and node.get("sync_frequency")]
         mat_view_ids = {node["id"] for node in mat_views}
 
-        # Create tables for all materialized views in the DAG
-        await temporalio.workflow.execute_activity(
-            create_table_activity,
-            CreateTableActivityInputs(models=list(mat_view_ids), team_id=inputs.team_id),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=1,
-            ),
-        )
-
         jobs_map = await temporalio.workflow.execute_activity(
             create_jobs_for_materialized_views_activity,
             CreateJobsForMaterializedViewsActivityInputs(
@@ -1052,7 +1042,7 @@ class RunWorkflow(PostHogWorkflow):
         completed = set()
         failed = set()
         ancestor_failed = set()
-        running = dict()
+        running = {}
         ready = [node_id for node_id, deps in dependencies.items() if not deps]
 
         inputs.select[0] = dataclasses.replace(inputs.select[0], ancestors="ALL")
@@ -1141,6 +1131,16 @@ class RunWorkflow(PostHogWorkflow):
                                 del running[descendant]
                             q.extend(list(dependents.get(descendant, set())))
 
+        # Create tables for all materialized views in the DAG
+        await temporalio.workflow.execute_activity(
+            create_table_activity,
+            CreateTableActivityInputs(models=list(mat_view_ids), team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        )
+
         await temporalio.workflow.execute_activity(
             finish_run_activity,
             FinishRunActivityInputs(
@@ -1162,7 +1162,7 @@ class RunWorkflow(PostHogWorkflow):
 
 @temporalio.activity.defn
 def get_upstream_dag_activity(team_id: int, model_id: str) -> dict:
-    return get_upstream_dag(team_id, model_id)
+    return get_upstream_dag(team_id, model_id, should_stringify_numerics=True)
 
 
 def serialize_set(s):

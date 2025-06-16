@@ -9,7 +9,7 @@ from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSave
 import uuid
 from typing import Optional, Any
 from collections import defaultdict, deque
-import datetime as dt
+
 
 def join_components_greedily(components: list[str]) -> list[str]:
     """
@@ -85,7 +85,7 @@ def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]
     return result
 
 
-def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
+def get_upstream_dag(team_id: int, model_id: str, should_stringify_numerics: bool = False) -> dict[str, list[Any]]:
     query = Q(team_id=team_id, saved_query_id=model_id)
     paths = DataWarehouseModelPath.objects.filter(query)
 
@@ -121,8 +121,12 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 "id": model_id,
                 "type": "view",
                 "name": saved_query.name,
-                "sync_frequency": str(saved_query.sync_frequency_interval) if (saved_query and saved_query.sync_frequency_interval is not None) else None,
-                "last_run_at": saved_query.last_run_at.isoformat() if (saved_query and saved_query.last_run_at) else None,
+                "sync_frequency": str(saved_query.sync_frequency_interval)
+                if (saved_query and saved_query.sync_frequency_interval is not None)
+                else None,
+                "last_run_at": saved_query.last_run_at.isoformat()
+                if (saved_query and saved_query.last_run_at)
+                else None,
                 "status": saved_query.status,
             }
         )
@@ -161,14 +165,31 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                         name = saved_query.name
                 except ValueError:
                     name = component
-                node_data[node_id] = {
-                    "id": node_id,
-                    "type": "view" if node_uuid else "table",
-                    "name": name,
-                    "sync_frequency": str(saved_query.sync_frequency_interval) if (saved_query and saved_query.sync_frequency_interval is not None) else None,
-                    "last_run_at": saved_query.last_run_at.isoformat() if (saved_query and saved_query.last_run_at) else None,
-                    "status": saved_query.status if saved_query else None,
-                }
+
+                if should_stringify_numerics:
+                    node_data[node_id] = {
+                        "id": node_id,
+                        "type": "view" if node_uuid else "table",
+                        "name": name,
+                        "sync_frequency": str(saved_query.sync_frequency_interval)
+                        if (saved_query and saved_query.sync_frequency_interval is not None)
+                        else None,
+                        "last_run_at": saved_query.last_run_at.isoformat()
+                        if (saved_query and saved_query.last_run_at)
+                        else None,
+                        "status": saved_query.status if saved_query else None,
+                    }
+                else:
+                    node_data[node_id] = {
+                        "id": node_id,
+                        "type": "view" if node_uuid else "table",
+                        "name": name,
+                        "sync_frequency": saved_query.sync_frequency_interval
+                        if (saved_query and saved_query.sync_frequency_interval is not None)
+                        else None,
+                        "last_run_at": saved_query.last_run_at if (saved_query and saved_query.last_run_at) else None,
+                        "status": saved_query.status if saved_query else None,
+                    }
             if i > 0:
                 source = components[i - 1]
                 target = component
