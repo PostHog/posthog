@@ -19,9 +19,11 @@ from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
     revenue_selects_from_database,
 )
+from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
 from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
@@ -81,6 +83,20 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             base_join.next_join = current_join
         return initial_join
 
+    # NOTE: It doesn't make sense to join with the `invoice_items` table
+    # because it's the base table we're all joining to
+    def create_subquery_join(
+        self, join_to: type[RevenueAnalyticsBaseView], subquery: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.JoinExpr:
+        if join_to == RevenueAnalyticsProductView:
+            return self.create_product_join(subquery)
+        elif join_to == RevenueAnalyticsCustomerView:
+            return self.create_customer_join(subquery)
+        elif join_to == RevenueAnalyticsChargeView:
+            return self.create_charge_join(subquery)
+        else:
+            raise ValueError(f"Invalid join to: {join_to}")
+
     def create_product_join(self, product_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
         return ast.JoinExpr(
             alias=RevenueAnalyticsProductView.get_generic_view_alias(),
@@ -106,6 +122,21 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                 expr=ast.CompareOperation(
                     left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
                     right=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "customer_id"]),
+                    op=ast.CompareOperationOp.Eq,
+                ),
+            ),
+        )
+
+    def create_charge_join(self, charge_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            alias=RevenueAnalyticsChargeView.get_generic_view_alias(),
+            table=charge_subquery,
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                constraint_type="ON",
+                expr=ast.CompareOperation(
+                    left=ast.Field(chain=[RevenueAnalyticsChargeView.get_generic_view_alias(), "id"]),
+                    right=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "charge_id"]),
                     op=ast.CompareOperationOp.Eq,
                 ),
             ),
