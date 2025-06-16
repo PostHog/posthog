@@ -956,10 +956,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not connection_params.get("database"):
             raise Exception("Database name is required in connection string")
 
-        # Validate database host (only for non-SRV connections)
-        if not connection_params.get("is_srv") and not self._validate_database_host(
-            connection_params["host"], self.team_id, False
-        ):
+        # Validate database host
+        if not self._validate_mongo_host(connection_params):
             raise Exception("Cannot use internal database")
 
         new_source_model = ExternalDataSource.objects.create(
@@ -1440,10 +1438,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Database name is required in connection string"},
                 )
 
-            # Validate internal database (only for non-SRV connections)
-            if not connection_params.get("is_srv") and not self._validate_database_host(
-                connection_params["host"], self.team_id, False
-            ):
+            # Validate internal database
+            if not self._validate_mongo_host(connection_params):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Cannot use internal database"},
@@ -1683,6 +1679,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if key in error_msg:
                 return value
         return None
+
+    def _validate_mongo_host(self, connection_params: dict[str, Any]) -> bool:
+        """Validate MongoDB host for non-SRV connections."""
+        if connection_params.get("is_srv"):
+            return True  # SRV connections are always allowed
+
+        return self._validate_database_host(connection_params["host"], self.team_id, False)
 
     def _validate_database_host(self, host: str, team_id: int, using_ssh_tunnel: bool) -> bool:
         if using_ssh_tunnel:
