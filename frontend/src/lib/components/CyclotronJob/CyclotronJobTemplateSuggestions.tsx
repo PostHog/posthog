@@ -38,7 +38,7 @@ export function CyclotronJobTemplateSuggestions({
     setTemplating,
     onOptionSelect,
 }: CyclotronJobTemplateSuggestionsProps): JSX.Element {
-    const logic = cyclotronJobTemplateSuggestionsLogic({ templating: templating ?? 'hog' })
+    const logic = cyclotronJobTemplateSuggestionsLogic({ templating })
     const { search, optionsFiltered } = useValues(logic)
     const { setSearch } = useActions(logic)
 
