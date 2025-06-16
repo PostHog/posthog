@@ -232,12 +232,15 @@ class BayesianMethod:
 
     def _make_recommendation(self, result: BayesianResult) -> str:
         """Make a business recommendation based on the test result."""
-        if result.chance_to_win > 0.95:
-            return f"Strong evidence for {result.preferred_variation}. Safe to proceed."
-        elif result.chance_to_win > 0.85:
-            return f"Good evidence for {result.preferred_variation}. Consider proceeding with monitoring."
-        elif result.chance_to_win > 0.65:
-            return f"Weak evidence for {result.preferred_variation}. Consider collecting more data."
+        chance_to_win = result.chance_to_win
+        preferred_variation = result.preferred_variation
+        
+        if chance_to_win > 0.95:
+            return f"Strong evidence for {preferred_variation}. Safe to proceed."
+        elif chance_to_win > 0.85:
+            return f"Good evidence for {preferred_variation}. Consider proceeding with monitoring."
+        elif chance_to_win > 0.65:
+            return f"Weak evidence for {preferred_variation}. Consider collecting more data."
         else:
             return "Inconclusive evidence. Collect more data before making a decision."
 

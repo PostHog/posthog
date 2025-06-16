@@ -56,10 +56,10 @@ def calculate_effect_size_and_variance(
 
         # Using delta method for ratios
         effect_variance = variance_of_ratios(
-            mean_m=treatment_mean,
-            var_m=treatment_var / treatment_n,
-            mean_d=control_mean,
-            var_d=control_var / control_n,
+            mean_numerator=treatment_mean,
+            var_numerator=treatment_var / treatment_n,
+            mean_denominator=control_mean,
+            var_denominator=control_var / control_n,
             covariance=0,  # No covariance between treatment and control
         )
 
@@ -69,7 +69,7 @@ def calculate_effect_size_and_variance(
     return effect, effect_variance
 
 
-def variance_of_ratios(mean_m: float, var_m: float, mean_d: float, var_d: float, covariance: float) -> float:
+def variance_of_ratios(mean_numerator: float, var_numerator: float, mean_denominator: float, var_denominator: float, covariance: float) -> float:
     """
     Calculate variance of ratio using delta method.
 
@@ -77,19 +77,21 @@ def variance_of_ratios(mean_m: float, var_m: float, mean_d: float, var_d: float,
     Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
 
     Args:
-        mean_m: Mean of numerator
-        var_m: Variance of numerator
-        mean_d: Mean of denominator
-        var_d: Variance of denominator
+        mean_numerator: Mean of numerator
+        var_numerator: Variance of numerator
+        mean_denominator: Mean of denominator
+        var_denominator: Variance of denominator
         covariance: Covariance between numerator and denominator
 
     Returns:
         Variance of the ratio
     """
-    if abs(mean_d) < 1e-10:
+    if abs(mean_denominator) < 1e-10:
         raise StatisticError("Denominator mean cannot be zero for ratio variance calculation")
 
-    return var_m / mean_d**2 + mean_m**2 * var_d / mean_d**4 - 2 * mean_m * covariance / mean_d**3
+    return (var_numerator / mean_denominator**2 + 
+            mean_numerator**2 * var_denominator / mean_denominator**4 - 
+            2 * mean_numerator * covariance / mean_denominator**3)
 
 
 def calculate_posterior(effect_size: float, effect_variance: float, prior: GaussianPrior) -> tuple[float, float]:
@@ -235,7 +237,7 @@ def calculate_risk(posterior_mean: float, posterior_std: float) -> tuple[float, 
     return float(risk_control), float(risk_treatment)
 
 
-def truncated_normal_mean(mu: float, sigma: float, a: float, b: float) -> float:
+def truncated_normal_mean(mu: float, sigma: float, lower_bound: float, upper_bound: float) -> float:
     """
     Calculate expected value of truncated normal distribution.
 
@@ -243,9 +245,9 @@ def truncated_normal_mean(mu: float, sigma: float, a: float, b: float) -> float:
 
     Args:
         mu: Original normal distribution mean
-        sigma: Original normal distribution std dev
-        a: Lower truncation bound (-np.inf for no lower bound)
-        b: Upper truncation bound (np.inf for no upper bound)
+        sigma: Original normal distribution standard deviation
+        lower_bound: Lower truncation bound (-np.inf for no lower bound)
+        upper_bound: Upper truncation bound (np.inf for no upper bound)
 
     Returns:
         Expected value of truncated distribution
@@ -254,15 +256,15 @@ def truncated_normal_mean(mu: float, sigma: float, a: float, b: float) -> float:
         raise StatisticError("Standard deviation must be positive")
 
     # Standardize bounds
-    a_std = (a - mu) / sigma if not np.isinf(a) else a
-    b_std = (b - mu) / sigma if not np.isinf(b) else b
+    lower_std = (lower_bound - mu) / sigma if not np.isinf(lower_bound) else lower_bound
+    upper_std = (upper_bound - mu) / sigma if not np.isinf(upper_bound) else upper_bound
 
     # Use scipy's truncated normal
     try:
-        return float(truncnorm.mean(a_std, b_std, loc=mu, scale=sigma))
+        return float(truncnorm.mean(lower_std, upper_std, loc=mu, scale=sigma))
     except Exception as e:
         # Handle numerical issues
-        if np.isfinite(a) and np.isfinite(b):
+        if np.isfinite(lower_bound) and np.isfinite(upper_bound):
             return mu  # Fallback to original mean
         raise StatisticError(f"Failed to calculate truncated normal mean: {e}")
 

@@ -34,7 +34,7 @@ class GaussianPrior:
     @property
     def precision(self) -> float:
         """Prior precision (1/variance). Returns 0 for non-informative priors."""
-        if not self.is_proper():
+        if not self.proper:
             return 0.0
         return 1.0 / self.variance
 
