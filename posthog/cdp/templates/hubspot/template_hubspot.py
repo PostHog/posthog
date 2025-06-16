@@ -320,7 +320,7 @@ if (res.status >= 400) {
             "key": "eventName",
             "type": "string",
             "label": "Event Name",
-            "description": "Hubspot only allows events that start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens.",
+            "description": "Hubspot only allows events that start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Whitespace will be automatically replaced with _",
             "default": "{event.event}",
             "secret": False,
             "required": True,
