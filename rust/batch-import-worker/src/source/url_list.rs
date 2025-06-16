@@ -79,18 +79,13 @@ impl UrlList {
             .map_err(|e| Error::msg(format!("Failed to parse Content-Length header: {}", e)))?;
 
         content_lenth
-            .parse::<usize>()
-            .map_err(|e| Error::msg(format!("Failed to parse Content-Length as usize: {}", e)))?;
+            .parse::<u64>()
+            .map_err(|e| Error::msg(format!("Failed to parse Content-Length as u64: {}", e)))?;
 
         Ok(())
     }
 
-    async fn get_chunk_inner(
-        &self,
-        key: &str,
-        offset: usize,
-        size: usize,
-    ) -> Result<Vec<u8>, Error> {
+    async fn get_chunk_inner(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
         // Ensure the passed key is in our list of URLs
         if !self.urls.contains(&key.to_string()) {
             return Err(Error::msg("Key not found"));
@@ -117,7 +112,7 @@ impl DataSource for UrlList {
         Ok(self.urls.clone())
     }
 
-    async fn size(&self, key: &str) -> Result<usize, Error> {
+    async fn size(&self, key: &str) -> Result<u64, Error> {
         // Ensure the passed key is in our list of URLs
         if !self.urls.contains(&key.to_string()) {
             return Err(Error::msg("Key not found"));
@@ -140,13 +135,13 @@ impl DataSource for UrlList {
                     .map_err(|e| Error::msg(format!("Failed to parse content length: {}", e)))
             })
             .and_then(|length| {
-                length.parse::<usize>().map_err(|e| {
-                    Error::msg(format!("Failed to parse content length as usize: {}", e))
+                length.parse::<u64>().map_err(|e| {
+                    Error::msg(format!("Failed to parse content length as u64: {}", e))
                 })
             })
     }
 
-    async fn get_chunk(&self, key: &str, offset: usize, size: usize) -> Result<Vec<u8>, Error> {
+    async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
         let mut retries = self.retries;
         loop {
             match self.get_chunk_inner(key, offset, size).await {
@@ -276,7 +271,7 @@ mod test {
             .unwrap();
         let size = source.size(&urls[0]).await.unwrap();
 
-        assert_eq!(size, TEST_CONTENTS.len());
+        assert_eq!(size, TEST_CONTENTS.len() as u64);
     }
 
     #[tokio::test]

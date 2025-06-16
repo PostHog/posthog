@@ -514,16 +514,15 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
-                    // that the flag is targeting a deleted cohort
-                    if !matches!(e, FlagError::CohortNotFound(_)) {
-                        error!(
-                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
-                            flag.key, self.distinct_id, e
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag.key, dependency_type, dependency_id, self.distinct_id, e
                         );
                     } else {
-                        warn!(
-                            "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
+                        error!(
+                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
                         );
                     }
@@ -557,8 +556,10 @@ impl FeatureFlagMatcher {
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
                 for flag in flags_needing_db_properties {
-                    flag_details_map
-                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                    flag_details_map.insert(
+                        flag.key.clone(),
+                        FlagDetails::create_error(&flag, reason, None),
+                    );
                 }
                 error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 inc(
@@ -609,16 +610,15 @@ impl FeatureFlagMatcher {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
 
-                    // Only log errors that aren't CohortNotFound, since CohortNotFound errors bubble up here in the event
-                    // that the flag is targeting a deleted cohort
-                    if !matches!(e, FlagError::CohortNotFound(_)) {
-                        error!(
-                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                            flag_key, self.distinct_id, e
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag_key, dependency_type, dependency_id, self.distinct_id, e
                         );
                     } else {
-                        warn!(
-                            "Feature flag '{}' targeting deleted cohort for distinct_id '{}': {:?}",
+                        error!(
+                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag_key, self.distinct_id, e
                         );
                     }
@@ -628,7 +628,8 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
-                    flag_details_map.insert(flag_key, FlagDetails::create_error(flag, reason));
+                    flag_details_map
+                        .insert(flag_key, FlagDetails::create_error(flag, reason, None));
                 }
             }
         }
@@ -1168,16 +1169,22 @@ impl FeatureFlagMatcher {
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
-            let group_key = self
+            let group_key = match self
                 .group_type_mapping_cache
                 .get_group_type_index_to_type_map()?
                 .get(&group_type_index)
                 .and_then(|group_type_name| self.groups.get(group_type_name))
-                .and_then(|group_key_value| group_key_value.as_str())
-                // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
-                // and I don't want to break parity with the old service since I don't want the hash values to change
-                .unwrap_or("")
-                .to_string();
+            {
+                Some(Value::String(s)) => s.clone(),
+                Some(Value::Number(n)) => n.to_string(),
+                Some(_) => {
+                    // For any other JSON type (bool, array, object, null), use empty string
+                    // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
+                    // and I don't want to break parity with the old service since I don't want the hash values to change
+                    "".to_string()
+                }
+                None => "".to_string(),
+            };
 
             Ok(group_key)
         } else {
@@ -1352,7 +1359,11 @@ impl FeatureFlagMatcher {
             .groups
             .iter()
             .filter_map(|(group_type, group_key_value)| {
-                let group_key = group_key_value.as_str()?.to_string();
+                let group_key = match group_key_value {
+                    Value::String(s) => s.clone(),
+                    Value::Number(n) => n.to_string(),
+                    _ => return None, // Skip non-string, non-number group keys
+                };
                 self.group_type_mapping_cache
                     .get_group_types_to_indexes()
                     .ok()?
@@ -4875,9 +4886,9 @@ mod tests {
             .await
             .unwrap();
 
-        // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
+        // This should not throw DependencyNotFound because we skip dependency graph evaluation for static cohorts
         let result = matcher.get_match(&flag, None, None);
-        assert!(result.is_ok(), "Should not throw CohortNotFound error");
+        assert!(result.is_ok(), "Should not throw DependencyNotFound error");
 
         let match_result = result.unwrap();
         assert!(match_result.matches, "User should match the static cohort");
@@ -4949,6 +4960,138 @@ mod tests {
         assert!(!result.errors_while_computing_flags);
         let flag_details = result.flags.get("test_flag").unwrap();
         assert!(flag_details.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_numeric_group_keys() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Set up group type mapping cache
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        group_type_mapping_cache.init(reader.clone()).await.unwrap();
+
+        // Test with numeric group key
+        let groups_numeric = HashMap::from([("organization".to_string(), json!(123))]);
+        let mut matcher_numeric = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache.clone()),
+            Some(groups_numeric),
+        );
+
+        matcher_numeric
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result_numeric = matcher_numeric.get_match(&flag, None, None).unwrap();
+
+        // Test with string group key (same value)
+        let groups_string = HashMap::from([("organization".to_string(), json!("123"))]);
+        let mut matcher_string = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache.clone()),
+            Some(groups_string),
+        );
+
+        matcher_string
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result_string = matcher_string.get_match(&flag, None, None).unwrap();
+
+        // Both should match and produce the same result
+        assert!(result_numeric.matches, "Numeric group key should match");
+        assert!(result_string.matches, "String group key should match");
+        assert_eq!(
+            result_numeric.matches, result_string.matches,
+            "String and numeric group keys should produce the same match result"
+        );
+        assert_eq!(
+            result_numeric.reason, result_string.reason,
+            "String and numeric group keys should produce the same match reason"
+        );
+
+        // Test with a float value to ensure it works too
+        let groups_float = HashMap::from([("organization".to_string(), json!(123.0))]);
+        let mut matcher_float = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache.clone()),
+            Some(groups_float),
+        );
+
+        matcher_float
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result_float = matcher_float.get_match(&flag, None, None).unwrap();
+        assert!(result_float.matches, "Float group key should match");
+
+        // Test with invalid group key type (should use empty string and not match this specific case)
+        let groups_bool = HashMap::from([("organization".to_string(), json!(true))]);
+        let mut matcher_bool = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            Some(group_type_mapping_cache.clone()),
+            Some(groups_bool),
+        );
+
+        matcher_bool
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result_bool = matcher_bool.get_match(&flag, None, None).unwrap();
+        // Boolean group key should use empty string identifier, which returns hash 0.0, making flag evaluate to false
+        assert!(
+            !result_bool.matches,
+            "Boolean group key should not match due to empty identifier"
+        );
     }
 
     #[tokio::test]

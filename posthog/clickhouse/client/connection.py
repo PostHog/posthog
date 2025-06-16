@@ -46,6 +46,8 @@ class ClickHouseUser(Enum):
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CACHE_WARMUP = "cache_warmup"
+    # Whenever the HogQL needs to query CH to get some metadata
+    HOGQL = "hogql"
 
     # Dev Operations - do not normally use
     OPS = "ops"

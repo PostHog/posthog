@@ -1,39 +1,56 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { HogFunctionFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
+import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES } from '../sub-templates/sub-templates'
 import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
     type: HogFunctionTypeType
-    filters?: HogFunctionFiltersType
+    forceFilterGroups?: HogFunctionFiltersType[]
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean
 }
 
+const getFiltersFromSubTemplateIds = (subTemplateIds: HogFunctionSubTemplateIdType[]): HogFunctionFiltersType[] => {
+    const filterGroups: HogFunctionFiltersType[] = []
+
+    for (const subTemplateId of subTemplateIds) {
+        const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
+        if (commonProperties.filters) {
+            filterGroups.push(commonProperties.filters)
+        }
+    }
+
+    return filterGroups
+}
+
 export function LinkedHogFunctions({
     type,
-    filters,
+    forceFilterGroups,
     subTemplateIds,
     newDisabledReason,
     hideFeedback,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
+    const logicKey = useMemo(() => {
+        return JSON.stringify({ type, subTemplateIds, forceFilterGroups })
+    }, [type, subTemplateIds, forceFilterGroups])
 
     // TRICKY: All templates are destinations - internal destinations are just a different source
     // and set by the subtemplate modifier
-
     const templateType = type === 'internal_destination' ? 'destination' : type
+
+    const filterGroups = forceFilterGroups ?? getFiltersFromSubTemplateIds(subTemplateIds ?? [])
 
     return showNewDestination ? (
         <HogFunctionTemplateList
-            defaultFilters={{}}
             type={templateType}
             subTemplateIds={subTemplateIds}
-            forceFilters={{ filters }}
+            configurationOverrides={filterGroups.length ? { filters: filterGroups[0] } : undefined}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
@@ -44,7 +61,8 @@ export function LinkedHogFunctions({
         />
     ) : (
         <HogFunctionList
-            forceFilters={{ filters }}
+            key={logicKey}
+            forceFilterGroups={filterGroups}
             type={type}
             hideFeedback={hideFeedback}
             extraControls={

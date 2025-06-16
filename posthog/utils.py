@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+import orjson
 import os
 import re
 import secrets
@@ -42,7 +43,7 @@ from django.utils import timezone
 from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
-from sentry_sdk import configure_scope
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -763,7 +764,7 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception:
                 # Increment a separate counter for JSON parsing failures after all decompression attempts
-                # We do this because we're no longer tracking these fallbacks in Sentry (since they're not actionable defects),
+                # We do this because we're no longer tracking these fallbacks in error tracking (since they're not actionable defects),
                 # but we still want to know how often they occur.
                 KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
                 raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
@@ -787,22 +788,24 @@ def load_data_from_request(request):
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
     # add the data in sentry's scope in case there's an exception
-    with configure_scope() as scope:
+    with posthoganalytics.new_context():
         if isinstance(data, dict):
-            scope.set_context("data", data)
-        scope.set_tag(
+            posthoganalytics.tag("data", data)
+        posthoganalytics.tag(
             "origin",
             request.headers.get("origin", request.headers.get("remote_host", "unknown")),
         )
-        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        posthoganalytics.tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+        posthoganalytics.tag("library.version", request.GET.get("ver", "unknown"))
 
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    ).lower()
+        compression = (
+            request.GET.get("compression")
+            or request.POST.get("compression")
+            or request.headers.get("content-encoding", "")
+        ).lower()
 
-    return decompress(data, compression)
+        return decompress(data, compression)
 
 
 class SingletonDecorator:
@@ -1580,3 +1583,11 @@ def is_relative_url(url: str | None) -> bool:
     return (
         parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
     )
+
+
+def to_json(obj: dict) -> bytes:
+    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
+    option = orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS
+    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
+
+    return json_string

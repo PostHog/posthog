@@ -884,6 +884,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "CheckViolation",
                 # We do not create foreign keys, so this is a user managed check we have failed.
                 "ForeignKeyViolation",
+                # Data (usually event properties) contains garbage that we cannot clean.
+                "UntranslatableCharacter",
             ],
             finish_inputs=finish_inputs,
         )

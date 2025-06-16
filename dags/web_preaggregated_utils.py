@@ -2,7 +2,7 @@ from typing import Optional
 from dagster import Backoff, Field, Array, Jitter, RetryPolicy
 
 # TODO: Remove this once we're fully rolled out but this is better than defaulting to all teams
-TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED = [1, 2, 55348, 47074]
+TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED = [1, 2, 55348, 47074, 12669, 1589]
 
 web_analytics_retry_policy_def = RetryPolicy(
     max_retries=3,

@@ -100,7 +100,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
-        self.assertEqual(response.json()["stats_config"], {"version": 2})
+        self.assertEqual(response.json()["stats_config"], {"version": 2, "method": "bayesian"})
 
         id = response.json()["id"]
         experiment = Experiment.objects.get(pk=id)

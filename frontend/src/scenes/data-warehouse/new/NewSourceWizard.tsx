@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
 
@@ -17,6 +18,11 @@ import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
+
+export const scene: SceneExport = {
+    component: NewSourceWizardScene,
+    logic: sourceWizardLogic,
+}
 
 export function NewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
@@ -170,6 +176,12 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                             <div className="flex flex-col">
                                 <span className="gap-1 text-sm font-semibold">
                                     {sourceConfig.label ?? sourceConfig.name}
+                                    {sourceConfig.betaSource && (
+                                        <span>
+                                            {' '}
+                                            <LemonTag type="warning">BETA</LemonTag>
+                                        </span>
+                                    )}
                                 </span>
                                 {sourceConfig.unreleasedSource && (
                                     <span>Get notified when {sourceConfig.label} is available to connect</span>
