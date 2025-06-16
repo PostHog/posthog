@@ -1,0 +1,18 @@
+name: Report workflow results to PostHog
+inputs:
+    posthog-token:
+        required: true
+        description: PostHog project API key
+    github-token:
+        required: true
+        description: Token with access to GitHub Actions API
+runs:
+    using: composite
+    steps:
+        - name: Report workflow to PostHog
+          shell: bash
+          run: python infra-scripts/gha/track_workflow_to_posthog.py
+          env:
+              GITHUB_TOKEN: ${{ inputs.github-token }}
+              POSTHOG_API_KEY: ${{ inputs.posthog-token }}
+              POSTHOG_HOST: https://internal-t.posthog.com

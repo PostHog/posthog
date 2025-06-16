@@ -223,3 +223,9 @@ jobs:
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
               run: bin/turbo run test --filter=@posthog/plugin-server
+            - name: Report job to PostHog
+              if: github.event_name == 'pull_request' && needs.changes.outputs.plugin-server == 'true'
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -142,3 +142,10 @@ jobs:
                           // Just log the summary if this is a push to master
                           console.log(body)
                       }
+
+            - name: Report job to PostHog
+              if: github.event_name == 'pull_request'
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
