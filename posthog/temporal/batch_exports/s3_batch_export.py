@@ -438,8 +438,7 @@ class S3MultiPartUpload:
         exponential_backoff_coefficient: int = 2,
     ) -> str:
         """Attempt to upload a part for this multi-part upload retrying on transient errors."""
-        assert self.upload_id is not None
-        response: UploadPartOutputTypeDef | None = None
+        response: dict[str, str] | None = None
         attempt = 0
 
         async with self.s3_client() as s3_client:
@@ -465,11 +464,10 @@ class S3MultiPartUpload:
                         if attempt >= max_attempts:
                             raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
 
-                        retry_delay = min(
-                            max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
+                        await asyncio.sleep(
+                            min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
                         )
-                        await self.logger.ainfo("Retrying part %s upload in %s seconds", next_part_number, retry_delay)
-                        await asyncio.sleep(retry_delay)
+
                         continue
                     else:
                         raise
