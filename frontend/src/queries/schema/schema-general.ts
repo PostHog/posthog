@@ -3142,6 +3142,11 @@ export interface RevenueAnalyticsConfig {
      * @default []
      */
     goals: RevenueAnalyticsGoal[]
+
+    /**
+     * @default false
+     */
+    filter_test_accounts: boolean
 }
 
 export interface PageURL {
