@@ -186,7 +186,11 @@ class DeltaTableHelper:
                 )
                 self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
-        elif write_type == "full_refresh":
+        elif (
+            write_type == "full_refresh"
+            or (write_type == "incremental" and delta_table is None)
+            or (write_type == "incremental" and self._is_first_sync)
+        ):
             mode = "append"
             schema_mode = "merge"
             if chunk_index == 0 or delta_table is None:

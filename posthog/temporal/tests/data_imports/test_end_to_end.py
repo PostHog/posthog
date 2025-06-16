@@ -2118,19 +2118,19 @@ async def test_stripe_earliest_incremental_value_v2(team, stripe_balance_transac
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_append_only_table(team, stripe_balance_transaction):
+async def test_append_only_table(team, mock_stripe_client):
     _, inputs = await _run(
         team=team,
         schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         table_name="stripe_balancetransaction",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-        mock_data_response=stripe_balance_transaction["data"],
+        mock_data_response=[],
         sync_type=ExternalDataSchema.SyncType.APPEND,
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
+    await _execute_run(str(uuid.uuid4()), inputs, [])
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM stripe_balancetransaction", team)
 
