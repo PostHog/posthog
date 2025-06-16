@@ -1,26 +1,15 @@
 import { IconPlaylist } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import { storiesLogic } from './storiesLogic'
 import type { storyGroup } from './storiesMap'
 import { StoriesModal } from './StoriesModal'
 
 export const PosthogStoriesContainer = (): JSX.Element => {
-    const { stories, isStoryViewed, storiesCollapsed, viewedStoriesLoading } = useValues(storiesLogic)
+    const { stories, isStoryViewed, storiesCollapsed } = useValues(storiesLogic)
     const { setActiveGroupIndex, setOpenStoriesModal, setActiveStoryIndex, toggleStoriesCollapsed } =
         useActions(storiesLogic)
-
-    // Check if there are any unseen stories
-    const hasUnseenStories = stories.some((storyGroup) => storyGroup.stories.some((story) => !isStoryViewed(story.id)))
-
-    // Auto-open when there are unseen stories (only after viewed stories have loaded)
-    useEffect(() => {
-        if (!viewedStoriesLoading && hasUnseenStories && storiesCollapsed) {
-            toggleStoriesCollapsed()
-        }
-    }, [hasUnseenStories, storiesCollapsed, toggleStoriesCollapsed, viewedStoriesLoading])
 
     // Sort stories so viewed groups appear at the end
     const sortedStories = [...stories].sort((a, b) => {
