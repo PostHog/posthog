@@ -54,7 +54,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                         path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: Scene.DataPipelines,
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
                         path: urls.dataPipelines('sources'),
                     },

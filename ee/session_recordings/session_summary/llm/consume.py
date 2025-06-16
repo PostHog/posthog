@@ -11,13 +11,10 @@ from ee.session_recordings.session_summary.output_data import (
 )
 from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValidationError
 from prometheus_client import Histogram
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_fixed, wait_random
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
-from posthog.models.user import User
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 
 logger = structlog.get_logger(__name__)
 
@@ -50,16 +47,6 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
-def _failed_stream_llm_summary(
-    retry_state: RetryCallState,
-) -> None:
-    logger.exception(
-        f"Couldn't generate session summary through LLM with {retry_state.attempt_number} attempts "
-        f"({round(retry_state.idle_for, 2)}s). Raising an exception."
-    )
-    raise Exception("Couldn't generate session summary through LLM")
-
-
 def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session_id: str) -> str:
     if isinstance(llm_response, ChatCompletion):
         content = llm_response.choices[0].message.content
@@ -78,8 +65,9 @@ def _convert_llm_content_to_session_summary_json(
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
-    session_metadata: SessionSummaryMetadata,
     summary_prompt: str,
+    session_start_time_str: str,
+    session_duration: int,
     final_validation: bool = False,
 ) -> str | None:
     # Try to parse the accumulated text as YAML
@@ -97,7 +85,8 @@ def _convert_llm_content_to_session_summary_json(
         simplified_events_columns=simplified_events_columns,
         url_mapping_reversed=url_mapping_reversed,
         window_mapping_reversed=window_mapping_reversed,
-        session_metadata=session_metadata,
+        session_start_time_str=session_start_time_str,
+        session_duration=session_duration,
         session_id=session_id,
     )
     # Track generation for history of experiments
@@ -111,31 +100,27 @@ def _convert_llm_content_to_session_summary_json(
     return json.dumps(session_summary.data)
 
 
-@retry(
-    retry=retry_if_exception_type(ExceptionToRetry),
-    stop=stop_after_attempt(3),
-    wait=wait_fixed(2) + wait_random(0, 10),
-    retry_error_callback=_failed_stream_llm_summary,
-)
-def stream_llm_session_summary(
+async def stream_llm_session_summary(
     summary_prompt: str,
-    user: User,
+    user_pk: int,
     allowed_event_ids: list[str],
     session_id: str,
     simplified_events_mapping: dict[str, list[Any]],
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
-    session_metadata: SessionSummaryMetadata,
+    session_start_time_str: str,
+    session_duration: int,
     system_prompt: str | None = None,
-) -> Generator[str, None, None]:
+) -> AsyncGenerator[str, None]:
     try:
         accumulated_content = ""
         accumulated_usage = 0
         # TODO: Find a way to time the first chunk and the time of total stream consumption (extend "openai_completion" timer)
-        for chunk in stream_llm(
-            input_prompt=summary_prompt, user_key=user.pk, session_id=session_id, system_prompt=system_prompt
-        ):
+        stream = await stream_llm(
+            input_prompt=summary_prompt, user_key=user_pk, session_id=session_id, system_prompt=system_prompt
+        )
+        async for chunk in stream:
             # TODO: Check if the usage is accumulated by itself or do we need to do it manually
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
             raw_content = _get_raw_content(chunk, session_id)
@@ -152,7 +137,8 @@ def stream_llm_session_summary(
                     simplified_events_columns=simplified_events_columns,
                     url_mapping_reversed=url_mapping_reversed,
                     window_mapping_reversed=window_mapping_reversed,
-                    session_metadata=session_metadata,
+                    session_start_time_str=session_start_time_str,
+                    session_duration=session_duration,
                     summary_prompt=summary_prompt,
                 )
                 if not intermediate_summary:
@@ -172,15 +158,15 @@ def stream_llm_session_summary(
                 logger.exception(
                     f"Hallucinated data or inconsistencies in the session summary for session_id {session_id}: {err}",
                     session_id=session_id,
-                    user_pk=user.pk,
+                    user_pk=user_pk,
                 )
                 raise ExceptionToRetry()
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
         # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
         logger.exception(
-            f"Error streaming LLM for session_id {session_id} by user {user.pk}: {err}",
+            f"Error streaming LLM for session_id {session_id} by user {user_pk}: {err}",
             session_id=session_id,
-            user_pk=user.pk,
+            user_pk=user_pk,
         )
         raise ExceptionToRetry()
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
@@ -195,7 +181,8 @@ def stream_llm_session_summary(
             simplified_events_columns=simplified_events_columns,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,
-            session_metadata=session_metadata,
+            session_start_time_str=session_start_time_str,
+            session_duration=session_duration,
             summary_prompt=summary_prompt,
             final_validation=True,
         )
@@ -203,7 +190,7 @@ def stream_llm_session_summary(
             logger.exception(
                 f"Final LLM content validation failed for session_id {session_id}",
                 session_id=session_id,
-                user_pk=user.pk,
+                user_pk=user_pk,
             )
             raise ValueError("Final content validation failed")
 
@@ -215,7 +202,7 @@ def stream_llm_session_summary(
         logger.exception(
             f"Failed to validate final LLM content for session_id {session_id}: {str(err)}",
             session_id=session_id,
-            user_pk=user.pk,
+            user_pk=user_pk,
         )
         raise ExceptionToRetry()
 

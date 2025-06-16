@@ -472,6 +472,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Legacy plugin',
     },
+    [Scene.DataWarehouseSource]: {
+        projectBased: true,
+        name: 'Data warehouse source',
+    },
+    [Scene.DataWarehouseSourceNew]: {
+        projectBased: true,
+        name: 'New data warehouse source',
+    },
+    [Scene.LegacyPlugin]: {
+        projectBased: true,
+        name: 'Legacy plugin',
+    },
     [Scene.Game368]: {
         name: '368 Hedgehogs',
         projectBased: true,

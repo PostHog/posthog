@@ -129,7 +129,9 @@
                   "fields": [
                       "id",
                       "created_at",
-                      "properties"
+                      "properties",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type"
                   ],
                   "hogql_value": "poe",
                   "id": null,
@@ -1410,7 +1412,9 @@
                   "fields": [
                       "id",
                       "created_at",
-                      "properties"
+                      "properties",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type"
                   ],
                   "hogql_value": "poe",
                   "id": null,

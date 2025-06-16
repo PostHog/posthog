@@ -192,7 +192,6 @@ export const FEATURE_FLAGS = {
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
-    ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
     MESSAGING: 'messaging-product', // owner @haven #team-messaging
     MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
     MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging
@@ -269,6 +268,7 @@ export const FEATURE_FLAGS = {
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     LOGS: 'logs', // owner: @david @frank @olly @ross
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
+    USER_GROUPS_ENABLED: 'user-groups-enabled', // owner: #team-error-tracking
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-observability @peter-k
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
