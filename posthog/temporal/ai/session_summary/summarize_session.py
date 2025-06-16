@@ -25,8 +25,8 @@ from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import connect
-from temporalio.client import Client as TemporalClient, WorkflowHandle, WorkflowExecutionStatus
+from posthog.temporal.common.client import async_connect
+from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -42,15 +42,6 @@ class SingleSessionSummaryInputs:
     redis_output_key: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
-
-
-async def _connect_to_temporal_client() -> TemporalClient:
-    return await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        server_root_ca_cert=settings.TEMPORAL_CLIENT_ROOT_CA,
-    )
 
 
 def _get_single_session_summary_llm_input_from_redis(
@@ -184,7 +175,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
 
 async def _start_workflow(session_input: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
-    client = await _connect_to_temporal_client()
+    client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     handle = await client.start_workflow(
         "summarize-session",
