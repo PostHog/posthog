@@ -534,6 +534,10 @@ async def _write_batch_export_record_batches_to_s3(
                     query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
                 )
             except ClickHouseClientTimeoutError:
+                await logger.awarning(
+                    f"Timed-out waiting for insert into S3 with ID: {str(query_id)}. Will attempt to check query status before continuing"
+                )
+
                 status = await client.acheck_query(str(query_id), raise_on_error=True)
 
                 while status == ClickHouseQueryStatus.RUNNING:
