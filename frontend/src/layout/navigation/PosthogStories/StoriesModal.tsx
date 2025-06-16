@@ -229,13 +229,7 @@ export const StoriesModal = (): JSX.Element | null => {
         >
             <div className="flex flex-col">
                 {/* Header with play/pause and close buttons */}
-                <div
-                    className="flex justify-end gap-2"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        handleClose(true)
-                    }}
-                >
+                <div className="flex justify-end gap-2">
                     <button
                         onClick={(e) => {
                             e.stopPropagation()
@@ -264,7 +258,7 @@ export const StoriesModal = (): JSX.Element | null => {
                     </button>
                 </div>
 
-                <div className="relative cursor-pointer flex-1">
+                <div className="relative cursor-pointer flex-1 stories-container">
                     <Stories
                         stories={stories}
                         defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}

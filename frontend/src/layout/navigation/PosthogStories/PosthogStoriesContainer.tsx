@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { storiesLogic } from './storiesLogic'
-import type { storyGroup } from './storiesMap'
 import { StoriesModal } from './StoriesModal'
 
 export const PosthogStoriesContainer = (): JSX.Element => {
@@ -11,15 +10,18 @@ export const PosthogStoriesContainer = (): JSX.Element => {
     const { setActiveGroupIndex, setOpenStoriesModal, setActiveStoryIndex, toggleStoriesCollapsed } =
         useActions(storiesLogic)
 
-    // Sort stories so viewed groups appear at the end
-    const sortedStories = [...stories].sort((a, b) => {
-        const aViewed = a.stories.every((story) => isStoryViewed(story.id))
-        const bViewed = b.stories.every((story) => isStoryViewed(story.id))
+    // Pre-compute viewed status for each story group to avoid redundant calculations
+    const storiesWithViewedStatus = stories.map((storyGroup) => ({
+        ...storyGroup,
+        hasViewedEntireGroup: storyGroup.stories.every((story) => isStoryViewed(story.id)),
+    }))
 
-        if (aViewed && !bViewed) {
+    // Sort stories so viewed groups appear at the end
+    const sortedStories = [...storiesWithViewedStatus].sort((a, b) => {
+        if (a.hasViewedEntireGroup && !b.hasViewedEntireGroup) {
             return 1
         } // a goes to end
-        if (!aViewed && bViewed) {
+        if (!a.hasViewedEntireGroup && b.hasViewedEntireGroup) {
             return -1
         } // b goes to end
         return 0 // maintain original order for same type
@@ -39,8 +41,8 @@ export const PosthogStoriesContainer = (): JSX.Element => {
             </div>
             {!storiesCollapsed && (
                 <div className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto">
-                    {sortedStories.map((storyGroup: storyGroup) => {
-                        const hasViewedEntireGroup = storyGroup.stories.every((story) => isStoryViewed(story.id))
+                    {sortedStories.map((storyGroup) => {
+                        const { hasViewedEntireGroup } = storyGroup
                         const nextStoryIndex = hasViewedEntireGroup
                             ? 0
                             : storyGroup.stories.findIndex((story) => !isStoryViewed(story.id))
@@ -84,7 +86,6 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                                         className="w-6 h-6 text-white"
                                                         fill="currentColor"
                                                         viewBox="0 0 24 24"
-                                                        xmlns="http://www.w3.org/2000/svg"
                                                     >
                                                         <path d="M8 5v14l11-7z" />
                                                     </svg>
