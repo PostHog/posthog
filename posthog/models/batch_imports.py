@@ -12,6 +12,7 @@ from enum import Enum
 class ContentType(str, Enum):
     MIXPANEL = "mixpanel"
     CAPTURED = "captured"
+    AMPLITUDE = "amplitude"
 
     def serialize(self) -> dict:
         return {"type": self.value}
@@ -25,6 +26,7 @@ class BatchImport(UUIDModel):
         RUNNING = "running", "Running"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    created_by_id = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     lease_id = models.TextField(null=True, blank=True)

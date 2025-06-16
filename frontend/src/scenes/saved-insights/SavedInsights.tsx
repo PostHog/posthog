@@ -450,6 +450,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.WebAnalyticsExternalSummaryQuery]: {
+        name: 'Web Analytics External Summary',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -492,6 +497,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
+    settingSectionId: 'environment-product-analytics',
 }
 
 export function InsightIcon({

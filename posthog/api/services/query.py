@@ -1,3 +1,4 @@
+from posthog.schema_migrations.upgrade import upgrade
 import structlog
 from typing import Optional
 
@@ -45,8 +46,9 @@ def process_query_dict(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
 ) -> dict | BaseModel:
-    model = QuerySchemaRoot.model_validate(query_json)
-    tag_queries(query=query_json)
+    upgraded_query_json = upgrade(query_json)
+    model = QuerySchemaRoot.model_validate(upgraded_query_json)
+    tag_queries(query=upgraded_query_json)
 
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
     variables_override = (

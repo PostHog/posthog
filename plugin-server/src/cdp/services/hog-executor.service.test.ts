@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { truth } from '~/tests/helpers/truth'
 
-import { formatInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
@@ -68,7 +68,7 @@ describe('Hog Executor', () => {
             }
 
             // Call formatInput directly to test that it handles null values
-            const result = formatInput(inputWithNulls, globals)
+            const result = formatHogInput(inputWithNulls, globals)
 
             // Verify that null values are preserved
             expect(result.body.value.person).toBeNull()
@@ -101,7 +101,7 @@ describe('Hog Executor', () => {
                 },
             }
 
-            const result = formatInput(complexInput, globals)
+            const result = formatHogInput(complexInput, globals)
 
             // Verify all null and undefined values are properly preserved
             expect(result.body.value.data.first).toBeNull()
@@ -767,7 +767,7 @@ describe('Hog Executor', () => {
             })
 
             const result = executor.execute(createExampleInvocation(fn))
-            expect(result.error).toContain('Execution timed out after 0.1 seconds. Performed ')
+            expect(result.error).toContain('Execution timed out after 0.55 seconds. Performed ')
 
             expect(result.logs.map((log) => log.message)).toEqual([
                 'Executing function',
@@ -797,7 +797,7 @@ describe('Hog Executor', () => {
                 'I AM FIBONACCI',
                 'Function exceeded maximum log entries. No more logs will be collected. Event: uuid',
                 expect.stringContaining(
-                    'Error executing function on event uuid: HogVMException: Execution timed out after 0.1 seconds. Performed'
+                    'Error executing function on event uuid: HogVMException: Execution timed out after 0.55 seconds. Performed'
                 ),
             ])
         })

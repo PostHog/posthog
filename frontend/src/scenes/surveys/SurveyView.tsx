@@ -308,22 +308,24 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         <LinkedHogFunctions
                                             type="destination"
                                             subTemplateIds={['survey-response']}
-                                            filters={{
-                                                events: [
-                                                    {
-                                                        id: SurveyEventName.SENT,
-                                                        type: 'events',
-                                                        properties: [
-                                                            {
-                                                                key: SurveyEventProperties.SURVEY_ID,
-                                                                type: PropertyFilterType.Event,
-                                                                value: id,
-                                                                operator: PropertyOperator.Exact,
-                                                            },
-                                                        ],
-                                                    },
-                                                ],
-                                            }}
+                                            forceFilterGroups={[
+                                                {
+                                                    events: [
+                                                        {
+                                                            id: SurveyEventName.SENT,
+                                                            type: 'events',
+                                                            properties: [
+                                                                {
+                                                                    key: SurveyEventProperties.SURVEY_ID,
+                                                                    type: PropertyFilterType.Event,
+                                                                    value: id,
+                                                                    operator: PropertyOperator.Exact,
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            ]}
                                         />
                                     </div>
                                 ),
@@ -567,7 +569,7 @@ function SurveyNPSResults({
                             placement="bottom"
                             title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can range from -100 to 100."
                         >
-                            <IconInfo className="text-muted mr-1" />
+                            <IconInfo className="mr-1 text-muted" />
                             Latest NPS Score
                         </Tooltip>
                     </div>

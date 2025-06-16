@@ -172,7 +172,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_defaults_to_v2_if_conflicting_parameters(self, *args):
         """
-        regression test for https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
         posthog-js version 1.19.0 (but not versions before or after)
         mistakenly sent two `v` parameters to the decide endpoint
         one was correct "2"

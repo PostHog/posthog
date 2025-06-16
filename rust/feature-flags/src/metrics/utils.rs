@@ -1,4 +1,4 @@
-use crate::{api::errors::FlagError, config::TeamIdCollection};
+use crate::{api::errors::FlagError, config::TeamIdCollection, utils::graph_utils::DependencyType};
 
 pub fn team_id_label_filter(
     team_ids_to_track: TeamIdCollection,
@@ -56,6 +56,14 @@ pub fn parse_exception_for_prometheus_label(err: &FlagError) -> &'static str {
         FlagError::RedisUnavailable => "redis_unavailable",
         FlagError::TimeoutError => "timeout_error",
         FlagError::NoGroupTypeMappings => "no_group_type_mappings",
+        FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
+            DependencyType::Cohort => "dependency_not_found_cohort",
+            DependencyType::Flag => "dependency_not_found_flag",
+        },
+        FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
+            DependencyType::Cohort => "dependency_cycle_cohort",
+            DependencyType::Flag => "dependency_cycle_flag",
+        },
         _ => "unknown",
     }
 }

@@ -101,6 +101,19 @@
         line-height: 0.875rem;
     }
 
+    &.LemonTag--size-xsmall {
+        padding: 0 0.125rem;
+        font-size: 0.625rem;
+        line-height: 0.875rem;
+    }
+
+    &:not(.LemonTag--breakdown).LemonTag--size-xsmall {
+        box-sizing: border-box;
+        height: 1.625rem;
+        padding: 0 0.125rem;
+        line-height: 0.625rem;
+    }
+
     .LemonTag__icon {
         display: flex;
         margin-right: 0.125rem;
@@ -111,5 +124,76 @@
         min-height: 1.5rem !important;
         padding: 0.125rem !important;
         margin-left: 0.25rem;
+    }
+
+    &.LemonTag--size-xsmall .LemonTag__right-button {
+        min-height: 0.875rem !important;
+        padding: 0 !important;
+        margin-left: 0.125rem;
+    }
+
+    &.LemonTag--size-small .LemonTag__right-button {
+        min-height: 0.875rem !important;
+        padding: 0.0625rem !important;
+        margin-left: 0.1875rem;
+    }
+
+    // Close on click behavior
+    &.LemonTag--close-on-click {
+        .LemonTag__icon-container {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            width: 0.875rem; // Fixed width to prevent layout shift
+            height: 0.875rem; // Fixed height to match icon size
+            margin-right: 0.125rem;
+
+            .LemonTag__icon--default,
+            .LemonTag__icon--hover {
+                position: absolute;
+                top: 0;
+                left: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                height: 100%;
+                transition: opacity 0.15s ease-in-out;
+            }
+
+            .LemonTag__icon--default {
+                opacity: 1;
+            }
+
+            .LemonTag__icon--hover {
+                opacity: 0;
+            }
+
+            .LemonTag__icon-close {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                height: 100%;
+                pointer-events: none; // Disable click on the icon since the whole tag is clickable
+                cursor: pointer;
+
+                &:hover {
+                    opacity: 0.7;
+                }
+            }
+        }
+
+        &:hover {
+            .LemonTag__icon-container {
+                .LemonTag__icon--default {
+                    opacity: 0;
+                }
+
+                .LemonTag__icon--hover {
+                    opacity: 1;
+                }
+            }
+        }
     }
 }
