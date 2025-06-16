@@ -24,14 +24,16 @@ describe('Hogflow Executor', () => {
             hogFlow = createHogFlow({})
         })
 
-        it('can execute an invocation', () => {
+        it('can execute an invocation', async () => {
             const invocation = createExampleHogFlowInvocation(hogFlow)
 
-            const result = executor.execute(invocation)
+            const result = await executor.execute(invocation)
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 invocation: {
-                    state: {},
+                    state: {
+                        actionStepCount: 0,
+                    },
                     id: expect.any(String),
                     teamId: 1,
                     hogFlow: invocation.hogFlow,
@@ -43,6 +45,7 @@ describe('Hogflow Executor', () => {
                     queueParameters: undefined,
                     queuePriority: 0,
                 },
+                error: 'No trigger action found',
                 finished: true,
                 logs: expect.any(Array),
                 metrics: [],
