@@ -11,7 +11,6 @@ from ee.session_recordings.session_summary.output_data import (
 )
 from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValidationError
 from prometheus_client import Histogram
-from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
@@ -119,7 +118,7 @@ async def get_llm_session_summary(
         raw_content = _get_raw_content(result, session_id)
         if not raw_content:
             raise ValueError(f"No content consumed when calling LLM for session summary, session_id {session_id}")
-        session_summary = _convert_llm_content_to_session_summary_json(
+        session_summary_str = _convert_llm_content_to_session_summary_json(
             content=raw_content,
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
@@ -132,13 +131,12 @@ async def get_llm_session_summary(
             summary_prompt=summary_prompt,
             final_validation=True,
         )
-        if not session_summary:
+        if not session_summary_str:
             raise ValueError(
                 f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
             )
         # If parsing succeeds, yield the new chunk
-        sse_event_to_send = serialize_to_sse_event(event_label="session-summary-stream", event_data=session_summary)
-        return sse_event_to_send
+        return session_summary_str
     except (SummaryValidationError, ValueError) as err:
         # The only way to raise such errors is data hallucinations and inconsistencies (like missing mapping data).
         # Such exceptions should be retried as early as possible to decrease the latency of the call.
@@ -187,7 +185,7 @@ async def stream_llm_session_summary(
                 continue
             accumulated_content += raw_content
             try:
-                intermediate_summary = _convert_llm_content_to_session_summary_json(
+                intermediate_summary_str = _convert_llm_content_to_session_summary_json(
                     content=accumulated_content,
                     allowed_event_ids=allowed_event_ids,
                     session_id=session_id,
@@ -199,13 +197,10 @@ async def stream_llm_session_summary(
                     session_duration=session_duration,
                     summary_prompt=summary_prompt,
                 )
-                if not intermediate_summary:
+                if not intermediate_summary_str:
                     continue
                 # If parsing succeeds, yield the new chunk
-                sse_event_to_send = serialize_to_sse_event(
-                    event_label="session-summary-stream", event_data=intermediate_summary
-                )
-                yield sse_event_to_send
+                yield intermediate_summary_str
             except SummaryValidationError:
                 # We can accept incorrect schemas because of incomplete chunks, ok to skip some.
                 # The stream should be retried only at the very end, when we have all the data.
@@ -231,7 +226,7 @@ async def stream_llm_session_summary(
     try:
         if accumulated_usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(accumulated_usage)
-        final_summary = _convert_llm_content_to_session_summary_json(
+        final_summary_str = _convert_llm_content_to_session_summary_json(
             content=accumulated_content,
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
@@ -244,7 +239,7 @@ async def stream_llm_session_summary(
             summary_prompt=summary_prompt,
             final_validation=True,
         )
-        if not final_summary:
+        if not final_summary_str:
             logger.exception(
                 f"Final LLM content validation failed for session_id {session_id}",
                 session_id=session_id,
@@ -253,8 +248,7 @@ async def stream_llm_session_summary(
             raise ValueError("Final content validation failed")
 
         # If parsing succeeds, yield the final validated summary
-        sse_event_to_send = serialize_to_sse_event(event_label="session-summary-stream", event_data=final_summary)
-        yield sse_event_to_send
+        yield final_summary_str
     # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content
     except (SummaryValidationError, ValueError) as err:
         logger.exception(

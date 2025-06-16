@@ -11,7 +11,7 @@ from ee.session_recordings.session_summary.input_data import (
     get_team,
 )
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
-from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
+from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.warehouse.util import database_sync_to_async
@@ -51,7 +51,7 @@ class SingleSessionSummaryData:
     user_pk: int
     prompt_data: _SessionSummaryPromptData | None
     prompt: _SessionSummaryPrompt | None
-    sse_error_msg: str | None = None
+    error_msg: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -200,12 +200,12 @@ async def prepare_data_for_single_session_summary(
     )
     if not db_data.session_events or not db_data.session_events_columns:
         # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
-        sse_error_msg = serialize_to_sse_event(
-            event_label="session-summary-error",
-            event_data="No events found for this replay yet. Please try again in a few minutes.",
-        )
         return SingleSessionSummaryData(
-            session_id=session_id, user_pk=user_pk, prompt_data=None, prompt=None, sse_error_msg=sse_error_msg
+            session_id=session_id,
+            user_pk=user_pk,
+            prompt_data=None,
+            prompt=None,
+            error_msg="No events found for this replay yet. Please try again in a few minutes.",
         )
     prompt_data = prepare_prompt_data(
         session_id=session_id,

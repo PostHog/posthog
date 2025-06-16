@@ -43,10 +43,10 @@ async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs)
         extra_summary_context=session_input.extra_summary_context,
         local_reads_prod=session_input.local_reads_prod,
     )
-    if summary_data.sse_error_msg is not None:
+    if summary_data.error_msg is not None:
         # If we weren't able to collect the required data - retry
         logger.exception(
-            f"Not able to fetch data from the DB for session {session_input.session_id} (by user {session_input.user_pk}): {summary_data.sse_error_msg}",
+            f"Not able to fetch data from the DB for session {session_input.session_id} (by user {session_input.user_pk}): {summary_data.error_msg}",
             session_id=session_input.session_id,
             user_pk=session_input.user_pk,
         )
@@ -83,7 +83,7 @@ async def stream_llm_single_session_summary_activity(session_input: SingleSessio
     last_summary_state = ""
     temporalio.activity.heartbeat()
     last_heartbeat_timestamp = time.time()
-    # Stream SSE-formated summary data from LLM
+    # Stream summary from the LLM stream
     session_summary_generator = stream_llm_session_summary(
         session_id=llm_input.session_id,
         user_pk=llm_input.user_pk,
@@ -126,8 +126,8 @@ async def get_llm_single_session_summary_activity(session_input: SingleSessionSu
         redis_client=redis_client,
         redis_input_key=session_input.redis_input_key,
     )
-    # Get SSE-formated summary data from LLM
-    session_summary = await get_llm_session_summary(
+    # Get summary from LLM
+    session_summary_str = await get_llm_session_summary(
         session_id=llm_input.session_id,
         user_pk=llm_input.user_pk,
         # Prompt
@@ -144,7 +144,7 @@ async def get_llm_single_session_summary_activity(session_input: SingleSessionSu
         session_duration=llm_input.session_duration,
     )
     # Not storing the summary in Redis as we are interested in the final result only
-    return session_summary
+    return session_summary_str
 
 
 @temporalio.workflow.defn(name="summarize-session")
@@ -275,7 +275,10 @@ def execute_summarize_session_stream(
             if final_result is not None:
                 # Yield final result if it's different from the last state OR if we haven't yielded anything yet
                 if final_result != last_summary_state or not last_summary_state:
-                    yield final_result
+                    yield serialize_to_sse_event(
+                        event_label="session-summary-stream",
+                        event_data=final_result,
+                    )
                 _clean_up_redis(redis_client, redis_input_key, redis_output_key)
                 return
             # Check if the workflow is completed unsuccessfully
@@ -306,7 +309,10 @@ def execute_summarize_session_stream(
             last_summary_state = redis_data.get("last_summary_state")
             if not last_summary_state:
                 continue  # No data stored yet
-            yield last_summary_state
+            yield serialize_to_sse_event(
+                event_label="session-summary-stream",
+                event_data=last_summary_state,
+            )
         except Exception:
             raise
         # Pause at finally to avoid querying instantly if no data stored yet or the state haven't changed
