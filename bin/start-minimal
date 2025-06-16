@@ -24,9 +24,9 @@ if ! command -v mprocs &>/dev/null; then
         echo "🔁 Installing mprocs via Homebrew..."
         brew install mprocs
     else
-        echo "👉 To run bin/start-light, install mprocs: https://github.com/pvolok/mprocs#installation"
+        echo "👉 To run bin/start-minimal, install mprocs: https://github.com/pvolok/mprocs#installation"
         exit 1
     fi
 fi
 
-exec mprocs --config bin/mprocs-light.yaml
+exec mprocs --config bin/mprocs-minimal.yaml

@@ -16,7 +16,7 @@ procs:
 
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
-        shell: 'docker compose -f docker-compose.dev-light.yml up --pull always -d && docker compose -f docker-compose.dev-light.yml logs --tail=0 -f'
+        shell: 'docker compose -f docker-compose.dev-minimal.yml up --pull always -d && docker compose -f docker-compose.dev-minimal.yml logs --tail=0 -f'
 
     property-defs-rs:
         shell: |-
