@@ -15,11 +15,12 @@ import {
     IntegrationType,
 } from '../types'
 
-export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
+export const createHogFunction = (hogFunction: Partial<HogFunctionType>, _status: string = 'active') => {
     const item: HogFunctionType = {
         id: randomUUID(),
         type: 'destination',
         name: 'Hog Function',
+        status: _status,
         team_id: 1,
         enabled: true,
         hog: '',
@@ -169,6 +170,34 @@ export const createExampleInvocation = (
     _globals: Partial<HogFunctionInvocationGlobals> = {}
 ): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)
+    // Add the source of the trigger to the globals
+
+    const globals = createHogExecutionGlobals(_globals)
+    globals.source = {
+        name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+        url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+    }
+
+    return {
+        id: new UUIDT().toString(),
+        state: {
+            globals: globals as HogFunctionInvocationGlobalsWithInputs,
+            timings: [],
+        },
+        teamId: hogFunction.team_id,
+        functionId: hogFunction.id,
+        hogFunction,
+        queue: 'hog',
+        queuePriority: 0,
+    }
+}
+
+export const createInvocationWithStatus = (
+    _hogFunction: Partial<HogFunctionType> = {},
+    _globals: Partial<HogFunctionInvocationGlobals> = {},
+    _status: string = 'active'
+): CyclotronJobInvocationHogFunction => {
+    const hogFunction = createHogFunction(_hogFunction, _status)
     // Add the source of the trigger to the globals
 
     const globals = createHogExecutionGlobals(_globals)

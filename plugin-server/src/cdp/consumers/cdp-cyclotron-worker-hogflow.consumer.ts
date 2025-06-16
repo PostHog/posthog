@@ -32,6 +32,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     return null
                 }
 
+                if (hogFlow.status === 'paused' || hogFlow.status === 'stopped') {
+                    logger.warn('⚠️', 'Hog flow is not currently running', {
+                        id: item.functionId,
+                    })
+
+                    failedInvocations.push(item)
+
+                    return null
+                }
+
                 loadedInvocations.push({
                     ...item,
                     state: item.state as CyclotronJobInvocationHogFlow['state'],

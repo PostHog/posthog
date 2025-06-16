@@ -12,6 +12,7 @@ import {
     createExampleInvocation,
     createHogExecutionGlobals,
     createHogFunction,
+    createInvocationWithStatus,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
@@ -185,8 +186,22 @@ describe('CdpCyclotronWorker', () => {
             invocation.functionId = new UUIDT().toString()
             const results = await processor.processInvocations([invocation])
             expect(results).toEqual([])
-
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
+
+        it.each([{ status: 'paused' }, { status: 'stopped' }])(
+            'should dequeue an invocation if the hog function is $status',
+            async ({ status }) => {
+                const dequeueInvocationsSpy = jest
+                    .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                    .mockResolvedValue(undefined)
+                const invocation = createInvocationWithStatus(fn, globals, status)
+                invocation.functionId = new UUIDT().toString()
+                const results = await processor.processInvocations([invocation])
+                expect(results).toEqual([])
+
+                expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
+            }
+        )
     })
 })
