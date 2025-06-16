@@ -7,6 +7,7 @@ validation, and edge case handling.
 
 import pytest
 import numpy as np
+from unittest import TestCase
 
 from products.experiments.stats.bayesian.method import (
     BayesianMethod,
@@ -53,7 +54,7 @@ class TestGaussianPrior:
         assert "N(μ=0.050, σ²=0.010)" in str(prior)
 
 
-class TestBayesianConfig:
+class TestBayesianConfig(TestCase):
     """Tests for BayesianConfig class."""
 
     def test_default_config(self):
@@ -91,7 +92,7 @@ class TestBayesianConfig:
             BayesianConfig(prior_variance=0.0)
 
 
-class TestBayesianUtils:
+class TestBayesianUtils(TestCase):
     """Tests for Bayesian utility functions."""
 
     def test_effect_size_calculation_absolute(self):
@@ -185,7 +186,7 @@ class TestBayesianUtils:
         assert risk_treatment >= 0  # Can be zero if effect is clearly positive
 
 
-class TestBayesianGaussianTest:
+class TestBayesianGaussianTest(TestCase):
     """Tests for BayesianGaussianTest class."""
 
     def test_basic_test_execution(self):
@@ -234,7 +235,7 @@ class TestBayesianGaussianTest:
             test.run_test(treatment, control, prior)
 
 
-class TestBayesianMethod:
+class TestBayesianMethod(TestCase):
     """Tests for BayesianMethod class."""
 
     def test_basic_method_usage(self):
@@ -293,6 +294,29 @@ class TestBayesianMethod:
         assert config.difference_type == DifferenceType.ABSOLUTE
         assert config.prior_mean == 0.1
         assert config.proper_prior is True
+
+    def test_realistic_example(self):
+        """Test basic two-sided t-test with sample mean statistics."""
+        treatment = SampleMeanStatistic(sum=1922.7, sum_squares=94698.29, n=2461)
+        control = SampleMeanStatistic(sum=1196.87, sum_squares=37377.9767, n=2507)
+
+        config = BayesianConfig(ci_level=0.95, difference_type=DifferenceType.RELATIVE)
+        method = BayesianMethod(config)
+        result = method.run_test(treatment, control)
+
+        result_dict = method.get_summary(result)
+        expected_dict = {
+            "effect_size": 0.63646,
+            "credible_interval": [-0.0873, 1.36026],
+            "chance_to_win": 0.95759,
+            "error_message": None,
+        }
+
+        # Compare the key values
+        self.assertAlmostEqual(result_dict["effect_size"], expected_dict["effect_size"], places=4)
+        self.assertAlmostEqual(result_dict["credible_interval"][0], expected_dict["credible_interval"][0], places=4)
+        self.assertAlmostEqual(result_dict["credible_interval"][1], expected_dict["credible_interval"][1], places=4)
+        self.assertAlmostEqual(result_dict["chance_to_win"], expected_dict["chance_to_win"], places=4)
 
 
 class TestConvenienceFunctions:
