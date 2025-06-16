@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentFunnelsQuery } from '~/queries/schema/schema-general'
@@ -12,7 +12,6 @@ import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { MetricHeader } from '../shared/MetricHeader'
 import { getNiceTickValues } from '../shared/utils'
 import { Chart } from './Chart'
-import { BAR_HEIGHT, BAR_SPACING } from './constants'
 
 export function MetricRow({
     metric,
@@ -35,12 +34,12 @@ export function MetricRow({
 }): JSX.Element {
     const { experiment, secondaryMetricResultsLoading, metricResultsLoading, hasMinimumExposureForResults } =
         useValues(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
     const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
 
     const variantResults = result?.variant_results || []
 
     const tickValues = getNiceTickValues(chartRadius)
-    const chartHeight = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variantResults.length
 
     const { chartSvgRef, chartSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
     const panelHeight = Math.max(chartSvgHeight, 60)
@@ -62,7 +61,8 @@ export function MetricRow({
                             metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             onDuplicateMetricClick={() => {
-                                // grab from utils
+                                duplicateMetric({ metricIndex, isSecondary })
+                                updateExperimentMetrics()
                             }}
                         />
                     </div>
@@ -75,7 +75,6 @@ export function MetricRow({
                     {result && hasMinimumExposureForResults ? (
                         <Chart
                             chartSvgRef={chartSvgRef}
-                            chartHeight={chartHeight}
                             variantResults={variantResults}
                             chartRadius={chartRadius}
                             metricIndex={metricIndex}

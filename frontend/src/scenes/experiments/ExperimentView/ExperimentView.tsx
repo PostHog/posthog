@@ -6,6 +6,7 @@ import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-gene
 import { ExperimentStatsMethod } from '~/types'
 
 import { ExploreAsInsightButton, ResultsBreakdown, ResultsQuery } from '../components/ResultsBreakdown'
+import { ResultsBreakdownSkeleton } from '../components/ResultsBreakdown/ResultsBreakdownSkeleton'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -114,22 +115,24 @@ const ResultsTab = (): JSX.Element => {
                                         result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                         experiment={experiment}
                                     >
-                                        {({ query, breakdownResults }) =>
-                                            query &&
-                                            breakdownResults && (
-                                                <div>
-                                                    <div className="flex justify-end">
-                                                        <ExploreAsInsightButton query={query} />
+                                        {({ query, breakdownResults, breakdownResultsLoading }) => (
+                                            <div>
+                                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
+                                                {query && breakdownResults && (
+                                                    <div>
+                                                        <div className="flex justify-end">
+                                                            <ExploreAsInsightButton query={query} />
+                                                        </div>
+                                                        <div className="pb-4">
+                                                            <ResultsQuery
+                                                                query={query}
+                                                                breakdownResults={breakdownResults}
+                                                            />
+                                                        </div>
                                                     </div>
-                                                    <div className="pb-4">
-                                                        <ResultsQuery
-                                                            query={query}
-                                                            breakdownResults={breakdownResults}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )
-                                        }
+                                                )}
+                                            </div>
+                                        )}
                                     </ResultsBreakdown>
                                 )}
                             </div>

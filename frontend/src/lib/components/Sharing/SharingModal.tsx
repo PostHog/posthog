@@ -7,7 +7,6 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -79,8 +78,6 @@ export function SharingModalContent({
 
     const { push } = useActions(router)
 
-    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
-
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
@@ -98,7 +95,7 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
-            {insightShortId && newAccessControl ? (
+            {insightShortId ? (
                 <>
                     <AccessControlPopoutCTA
                         resourceType={AccessControlResourceType.Insight}

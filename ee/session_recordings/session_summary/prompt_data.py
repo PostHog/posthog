@@ -43,7 +43,7 @@ class SessionSummaryPromptData:
         raw_session_metadata: dict[str, Any],
         raw_session_columns: list[str],
         session_id: str,
-    ) -> dict[str, list[str | datetime | int | None]]:
+    ) -> dict[str, list[str | int | list[str] | None]]:
         """
         Create session summary prompt data from session data, and return a mapping of event ids to events
         to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
@@ -70,6 +70,7 @@ class SessionSummaryPromptData:
                 event_timestamp = event[timestamp_index]
                 if not isinstance(event_timestamp, datetime):
                     raise ValueError(f"Timestamp is not a datetime: {event_timestamp}")
+                # All timestamps are stringified, so no datetime in the output type
                 simplified_event[timestamp_index] = event_timestamp.isoformat()
             # Simplify Window IDs
             if window_id_index is not None:

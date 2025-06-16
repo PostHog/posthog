@@ -23,7 +23,7 @@ export type LemonTagType =
 export interface LemonTagProps {
     type?: LemonTagType
     children: React.ReactNode
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     weight?: 'normal'
     icon?: JSX.Element
     closable?: boolean
@@ -34,6 +34,8 @@ export interface LemonTagProps {
     disabledReason?: string | null
     title?: string
     'data-attr'?: string
+    /** When true, the icon will swap to a close icon on hover and the entire tag becomes clickable to close */
+    closeOnClick?: boolean
 }
 
 export const LemonTag: React.FunctionComponent<
@@ -50,6 +52,7 @@ export const LemonTag: React.FunctionComponent<
         onClose,
         popover,
         disabledReason,
+        closeOnClick,
         ...props
     },
     ref
@@ -60,17 +63,39 @@ export const LemonTag: React.FunctionComponent<
             className={clsx(
                 'LemonTag',
                 `LemonTag--size-${size}`,
-                disabledReason ? 'cursor-not-allowed' : props.onClick ? 'cursor-pointer' : undefined,
+                disabledReason
+                    ? 'cursor-not-allowed'
+                    : props.onClick || (closeOnClick && icon && onClose)
+                    ? 'cursor-pointer'
+                    : undefined,
                 `LemonTag--${type}`,
                 weight && `LemonTag--${weight}`,
+                closeOnClick && 'LemonTag--close-on-click',
                 className
             )}
-            role={props.onClick ? 'button' : undefined}
+            role={props.onClick || (closeOnClick && icon && onClose) ? 'button' : undefined}
             title={disabledReason || undefined}
             aria-disabled={disabledReason ? true : undefined}
             {...props}
+            onClick={
+                closeOnClick && icon && onClose
+                    ? (e) => {
+                          e.stopPropagation()
+                          onClose()
+                      }
+                    : props.onClick
+            }
         >
-            {icon && <span className="LemonTag__icon">{icon}</span>}
+            {icon && closeOnClick && onClose ? (
+                <span className="LemonTag__icon-container">
+                    <span className="LemonTag__icon LemonTag__icon--default">{icon}</span>
+                    <span className="LemonTag__icon-close LemonTag__icon--hover">
+                        <IconX className="h-3.5 w-3.5" />
+                    </span>
+                </span>
+            ) : (
+                icon && <span className="LemonTag__icon">{icon}</span>
+            )}
             {children}
             {popover?.overlay && (
                 <LemonButtonWithDropdown
@@ -83,7 +108,7 @@ export const LemonTag: React.FunctionComponent<
                     }}
                 />
             )}
-            {closable && (
+            {closable && !(closeOnClick && icon && onClose) && (
                 <LemonButton
                     icon={<IconX className="h-3.5 w-3.5" />}
                     onClick={onClose}

@@ -179,7 +179,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         type: template.type ?? 'destination',
         kind: template.kind,
         name: template.name,
-        description: template.description,
+        description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
         filters: template.filters,
         mappings: template.mappings?.map(
@@ -649,7 +649,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 if (!props.id || props.id === 'new') {
-                    const folder = await asyncSaveToModal({})
+                    const type = values.type
+                    const typeFolder =
+                        type === 'site_app'
+                            ? 'Site apps'
+                            : type === 'transformation'
+                            ? 'Transformations'
+                            : type === 'source_webhook'
+                            ? 'Sources'
+                            : type === 'broadcast'
+                            ? 'Broadcasts'
+                            : type === 'messaging_campaign'
+                            ? 'Campaigns'
+                            : 'Destinations'
+                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
                     if (typeof folder === 'string') {
                         payload._create_in_folder = folder
                     }
