@@ -215,6 +215,8 @@ function CyclotronJobTemplateInput(props: {
     )
 }
 
+export const EXTEND_OBJECT_KEY = '$$_extend_object'
+
 function DictionaryField({
     input,
     onChange,
@@ -225,10 +227,12 @@ function DictionaryField({
     templating: boolean
 }): JSX.Element {
     const value = input.value ?? {}
-    const [mode, setMode] = useState<'object' | 'entries'>(typeof value === 'string' ? 'object' : 'entries')
+    const [mode, setMode] = useState<'object' | 'entries'>(EXTEND_OBJECT_KEY in value ? 'object' : 'entries')
     const [entries, setEntries] = useState<[string, string][]>(mode === 'entries' ? Object.entries(value) : [['', '']])
     const prevFilteredEntriesRef = useRef<[string, string][]>([])
-    const [localVal, setLocalVal] = useState<string | undefined>(mode === 'object' ? value : '{event.properties}')
+    const [localVal, setLocalVal] = useState<string | undefined>(
+        mode === 'object' ? value[EXTEND_OBJECT_KEY] : '{event.properties}'
+    )
     const prevLocalValRef = useRef<string | undefined>(undefined)
     const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
@@ -238,7 +242,12 @@ function DictionaryField({
                 return
             }
             prevLocalValRef.current = localVal
-            onChange?.({ ...input, value: localVal })
+            onChange?.({
+                ...input,
+                value: {
+                    [EXTEND_OBJECT_KEY]: localVal,
+                },
+            })
         } else {
             // NOTE: Filter out all empty entries as fetch will throw if passed in
             const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
