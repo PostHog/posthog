@@ -1042,10 +1042,9 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        let mut properties = match self.get_person_properties_from_cache() {
-            Ok(props) => props,
-            Err(_e) => HashMap::new(), // NB: if we can't find the properties in the cache, we return an empty HashMap because we just treat this person as one with no properties, essentially an anonymous user
-        };
+        // NB: if we can't find the properties in the cache, we return an empty HashMap because we just
+        // treat this person as one with no properties, essentially an anonymous user
+        let mut properties = self.get_person_properties_from_cache().unwrap_or_default();
 
         // Apply any local overrides (merge them with cached properties)
         if let Some(overrides) =
