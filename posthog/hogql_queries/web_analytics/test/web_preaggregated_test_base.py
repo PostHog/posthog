@@ -8,6 +8,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    cleanup_materialized_columns,
 )
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -42,6 +43,9 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         super().setUp()
         self._materialize_required_columns()
         self._setup_test_data()
+
+    def tearDown(self):
+        cleanup_materialized_columns()
 
     @abstractmethod
     def _setup_test_data(self):
