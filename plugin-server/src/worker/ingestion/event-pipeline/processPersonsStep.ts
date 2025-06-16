@@ -5,8 +5,8 @@ import { Person, Team } from '~/types'
 
 import { PersonContext } from '../persons/person-context'
 import { PersonEventProcessor } from '../persons/person-event-processor'
-import { PersonMergeService } from '../persons/person-merge.service'
-import { PersonPropertyService } from '../persons/person-property.service'
+import { PersonMergeService } from '../persons/person-merge-service'
+import { PersonPropertyService } from '../persons/person-property-service'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventPipelineRunner } from './runner'
 

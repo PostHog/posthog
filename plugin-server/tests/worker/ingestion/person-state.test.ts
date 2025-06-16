@@ -5,8 +5,8 @@ import { TopicMessage } from '../../../src/kafka/producer'
 import { MeasuringPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/measuring-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
-import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge.service'
-import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property.service'
+import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
+import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 
 import {
     Database,

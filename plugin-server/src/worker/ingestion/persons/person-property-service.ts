@@ -4,11 +4,11 @@ import { Histogram } from 'prom-client'
 
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
-import { eventToPersonProperties, initialEventToPersonProperties } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
+import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, applyEventPropertyUpdatesOptimized } from './person-update'
 
 // temporary: for fetchPerson properties JSONB size observation
@@ -25,7 +25,10 @@ const personPropertiesSize = new Histogram({
  * Extracted from PersonState to focus on a single responsibility.
  */
 export class PersonPropertyService {
-    constructor(private context: PersonContext) {}
+    private personCreateService: PersonCreateService
+    constructor(private context: PersonContext) {
+        this.personCreateService = new PersonCreateService(context)
+    }
 
     async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
         // There are various reasons why update can fail:
@@ -65,7 +68,7 @@ export class PersonPropertyService {
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
-        person = await this.createPerson(
+        person = await this.personCreateService.createPerson(
             this.context.timestamp,
             properties || {},
             propertiesOnce || {},
@@ -204,20 +207,5 @@ export class PersonPropertyService {
         }
 
         return
-    }
-
-    // For tracking what property keys cause us to update persons
-    // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
-    private getMetricKey(key: string): string {
-        if (key.startsWith('$geoip_') || key.startsWith('$initial_geoip_')) {
-            return 'geoIP'
-        }
-        if (eventToPersonProperties.has(key)) {
-            return key
-        }
-        if (initialEventToPersonProperties.has(key)) {
-            return key
-        }
-        return 'other'
     }
 }

@@ -8,9 +8,9 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
-import { uuidFromDistinctId } from '../person-uuid'
 import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
+import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates } from './person-update'
 
 export const mergeFinalFailuresCounter = new Counter({
@@ -77,7 +77,10 @@ export const isDistinctIdIllegal = (id: string): boolean => {
  * Extracted from PersonState to focus on merge-specific logic.
  */
 export class PersonMergeService {
-    constructor(private context: PersonContext) {}
+    private personCreateService: PersonCreateService
+    constructor(private context: PersonContext) {
+        this.personCreateService = new PersonCreateService(context)
+    }
 
     async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
         /**
@@ -307,7 +310,7 @@ export class PersonMergeService {
                 const distinctId1Version = 0
 
                 return [
-                    await this.createPerson(
+                    await this.personCreateService.createPerson(
                         // TODO: in this case we could skip the properties updates later
                         timestamp,
                         this.context.eventProperties['$set'] || {},
@@ -475,51 +478,6 @@ export class PersonMergeService {
         const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
 
         return [mergedPerson, kafkaAck]
-    }
-
-    private async createPerson(
-        createdAt: DateTime,
-        properties: Properties,
-        propertiesOnce: Properties,
-        teamId: number,
-        isUserId: number | null,
-        isIdentified: boolean,
-        creatorEventUuid: string,
-        distinctIds: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
-    ): Promise<InternalPerson> {
-        if (distinctIds.length < 1) {
-            throw new Error('at least 1 distinctId is required in `createPerson`')
-        }
-        const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
-
-        const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
-        const propertiesLastOperation: Record<string, any> = {}
-        const propertiesLastUpdatedAt: Record<string, any> = {}
-        Object.keys(propertiesOnce).forEach((key) => {
-            propertiesLastOperation[key] = 'SetOnce'
-            propertiesLastUpdatedAt[key] = createdAt
-        })
-        Object.keys(properties).forEach((key) => {
-            propertiesLastOperation[key] = 'Set'
-            propertiesLastUpdatedAt[key] = createdAt
-        })
-
-        const [person, kafkaMessages] = await this.context.personStore.createPerson(
-            createdAt,
-            props,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
-            teamId,
-            isUserId,
-            isIdentified,
-            uuid,
-            distinctIds,
-            tx
-        )
-
-        await this.context.kafkaProducer.queueMessages(kafkaMessages)
-        return person
     }
 
     public async addDistinctId(

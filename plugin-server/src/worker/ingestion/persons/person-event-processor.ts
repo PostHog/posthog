@@ -6,8 +6,8 @@ import { Person } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
-import { PersonMergeService } from './person-merge.service'
-import { PersonPropertyService } from './person-property.service'
+import { PersonMergeService } from './person-merge-service'
+import { PersonPropertyService } from './person-property-service'
 
 // Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
 // (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
