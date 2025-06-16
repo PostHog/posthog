@@ -43,19 +43,22 @@ export const DEFAULT_COHORT_FILTERS: CohortFilters = {
 export function processCohort(cohort: CohortType): CohortType {
     return {
         ...cohort,
-
-        /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-        filters: {
-            properties: {
-                ...cohort.filters.properties,
-                values: (cohort.filters.properties?.values?.map((group) =>
-                    'values' in group
-                        ? {
-                              ...group,
-                              values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
-                          }
-                        : group
-                ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+        ...{
+            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+            filters: {
+                properties: {
+                    ...cohort.filters.properties,
+                    values: (cohort.filters.properties?.values?.map((group) =>
+                        'values' in group
+                            ? {
+                                  ...group,
+                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
+                                      processCohortCriteria(c)
+                                  ),
+                              }
+                            : group
+                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                },
             },
         },
     }

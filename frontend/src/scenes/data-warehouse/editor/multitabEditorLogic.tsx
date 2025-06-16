@@ -953,7 +953,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         lifecycle: 'create',
                     })
                 }
-            } catch {
+            } catch (e) {
                 lemonToast.error('Failed to save view')
             }
         },
@@ -1249,7 +1249,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const filename = 'export'
 
                 return {
-                    ...queryExportContext(sourceQuery.source),
+                    ...queryExportContext(sourceQuery.source, undefined, undefined),
                     filename,
                 } as ExportContext
             },

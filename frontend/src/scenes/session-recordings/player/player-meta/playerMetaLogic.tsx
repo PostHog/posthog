@@ -349,7 +349,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                             if (parsedData) {
                                 actions.setSessionSummaryContent(parsedData)
                             }
-                        } catch {
+                        } catch (e) {
                             // Don't handle errors as we can afford to fail some chunks silently.
                             // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
                         }
@@ -357,8 +357,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
                 // Consume stream until exhausted
                 while (true) {
-                    // we're reading the stream, this is as intended
-                    // eslint-disable-next-line no-await-in-loop
                     const { done, value } = await reader.read()
                     if (done) {
                         break

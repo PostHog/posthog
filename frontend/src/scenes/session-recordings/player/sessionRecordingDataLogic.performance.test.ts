@@ -112,7 +112,6 @@ describe('sessionRecordingDataLogic performance', () => {
 
                 const start = performance.now()
 
-                // eslint-disable-next-line no-await-in-loop
                 await expectLogic(logic, () => {
                     logic.actions.loadSnapshots()
                 })

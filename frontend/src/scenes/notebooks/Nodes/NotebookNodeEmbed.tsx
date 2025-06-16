@@ -41,7 +41,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
         }
         try {
             return new URL(src)
-        } catch {
+        } catch (e) {
             return null
         }
     }, [src])

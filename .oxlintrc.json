@@ -16,8 +16,32 @@
         "common/hogvm/__tests__/__snapshots__"
     ],
     "rules": {
-        "react-hooks/rules-of-hooks": "error",
+        "no-useless-spread": "off",
+        "no-useless-fallback-in-spread": "off",
+        "no-constant-condition": "off",
+        "no-prototype-builtins": "off",
+        "no-irregular-whitespace": "off",
+        "require-await": "off",
+        "no-await-in-loop": "off",
+        "no-accumulating-spread": "off",
+        "react/prop-types": "off",
+        "react/react-in-jsx-scope": "off",
+        "react/no-unescaped-entities": "off",
+        "react/jsx-no-target-blank": "off",
+        "@typescript-eslint/no-empty-function": "off",
+        "@typescript-eslint/no-inferrable-types": "off",
+        "@typescript-eslint/ban-ts-comment": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "no-unused-vars": [
+            "off",
+            {
+                "ignoreRestSiblings": true,
+                "destructuredArrayIgnorePattern": "^_$"
+            }
+        ],
         "react-hooks/exhaustive-deps": "warn",
+        "no-else-return": "warn",
+        "react-hooks/rules-of-hooks": "error",
         "react/jsx-curly-brace-presence": [
             "error",
             {
@@ -33,10 +57,6 @@
             }
         ],
         "no-debugger": "error",
-        "react/prop-types": "off",
-        "react/react-in-jsx-scope": "off",
-        "react/no-unescaped-entities": "off",
-        "react/jsx-no-target-blank": "off",
         "react/self-closing-comp": [
             "error",
             {
@@ -44,18 +64,7 @@
                 "html": true
             }
         ],
-        "no-unused-vars": [
-            "error",
-            {
-                "ignoreRestSiblings": true,
-                "destructuredArrayIgnorePattern": "^_$"
-            }
-        ],
         "@typescript-eslint/prefer-ts-expect-error": "error",
-        "@typescript-eslint/no-empty-function": "off",
-        "@typescript-eslint/no-inferrable-types": "off",
-        "@typescript-eslint/ban-ts-comment": "off",
-        "@typescript-eslint/no-explicit-any": "off",
         "@typescript-eslint/explicit-function-return-type": [
             "error",
             {
@@ -215,14 +224,8 @@
             }
         ],
         "no-constant-binary-expression": "error",
-        "no-constant-condition": "off",
-        "no-prototype-builtins": "off",
-        "no-irregular-whitespace": "off",
         "no-useless-rename": "error",
-        "require-await": "off",
-        "no-accumulating-spread": "error",
         "no-useless-call": "error",
-        "no-await-in-loop": "error",
         "import/no-restricted-paths": [
             "error",
             {
@@ -240,8 +243,7 @@
             {
                 "toBeDefined": "Do not use .toBeDefined() in tests, use .toBeTruthy() or .not.toBeUndefined() instead."
             }
-        ],
-        "no-else-return": "warn"
+        ]
     },
     "overrides": [
         {

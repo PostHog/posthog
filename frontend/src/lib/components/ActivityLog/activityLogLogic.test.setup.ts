@@ -57,7 +57,6 @@ async function testSetup(
     return logic
 }
 
-// eslint-disable-next-line react-hooks/rules-of-hooks
 export const makeTestSetup = (scope: ActivityScope, url: string) => {
     return async (
         name: string,

@@ -248,8 +248,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     )
                     const x = Math.round(element.xPercentage * width)
 
-                    acc.push({ x, y, value: element.count })
-                    return acc
+                    return [...acc, { x, y, value: element.count }]
                 }, [] as HeatmapJsDataPoint[])
 
                 // Max is the highest value in the data set we have

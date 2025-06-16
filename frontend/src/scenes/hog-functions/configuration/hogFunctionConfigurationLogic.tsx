@@ -123,7 +123,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             if (inputSchema.type === 'json' && typeof value === 'string') {
                 try {
                     value = JSON.parse(value)
-                } catch {
+                } catch (e) {
                     // Ignore
                 }
             }
@@ -571,7 +571,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 let properties = {}
                                 try {
                                     properties = JSON.parse(tuple[3])
-                                } catch {
+                                } catch (e) {
                                     // Ignore
                                 }
                                 globals.groups![groupType.group_type] = {
@@ -769,7 +769,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (inputSchema.type === 'json' && typeof value === 'string') {
                         try {
                             JSON.parse(value)
-                        } catch {
+                        } catch (e) {
                             inputErrors[key] = 'Invalid JSON'
                         }
 
@@ -1272,7 +1272,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             const config: HogFunctionConfigurationType = {
                 ...baseConfig,
-                ...cache.configFromUrl,
+                ...(cache.configFromUrl ?? {}),
             }
 
             if (values.template?.mapping_templates) {
@@ -1315,7 +1315,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
         },
 
-        duplicate: () => {
+        duplicate: async () => {
             if (values.hogFunction) {
                 const newConfig = {
                     ...values.configuration,
@@ -1328,7 +1328,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 })
             }
         },
-        duplicateFromTemplate: () => {
+        duplicateFromTemplate: async () => {
             if (values.hogFunction?.template) {
                 const newConfig: HogFunctionTemplateType = {
                     ...values.hogFunction.template,
@@ -1338,7 +1338,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 })
             }
         },
-        resetToTemplate: () => {
+        resetToTemplate: async () => {
             const template = values.hogFunction?.template ?? values.template
             if (template) {
                 const config = templateToConfiguration(template)
@@ -1427,12 +1427,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 router.actions.replace(urls.hogFunction(hogFunction.id))
             }
         },
-        sparklineQuery: (sparklineQuery) => {
+        sparklineQuery: async (sparklineQuery) => {
             if (sparklineQuery) {
                 actions.sparklineQueryChanged(sparklineQuery)
             }
         },
-        personsCountQuery: (personsCountQuery) => {
+        personsCountQuery: async (personsCountQuery) => {
             if (personsCountQuery) {
                 actions.personsCountQueryChanged(personsCountQuery)
             }

@@ -423,10 +423,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         savedItems: [
             (s) => [s.folders],
             (folders): FileSystemEntry[] =>
-                Object.entries(folders).reduce((acc, [_, items]) => {
-                    acc.push(...items)
-                    return acc
-                }, [] as FileSystemEntry[]),
+                Object.entries(folders).reduce((acc, [_, items]) => [...acc, ...items], [] as FileSystemEntry[]),
         ],
         savedItemsLoading: [
             (s) => [s.folderStates],
@@ -513,10 +510,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         viableItemsById: [
             (s) => [s.viableItems],
             (viableItems): Record<string, FileSystemEntry> =>
-                viableItems.reduce((acc, item) => {
-                    acc[item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id] = item
-                    return acc
-                }, {} as Record<string, FileSystemEntry>),
+                viableItems.reduce(
+                    (acc, item) => ({
+                        ...acc,
+                        [item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id]: item,
+                    }),
+                    {} as Record<string, FileSystemEntry>
+                ),
         ],
         loadingPaths: [
             // Paths that are currently being loaded
@@ -767,7 +767,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 projectTreeLogicKey
             )
         },
-        moveItem: ({ item, newPath, force, projectTreeLogicKey }) => {
+        moveItem: async ({ item, newPath, force, projectTreeLogicKey }) => {
             if (newPath === item.path) {
                 return
             }
@@ -785,7 +785,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 projectTreeLogicKey
             )
         },
-        linkItem: ({ oldPath, newPath, force, projectTreeLogicKey }) => {
+        linkItem: async ({ oldPath, newPath, force, projectTreeLogicKey }) => {
             if (newPath === oldPath) {
                 lemonToast.error('Cannot link folder into itself')
                 return

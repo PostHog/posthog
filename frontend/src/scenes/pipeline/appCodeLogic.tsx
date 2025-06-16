@@ -50,7 +50,7 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
         ],
     }),
     listeners(({ actions, props }) => ({
-        cancelEditing: () => {
+        cancelEditing: async () => {
             actions.fetchPluginSource()
         },
         fetchPluginSource: async () => {
@@ -60,11 +60,9 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
                 for (const [file, source] of Object.entries(response || {})) {
                     if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
                         try {
-                            // this could be optimized
-                            // eslint-disable-next-line no-await-in-loop
                             const prettySource = await formatSource(file, source as string)
                             formattedCode[file] = prettySource
-                        } catch {
+                        } catch (e: any) {
                             formattedCode[file] = source
                         }
                     }
@@ -85,8 +83,6 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
                 for (const [file, source] of Object.entries(values.pluginSource)) {
                     if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
                         try {
-                            // this could be optimized
-                            // eslint-disable-next-line no-await-in-loop
                             const prettySource = await formatSource(file, source)
                             if (prettySource !== source) {
                                 changes[file] = prettySource
