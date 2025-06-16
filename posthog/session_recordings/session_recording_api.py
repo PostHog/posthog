@@ -71,6 +71,7 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 
 from ..models.product_intent.product_intent import ProductIntent
 
@@ -934,6 +935,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
         session_id = recording.session_id
+        non_stream_summary = execute_summarize_session(session_id=session_id, user_pk=user.pk, team=self.team)
         return StreamingHttpResponse(
             stream_recording_summary(session_id=session_id, user_pk=user.pk, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
