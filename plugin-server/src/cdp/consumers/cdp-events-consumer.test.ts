@@ -5,7 +5,14 @@ import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import {
+    createOrganization,
+    createTeam,
+    getFirstTeam,
+    getTeam,
+    resetTestDatabase,
+    updateOrganizationAvailableFeatures,
+} from '../../../tests/helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createHogExecutionGlobals,
@@ -14,7 +21,7 @@ import {
     createIncomingEvent,
     createInternalEvent,
 } from '../_tests/fixtures'
-import { CdpEventsConsumer } from './cdp-events.consumer'
+import { CdpEventsConsumer, counterMissingAddon } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 
@@ -48,7 +55,8 @@ describe.each([
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        const otherOrganizationId = await createOrganization(hub.postgres)
+        const team2Id = await createTeam(hub.postgres, otherOrganizationId)
         team2 = (await getTeam(hub, team2Id))!
 
         processor = new Consumer(hub)
@@ -295,6 +303,62 @@ describe.each([
                     },
                 ])
             })
+        })
+    })
+
+    describe('missing addon', () => {
+        let counterMissingAddonSpy: jest.SpyInstance
+        beforeEach(async () => {
+            // Team 1 - has the addon
+            await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            await updateOrganizationAvailableFeatures(hub.postgres, team2.organization_id, [])
+
+            // Team 2 - doesn't have the addon
+            await insertHogFunction({
+                team_id: team2.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            counterMissingAddonSpy = jest.spyOn(counterMissingAddon, 'labels')
+        })
+        it('should process events for teams with the addon', async () => {
+            if (processor instanceof CdpInternalEventsConsumer) {
+                return
+            }
+            const { invocations } = await processor.processBatch([
+                createHogExecutionGlobals({
+                    project: {
+                        id: team.id,
+                    } as any,
+                }),
+            ])
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].teamId).toBe(team.id)
+            expect(counterMissingAddonSpy).not.toHaveBeenCalled()
+        })
+
+        it('should not process events for teams without the addon', async () => {
+            if (processor instanceof CdpInternalEventsConsumer) {
+                return
+            }
+            const { invocations } = await processor.processBatch([
+                createHogExecutionGlobals({
+                    project: {
+                        id: team2.id,
+                    } as any,
+                }),
+            ])
+            expect(counterMissingAddonSpy).toHaveBeenCalledWith({ team_id: team2.id })
+            // TODO: Swap this to 0 once we release it
+            expect(invocations).toHaveLength(1)
         })
     })
 })

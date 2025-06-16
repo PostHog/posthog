@@ -1,6 +1,6 @@
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '../../tests/helpers/sql'
 import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
@@ -31,18 +31,6 @@ describe('TeamManager()', () => {
         organizationId = team.organization_id
         fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams')
     })
-
-    const updateOrganizationAvailableFeatures = async (
-        organizationId: string,
-        features: { key: string; name: string }[]
-    ) => {
-        await postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_organization SET available_product_features = $1 WHERE id = $2`,
-            [features, organizationId],
-            'change-team-available-features'
-        )
-    }
 
     afterEach(async () => {
         await closeHub(hub)
@@ -151,13 +139,17 @@ describe('TeamManager()', () => {
         })
 
         it('returns false if the available features does not exist', async () => {
-            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature1', name: 'Feature 1' }])
+            await updateOrganizationAvailableFeatures(postgres, organizationId, [
+                { key: 'feature1', name: 'Feature 1' },
+            ])
             const result = await teamManager.hasAvailableFeature(teamId, 'feature2')
             expect(result).toBe(false)
         })
 
         it('returns true if the available features exists', async () => {
-            await updateOrganizationAvailableFeatures(organizationId, [{ key: 'feature1', name: 'Feature 1' }])
+            await updateOrganizationAvailableFeatures(postgres, organizationId, [
+                { key: 'feature1', name: 'Feature 1' },
+            ])
             const result = await teamManager.hasAvailableFeature(teamId, 'feature1')
             expect(result).toBe(true)
         })
