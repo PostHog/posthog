@@ -3832,3 +3832,202 @@ async fn test_person_property_overrides_bug_fix() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
+    // This test specifically addresses the bug where super condition property overrides
+    // were ignored when evaluating flags. The bug was that if you sent:
+    // "$feature_enrollment/discussions": false
+    // as an override, it would be ignored if the flag's super_groups checked for that property.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "super_condition_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with the super condition property set to true in the database
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "$feature_enrollment/discussions": true,  // DB has it as true
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create a flag with a super condition that checks the enrollment property
+    let flag_json = json!([{
+        "id": 1,
+        "key": "discussions-flag",
+        "name": "Discussions Feature Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "super_groups": [{
+                "properties": [{
+                    "key": "$feature_enrollment/discussions",
+                    "type": "person",
+                    "value": ["true"],
+                    "operator": "exact"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // First, test without overrides - should be true (DB value is true)
+    let payload_no_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload_no_override.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    // Should be enabled because DB has $feature_enrollment/discussions = true
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "super_condition_value"
+                    }
+                }
+            }
+        })
+    );
+
+    // Now test the key bug: override the super condition property to false
+    // This should make the flag evaluate to false, respecting the override
+    let payload_with_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": false  // Override to false
+        }
+    });
+
+    let res_override = server
+        .send_flags_request(payload_with_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_override.status() != StatusCode::OK {
+        let status = res_override.status();
+        let text = res_override.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_override = res_override.json::<Value>().await?;
+
+    // This is the key test: the flag should now be false because we overrode
+    // the super condition property. Before our fix, this would incorrectly be true
+    // because the override was ignored.
+    assert_json_include!(
+        actual: json_override,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": false  // Should be false due to the override
+                }
+            }
+        })
+    );
+
+    // Test the reverse: override to true when DB has false
+    // First update DB to have false
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        "another_user".to_string(),
+        Some(json!({
+            "$feature_enrollment/discussions": false,  // DB has it as false
+            "email": "another@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let payload_reverse_override = json!({
+        "token": token,
+        "distinct_id": "another_user",
+        "person_properties": {
+            "$feature_enrollment/discussions": true  // Override to true
+        }
+    });
+
+    let res_reverse = server
+        .send_flags_request(payload_reverse_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_reverse.status() != StatusCode::OK {
+        let status = res_reverse.status();
+        let text = res_reverse.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_reverse = res_reverse.json::<Value>().await?;
+
+    // Should be enabled because we overrode the property to true
+    assert_json_include!(
+        actual: json_reverse,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": true,  // Should be true due to the override
+                    "reason": {
+                        "code": "super_condition_value"
+                    }
+                }
+            }
+        })
+    );
+
+    // This test verifies that our fix properly merges super condition property overrides
+    // with cached properties, ensuring that overrides take precedence over DB values.
+
+    Ok(())
+}
