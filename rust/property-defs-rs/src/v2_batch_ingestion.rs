@@ -322,12 +322,12 @@ pub async fn process_batch_v2(
     let final_results = futures::future::join_all(handles).await;
     for result in final_results {
         match result {
-            // metrics are statted in write_*_batch methods so we just log here
             Ok(batch_result) => match batch_result {
                 Ok(_) => continue,
-                Err(db_err) => {
+                // fanned-out write attempts are instrumented locally w/more
+                // detail, so we only publish global error metric here
+                Err(_) => {
                     metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
-                    error!("Batch write exhausted retries: {:?}", db_err);
                 }
             },
             Err(join_err) => {
@@ -368,6 +368,10 @@ async fn write_event_properties_batch(
                     metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+                    error!(
+                        "Batch write to posthog_eventproperty exhausted retries: {:?}",
+                        &e
+                    );
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
@@ -448,6 +452,10 @@ async fn write_property_definitions_batch(
                     metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+                    error!(
+                        "Batch write to posthog_propertydefinition exhausted retries: {:?}",
+                        &e
+                    );
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
@@ -522,6 +530,10 @@ async fn write_event_definitions_batch(
                     metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+                    error!(
+                        "Batch write to posthog_eventdefinition exhausted retries: {:?}",
+                        &e
+                    );
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
