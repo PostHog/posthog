@@ -1780,6 +1780,7 @@ export type BillingFeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
+    category?: string | null
     docsUrl?: string | null
     limit?: number | null
     note?: string | null

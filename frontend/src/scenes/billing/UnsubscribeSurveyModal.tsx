@@ -22,6 +22,7 @@ import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic, randomizeReasons, UNSUBSCRIBE_REASONS } from './billingProductLogic'
 import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
+import { FeatureLossNotice } from './FeatureLossNotice'
 
 export const UnsubscribeSurveyModal = ({
     product,
@@ -50,7 +51,7 @@ export const UnsubscribeSurveyModal = ({
         process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
-    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
+    const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const includesPipelinesAddon =
         product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
@@ -189,6 +190,8 @@ export const UnsubscribeSurveyModal = ({
                             </p>
                         )}
 
+                        <FeatureLossNotice product={product} isAddonProduct={isAddonProduct} />
+
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'
                                 ? `Why are you ${actionVerb}?`
@@ -217,9 +220,9 @@ export const UnsubscribeSurveyModal = ({
                             <LemonTextArea
                                 data-attr="unsubscribe-reason-survey-textarea"
                                 placeholder={unsubscribeReasonQuestions}
-                                value={surveyResponse['$survey_response']}
+                                value={surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]}
                                 onChange={(value) => {
-                                    setSurveyResponse('$survey_response', value)
+                                    setSurveyResponse(SurveyEventProperties.SURVEY_RESPONSE, value)
                                 }}
                             />
                         )}
