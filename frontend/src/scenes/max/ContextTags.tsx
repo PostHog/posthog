@@ -129,7 +129,6 @@ export function ContextTags({
             tags.push(
                 <LemonTag
                     key="current-page"
-                    size="small"
                     icon={<IconPageChart />}
                     closable={!!onDisableCurrentPageContext}
                     onClose={onDisableCurrentPageContext}
@@ -147,7 +146,6 @@ export function ContextTags({
                 tags.push(
                     <LemonTag
                         key={`dashboard-${dashboard.id}`}
-                        size="small"
                         icon={<IconDashboard />}
                         closable={!!onRemoveDashboard}
                         onClose={onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined}
@@ -166,7 +164,6 @@ export function ContextTags({
                 tags.push(
                     <LemonTag
                         key={`insight-${insight.id}`}
-                        size="small"
                         icon={<IconGraph />}
                         closable={!!onRemoveInsight}
                         onClose={onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined}

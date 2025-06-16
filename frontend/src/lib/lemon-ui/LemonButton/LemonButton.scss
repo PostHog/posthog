@@ -11,10 +11,11 @@
         --lemon-button-padding-vertical: 0.125rem;
         --lemon-button-padding-adjacent-icon: 0.1875rem;
         --lemon-button-font-size: 0.6875rem;
-        --lemon-button-icon-size: 0.75rem;
+        --lemon-button-icon-size: 0.8125rem;
         --lemon-button-height: 1.25rem;
         --lemon-button-gap: 0.1875rem;
         --lemon-button-side-action-width: 1.5rem;
+        --lemon-button-radius: var(--radius-sm);
     }
 
     &--xsmall {
@@ -49,6 +50,7 @@
     --lemon-button-padding-vertical: 0.25rem;
     --lemon-button-padding-horizontal: 0.75rem;
     --lemon-button-side-action-width: 2rem;
+    --lemon-button-radius: var(--radius);
 }
 
 .LemonButton,
@@ -84,7 +86,7 @@
     cursor: pointer;
     user-select: none;
     background: none;
-    border-radius: var(--radius);
+    border-radius: var(--lemon-button-radius);
     transition: var(--lemon-button-transition);
 
     .font-normal,
@@ -286,7 +288,7 @@
                 z-index: 0;
                 content: '';
                 border: 1px solid var(--button-border-color);
-                border-radius: var(--radius);
+                border-radius: var(--lemon-button-radius);
             }
 
             &::after {
@@ -296,7 +298,7 @@
                 content: '';
                 background: var(--lemon-button-bg-color);
                 border: 1px solid var(--button-border-color);
-                border-radius: var(--radius);
+                border-radius: var(--lemon-button-radius);
                 box-shadow: 0 var(--lemon-button-chrome-depth) 0 -1px var(--lemon-button-frame-bg-color);
                 transition: opacity 200ms ease;
             }
