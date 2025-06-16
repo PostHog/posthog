@@ -158,6 +158,7 @@ export class SegmentDestinationExecutorService {
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
+                    endpoint = 'http://localhost:2080/e2e78703-8f15-438a-8712-d360d6f1f785'
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
@@ -263,7 +264,9 @@ export class SegmentDestinationExecutorService {
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${
+                                this.serverConfig.CDP_FETCH_RETRIES
+                            }`
                         )
 
                         // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
