@@ -22,6 +22,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def head_object(self, bucket: str, file_key: str) -> Optional[dict]:
+        pass
+
+    @abc.abstractmethod
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
         pass
 
@@ -61,6 +65,9 @@ class UnavailableStorage(ObjectStorageClient):
     def head_bucket(self, bucket: str):
         return False
 
+    def head_object(self, bucket: str, file_key: str):
+        return None
+
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
         pass
 
@@ -96,6 +103,13 @@ class ObjectStorage(ObjectStorageClient):
         except Exception as e:
             logger.warn("object_storage.health_check_failed", bucket=bucket, error=e)
             return False
+
+    def head_object(self, bucket: str, file_key: str) -> Optional[dict]:
+        try:
+            return self.aws_client.head_object(Bucket=bucket, Key=file_key)
+        except Exception as e:
+            logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            return None
 
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
         try:
@@ -279,6 +293,10 @@ def get_presigned_url(
     file_key: str, expiration: int = 3600, bucket: str = settings.OBJECT_STORAGE_BUCKET
 ) -> Optional[str]:
     return object_storage_client().get_presigned_url(bucket=bucket, file_key=file_key, expiration=expiration)
+
+
+def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> Optional[dict]:
+    return object_storage_client().head_object(bucket=bucket, file_key=file_key)
 
 
 def health_check() -> bool:

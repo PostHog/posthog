@@ -521,14 +521,29 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=True)
     def finish_upload(self, request, **kwargs):
-        content_hash = request.query_params.get("content_hash")
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
 
         symbol_set = self.get_object()
+
+        s3_upload = object_storage.head_object(
+            file_key="12345", bucket=settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER
+        )
+
+        content_length = s3_upload.get("ContentLength")
+        if content_length > ONE_HUNDRED_MEGABYTES:
+            symbol_set.delete()
+            # raise ValidationError(
+            #     code="object_storage_required",
+            #     detail="Object storage must be available to allow source map uploads.",
+            # )
+
+        content_hash = request.query_params.get("content_hash")
         symbol_set.content_hash = content_hash
         symbol_set.save()
-
-        # TODO: ping s3 with head check for object size
-        # Delete symbol set if invalid
 
         return Response({"success": True}, status=status.HTTP_200_OK)
 

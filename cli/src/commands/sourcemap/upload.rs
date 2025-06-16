@@ -5,12 +5,14 @@ use anyhow::{anyhow, Context, Ok, Result};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use sha2::Digest;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::utils::auth::load_token;
 use crate::utils::posthog::capture_command_invoked;
 use crate::utils::release::{create_release, CreateReleaseResponse};
 use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
+
+const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 
 #[derive(Debug, Deserialize)]
 struct StartUploadResponseData {
@@ -82,7 +84,14 @@ fn upload_chunks(
     for upload in uploads {
         info!("Uploading chunk {}", upload.chunk_id);
 
-        // TODO: skip upload if file size is too large (> 100MB)
+        let upload_size = upload.data.len();
+        if upload_size > MAX_FILE_SIZE {
+            warn!(
+                "Skipping chunk {} because the file size is too large ({})",
+                upload.chunk_id, upload_size
+            );
+            continue;
+        }
 
         let upload_response =
             request_presigned_url(&client, base_url, token, &upload.chunk_id, &release_id)?;
@@ -154,12 +163,8 @@ fn finish_upload(
     symbol_set_id: String,
     content_hash: String,
 ) -> Result<()> {
-    let finish_upload_url: String = format!("{}{}", base_url, "/start_upload");
-
-    let params: Vec<(&'static str, &str)> = vec![
-        ("symbol_set_id", &symbol_set_id),
-        ("content_hash", &content_hash),
-    ];
+    let finish_upload_url: String = format!("{}/{}/{}", base_url, symbol_set_id, "finish_upload");
+    let params: Vec<(&'static str, &str)> = vec![("content_hash", &content_hash)];
 
     let res = client
         .get(finish_upload_url)
