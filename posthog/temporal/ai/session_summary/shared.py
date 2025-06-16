@@ -14,6 +14,7 @@ class SingleSessionSummaryInputs:
     team_id: int
     redis_input_key: str
     redis_output_key: str
+    stream: bool = False
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
 

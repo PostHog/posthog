@@ -9,13 +9,13 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
+from ee.session_recordings.session_summary import ExceptionToRetry
 from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
-from temporalio.exceptions import ApplicationError
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.redis import get_client
@@ -44,7 +44,12 @@ async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs)
     )
     if summary_data.sse_error_msg is not None:
         # If we weren't able to collect the required data - retry
-        raise ApplicationError(summary_data.sse_error_msg, non_retryable=False)
+        logger.exception(
+            f"Not able to fetch data from the DB for session {session_input.session_id} (by user {session_input.user_pk}): {summary_data.sse_error_msg}",
+            session_id=session_input.session_id,
+            user_pk=session_input.user_pk,
+        )
+        raise ExceptionToRetry()
     input_data = prepare_single_session_summary_input(
         session_id=session_input.session_id,
         user_pk=session_input.user_pk,
