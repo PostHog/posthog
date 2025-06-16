@@ -70,11 +70,6 @@ async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs)
 
 @temporalio.activity.defn
 async def stream_llm_single_session_summary_activity(session_input: SingleSessionSummaryInputs) -> str:
-    if not session_input.redis_input_key:
-        raise ApplicationError(
-            f"Redis input key was not provided when summarizing session {session_input.session_id}: {session_input}",
-            non_retryable=True,
-        )
     if not session_input.redis_output_key:
         raise ApplicationError(
             f"Redis output key was not provided when summarizing session {session_input.session_id}: {session_input}",
@@ -332,6 +327,7 @@ def execute_summarize_session(
     Start the workflow and return the final summary.
     """
     # Prepare the input data
+    redis_input_key = f"session_summary:single:get-input:{session_id}:{user_pk}:{uuid.uuid4()}"
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
         user_pk=user_pk,
@@ -339,6 +335,7 @@ def execute_summarize_session(
         stream=False,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
+        redis_input_key=redis_input_key,
     )
     # Connect to Temporal and execute the workflow
     workflow_id = f"session-summary:single:get:{session_id}:{user_pk}:{uuid.uuid4()}"

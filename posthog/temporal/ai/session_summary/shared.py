@@ -12,7 +12,7 @@ class SingleSessionSummaryInputs:
     session_id: str
     user_pk: int
     team_id: int
-    redis_input_key: str | None = None
+    redis_input_key: str
     redis_output_key: str | None = None
     stream: bool = False
     extra_summary_context: ExtraSummaryContext | None = None
