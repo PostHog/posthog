@@ -84,15 +84,6 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                     ?.actions.setBreadcrumbName(table.name)
             }
         },
-        loadTableSuccess: async ({ table }) => {
-            if (props.id) {
-                dataWarehouseSourceSceneLogic
-                    .findMounted({
-                        id: `self-managed-${props.id}`,
-                    })
-                    ?.actions.setBreadcrumbName(table.name)
-            }
-        },
     })),
     reducers({
         isEditingTable: [
