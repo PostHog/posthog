@@ -1,7 +1,6 @@
-import { PostgresUse } from '~/src/utils/db/postgres'
-
 import { HogFlow } from '../../schema/hogflow'
 import { Hub, Team } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
