@@ -30,24 +30,19 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, Cyclotron,obInvocationGlo,als, GroupType, GroupTypeInde,, LogEntry } from '~/types'
-
+import { AvailableFeature, CyclotronJobInvocationGlobals, GroupType, GroupTypeIndex, LogEntry } from '~/types'
 
 import {
-    convertToHogFunctionInvocationGlobal,,
-    hogFunctionConfigurationLogi,,
+    convertToHogFunctionInvocationGlobals,
+    hogFunctionConfigurationLogic,
 } from '../configuration/hogFunctionConfigurationLogic'
-
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
-
 import { HogFunctionFilters } from '../filters/HogFunctionFilters'
-
 import { tagTypeForLevel } from '../logs/LogsViewer'
-
 import {
-    CyclotronJobTestInvoca,ionResultWithEventId,
-    hogFunc,ionTestingLogic,
-    HogFunctionTestingLogicPro,s,
+    CyclotronJobTestInvocationResultWithEventId,
+    hogFunctionTestingLogic,
+    HogFunctionTestingLogicProps,
 } from './hogFunctionTestingLogic'
 
 const buildGlobals = (
