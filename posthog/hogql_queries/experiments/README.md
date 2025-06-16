@@ -5,12 +5,42 @@
 As the query construction to meet the `aggregate_funnel_array` input format is somewhat complex,
 this explains the different parts in more detail.
 
-### 1. Step condition construction
+## Funnel step pre-calculation
+
+To avoid property resolution issues when using property filters in funnel steps (e.g., filtering events by `wizard_step = "step_1"`), the experiment query runner requires that step conditions are pre-calculated in the metric events query rather than resolving them inside the UDF.
+
+### Step condition pre-calculation in metric events query
+
+In `_get_metric_events_query()` for funnel metrics, step conditions are calculated as separate columns:
 
 ```sql
-multiply(1, if(equals(metric_events.event, '$pageview'), 1, 0)),
-multiply(2, if(equals(metric_events.event, 'checkout started'), 1, 0)),
-multiply(3, if(equals(metric_events.event, 'checkout completed'), 1, 0)),
+SELECT
+    events.timestamp,
+    events.person_id AS entity_id,
+    exposure_data.variant,
+    events.event,
+    events.uuid,
+    events.properties,
+    if(and(equals(events.event, '$pageview'), equals(events.properties.wizard_step, 'step_1')), 1, 0) AS step_0,
+    if(and(equals(events.event, '$pageview'), equals(events.properties.wizard_step, 'step_2')), 1, 0) AS step_1
+FROM events
+INNER JOIN exposure_data ON events.person_id = exposure_data.entity_id
+WHERE ...
+```
+
+**Benefits of this approach:**
+
+-   **Property resolution**: Complex property filters (including nested properties) are resolved at the SQL level where the HogQL type system works correctly
+-   **Performance**: Property filtering happens early in the query pipeline
+-   **Compatibility**: Works with all property types and operators without UDF limitations
+
+### UDF step condition construction
+
+The `funnel_evaluation_expr()` function uses the pre-calculated step conditions:
+
+```sql
+multiply(1, metric_events.step_0),
+multiply(2, metric_events.step_1),
 ```
 
 -   **Purpose**: Creates numeric step identifiers for each event
@@ -18,6 +48,10 @@ multiply(3, if(equals(metric_events.event, 'checkout completed'), 1, 0)),
 -   **Result**: Each event gets tagged with which funnel steps it satisfies
 
 ### 2. Events array construction
+
+This is the main input to the `aggregate_funnel_array` function. This part of the query simply transforms the events for each
+user into the format requried by the function. It requires an array of tuples, where each element represents an event for that
+user, it's timestamp and wether it satisfies any of the steps in the funnel or not or not.
 
 ```sql
 arraySort(t -> t.1, groupArray(tuple(

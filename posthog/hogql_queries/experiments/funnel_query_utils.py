@@ -1,4 +1,3 @@
-from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.models.team.team import Team
@@ -20,9 +19,7 @@ def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNo
     return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
 
 
-def funnel_evaluation_expr(
-    team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: Optional[str] = None
-) -> ast.Expr:
+def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str) -> ast.Expr:
     """
     Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
     Evaluates to 1 if the user completed the funnel, 0 if they didn't.
@@ -42,28 +39,11 @@ def funnel_evaluation_expr(
     num_steps = len(funnel_metric.series)
 
     # Create field references with proper alias support
-    timestamp_field = f"{events_alias}.timestamp" if events_alias else "timestamp"
-    uuid_field = f"{events_alias}.uuid" if events_alias else "uuid"
+    timestamp_field = f"{events_alias}.timestamp"
+    uuid_field = f"{events_alias}.uuid"
 
-    if events_alias:
-        # When using an alias, assume step conditions are pre-calculated
-        step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
-    else:
-        # Original approach for direct table access
-        placeholders: dict[str, ast.Expr] = {
-            "num_steps": ast.Constant(value=num_steps),
-            "num_steps_minus_one": ast.Constant(value=num_steps - 1),
-            "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-        }
-
-        # Build step conditions, a list of expressions that return the step number if the event satisfies
-        # the condition and 0 otherwise.
-        step_conditions = []
-        for i, funnel_step in enumerate(funnel_metric.series):
-            filter_expr = event_or_action_to_filter(team, funnel_step)
-            step_condition_placeholder = f"step_condition_{i}"
-            step_conditions.append(f"multiply({i + 1}, if({{{step_condition_placeholder}}}, 1, 0))")
-            placeholders[step_condition_placeholder] = filter_expr
+    # When using an alias, assume step conditions are pre-calculated
+    step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
 
     step_conditions_str = ", ".join(step_conditions)
 
@@ -91,4 +71,4 @@ def funnel_evaluation_expr(
     )
     """
 
-    return parse_expr(expression, placeholders=placeholders if not events_alias else {})
+    return parse_expr(expression)

@@ -405,6 +405,7 @@ class ExperimentQueryRunner(QueryRunner):
 
             case ExperimentFunnelMetric() as metric:
                 # Pre-calculate step conditions to avoid property resolution issues in UDF
+                # For each step in the funnel, we create a new column that is 1 if the step is true, 0 otherwise
                 step_selects = []
                 for i, funnel_step in enumerate(metric.series):
                     step_filter = event_or_action_to_filter(self.team, funnel_step)
