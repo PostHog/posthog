@@ -13,6 +13,7 @@ from dags import (
     exchange_rate,
     export_query_logs_to_s3,
     materialized_columns,
+    oauth,
     orm_examples,
     person_overrides,
     property_definitions,
@@ -85,6 +86,7 @@ defs = dagster.Definitions(
         backups.non_sharded_backup,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
         web_preaggregated_daily.web_pre_aggregate_daily_job,
+        oauth.oauth_clear_expired_oauth_tokens_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
@@ -99,6 +101,7 @@ defs = dagster.Definitions(
         symbol_set_cleanup.daily_symbol_set_cleanup_schedule,
         web_preaggregated_daily.web_pre_aggregate_daily_schedule,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
+        oauth.oauth_clear_expired_oauth_tokens_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,

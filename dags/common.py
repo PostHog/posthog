@@ -17,6 +17,7 @@ class JobOwners(str, Enum):
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
     TEAM_ERROR_TRACKING = "team-error-tracking"
+    TEAM_GROWTH = "team-growth"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):

@@ -483,6 +483,9 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
 
+
+OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
@@ -505,6 +508,10 @@ OAUTH2_PROVIDER = {
     # The default grace period where a client can attempt to use the same refresh token
     # Using a refresh token after this will revoke all refresh and access tokens
     "REFRESH_TOKEN_GRACE_PERIOD_SECONDS": 60 * 2,
+    # NOTE: Clear refresh tokens after 30 days + retention period, this effectively invalidates them. This stops stale applications from using refresh tokens.
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
+    "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
+    "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 10,
 }
 
 

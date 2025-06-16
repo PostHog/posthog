@@ -11,6 +11,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
     JobOwners.TEAM_REVENUE_ANALYTICS.value: "#alerts-revenue-analytics",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
+    JobOwners.TEAM_GROWTH.value: "#alerts-growth",
 }
 
 
