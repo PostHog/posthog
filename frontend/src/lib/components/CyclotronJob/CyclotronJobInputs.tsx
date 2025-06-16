@@ -283,7 +283,7 @@ function DictionaryField({
                         setMode('entries')
                     }}
                 >
-                    Individual entries
+                    Select individual entries
                 </LemonButton>
             </div>
             {mode === 'entries' ? (
