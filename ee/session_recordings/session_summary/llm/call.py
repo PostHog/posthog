@@ -1,4 +1,3 @@
-import openai
 from openai import AsyncOpenAI, AsyncStream
 import structlog
 from posthog.utils import get_instance_region
@@ -51,11 +50,6 @@ async def stream_llm(
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
-
-    # TODO: Spend more time on testing reasoning vs regular modelds, start with regular because of faster streaming
-    # model: str = "o4-mini-2025-04-16",
-    # reasoning_effort="medium",
-
     # TODO: Add LLM observability tracking here
     client = AsyncOpenAI()
     stream = await client.chat.completions.create(
@@ -68,7 +62,7 @@ async def stream_llm(
     return stream
 
 
-def call_llm(
+async def call_llm(
     input_prompt: str,
     user_key: int,
     session_id: str,
@@ -77,13 +71,15 @@ def call_llm(
     model: str = "gpt-4.1-2025-04-14",
 ) -> ChatCompletion:
     """
-    LLM sync call.
+    LLM non-streaming call.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
-    result = openai.chat.completions.create(
+    # TODO: Add LLM observability tracking here
+    client = AsyncOpenAI()
+    result = await client.chat.completions.create(
         model=model,
-        temperature=0.1,
+        temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
         messages=messages,
         user=user_param,
     )
