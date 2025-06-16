@@ -84,7 +84,7 @@ class BayesianMethod:
 
         # Check results
         print(f"Chance to win: {result.chance_to_win:.1%}")
-        print(f"Effect size: {result.point_estimate:.3f}")
+        print(f"Effect size: {result.effect_size:.3f}")
         print(f"Credible interval: {result.credible_interval}")
     """
 
@@ -186,7 +186,7 @@ class BayesianMethod:
         }
 
         # Add effect size interpretation
-        if "relative" in result.difference_type:
+        if result.difference_type == DifferenceType.RELATIVE:
             summary["interpretation"] = {
                 "effect_size": f"{result.effect_size:.1%}",
                 "effect_direction": "positive" if result.effect_size > 0 else "negative",

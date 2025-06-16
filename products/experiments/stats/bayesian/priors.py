@@ -45,7 +45,7 @@ class GaussianPrior:
         Returns:
             True if the prior should influence the posterior, False for flat priors
         """
-        return self.proper and self.variance > 0
+        return self.proper
 
     def make_informative(self, mean: float, variance: float) -> "GaussianPrior":
         """

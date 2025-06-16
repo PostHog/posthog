@@ -9,18 +9,24 @@ import pytest
 import numpy as np
 from unittest import TestCase
 
+
 from products.experiments.stats.bayesian.method import (
     BayesianMethod,
     BayesianConfig,
+    PriorType,
+)
+from products.experiments.stats.bayesian.tests import (
     BayesianResult,
     BayesianGaussianTest,
-    GaussianPrior,
-    PriorType,
+)
+from products.experiments.stats.bayesian.priors import GaussianPrior
+from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     ProportionStatistic,
-    DifferenceType,
     StatisticError,
 )
+from products.experiments.stats.shared.enums import DifferenceType
+
 from products.experiments.stats.bayesian.utils import (
     calculate_effect_size_and_variance,
     calculate_posterior,

@@ -204,7 +204,7 @@ def calculate_risk(posterior_mean: float, posterior_std: float) -> tuple[float, 
 
     Risk represents the expected loss if we make the wrong decision:
     - Risk of choosing control: E[θ | θ > 0] x P(θ > 0)
-    - Risk of choosing treatment: E[|θ|] x P(θ < 0)]
+    - Risk of choosing treatment: E[|θ|] x P(θ < 0)
 
     Args:
         posterior_mean: Posterior mean of effect size
