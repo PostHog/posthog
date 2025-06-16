@@ -167,7 +167,8 @@ export function ProjectTree({
 
         // Show product menu items if the item is a product or shortcut (and the item is a product, products have 1 slash in the href)
         const showProductMenuItems =
-            root === 'products://' || (root === 'shortcuts://' && item.record?.href.split('/').length - 1 === 1)
+            root === 'products://' ||
+            (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
