@@ -30,6 +30,10 @@ from posthog.temporal.data_imports.pipelines.postgres import (
     PostgreSQLSourceConfig,
     get_schemas as get_postgres_schemas,
 )
+from posthog.temporal.data_imports.pipelines.mongo import (
+    MongoSourceConfig,
+    get_schemas as get_mongo_schemas,
+)
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
 )
@@ -52,6 +56,7 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
+    filter_mongo_incremental_fields,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
@@ -365,6 +370,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
+            ]
+
+        elif source.source_type == ExternalDataSource.Type.MONGO:
+            db_schemas = get_mongo_schemas(MongoSourceConfig.from_dict(source.job_inputs))
+            columns = db_schemas.get(instance.name, [])
+            incremental_columns = [
+                {"field": name, "field_type": field_type, "label": name, "type": field_type}
+                for name, field_type in filter_mongo_incremental_fields(columns)
             ]
         elif source.source_type == ExternalDataSource.Type.DOIT:
             incremental_columns = DOIT_INCREMENTAL_FIELDS
