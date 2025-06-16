@@ -5203,15 +5203,11 @@ export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
 export type HogFunctionTypeType =
     | 'destination'
     | 'internal_destination'
+    | 'source'
     | 'source_webhook'
     | 'site_destination'
     | 'site_app'
     | 'transformation'
-    | 'email'
-    | 'sms'
-    | 'push'
-    | 'activity'
-    | 'alert'
     | 'broadcast'
     | 'messaging_campaign'
 
@@ -5273,21 +5269,12 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    | 'id'
-    | 'type'
-    | 'kind'
-    | 'name'
-    | 'description'
-    | 'hog'
-    | 'inputs_schema'
-    | 'filters'
-    | 'icon_url'
-    | 'masking'
-    | 'mappings'
+    'id' | 'type' | 'kind' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
+    description?: string | JSX.Element
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
