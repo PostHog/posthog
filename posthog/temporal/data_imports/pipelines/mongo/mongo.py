@@ -17,11 +17,9 @@ from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-    table_from_iterator,
 )
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
@@ -284,7 +282,6 @@ def mongo_source(
     is_incremental: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
-    team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> SourceResponse:
@@ -321,13 +318,9 @@ def mongo_source(
     sample = list(collection.find(query).limit(100))
     schema_info = _infer_schema_from_sample(sample)
 
-    table = _get_table(collection, collection_name, schema_info)
-
     client.close()
 
-    def get_rows(chunk_size: int) -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
-
+    def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
         read_client = _create_mongo_client(connection_string, connection_params)
 
@@ -340,7 +333,6 @@ def mongo_source(
             if is_incremental and incremental_field:
                 cursor = cursor.sort(incremental_field, 1)  # ascending order
 
-            batch = []
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
                 processed_doc = {}
@@ -360,15 +352,7 @@ def mongo_source(
                     else:
                         processed_doc[key] = value
 
-                batch.append(processed_doc)
-
-                if len(batch) >= chunk_size:
-                    yield table_from_iterator(batch, arrow_schema)
-                    batch = []
-
-            # Yield remaining batch
-            if batch:
-                yield table_from_iterator(batch, arrow_schema)
+                yield processed_doc
 
         finally:
             read_client.close()
@@ -377,7 +361,7 @@ def mongo_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(DEFAULT_CHUNK_SIZE),
+        items=get_rows(),
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
