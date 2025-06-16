@@ -24,6 +24,7 @@ fn test_cache_insertions() {
         property: String::from("bar"),
         team_id: 1,
         project_id: 1,
+        last_seen_at: Utc::now(), // these are normally floored but unimportant for these tests
     });
     cache.insert(evt_prop.clone());
 
@@ -35,6 +36,7 @@ fn test_cache_insertions() {
         property_type: Some(PropertyValueType::Numeric),
         event_type: PropertyParentType::Event,
         group_type_index: None,
+        last_seen_at: Utc::now(), // these are normally floored but unimportant for these tests
         property_type_format: None,
         query_usage_30_day: None,
         volume_30_day: None,
@@ -63,6 +65,7 @@ fn test_cache_removals() {
         property: String::from("bar"),
         team_id: 1,
         project_id: 1,
+        last_seen_at: Utc::now(), // these are normally floored but unimportant for these tests
     });
     cache.insert(evt_prop.clone());
 
@@ -74,6 +77,7 @@ fn test_cache_removals() {
         property_type: Some(PropertyValueType::Numeric),
         event_type: PropertyParentType::Event,
         group_type_index: None,
+        last_seen_at: Utc::now(), // these are normally floored but unimportant for these tests
         property_type_format: None,
         query_usage_30_day: None,
         volume_30_day: None,
