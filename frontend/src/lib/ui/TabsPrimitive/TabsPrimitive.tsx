@@ -14,7 +14,7 @@ export function TabsPrimitiveList({ ...props }: TabsPrimitiveListProps): JSX.Ele
 }
 
 export interface TabsPrimitiveContentProps extends Tabs.TabsContentProps {}
-export function TabsPrimitiveContent({ className, ...props }: TabsPrimitiveContentProps): JSX.Element {
+export function TabsPrimitiveContent({ ...props }: TabsPrimitiveContentProps): JSX.Element {
     return <Tabs.Content {...props} />
 }
 
