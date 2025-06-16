@@ -1,5 +1,5 @@
 import uuid
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Optional
 from freezegun import freeze_time
 
@@ -87,17 +87,7 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
             with freeze_time(timestamp):
                 self._create_session_event(distinct_id, session_id, timestamp, url, extra_properties=extra_properties)
 
-    @abstractmethod
-    def _setup_test_data(self):
-        """Abstract method to set up test-specific data"""
-        pass
-
-    @abstractmethod
-    def _get_expected_metrics(self) -> dict:
-        """Abstract method to return expected metrics for validation"""
-        pass
-
-    def _execute_metrics_query(self, base_sql: str) -> tuple:
+    def _get_pre_agg_metrics_from_bounce_table(self, base_sql: str) -> tuple:
         """Execute a metrics query that aggregates pre-aggregated data"""
         metrics_sql = f"""
         WITH session_data AS (
@@ -137,7 +127,7 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         assert abs(bounce_rate - expected_metrics["bounce_rate"]) < 0.01
         assert abs(avg_duration - expected_metrics["avg_session_duration"]) < 1.0
 
-    def _execute_raw_events_metrics_query(self, date_start: str = "2024-01-01", date_end: str = "2024-01-02") -> tuple:
+    def _get_metrics_from_raw_events(self, date_start: str = "2024-01-01", date_end: str = "2024-01-02") -> tuple:
         raw_metrics_sql = f"""
         WITH session_metrics AS (
             SELECT
