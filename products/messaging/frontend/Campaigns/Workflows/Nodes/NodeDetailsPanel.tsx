@@ -1,11 +1,11 @@
 import { IconTrash, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
+import { Form } from 'kea-forms'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 
-import type { HogFlowAction } from '../types'
-import { Form } from 'kea-forms'
 import { campaignLogic } from '../../campaignLogic'
+import type { HogFlowAction } from '../types'
 
 export function NodeDetailsPanel({
     node,
@@ -54,9 +54,9 @@ export function NodeDetailsPanel({
                 formKey="campaign"
                 className="bg-surface-primary rounded-md shadow-md p-4 gap-2 flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-3/4 overflow-y-scroll"
             >
-                <div className="flex items-center justify-between">
+                <div className="flex justify-between items-center">
                     <h3 className="font-semibold">Edit {node.data.name} step</h3>
-                    <div className="flex items-center gap-1">
+                    <div className="flex gap-1 items-center">
                         {node.deletable && (
                             <LemonButton
                                 size="small"
