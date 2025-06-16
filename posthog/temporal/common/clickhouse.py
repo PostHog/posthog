@@ -489,6 +489,9 @@ class ClickHouseClient:
             events = set()
             error = None
             for line in lines:
+                if not line:
+                    continue
+
                 event, error_value = line.decode("utf-8").split(",", 1)
                 events.add(event)
 
