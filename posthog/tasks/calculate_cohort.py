@@ -1,23 +1,25 @@
+import posthoganalytics
+import structlog
 import time
-from typing import Any, Optional
 
 from django.conf import settings
 
 from posthog.models.team.team import Team
-import structlog
-import posthoganalytics
-from celery import shared_task
+from celery import shared_task, chain, current_task
+from datetime import timedelta
 from dateutil.relativedelta import relativedelta
+from typing import Any, Optional
+
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
-from prometheus_client import Gauge
+from prometheus_client import Gauge, Counter
 
-from datetime import timedelta
-
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
-from posthog.models.cohort.util import get_static_cohort_size
+from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.util import get_static_cohort_size, get_dependent_cohorts, sort_cohorts_topologically
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
 
@@ -39,6 +41,10 @@ COHORT_STUCK_COUNT_GAUGE = Gauge(
     "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 1 hour"
 )
 
+COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
+    "cohort_dependency_calculation_failures_total", "Number of times dependent cohort calculations have failed"
+)
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
@@ -57,32 +63,16 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
 
 def update_stale_cohort_metrics() -> None:
     now = timezone.now()
-    stale_cohorts = (
-        Cohort.objects.filter(
-            Q(last_calculation__isnull=False),
-            deleted=False,
-            is_calculating=False,
-            errors_calculating__lte=20,
-        )
-        .exclude(is_static=True)
-        .values_list("last_calculation", flat=True)
-    )
+    base_queryset = Cohort.objects.filter(
+        Q(last_calculation__isnull=False),
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
 
-    stale_24h = stale_36h = stale_48h = 0
-    for last_calc in stale_cohorts:
-        if last_calc <= now - relativedelta(hours=48):
-            stale_48h += 1
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=36):
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=24):
-            stale_24h += 1
-
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="24").set(stale_24h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="36").set(stale_36h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="48").set(stale_48h)
+    for hours in [24, 36, 48]:
+        stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
+        COHORTS_STALE_COUNT_GAUGE.labels(hours=str(hours)).set(stale_count)
 
     stuck_count = (
         Cohort.objects.filter(
@@ -133,6 +123,50 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
+    dependent_cohorts = get_dependent_cohorts(cohort)
+    if dependent_cohorts:
+        logger.info("cohort_has_dependencies", cohort_id=cohort.id, dependent_count=len(dependent_cohorts))
+
+        all_cohort_ids = {dep.id for dep in dependent_cohorts}
+        all_cohort_ids.add(cohort.id)
+
+        # Sort cohorts (dependencies first)
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {dep.id: dep for dep in dependent_cohorts}
+        seen_cohorts_cache[cohort.id] = cohort
+
+        try:
+            sorted_cohort_ids = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
+        except Exception as e:
+            COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER.inc()
+            logger.exception("cohort_dependency_resolution_failed", cohort_id=cohort.id, error=str(e))
+            capture_exception()
+            # Fall back to calculating just this cohort without dependencies
+            logger.info("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
+            _enqueue_single_cohort_calculation(cohort, initiating_user)
+            return
+
+        # Create a chain of tasks to ensure sequential execution
+        task_chain = []
+        for cohort_id in sorted_cohort_ids:
+            current_cohort = seen_cohorts_cache.get(cohort_id)
+            if current_cohort and not current_cohort.is_static:
+                _prepare_cohort_for_calculation(current_cohort)
+                task_chain.append(
+                    calculate_cohort_ch.si(
+                        current_cohort.id,
+                        current_cohort.pending_version,
+                        initiating_user.id if initiating_user else None,
+                    )
+                )
+
+        if task_chain:
+            chain(*task_chain).apply_async()
+    else:
+        logger.info("cohort_has_no_dependencies", cohort_id=cohort.id)
+        _enqueue_single_cohort_calculation(cohort, initiating_user)
+
+
+def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     update_fields = ["pending_version"]
 
@@ -144,6 +178,11 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
     cohort.save(update_fields=update_fields)
     cohort.refresh_from_db()
+
+
+def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
+    """Helper function to enqueue a single cohort for calculation"""
+    _prepare_cohort_for_calculation(cohort)
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
@@ -161,6 +200,13 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         if cohort.last_calculation is not None:
             staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
         COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+
+        tags = {"cohort_id": cohort_id, "feature": Feature.COHORT.value}
+        if initiating_user_id:
+            tags["user_id"] = initiating_user_id
+        if current_task and current_task.request and current_task.request.id:
+            tags["celery_task_id"] = current_task.request.id
+        tag_queries(**tags)
 
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 

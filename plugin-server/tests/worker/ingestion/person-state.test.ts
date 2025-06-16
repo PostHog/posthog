@@ -1,8 +1,8 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { TopicMessage } from '~/src/kafka/producer'
-import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { TopicMessage } from '~/kafka/producer'
+import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 
 import {
     Database,

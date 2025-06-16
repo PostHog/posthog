@@ -1,15 +1,18 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useEffect } from 'react'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
-import { hogFunctionListLogic } from 'scenes/hog-functions/list/hogFunctionListLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
+import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType, ProductKey } from '~/types'
+
+import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 export type DataPipelinesHogFunctionsProps = {
     kind: HogFunctionTypeType
@@ -37,8 +40,24 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
     const { hogFunctions, loading } = useValues(
-        hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
+        hogFunctionsListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
     )
+
+    const { hogFunctionPluginsDestinations, hogFunctionBatchExports, hogFunctionPluginsSiteApps } =
+        useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports, loadHogFunctionPluginsSiteApps } =
+        useActions(nonHogFunctionsLogic)
+
+    useEffect(() => {
+        if (kind === 'destination') {
+            loadHogFunctionPluginsDestinations()
+            loadHogFunctionBatchExports()
+        }
+
+        if (kind === 'site_app') {
+            loadHogFunctionPluginsSiteApps()
+        }
+    }, [kind])
 
     const newButton = (
         <LemonButton to={urls.dataPipelinesNew(kind)} type="primary" icon={<IconPlusSmall />} size="small">
@@ -63,7 +82,18 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                 />
             ) : null}
             <div>
-                <HogFunctionList logicKey={logicKey} type={kind} additionalTypes={additionalKinds} />
+                <HogFunctionList
+                    logicKey={logicKey}
+                    type={kind}
+                    additionalTypes={additionalKinds}
+                    manualFunctions={
+                        kind === 'destination'
+                            ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
+                            : kind === 'site_app'
+                            ? [...(hogFunctionPluginsSiteApps ?? [])]
+                            : undefined
+                    }
+                />
                 <div>
                     <h2 className="mt-4">Create a new {humanizedKind}</h2>
                     <HogFunctionTemplateList type={kind} additionalTypes={additionalKinds} />
