@@ -8,6 +8,7 @@ class IncrementalFieldType(StrEnum):
     DateTime = "datetime"
     Date = "date"
     Timestamp = "timestamp"
+    String = "string"
 
 
 class IncrementalField(typing.TypedDict):

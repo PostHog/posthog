@@ -1471,7 +1471,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             filtered_results = [
-                (collection_name, filter_mongo_incremental_fields(columns))
+                (collection_name, filter_mongo_incremental_fields(columns, connection_string, collection_name))
                 for collection_name, columns in result.items()
             ]
 

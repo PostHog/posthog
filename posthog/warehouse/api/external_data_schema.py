@@ -377,7 +377,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             columns = db_schemas.get(instance.name, [])
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_mongo_incremental_fields(columns)
+                for name, field_type in filter_mongo_incremental_fields(
+                    columns, source.job_inputs["connection_string"], instance.name
+                )
             ]
         elif source.source_type == ExternalDataSource.Type.DOIT:
             incremental_columns = DOIT_INCREMENTAL_FIELDS

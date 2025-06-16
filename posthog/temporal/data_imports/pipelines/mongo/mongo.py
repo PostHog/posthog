@@ -188,6 +188,20 @@ def _build_query(
     return query
 
 
+def get_indexes(connection_string: str, collection_name: str) -> list[str]:
+    """Get all indexes for a MongoDB collection."""
+    try:
+        connection_params = _parse_connection_string(connection_string)
+        client = _create_mongo_client(connection_string, connection_params)
+        db = client[connection_params["database"]]
+        collection = db[collection_name]
+
+        index_cursor = collection.list_indexes()
+        return [field for index in index_cursor for field in index["key"].keys()]
+    except Exception:
+        return []
+
+
 def _get_primary_keys(collection: Collection, collection_name: str) -> list[str] | None:
     # MongoDB always has _id as primary key
     return ["_id"]
@@ -327,11 +341,12 @@ def mongo_source(
         read_db = read_client[connection_params["database"]]
         read_collection = read_db[collection_name]
 
+        # TODO: update to pymongoarrow when pyarrow major version is bumped
         try:
             cursor = read_collection.find(query)
 
             if is_incremental and incremental_field:
-                cursor = cursor.sort(incremental_field, 1)  # ascending order
+                cursor = cursor.sort(incremental_field, 1).allow_disk_use(True)  # ascending order
 
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
