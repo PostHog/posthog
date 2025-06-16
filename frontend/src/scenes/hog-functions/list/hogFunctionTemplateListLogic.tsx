@@ -1,11 +1,13 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import posthog from 'posthog-js'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -38,6 +40,7 @@ export type HogFunctionTemplateListLogicProps = {
     /** Overrides to be used when creating a new hog function */
     configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
     syncFiltersWithUrl?: boolean
+    manualTemplates?: HogFunctionTemplateType[]
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -75,6 +78,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
         resetFilters: true,
+        registerInterest: (template: HogFunctionTemplateType) => ({ template }),
     }),
     reducers(() => ({
         filters: [
@@ -111,10 +115,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [s.rawTemplates, (_, props) => props],
             (
                 rawTemplates,
-                { subTemplateIds }: HogFunctionTemplateListLogicProps
+                { subTemplateIds, manualTemplates }: HogFunctionTemplateListLogicProps
             ): HogFunctionTemplateWithSubTemplateType[] => {
                 if (!subTemplateIds) {
-                    return rawTemplates
+                    return [...rawTemplates, ...(manualTemplates || [])] as HogFunctionTemplateWithSubTemplateType[]
                 }
 
                 const final: HogFunctionTemplateWithSubTemplateType[] = []
@@ -149,11 +153,16 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
-            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse, s.user, s.featureFlags],
+            (filters, templates, templatesFuse, user, featureFlags): HogFunctionTemplateType[] => {
                 const { search } = filters
-                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter((x) =>
-                    shouldShowHogFunctionTemplate(x, user)
+
+                const flagComingSoon = !!featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS]
+
+                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
+                    (x) =>
+                        shouldShowHogFunctionTemplate(x, user) &&
+                        (x.status === 'coming_soon' ? search && flagComingSoon : true)
                 )
             },
         ],
@@ -171,6 +180,24 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             () => [(_, props) => props],
             ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
+                    if (template.status === 'coming_soon') {
+                        return `https://posthog.com/docs/cdp/${template.type}s/${template.id}`
+                    }
+
+                    // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
+
+                    if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
+                        return (
+                            urls.dataWarehouseSourceNew() +
+                            '?kind=' +
+                            template.id.replace('self-managed-', '').replace('managed-', '')
+                        )
+                    }
+
+                    if (template.id.startsWith('batch-export-')) {
+                        return urls.batchExportNew(template.id.replace('batch-export-', ''))
+                    }
+
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
                         : null
@@ -191,6 +218,18 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
     }),
+
+    listeners(({ values }) => ({
+        registerInterest: ({ template }) => {
+            posthog.capture('notify_me_pipeline', {
+                name: template.name,
+                type: template.type,
+                email: values.user?.email,
+            })
+
+            lemonToast.success('Thank you for your interest! We will notify you when this feature is available.')
+        },
+    })),
 
     actionToUrl(({ props, values }) => {
         if (!props.syncFiltersWithUrl) {

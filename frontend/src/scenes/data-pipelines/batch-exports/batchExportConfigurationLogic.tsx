@@ -12,17 +12,13 @@ import {
     BatchExportConfigurationTest,
     BatchExportConfigurationTestStep,
     BatchExportService,
-    PipelineNodeTab,
-    PipelineStage,
 } from '~/types'
 
-import { humanizeBatchExportName } from './batch-exports/utils'
-import { DESTINATION_TYPES } from './destinations/constants'
-import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
-import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
+import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
+import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
+import { humanizeBatchExportName } from './utils'
 
-export interface PipelineBatchExportConfigurationLogicProps {
+export interface BatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
     id: string | null
 }
@@ -433,16 +429,15 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
     },
 }
 
-// Should likely be somewhat similar to pipelinePluginConfigurationLogic
-export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConfigurationLogicType>([
-    props({} as PipelineBatchExportConfigurationLogicProps),
-    key(({ service, id }: PipelineBatchExportConfigurationLogicProps) => {
+export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicType>([
+    props({} as BatchExportConfigurationLogicProps),
+    key(({ service, id }: BatchExportConfigurationLogicProps) => {
         if (id) {
             return `ID:${id}`
         }
         return `NEW:${service}`
     }),
-    path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
+    path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
     connect(() => ({
         values: [pipelineAccessLogic, ['canEnableNewDestinations']],
     })),
@@ -497,9 +492,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     const res = await api.batchExports.create(data)
                     actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
 
-                    router.actions.replace(
-                        urls.pipelineNode(PipelineStage.Destination, res.id, PipelineNodeTab.Configuration)
-                    )
+                    router.actions.replace(urls.batchExport(res.id))
                     lemonToast.success('Batch export created successfully')
                     return res
                 },
@@ -732,10 +725,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
 
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
-
-            pipelineDestinationsLogic
-                .findMounted({ types: DESTINATION_TYPES })
-                ?.actions.updateBatchExportConfig(batchExportConfig)
         },
         loadBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {

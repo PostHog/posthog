@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0768_messagerecipientpreference_messagecategory"),
+        ("posthog", "0769_organization_default_experiment_stats_method"),
     ]
 
     operations = [
