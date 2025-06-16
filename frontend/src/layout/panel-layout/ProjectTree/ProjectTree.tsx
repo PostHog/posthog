@@ -493,12 +493,20 @@ export function ProjectTree({
                     </DropdownMenuGroup>
                 )
             }}
-            itemSideActionIcon={(item) => {
+            itemSideActionButton={(item) => {
                 if (item.record?.protocol === 'products://') {
                     if (item.name === 'Product analytics') {
-                        return <IconPlusSmall className="text-tertiary" />
+                        return (
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                                <IconPlusSmall className="text-tertiary" />
+                            </ButtonPrimitive>
+                        )
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                        return (
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                            </ButtonPrimitive>
+                        )
                     }
                 }
             }}
