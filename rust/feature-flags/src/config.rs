@@ -255,7 +255,7 @@ mod tests {
             "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(config.max_concurrency, 1000);
-        assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.max_pg_connections, 50);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
