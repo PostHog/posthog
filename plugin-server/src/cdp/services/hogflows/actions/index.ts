@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronJobInvocationHogFlow } from '~/src/cdp/types'
-import { Hub } from '~/src/types'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { Hub } from '~/types'
 
 import { HogFlowActionRunnerCondition } from './condition.action'
 import { HogFlowActionRunnerResult } from './types'

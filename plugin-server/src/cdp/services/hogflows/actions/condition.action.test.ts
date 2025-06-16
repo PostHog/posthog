@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { HOG_FILTERS_EXAMPLES } from '~/src/cdp/_tests/examples'
-import { createExampleHogFlowInvocation, createHogFlowAction } from '~/src/cdp/_tests/fixtures-hogflows'
-import { CyclotronJobInvocationHogFlow } from '~/src/cdp/types'
-import { HogFlowAction } from '~/src/schema/hogflow'
+import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
+import { createExampleHogFlowInvocation, createHogFlowAction } from '~/cdp/_tests/fixtures-hogflows'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerCondition } from './condition.action'
 

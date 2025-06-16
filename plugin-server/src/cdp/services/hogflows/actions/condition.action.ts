@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronJobInvocationHogFlow, HogFunctionFilterGlobals } from '~/src/cdp/types'
-import { convertToHogFunctionFilterGlobal } from '~/src/cdp/utils'
-import { filterFunctionInstrumented } from '~/src/cdp/utils/hog-function-filtering'
-import { HogFlowAction } from '~/src/schema/hogflow'
-import { logger } from '~/src/utils/logger'
+import { CyclotronJobInvocationHogFlow, HogFunctionFilterGlobals } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '~/cdp/utils'
+import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { HogFlowAction } from '~/schema/hogflow'
+import { logger } from '~/utils/logger'
 
 import { HogFlowActionRunnerResult } from './types'
 

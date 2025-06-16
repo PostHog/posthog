@@ -1,4 +1,4 @@
-import { HogFlow } from '~/src/schema/hogflow'
+import { HogFlow } from '~/schema/hogflow'
 
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'

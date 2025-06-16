@@ -18,7 +18,7 @@ import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { HogFlow } from '~/src/schema/hogflow'
+import { HogFlow } from '~/schema/hogflow'
 
 jest.setTimeout(1000)
 
