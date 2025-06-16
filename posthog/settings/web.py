@@ -485,7 +485,7 @@ OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n"
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
-    "PKCE_REQUIRED": True,
+    "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
     "SCOPES": {
         "openid": "OpenID Connect scope",
@@ -495,10 +495,16 @@ OAUTH2_PROVIDER = {
         **get_scope_descriptions(),
     },
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
-    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
+    * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
-    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
+    "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
+    # The default grace period where a client can attempt to use the same refresh token
+    # Using a refresh token after this will revoke all refresh and access tokens
+    "REFRESH_TOKEN_GRACE_PERIOD_SECONDS": 60 * 2,
 }
 
 

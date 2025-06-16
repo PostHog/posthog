@@ -222,7 +222,7 @@ urlpatterns = [
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
-    path("oauth/", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
+    path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),

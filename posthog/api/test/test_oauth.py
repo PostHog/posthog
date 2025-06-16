@@ -693,7 +693,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(userinfo_data["family_name"], self.user.last_name)
 
     def test_jwks_endpoint_returns_valid_jwks(self):
-        response = self.client.get("/oauth/.well-known/jwks.json")
+        response = self.client.get("/.well-known/jwks.json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         jwks = response.json()
@@ -1035,6 +1035,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
+    @freeze_time("2025-01-01 00:00:00")
     def test_refresh_token_rotation_invalidates_old_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -1055,9 +1056,16 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertNotEqual(old_refresh_token, new_refresh_token)
 
-        retry_old_token = self.post("/oauth/token/", refresh_data)
-        self.assertEqual(retry_old_token.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(retry_old_token.json()["error"], "invalid_grant")
+        # Within grace period, old token should still work and return the same new tokens
+        retry_old_token_within_grace = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(retry_old_token_within_grace.status_code, status.HTTP_200_OK)
+        self.assertEqual(retry_old_token_within_grace.json()["refresh_token"], new_refresh_token)
+
+        # After grace period, old token should be invalid
+        with freeze_time("2025-01-01 00:03:00"):  # 3 minutes later, beyond grace period
+            retry_old_token_after_grace = self.post("/oauth/token/", refresh_data)
+            self.assertEqual(retry_old_token_after_grace.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(retry_old_token_after_grace.json()["error"], "invalid_grant")
 
     def test_mixed_scoped_access_levels_rejected(self):
         data = {
@@ -1260,3 +1268,154 @@ class TestOAuthAPI(APIBaseTest):
             response = self.post("/oauth/token/", invalid_request)
             response_text = response.content.decode()
             self.assertNotIn(access_token, response_text)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_refresh_token_reuse_within_grace_period(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        old_refresh_token = token_response.json()["refresh_token"]
+
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": old_refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        first_refresh_response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(first_refresh_response.status_code, status.HTTP_200_OK)
+        new_refresh_token = first_refresh_response.json()["refresh_token"]
+        new_access_token = first_refresh_response.json()["access_token"]
+
+        # Reuse old refresh token within grace period (2 minutes by default)
+        with freeze_time("2025-01-01 00:01:00"):
+            reuse_response = self.post("/oauth/token/", refresh_data)
+            self.assertEqual(reuse_response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(reuse_response.json()["refresh_token"], new_refresh_token)
+            self.assertEqual(reuse_response.json()["access_token"], new_access_token)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_refresh_token_reuse_after_grace_period_revokes_token_family(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        old_refresh_token = token_response.json()["refresh_token"]
+
+        # Use refresh token for the first time
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": old_refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        first_refresh_response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(first_refresh_response.status_code, status.HTTP_200_OK)
+        new_refresh_token = first_refresh_response.json()["refresh_token"]
+
+        # Try to reuse old refresh token after grace period (2 minutes by default)
+        with freeze_time("2025-01-01 00:03:00"):
+            reuse_response = self.post("/oauth/token/", refresh_data)
+            self.assertEqual(reuse_response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(reuse_response.json()["error"], "invalid_grant")
+
+            # Verify all tokens in the family are revoked
+            old_token_db = OAuthRefreshToken.objects.get(token=old_refresh_token)
+            self.assertIsNotNone(old_token_db.revoked)
+
+            # New refresh token should also be revoked
+            new_token_db = OAuthRefreshToken.objects.get(token=new_refresh_token)
+            self.assertIsNotNone(new_token_db.revoked)
+
+            # The new refresh token behavior depends on the OAuth library implementation
+            # Some implementations may immediately revoke all tokens in the family,
+            # while others may only mark them as suspicious for future use
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_multiple_refresh_token_rotations_preserve_token_family(self):
+        # Get initial tokens
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        initial_refresh_token = token_response.json()["refresh_token"]
+
+        # Get the token family UUID from the initial refresh token
+        initial_token_db = OAuthRefreshToken.objects.get(token=initial_refresh_token)
+        token_family = initial_token_db.token_family
+
+        refresh_tokens = [initial_refresh_token]
+
+        # Perform multiple refresh token rotations
+        for _ in range(5):
+            refresh_data = {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_tokens[-1],
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            }
+
+            refresh_response = self.post("/oauth/token/", refresh_data)
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+
+            new_refresh_token = refresh_response.json()["refresh_token"]
+            refresh_tokens.append(new_refresh_token)
+
+            # Verify the new token has the same token family
+            new_token_db = OAuthRefreshToken.objects.get(token=new_refresh_token)
+            self.assertEqual(new_token_db.token_family, token_family)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_concurrent_refresh_token_requests_within_grace_period(self):
+        # Get initial tokens
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        old_refresh_token = token_response.json()["refresh_token"]
+
+        # Use refresh token for the first time
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": old_refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        first_refresh_response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(first_refresh_response.status_code, status.HTTP_200_OK)
+        first_new_tokens = first_refresh_response.json()
+
+        # Simulate concurrent request with the same old refresh token within grace period
+        with freeze_time("2025-01-01 00:00:30"):  # 30 seconds later
+            concurrent_response = self.post("/oauth/token/", refresh_data)
+            self.assertEqual(concurrent_response.status_code, status.HTTP_200_OK)
+
+            # Should return the same tokens as the first refresh
+            self.assertEqual(concurrent_response.json()["refresh_token"], first_new_tokens["refresh_token"])
+            self.assertEqual(concurrent_response.json()["access_token"], first_new_tokens["access_token"])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_refresh_token_reuse_with_different_client_fails(self):
+        # Get initial tokens for first application
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        refresh_token = token_response.json()["refresh_token"]
+
+        # Try to use refresh token with a different client
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self.public_application.client_id,
+            "client_secret": "test_public_client_secret",
+        }
+
+        response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
