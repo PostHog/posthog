@@ -30,7 +30,6 @@ type ConfigOption =
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
     options,
-    product,
 }: {
     stepKey?: OnboardingStepKey
     options: (ProductConfigOption | undefined)[]
@@ -73,7 +72,6 @@ export const OnboardingProductConfiguration = ({
                     setConfigOptions(updatedConfigOptions)
                 },
             })),
-        // TODO: Add back in default transforms??
     ]
 
     return combinedList.length > 0 ? (

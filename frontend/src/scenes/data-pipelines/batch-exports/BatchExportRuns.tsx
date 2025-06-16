@@ -10,7 +10,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
-import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
 

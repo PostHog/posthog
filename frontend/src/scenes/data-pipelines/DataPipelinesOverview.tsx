@@ -13,8 +13,6 @@ import { urls } from 'scenes/urls'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
-import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
-
 function Section({
     title,
     to,
