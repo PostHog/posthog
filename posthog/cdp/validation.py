@@ -155,8 +155,8 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, bool):
                 raise serializers.ValidationError({"input": f"Value must be a boolean."})
         elif item_type == "dictionary":
-            if not isinstance(value, dict) and not isinstance(value, str):
-                raise serializers.ValidationError({"input": f"Value must be a dictionary or a string."})
+            if not isinstance(value, dict):
+                raise serializers.ValidationError({"input": f"Value must be a dictionary."})
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
