@@ -18,6 +18,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING],
+        testOptions: { waitForSelector: '.Settings__sections a' },
     },
     decorators: [
         mswDecorator({
