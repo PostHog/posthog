@@ -1,5 +1,4 @@
-import { PostgresUse } from '~/src/utils/db/postgres'
-
+import { PostgresUse } from '../../utils/db/postgres'
 import { HogFlow } from '../../schema/hogflow'
 import { Hub, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
