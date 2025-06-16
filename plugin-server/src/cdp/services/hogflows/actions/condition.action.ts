@@ -15,7 +15,7 @@ export class HogFlowActionRunnerCondition {
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
     ): Promise<HogFlowActionRunnerResult> {
-        logger.info('🦔', `[HogFlowActionRunnerCondition] Running condition action`, {
+        logger.debug('🦔', `[HogFlowActionRunnerCondition] Running condition action`, {
             action,
             invocation,
         })
@@ -44,16 +44,16 @@ export class HogFlowActionRunnerCondition {
         // TODO: Add support for some sort of wait condition? Like if we are waiting for a period of time then we can go async
 
         if (action.config.wait_duration_seconds) {
-            const actionStartedAt = DateTime.fromMillis(invocation.state.currentAction?.startedAtTimestamp ?? -1)
-            if (!actionStartedAt.isValid) {
-                throw new Error('Action started at not found')
+            const actionStartedAt = DateTime.fromMillis(invocation.state.currentAction?.startedAtTimestamp ?? 0).toUTC()
+            if (!invocation.state.currentAction?.startedAtTimestamp || !actionStartedAt.isValid) {
+                throw new Error("'currentAction.startedAtTimestamp' is not set or is invalid")
             }
 
             const waitUntilTime = actionStartedAt.plus({
                 seconds: action.config.wait_duration_seconds,
             })
 
-            if (DateTime.now().diff(waitUntilTime).as('seconds') > 0) {
+            if (DateTime.utc().diff(waitUntilTime).as('seconds') > 0) {
                 // TODO: Add a log to the return to show in the UI
                 return Promise.resolve({
                     finished: true,
@@ -64,8 +64,8 @@ export class HogFlowActionRunnerCondition {
             // We don't want to check to often - by default we will check every 10 minutes or the wait duration whichever is longer
             let scheduledAt = DateTime.utc().plus({ minutes: DEFAULT_WAIT_DURATION_MINUTES })
 
-            if (waitUntilTime.diff(scheduledAt).as('seconds') > 0) {
-                scheduledAt = waitUntilTime.toUTC()
+            if (waitUntilTime.diff(scheduledAt).as('seconds') < 0) {
+                scheduledAt = waitUntilTime
             }
 
             return Promise.resolve({

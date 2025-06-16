@@ -7,6 +7,7 @@ import { Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../types'
+import { createHogExecutionGlobals } from './fixtures'
 
 export const createHogFlow = (hogFlow: Partial<HogFlow>) => {
     const item: HogFlow = {
@@ -68,6 +69,10 @@ export const createHogFlowInvocationContext = (
     data: Partial<HogFlowInvocationContext> = {}
 ): HogFlowInvocationContext => {
     return {
+        event: {
+            ...createHogExecutionGlobals().event,
+            ...data.event,
+        },
         ...data,
     }
 }
