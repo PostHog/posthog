@@ -501,7 +501,18 @@ async fn write_event_definitions_batch(
     let mut tries: u64 = 1;
 
     loop {
-        // TODO: is last_seen_at critical to the product UX? "ON CONFLICT DO NOTHING" may be much cheaper...
+        // last_seen_ats are manipulated on event defs for cache expiration
+        // at the moment; as in v1 writes, let's keep these fresh per-attempt
+        // to ensure the values in the UI are more accurate, and avoid PG 21000
+        // errors (constraint violations) when retrying writes w/o tx wrapper
+        let mut per_attempt_last_seen_ats: Vec<DateTime<Utc>> = Vec::with_capacity(batch.len());
+        let per_attempt_ts = Utc::now();
+        for _ in 0..batch.len() {
+            per_attempt_last_seen_ats.push(per_attempt_ts);
+        }
+
+        // TODO: see if we can eliminate last_seen_at from being exposed in the UI,
+        // then convert this stmt to ON CONFLICT DO NOTHING
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
@@ -520,7 +531,7 @@ async fn write_event_definitions_batch(
         .bind(&batch.names)
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
-        .bind(&batch.last_seen_ats)
+        .bind(per_attempt_last_seen_ats)
         .execute(pool)
         .await;
 
