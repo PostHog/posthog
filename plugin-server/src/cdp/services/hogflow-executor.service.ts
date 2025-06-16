@@ -131,7 +131,6 @@ export class HogFlowExecutorService {
                         throw new Error('Action result is not finished and no scheduledAt param is provided')
                     }
 
-                    // TODO: Figure out what to do here...
                     result.finished = false
                     result.invocation.queueScheduledAt = actionResult.scheduledAt
                     // TODO: Do we also want to increment some meta context?
@@ -144,7 +143,7 @@ export class HogFlowExecutorService {
                     // Update the state to be going to the next action
                     result.invocation.state.currentAction = {
                         id: actionResult.goToActionId,
-                        startedAt: DateTime.now(),
+                        startedAtTimestamp: DateTime.now().toMillis(),
                     }
                     result.finished = false // Nothing new here but just to be sure
                     // TODO: Add a log here to indicate the outcome

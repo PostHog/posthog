@@ -44,12 +44,14 @@ export class HogFlowActionRunnerCondition {
         // TODO: Add support for some sort of wait condition? Like if we are waiting for a period of time then we can go async
 
         if (action.config.wait_duration_seconds) {
-            const actionStartedAt = invocation.state.currentAction?.startedAt
-            if (!actionStartedAt) {
+            const actionStartedAt = DateTime.fromMillis(invocation.state.currentAction?.startedAtTimestamp ?? -1)
+            if (!actionStartedAt.isValid) {
                 throw new Error('Action started at not found')
             }
 
-            const waitUntilTime = actionStartedAt.plus({ seconds: action.config.wait_duration_seconds })
+            const waitUntilTime = actionStartedAt.plus({
+                seconds: action.config.wait_duration_seconds,
+            })
 
             if (DateTime.now().diff(waitUntilTime).as('seconds') > 0) {
                 // TODO: Add a log to the return to show in the UI
@@ -60,10 +62,10 @@ export class HogFlowActionRunnerCondition {
             }
 
             // We don't want to check to often - by default we will check every 10 minutes or the wait duration whichever is longer
-            let scheduledAt = DateTime.now().plus({ minutes: DEFAULT_WAIT_DURATION_MINUTES })
+            let scheduledAt = DateTime.utc().plus({ minutes: DEFAULT_WAIT_DURATION_MINUTES })
 
             if (waitUntilTime.diff(scheduledAt).as('seconds') > 0) {
-                scheduledAt = waitUntilTime
+                scheduledAt = waitUntilTime.toUTC()
             }
 
             return Promise.resolve({
