@@ -5,9 +5,11 @@ import { Counter } from 'prom-client'
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
 
+export type MailjetEventType = keyof typeof EVENT_TYPE_TO_CATEGORY
+
 export interface MailjetEvent {
     //Common fields
-    event: string
+    event: MailjetEventType
     time: number
     email: string
     mj_campaign_id: number
@@ -51,7 +53,7 @@ export const EVENT_TYPE_TO_CATEGORY = {
     blocked: 'email_blocked',
     spam: 'email_spam',
     unsub: 'email_unsubscribed',
-}
+} as const
 
 export const mailjetWebhookEventsCounter = new Counter({
     name: 'mailjet_webhook_events_total',
@@ -96,7 +98,7 @@ export class MessagingMailjetManagerService {
             // Track Mailjet webhook metrics
             // TODO: Zod validation
             const event = req.body as MailjetEvent
-            const category = EVENT_TYPE_TO_CATEGORY[event.event as keyof typeof EVENT_TYPE_TO_CATEGORY]
+            const category = EVENT_TYPE_TO_CATEGORY[event.event]
 
             if (event) {
                 mailjetWebhookEventsCounter.inc({ event_type: category })
