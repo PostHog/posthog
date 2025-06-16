@@ -2,8 +2,8 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 
-import type { ActionMatcher } from '~/src/worker/ingestion/action-matcher'
-import type { GroupTypeManager } from '~/src/worker/ingestion/group-type-manager'
+import type { ActionMatcher } from '~/worker/ingestion/action-matcher'
+import type { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 
 import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'

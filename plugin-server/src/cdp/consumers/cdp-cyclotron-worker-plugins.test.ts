@@ -1,7 +1,7 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { fetch, FetchResponse } from '~/src/utils/request'
+import { fetch, FetchResponse } from '~/utils/request'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { UUIDT } from '~/src/utils/utils'
+import { UUIDT } from '~/utils/utils'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 

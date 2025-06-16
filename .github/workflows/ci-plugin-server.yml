@@ -105,12 +105,12 @@ jobs:
             - name: Sanity check output
               run: |
                   cd plugin-server
-                  # We expect it to fail but check that the error isn't "Cannot find module"
-                  if node dist/index.js 2>&1 | grep -v "Cannot find module"; then
-                      echo "✅ Build is valid - failed as expected without module errors"
-                  else
-                      echo "❌ Build is invalid - failed with 'Cannot find module' error"
+                  # We expect it to fail but check that the error isn't "MODULE_NOT_FOUND"
+                  if node dist/index.js 2>&1 | grep "MODULE_NOT_FOUND"; then
+                    echo "❌ Build is invalid - failed with 'Cannot find module' error"
                       exit 1
+                  else
+                      echo "✅ Build is valid - failed as expected without module errors"
                   fi
     tests:
         name: Plugin Server Tests (${{matrix.shard}}/3)
