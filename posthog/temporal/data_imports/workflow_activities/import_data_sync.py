@@ -349,7 +349,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 incremental_field=schema.incremental_field if schema.is_incremental else None,
                 incremental_field_type=schema.incremental_field_type if schema.is_incremental else None,
                 db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                ssh_tunnel=mongo_config.ssh_tunnel,
             )
 
             return _run(
