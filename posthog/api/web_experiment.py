@@ -96,8 +96,12 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
+        # Get organization's default stats method setting
+        team = Team.objects.get(id=self.context["team_id"])
+        default_method = team.organization.default_experiment_stats_method
         stats_config = {
             "version": 2,
+            "method": default_method,
         }
 
         experiment = WebExperiment.objects.create(

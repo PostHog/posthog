@@ -9,9 +9,8 @@ use crate::{
     api::v1::query::Manager,
     config::Config,
     metrics_consts::{
-        CACHE_WARMING_STATE, GROUP_TYPE_CACHE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME,
-        SINGLE_UPDATE_ISSUE_TIME, UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
-        V2_ISOLATED_DB_SELECTED,
+        GROUP_TYPE_CACHE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME, SINGLE_UPDATE_ISSUE_TIME,
+        UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME, V2_ISOLATED_DB_SELECTED,
     },
     types::{GroupType, Update},
 };
@@ -40,8 +39,6 @@ pub struct AppContext {
     pub query_manager: Manager,
     pub liveness: HealthRegistry,
     pub worker_liveness: HealthHandle,
-    pub cache_warming_delay: Duration,
-    pub cache_warming_cutoff: f64,
     pub skip_writes: bool,
     pub skip_reads: bool,
     pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
@@ -81,8 +78,6 @@ impl AppContext {
             query_manager: qmgr,
             liveness,
             worker_liveness,
-            cache_warming_delay: Duration::milliseconds(config.cache_warming_delay_ms as i64),
-            cache_warming_cutoff: 0.9,
             skip_writes: config.skip_writes,
             skip_reads: config.skip_reads,
             group_type_cache,
@@ -91,19 +86,7 @@ impl AppContext {
         })
     }
 
-    pub async fn issue(
-        &self,
-        updates: &mut [Update],
-        cache_consumed: f64,
-    ) -> Result<(), sqlx::Error> {
-        if cache_consumed < self.cache_warming_cutoff {
-            metrics::gauge!(CACHE_WARMING_STATE, &[("state", "warming")]).set(cache_consumed);
-            let to_sleep = self.cache_warming_delay * (1.0 - cache_consumed);
-            tokio::time::sleep(to_sleep.try_into().unwrap()).await;
-        } else {
-            metrics::gauge!(CACHE_WARMING_STATE, &[("state", "hot")]).set(1.0);
-        }
-
+    pub async fn issue(&self, updates: &mut [Update]) -> Result<(), sqlx::Error> {
         let group_type_resolve_time = common_metrics::timing_guard(GROUP_TYPE_RESOLVE_TIME, &[]);
         self.resolve_group_types_indexes(updates).await?;
         group_type_resolve_time.fin();

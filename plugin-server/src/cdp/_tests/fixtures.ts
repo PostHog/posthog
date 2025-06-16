@@ -502,3 +502,30 @@ export const pipedriveResponse = {
         },
     },
 }
+
+export const gameballInputs = {
+    apiKey: 'abc',
+    name: '$web_vitals',
+    secretKey: 'def',
+    metadata: {
+        $geoip_city_name: 'Aylesbury',
+        $geoip_country_name: 'United Kingdom',
+        $geoip_country_code: 'GB',
+        $geoip_continent_name: 'Europe',
+        $geoip_continent_code: 'EU',
+        $geoip_postal_code: 'HP21',
+        $geoip_latitude: 51.8053,
+        $geoip_longitude: -0.8086,
+        $geoip_accuracy_radius: 500,
+        $geoip_time_zone: 'Europe/London',
+        $geoip_subdivision_1_code: 'ENG',
+        $geoip_subdivision_1_name: 'England',
+        $geoip_subdivision_2_code: 'BKM',
+        $geoip_subdivision_2_name: 'Buckinghamshire',
+    },
+    debug_mode: true,
+    playerUniqueId: '8a47919a-858e-5de5-8772-86e2fdfa5806',
+    mobile: null,
+    email: null,
+    internal_partner_action: 'trackEvent',
+}

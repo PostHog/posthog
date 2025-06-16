@@ -9,10 +9,10 @@ export const REACT_FLOW_NODE_TYPES = {
     dropzone: DropzoneNode,
     dropzone_highlighted: DropzoneNode,
     trigger: TriggerNode,
-    email: EmailNode,
-    condition: ConditionNode,
+    message: EmailNode,
+    conditional_branch: ConditionNode,
     delay: DelayNode,
-    delay_until: DelayUntilNode,
+    wait_for_condition: DelayUntilNode,
     exit: ExitNode,
 }
 

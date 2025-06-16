@@ -12,7 +12,14 @@ import { ConfidenceIntervalAxis } from './ConfidenceIntervalAxis'
 import { MetricRow } from './MetricRow'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
-    const { experiment, getInsightType, metricResults, secondaryMetricResultsNew } = useValues(experimentLogic)
+    const {
+        experiment,
+        getInsightType,
+        metricResults,
+        secondaryMetricResultsNew,
+        secondaryMetricsResultErrors,
+        primaryMetricsResultErrors,
+    } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
@@ -20,6 +27,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     }
 
     const results = isSecondary ? secondaryMetricResultsNew : metricResults
+    const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const sharedMetrics = experiment.saved_metrics
@@ -97,6 +105,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                         metricType={getInsightType(metric)}
                                         isSecondary={!!isSecondary}
                                         chartRadius={chartRadius}
+                                        error={errors[metricIndex]}
                                     />
                                 )
                             })}

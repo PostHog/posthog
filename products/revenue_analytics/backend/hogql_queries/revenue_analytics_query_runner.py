@@ -47,6 +47,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         for property in self.query.properties:
             if property.key == "product":
                 joins_set.add("products")
+            elif property.key == "country":
+                joins_set.add("customers")
             elif property.key == "customer":
                 joins_set.add("customers")
         return joins_set

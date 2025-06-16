@@ -2,6 +2,7 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -80,8 +81,10 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     path(['products', 'revenueAnalytics', 'frontend', 'revenueAnalyticsLogic']),
     connect(() => ({
         values: [
+            teamLogic,
+            ['baseCurrency'],
             revenueAnalyticsSettingsLogic,
-            ['baseCurrency', 'events', 'dataWarehouseSources', 'goals as revenueGoals'],
+            ['events', 'dataWarehouseSources', 'goals as revenueGoals'],
         ],
         actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
     })),

@@ -169,7 +169,7 @@ export const getUpgradeProductLink = ({
     product,
     redirectPath,
 }: {
-    product: BillingProductV2Type
+    product?: BillingProductV2Type
     redirectPath?: string
 }): string => {
     let url = '/api/billing/activate?'
@@ -177,7 +177,10 @@ export const getUpgradeProductLink = ({
         url += `redirect_path=${encodeURIComponent(redirectPath)}&`
     }
 
-    url += `products=all_products:&intent_product=${product.type}`
+    url += `products=all_products:`
+    if (product && product.type) {
+        url += `&intent_product=${product.type}`
+    }
 
     return url
 }
