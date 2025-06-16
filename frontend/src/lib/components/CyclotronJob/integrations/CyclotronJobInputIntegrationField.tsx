@@ -11,15 +11,22 @@ import {
     LinkedInAdsConversionRulePicker,
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
-import { HogFlowAction } from 'products/messaging/frontend/Campaigns/Workflows/types'
 
-import { CyclotronJobInputSchemaType, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
+import {
+    CyclotronJobInputSchemaType,
+    CyclotronJobInputType,
+    HogFunctionConfigurationType,
+    HogFunctionMappingType,
+} from '~/types'
 
 export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType
     value?: any
     onChange?: (value: any) => void
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
 }
 
 export function CyclotronJobInputIntegrationField({

@@ -23,7 +23,6 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { HogFlowAction } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -45,17 +44,26 @@ export type CyclotronJobInputProps = {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
 }
 
 export interface CyclotronJobInputsProps {
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
     setConfigurationValue: (key: string, value: any) => void
     showSource: boolean
 }
 
 export type CyclotronJobInputWithSchemaProps = {
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
     setConfigurationValue: (key: string, value: any) => void
     schema: CyclotronJobInputSchemaType
     showSource: boolean
@@ -341,7 +349,10 @@ type CyclotronJobInputSchemaControlsProps = {
     onChange: (value: CyclotronJobInputSchemaType | null) => void
     onDone: () => void
     supportsSecrets: boolean
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
 }
 
 function CyclotronJobInputSchemaControls({

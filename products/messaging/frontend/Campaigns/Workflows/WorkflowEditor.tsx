@@ -22,8 +22,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { getFormattedNodes } from './autolayout'
 import { DEFAULT_EDGE_OPTIONS } from './constants'
+import { NodeDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
-import { NodeDetailsPanel, StepDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { addDropzoneNodes, createEdgesForNewNode, createNewNode, DEFAULT_EDGES, DEFAULT_NODES } from './Nodes/utils'
 import { Toolbar, ToolbarNode } from './Toolbar'
 import type { HogFlowAction, HogFlowEdge } from './types'
@@ -234,7 +234,7 @@ function WorkflowEditorContent(): JSX.Element {
 
                 {selectedNode && (
                     <NodeDetailsPanel
-                        workflowId="new"
+                        index={nodes.findIndex((node) => node.id === selectedNode.id)}
                         node={selectedNode}
                         onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
                         onDelete={(node) => {

@@ -3,9 +3,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
 import { Form } from 'kea-forms'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
+import { capitalizeFirstLetter } from 'lib/utils'
 
-import { campaignLogic } from '../../campaignLogic'
 import type { HogFlowAction } from '../types'
+import { nodeLogic } from './nodeLogic'
+import { getNodeInputsSchema } from './utils'
 
 export function NodeDetailsPanel({
     node,
@@ -13,7 +15,6 @@ export function NodeDetailsPanel({
     onDelete,
     onClose,
 }: {
-    workflowId: string
     node: Node<HogFlowAction>
     onChange: (node: Node<HogFlowAction>) => void
     onDelete: (node: Node<HogFlowAction>) => void
@@ -31,16 +32,17 @@ export function NodeDetailsPanel({
         return new Set(outgoingNodes.map((node) => node.id)).size === 1
     }
 
-    const config = node.data || {}
-
     const handleInputChange = (key: string, value: any): void => {
         onChange({
             ...node,
             data: {
                 ...node.data,
-                inputs: {
-                    ...config.inputs,
-                    [key]: value,
+                config: {
+                    ...node.data.config,
+                    inputs: {
+                        ...node.data.config.inputs,
+                        [key]: value,
+                    },
                 },
             },
         })
@@ -49,13 +51,13 @@ export function NodeDetailsPanel({
     return (
         <Panel position="top-right">
             <Form
-                logic={campaignLogic}
-                props={node}
-                formKey="campaign"
+                logic={nodeLogic}
+                props={{ node }}
+                formKey="inputs"
                 className="bg-surface-primary rounded-md shadow-md p-4 gap-2 flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-3/4 overflow-y-scroll"
             >
                 <div className="flex justify-between items-center">
-                    <h3 className="font-semibold">Edit {node.data.name} step</h3>
+                    <h3 className="font-semibold">Edit {capitalizeFirstLetter(node.data.type)} step</h3>
                     <div className="flex gap-1 items-center">
                         {node.deletable && (
                             <LemonButton
@@ -71,7 +73,10 @@ export function NodeDetailsPanel({
                 </div>
                 <div className="flex flex-col gap-2">
                     <CyclotronJobInputs
-                        configuration={config}
+                        configuration={{
+                            inputs: node.data.config.inputs,
+                            inputs_schema: getNodeInputsSchema(node.data),
+                        }}
                         setConfigurationValue={handleInputChange}
                         showSource={false}
                     />
