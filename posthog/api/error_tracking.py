@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from django.core.files.uploadedfile import UploadedFile
 from posthog.models.team.team import Team
@@ -44,7 +44,7 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.schema import PropertyGroupFilterValue
 
-ONE_GIGABYTE = 1024 * 1024 * 1024
+ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
@@ -474,6 +474,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         multipart = request.query_params.get("multipart", False)
+        release_id = request.query_params.get("release_id", None)
+
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -487,33 +489,48 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             data = request.data["file"].read()
 
         (storage_ptr, content_hash) = upload_content(bytearray(data))
-
-        release_id = request.query_params.get("release_id", None)
-        if release_id:
-            objects = ErrorTrackingRelease.objects.all().filter(team=self.team, id=release_id)
-            if len(objects) < 1:
-                raise ValueError(f"Unknown release: {release_id}")
-            release = objects[0]
-        else:
-            release = None
-
-        with transaction.atomic():
-            # Use update_or_create for proper upsert behavior
-            symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
-                team=self.team,
-                ref=chunk_id,
-                release=release,
-                defaults={
-                    "storage_ptr": storage_ptr,
-                    "content_hash": content_hash,
-                    "failure_reason": None,
-                },
-            )
-
-            # Delete any existing frames associated with this symbol set
-            ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
+        create_symbol_set(chunk_id, self.team, release_id, storage_ptr, content_hash)
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+    @action(methods=["GET"], detail=False)
+    def start_upload(self, request, **kwargs):
+        chunk_id = request.query_params.get("chunk_id", None)
+        release_id = request.query_params.get("release_id", None)
+
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
+
+        if not chunk_id:
+            return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_key = str(uuid7())
+        presigned_url = object_storage.get_presigned_url(
+            file_key=file_key, expiration=60, bucket=settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER
+        )
+
+        storage_ptr = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{file_key}"
+        symbol_set = create_symbol_set(chunk_id, self.team, release_id, storage_ptr)
+
+        return Response(
+            {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
+        )
+
+    @action(methods=["POST"], detail=True)
+    def finish_upload(self, request, **kwargs):
+        content_hash = request.query_params.get("content_hash")
+
+        symbol_set = self.get_object()
+        symbol_set.content_hash = content_hash
+        symbol_set.save()
+
+        # TODO: ping s3 with head check for object size
+        # Delete symbol set if invalid
+
+        return Response({"success": True}, status=status.HTTP_200_OK)
 
 
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
@@ -705,6 +722,34 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+def create_symbol_set(chunk_id: str, team: Team, release_id: str, storage_ptr: str, content_hash: Optional[str] = None):
+    if release_id:
+        objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
+        if len(objects) < 1:
+            raise ValueError(f"Unknown release: {release_id}")
+        release = objects[0]
+    else:
+        release = None
+
+    with transaction.atomic():
+        # Use update_or_create for proper upsert behavior
+        symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
+            team=team,
+            ref=chunk_id,
+            release=release,
+            defaults={
+                "storage_ptr": storage_ptr,
+                "content_hash": content_hash,
+                "failure_reason": None,
+            },
+        )
+
+        # Delete any existing frames associated with this symbol set
+        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()
+
+        return symbol_set
+
+
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
     js_data = construct_js_data_object(minified.read(), source_map.read())
     return upload_content(js_data)
@@ -713,21 +758,20 @@ def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple
 def upload_content(content: bytearray) -> tuple[str, str]:
     content_hash = hashlib.sha512(content).hexdigest()
 
-    if settings.OBJECT_STORAGE_ENABLED:
-        # TODO - maybe a gigabyte is too much?
-        if len(content) > ONE_GIGABYTE:
-            raise ValidationError(
-                code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
-            )
-
-        upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
-        object_storage.write(upload_path, bytes(content))
-        return (upload_path, content_hash)
-    else:
+    if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
         )
+
+    if len(content) > ONE_HUNDRED_MEGABYTES:
+        raise ValidationError(
+            code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
+        )
+
+    upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
+    object_storage.write(upload_path, bytes(content))
+    return (upload_path, content_hash)
 
 
 def construct_js_data_object(minified: bytes, source_map: bytes) -> bytearray:

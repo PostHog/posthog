@@ -275,10 +275,10 @@ def copy_objects(source_prefix: str, target_prefix: str) -> int:
     )
 
 
-def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
-    return object_storage_client().get_presigned_url(
-        bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, expiration=expiration
-    )
+def get_presigned_url(
+    file_key: str, expiration: int = 3600, bucket: str = settings.OBJECT_STORAGE_BUCKET
+) -> Optional[str]:
+    return object_storage_client().get_presigned_url(bucket=bucket, file_key=file_key, expiration=expiration)
 
 
 def health_check() -> bool:

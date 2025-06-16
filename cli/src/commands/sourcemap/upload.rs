@@ -2,6 +2,8 @@ use core::str;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Ok, Result};
+use reqwest::blocking::Client;
+use serde::Deserialize;
 use sha2::Digest;
 use tracing::info;
 
@@ -9,6 +11,12 @@ use crate::utils::auth::load_token;
 use crate::utils::posthog::capture_command_invoked;
 use crate::utils::release::{create_release, CreateReleaseResponse};
 use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
+
+#[derive(Debug, Deserialize)]
+struct StartUploadResponseData {
+    presigned_url: String,
+    symbol_set_id: String,
+}
 
 pub fn upload(
     host: Option<String>,
@@ -21,7 +29,7 @@ pub fn upload(
 
     let capture_handle = capture_command_invoked("sourcemap_upload", Some(&token.env_id));
 
-    let url = format!(
+    let base_url = format!(
         "{}/api/environments/{}/error_tracking/symbol_sets",
         host, token.env_id
     );
@@ -40,13 +48,15 @@ pub fn upload(
         &host,
         &token,
         Some(directory.clone()),
-        Some(content_hash(&uploads)),
+        Some(content_hash(
+            &uploads.iter().map(|upload| &upload.data).collect(),
+        )),
         project,
         version,
     )
     .context("While creating release")?;
 
-    upload_chunks(&url, &token.token, uploads, release.as_ref())?;
+    upload_chunks(&base_url, &token.token, uploads, release.as_ref())?;
 
     let _ = capture_handle.join();
 
@@ -62,7 +72,7 @@ fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>> {
 }
 
 fn upload_chunks(
-    url: &str,
+    base_url: &str,
     token: &str,
     uploads: Vec<ChunkUpload>,
     release: Option<&CreateReleaseResponse>,
@@ -72,36 +82,103 @@ fn upload_chunks(
     for upload in uploads {
         info!("Uploading chunk {}", upload.chunk_id);
 
-        let mut params: Vec<(&'static str, &str)> =
-            vec![("chunk_id", &upload.chunk_id), ("multipart", "true")];
-        if let Some(id) = &release_id {
-            params.push(("release_id", id));
-        }
+        // TODO: skip upload if file size is too large (> 100MB)
 
-        let part = reqwest::blocking::multipart::Part::bytes(upload.data).file_name("file");
-        let form = reqwest::blocking::multipart::Form::new().part("file", part);
+        let upload_response =
+            request_presigned_url(&client, base_url, token, &upload.chunk_id, &release_id)?;
 
-        let res = client
-            .post(url)
-            .multipart(form)
-            .header("Authorization", format!("Bearer {}", token))
-            .query(&params)
-            .send()
-            .context(format!("While uploading chunk to {}", url))?;
+        // TODO: Not sure if this is the cleanest or if I should just inline the hasher
+        let content_hash = content_hash(&vec![&upload.data]);
 
-        if !res.status().is_success() {
-            return Err(anyhow!("Failed to upload chunk: {:?}", res)
-                .context(format!("Chunk id: {}", upload.chunk_id)));
-        }
+        upload_to_s3(&client, upload_response.presigned_url, upload.data)?;
+
+        finish_upload(
+            &client,
+            base_url,
+            token,
+            upload_response.symbol_set_id,
+            content_hash,
+        )?;
     }
 
     Ok(())
 }
 
-fn content_hash(uploads: &[ChunkUpload]) -> String {
+fn request_presigned_url(
+    client: &Client,
+    base_url: &str,
+    auth_token: &str,
+    chunk_id: &str,
+    release_id: &Option<String>,
+) -> Result<StartUploadResponseData> {
+    let start_upload_url: String = format!("{}{}", base_url, "/start_upload");
+
+    let mut params: Vec<(&'static str, &str)> = vec![("chunk_id", chunk_id)];
+    if let Some(id) = release_id {
+        params.push(("release_id", id));
+    }
+
+    let res = client
+        .get(&start_upload_url)
+        .header("Authorization", format!("Bearer {}", auth_token))
+        .query(&params)
+        .send()
+        .context(format!("While starting upload to {}", start_upload_url))?;
+
+    if !res.status().is_success() {
+        return Err(anyhow!("Failed to start upload: {:?}", res));
+    }
+
+    let data: StartUploadResponseData = res.json()?;
+    Ok(data)
+}
+
+fn upload_to_s3(client: &Client, presigned_url: String, data: Vec<u8>) -> Result<()> {
+    let res = client
+        .put(&presigned_url)
+        .body(data)
+        .send()
+        .context(format!("While uploading chunk to {}", presigned_url))?;
+
+    if !res.status().is_success() {
+        return Err(anyhow!("Failed to upload chunk: {:?}", res));
+    }
+
+    Ok(())
+}
+
+fn finish_upload(
+    client: &Client,
+    base_url: &str,
+    auth_token: &str,
+    symbol_set_id: String,
+    content_hash: String,
+) -> Result<()> {
+    let finish_upload_url: String = format!("{}{}", base_url, "/start_upload");
+
+    let params: Vec<(&'static str, &str)> = vec![
+        ("symbol_set_id", &symbol_set_id),
+        ("content_hash", &content_hash),
+    ];
+
+    let res = client
+        .get(finish_upload_url)
+        .header("Authorization", format!("Bearer {}", auth_token))
+        .query(&params)
+        .send()
+        .context(format!("While finishing upload to {}", base_url))?;
+
+    if !res.status().is_success() {
+        return Err(anyhow!("Failed to finish upload: {:?}", res));
+    }
+
+    Ok(())
+}
+
+fn content_hash(upload_data: &Vec<&Vec<u8>>) -> String {
     let mut hasher = sha2::Sha512::new();
-    for upload in uploads {
-        hasher.update(&upload.data);
+    for data in upload_data {
+        hasher.update(data);
     }
     format!("{:x}", hasher.finalize())
 }
