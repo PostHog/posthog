@@ -50,8 +50,8 @@ multiply(2, metric_events.step_1),
 ### 2. Events array construction
 
 This is the main input to the `aggregate_funnel_array` function. This part of the query simply transforms the events for each
-user into the format requried by the function. It requires an array of tuples, where each element represents an event for that
-user, it's timestamp and whether it satisfies any of the steps in the funnel or not or not.
+user into the format required by the function. It requires an array of tuples, where each element represents an event for that
+user, it's timestamp and whether it satisfies any of the steps in the funnel or not.
 
 ```sql
 arraySort(t -> t.1, groupArray(tuple(
@@ -97,9 +97,9 @@ The UDF returns tuples with this structure:
 
 ### 5. Result evaluation
 
-Finally, we evaluate wether the user completed the full funnel (return 1) or not (return 0).
+Finally, we evaluate whether the user completed the full funnel (return 1) or not (return 0).
 `aggregate_funnel_array` returns an array of tuples for each user (One for each breakdown value?
 We don't care about breakdown values so there will only be one element in the array). We then
 filter the array first to only keep the element if the funnel was completed,
-i.e `step_reached >= num_steps - 1` (`step_reached` is 0-indexd).
+i.e `step_reached >= num_steps - 1` (`step_reached` is 0-indexed).
 Finally, if the list is not empty (`length > 0`), we return 1, otherwise 0.
