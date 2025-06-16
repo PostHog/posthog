@@ -1157,6 +1157,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_LIFECYCLE = "insightLifecycle"
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"
+    INSIGHT_CALENDAR_HEATMAP = "insightCalendarHeatmap"
 
 
 class FileSystemImport(BaseModel):
@@ -1830,10 +1831,9 @@ class RevenueAnalyticsGoal(BaseModel):
 
 
 class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
-    ALL = "all"
-    PRODUCT = "product"
     COHORT = "cohort"
     COUNTRY = "country"
+    PRODUCT = "product"
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
@@ -4008,7 +4008,7 @@ class ActorsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class AssistantBasePropertyFilter(
@@ -4533,7 +4533,7 @@ class CachedActorsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class CachedCalendarHeatmapQueryResponse(BaseModel):
@@ -5580,7 +5580,7 @@ class Response1(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class Response2(BaseModel):
@@ -6401,7 +6401,7 @@ class QueryResponseAlternative2(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative3(BaseModel):
@@ -6786,7 +6786,7 @@ class QueryResponseAlternative30(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list[str]
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative31(BaseModel):
@@ -7485,7 +7485,7 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    groupBy: list[RevenueAnalyticsInsightsQueryGroupBy]
     interval: IntervalType
     kind: Literal["RevenueAnalyticsInsightsQuery"] = "RevenueAnalyticsInsightsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(

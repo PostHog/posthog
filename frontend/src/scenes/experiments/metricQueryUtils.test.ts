@@ -238,53 +238,6 @@ describe('getQuery', () => {
         )
     })
 
-    it('returns the correct query for a mean metric with outlier handling', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.MEAN,
-            source: {
-                kind: NodeKind.EventsNode,
-                event: '$pageview',
-                name: '$pageview',
-                math: ExperimentMetricMathType.Sum,
-                math_property: 'property_value',
-            },
-            lower_bound_percentile: 10,
-            upper_bound_percentile: 90,
-        }
-
-        const query = getQuery({
-            filterTestAccounts: true,
-        })(metric)
-
-        expect(query).toEqual(
-            setLatestVersionsOnQuery({
-                kind: NodeKind.TrendsQuery,
-                interval: 'day',
-                dateRange: {
-                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    explicitDate: true,
-                },
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsLineGraph,
-                },
-                filterTestAccounts: true,
-                lower_bound_percentile: 10,
-                upper_bound_percentile: 90,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: '$pageview',
-                        name: '$pageview',
-                        math: PropertyMathType.Sum,
-                        math_property: 'property_value',
-                    },
-                ],
-            })
-        )
-    })
-
     it('returns undefined for unsupported metric types', () => {
         const metric = {
             kind: NodeKind.ExperimentMetric,

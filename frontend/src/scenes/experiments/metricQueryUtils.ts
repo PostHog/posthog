@@ -12,9 +12,7 @@ import type {
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
-    ExperimentMeanMetric,
     ExperimentMetric,
-    ExperimentMetricOutlierHandling,
     FunnelsFilter,
     FunnelsQuery,
     InsightVizNode,
@@ -84,16 +82,6 @@ const getMathProperties = (
         .with({ math: ExperimentMetricMathType.UniqueSessions }, ({ math }) => ({ math }))
         .otherwise(() => ({ math: ExperimentMetricMathType.TotalCount, math_property: undefined }))
 
-/**
- * returns the outlier handling for a mean metric
- */
-const getOutlierHandling = (metric: ExperimentMeanMetric): ExperimentMetricOutlierHandling => {
-    return {
-        ...(metric.lower_bound_percentile && { lower_bound_percentile: metric.lower_bound_percentile }),
-        ...(metric.upper_bound_percentile && { upper_bound_percentile: metric.upper_bound_percentile }),
-    }
-}
-
 type MetricToQueryOptions = {
     breakdownFilter: BreakdownFilter
     filterTestAccounts: boolean
@@ -145,7 +133,6 @@ export const getQuery =
                     dateRange,
                     interval: trendsInterval,
                     trendsFilter,
-                    ...getOutlierHandling(meanMetric),
                     series: [
                         {
                             kind: source.kind,
