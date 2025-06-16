@@ -1,6 +1,6 @@
 import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/cdp/types'
 
 import { HogFunctionTemplate } from '../templates/types'
 

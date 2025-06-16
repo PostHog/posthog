@@ -86,10 +86,6 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: Scene.HogFunction,
                             name: 'Loading...',
                         },
-                        {
-                            key: Scene.HogFunction,
-                            name: '',
-                        },
                     ]
                 }
 
@@ -207,7 +203,7 @@ export const scene: SceneExport = {
 }
 
 export function HogFunctionScene(): JSX.Element {
-    const { currentTab, loading, loaded, logicProps } = useValues(hogFunctionSceneLogic)
+    const { currentTab, loading, loaded, logicProps, type } = useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
 
     const { id, templateId } = logicProps
@@ -233,27 +229,34 @@ export function HogFunctionScene(): JSX.Element {
         return <NotFound object="Hog function" />
     }
 
-    const tabs: LemonTab<HogFunctionSceneTab>[] = [
+    const tabs: (LemonTab<HogFunctionSceneTab> | null)[] = [
         {
             label: 'Configuration',
             key: 'configuration',
             content: <HogFunctionConfiguration id={id} />,
         },
-        {
-            label: 'Metrics',
-            key: 'metrics',
-            content: <HogFunctionMetrics id={id} />,
-        },
-        {
-            label: 'Logs',
-            key: 'logs',
-            content: <HogFunctionLogs hogFunctionId={id} />,
-        },
-        {
-            label: 'Testing',
-            key: 'testing',
-            content: <HogFunctionTesting id={id} />,
-        },
+
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Metrics',
+                  key: 'metrics',
+                  content: <HogFunctionMetrics id={id} />,
+              },
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Logs',
+                  key: 'logs',
+                  content: <HogFunctionLogs hogFunctionId={id} />,
+              },
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Testing',
+                  key: 'testing',
+                  content: <HogFunctionTesting id={id} />,
+              },
         {
             label: 'History',
             key: 'history',
