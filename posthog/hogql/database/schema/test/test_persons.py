@@ -10,6 +10,12 @@ from posthog.schema import (
     ActorsQuery,
     EventsNode,
     DateRange,
+    CustomChannelRule,
+    CustomChannelCondition,
+    FilterLogicalOperator,
+    CustomChannelField,
+    CustomChannelOperator,
+    HogQLQueryModifiers,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -152,6 +158,36 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
     person_result = "Organic Search"
     poe_properties = {"$initial_referring_domain": "https://facebook.com", "$initial_utm_medium": "cpc"}
     poe_result = "Paid Social"
+    custom_channel_type_rules = [
+        CustomChannelRule(
+            channel_type="Custom Search",
+            id="0",
+            combiner=FilterLogicalOperator.OR_,
+            items=[
+                CustomChannelCondition(
+                    id="0",
+                    key=CustomChannelField.REFERRING_DOMAIN,
+                    op=CustomChannelOperator.EXACT,
+                    value="https://google.com",
+                )
+            ],
+        ),
+        CustomChannelRule(
+            channel_type="Custom Social",
+            id="0",
+            combiner=FilterLogicalOperator.OR_,
+            items=[
+                CustomChannelCondition(
+                    id="0",
+                    key=CustomChannelField.REFERRING_DOMAIN,
+                    op=CustomChannelOperator.EXACT,
+                    value="https://facebook.com",
+                )
+            ],
+        ),
+    ]
+    custom_person_result = "Custom Search"
+    custom_poe_result = "Custom Social"
 
     def setUp(self):
         super().setUp()
@@ -221,11 +257,32 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
                 "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
                 "trendsFilter": {},
                 "breakdownFilter": {"breakdowns": [{"property": "$virt_initial_channel_type", "type": "person"}]},
-                "modifiers": {
-                    "personsOnEventsMode": mode,
-                },
             },
             dateRange=DateRange(date_from="all", date_to=None),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=query)
+        results = tqr.calculate().results
+        assert results[0]["breakdown_value"] == [expected]
+
+    @parameterized.expand([e.value for e in PersonsOnEventsMode])
+    def test_virtual_property_in_trend_with_custom_rules(self, mode):
+        expected = (
+            self.custom_person_result
+            if mode in [PersonsOnEventsMode.DISABLED, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED]
+            else self.custom_poe_result
+        )
+        query = TrendsQuery(
+            **{
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
+                "trendsFilter": {},
+                "breakdownFilter": {"breakdowns": [{"property": "$virt_initial_channel_type", "type": "person"}]},
+            },
+            dateRange=DateRange(date_from="all", date_to=None),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=mode, customChannelTypeRules=self.custom_channel_type_rules
+            ),
         )
         tqr = TrendsQueryRunner(team=self.team, query=query)
         # test that it doesn't throw
