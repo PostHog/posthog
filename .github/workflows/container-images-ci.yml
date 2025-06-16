@@ -35,10 +35,12 @@ jobs:
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
-        # Only on PostHog/posthog, as there's no docker login on forks
-        if: ${{ github.repository == 'PostHog/posthog' }}
 
         steps:
+            # Early-out for fork PRs, as they don't have permissions for a docker login
+            - if: ${{ github.repository == 'PostHog/posthog' }}
+                run: echo "Skipping build - fork PR." && exit 0
+
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
             # cancel previous runs of snapshot update-inducing workflows
 
