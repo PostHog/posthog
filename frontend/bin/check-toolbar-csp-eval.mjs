@@ -83,7 +83,7 @@ function main() {
     })
 
     if (evals.length > 0) {
-        evals.forEach(({ type, start: { line, column } }) => console.info(`${type}: line ${line}:${column}`))
+        evals.forEach(({ type, start: { line, column } }) => console.error(`${type}: line ${line}:${column}`))
 
         process.exit(1)
     }

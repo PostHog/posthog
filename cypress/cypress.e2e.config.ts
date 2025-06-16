@@ -14,7 +14,6 @@ const checkFileDownloaded = async (filename: string, timeout: number, delayMs = 
     const fullFileName = `${downloadDirectory}/${filename}`
 
     while (Date.now() - start < timeout) {
-        // eslint-disable-next-line no-await-in-loops
         await new Promise((res) => setTimeout(res, delayMs))
 
         if (fs.existsSync(fullFileName)) {
