@@ -252,7 +252,7 @@ For queries asking for recordings of users experiencing bugs or errors, target r
 - Default Filter Group:
 The blank, default `filter_group` value you can use is:
 
-json```
+json
 {
     "type": "AND",
     "values": [
@@ -261,6 +261,23 @@ json```
             "values": []
         }
     ]
+}
+
+- Show all recordings / clean filters:
+Return a default filter with default date range and no duration.
+
+json
+{
+    "result": "filter",
+    "data":
+    {
+            "order": "start_time",
+            "date_to": "null",
+            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+            "date_from": "-3d",
+            "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "filter_test_accounts": "true",
+        }
 }
 
 5. Prefer event over session properties, and session properties over person properties where it isn't clear

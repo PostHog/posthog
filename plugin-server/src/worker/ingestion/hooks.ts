@@ -1,5 +1,4 @@
 import { Histogram } from 'prom-client'
-import { RustyHook } from 'worker/rusty-hook'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
@@ -8,6 +7,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { legacyFetch } from '../../utils/request'
 import { TeamManager } from '../../utils/team-manager'
+import { RustyHook } from '../../worker/rusty-hook'
 import { AppMetric, AppMetrics } from './app-metrics'
 import { WebhookFormatter } from './webhook-formatter'
 
