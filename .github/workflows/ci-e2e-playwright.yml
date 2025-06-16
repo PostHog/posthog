@@ -16,7 +16,7 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name  == github.repository
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
