@@ -163,22 +163,24 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
-        const showSelectMenuItems =
-            item.record?.protocol === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
+        const showSelectMenuItems = root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
+
+        // Show product menu items if the item is a product or shortcut and the item isn't user made (ref is for user-made items)
+        const showProductMenuItems = (root === 'products://' || root === 'shortcuts://') && item.record?.ref === null
 
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
-            item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
+            showProductMenuItems && item.name === 'Product analytics' ? (
                 <>
                     <ProductAnalyticsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
-            ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
+            ) : showProductMenuItems && item.name === 'Session replay' ? (
                 <>
                     <SessionReplayMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
-            ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
+            ) : showProductMenuItems && item.name === 'Dashboards' ? (
                 <>
                     <DashboardsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
@@ -494,7 +496,7 @@ export function ProjectTree({
                 )
             }}
             itemSideActionButton={(item) => {
-                if (item.record?.protocol === 'products://') {
+                if ((root === 'products://' || root === 'shortcuts://') && item.record?.ref === null) {
                     if (item.name === 'Product analytics') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
