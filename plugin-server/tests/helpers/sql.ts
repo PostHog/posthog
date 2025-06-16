@@ -5,7 +5,6 @@ import {
     CookielessServerHashMode,
     Hub,
     InternalPerson,
-    OrganizationAvailableFeature,
     Plugin,
     PluginAttachmentDB,
     PluginConfig,
