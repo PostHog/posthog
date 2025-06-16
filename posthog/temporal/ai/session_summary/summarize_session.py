@@ -24,6 +24,7 @@ from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
 
@@ -145,7 +146,13 @@ async def stream_llm_single_session_summary_activity(session_input: SingleSessio
 
 
 @temporalio.workflow.defn(name="summarize-session")
-class SummarizeSingleSessionWorkflow:
+class SummarizeSingleSessionWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SingleSessionSummaryInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return SingleSessionSummaryInputs(**loaded)
+
     @temporalio.workflow.run
     async def run(self, session_input: SingleSessionSummaryInputs) -> str:
         await temporalio.workflow.execute_activity(
