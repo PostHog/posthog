@@ -1,9 +1,6 @@
 import asyncio
 from collections.abc import Generator
-from dataclasses import dataclass
-import dataclasses
 from datetime import timedelta
-import gzip
 import json
 import time
 import uuid
@@ -15,7 +12,6 @@ from django.conf import settings
 from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
-    SingleSessionSummaryLlmInputs,
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
@@ -24,49 +20,16 @@ from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
+from posthog.temporal.ai.session_summary.shared import (
+    SingleSessionSummaryInputs,
+    compress_llm_input_data,
+    get_single_session_summary_llm_input_from_redis,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
 
 logger = structlog.get_logger(__name__)
-
-
-@dataclass(frozen=True, kw_only=True)
-class SingleSessionSummaryInputs:
-    """Workflow input to get summary for a single session"""
-
-    session_id: str
-    user_pk: int
-    team_id: int
-    redis_input_key: str
-    redis_output_key: str
-    extra_summary_context: ExtraSummaryContext | None = None
-    local_reads_prod: bool = False
-
-
-def _get_single_session_summary_llm_input_from_redis(
-    redis_client: Redis, redis_input_key: str
-) -> SingleSessionSummaryLlmInputs:
-    raw_redis_data = redis_client.get(redis_input_key)
-    if not raw_redis_data:
-        raise ValueError(f"Single session summary LLM input data not found in Redis for key {redis_input_key}")
-    try:
-        # Decompress the data
-        if isinstance(raw_redis_data, bytes):
-            redis_data_str = gzip.decompress(raw_redis_data).decode("utf-8")
-        else:
-            # Fallback for uncompressed data (if stored as string)
-            redis_data_str = raw_redis_data
-        redis_data = SingleSessionSummaryLlmInputs(**json.loads(redis_data_str))
-    except Exception as e:
-        raise ValueError(
-            f"Failed to parse single session summary LLM input data ({raw_redis_data}) for Redis key {redis_input_key}: {e}"
-        )
-    return redis_data
-
-
-def _compress_llm_input_data(llm_input_data: SingleSessionSummaryLlmInputs) -> bytes:
-    return gzip.compress(json.dumps(dataclasses.asdict(llm_input_data)).encode("utf-8"))
 
 
 @temporalio.activity.defn
@@ -89,7 +52,7 @@ async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs)
     )
     # Connect to Redis and prepare the input
     redis_client = get_client()
-    compressed_llm_input_data = _compress_llm_input_data(input_data)
+    compressed_llm_input_data = compress_llm_input_data(input_data)
     redis_client.setex(
         session_input.redis_input_key,
         900,  # 15 minutes TTL to keep alive for retries
@@ -103,7 +66,7 @@ async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs)
 async def stream_llm_single_session_summary_activity(session_input: SingleSessionSummaryInputs) -> str:
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
     redis_client = get_client()
-    llm_input = _get_single_session_summary_llm_input_from_redis(
+    llm_input = get_single_session_summary_llm_input_from_redis(
         redis_client=redis_client, redis_input_key=session_input.redis_input_key
     )
     last_summary_state = ""
