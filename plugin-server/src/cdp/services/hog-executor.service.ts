@@ -89,22 +89,20 @@ export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlob
 
         if (bytecode[EXTEND_OBJECT_KEY]) {
             const res = formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
-            // TODO: Double check its definitely an object
             if (res && typeof res === 'object') {
                 ret = {
                     ...res,
                 }
             }
-        }
-
-        ret = {
-            ...ret,
-            ...Object.fromEntries(
-                Object.entries(bytecode).map(([key2, value]) => [
-                    key2,
-                    formatHogInput(value, globals, key ? `${key}.${key2}` : key2),
-                ])
-            ),
+        } else {
+            ret = {
+                ...Object.fromEntries(
+                    Object.entries(bytecode).map(([key2, value]) => [
+                        key2,
+                        formatHogInput(value, globals, key ? `${key}.${key2}` : key2),
+                    ])
+                ),
+            }
         }
 
         return ret

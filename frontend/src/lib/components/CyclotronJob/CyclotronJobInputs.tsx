@@ -34,6 +34,8 @@ import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIn
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
 
+export const EXTEND_OBJECT_KEY = '$$_extend_object'
+
 export type CyclotronJobInputsProps = {
     configuration: CyclotronJobInputConfiguration
     onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
@@ -214,8 +216,6 @@ function CyclotronJobTemplateInput(props: {
         </span>
     )
 }
-
-export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 function DictionaryField({
     input,
