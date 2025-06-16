@@ -903,8 +903,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.253.2
-        version: 1.253.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.253.3
+        version: 1.253.3(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.6.0
         version: 3.6.0
@@ -14344,6 +14344,10 @@ packages:
     resolution: {integrity: sha512-d/jtm+rdNT8tpXuHY5MMtcbJFBkhXE6593XVR9UoGCH8jSFGci7jGvMGH5RYd5PBJW+00NZQt6gf7CbagJCrhg==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postcss@8.5.6:
+    resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
+    engines: {node: ^10 || ^12 || >=14}
+
   postgres-array@2.0.0:
     resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
     engines: {node: '>=4'}
@@ -14399,8 +14403,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.253.2:
-    resolution: {integrity: sha512-aFfvcQv//g0oHTmka7WFLRVJBVw7KM9/DPSBAy0ySs/PTkTRe8gil4NUuc+fyPI8R1pTEIjlYqVYFBYpN6yLdA==}
+  posthog-js@1.253.3:
+    resolution: {integrity: sha512-WuxpiOJX58Ju30CQqnSfW4MXvM0zBYYUCPhMJ2kAe47qj6CTv55u5+gZ1NLGIiFDmMh+5lg2emaE+H47gyGxzg==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -33398,6 +33402,13 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
+  postcss@8.5.6:
+    dependencies:
+      nanoid: 3.3.11
+      picocolors: 1.1.1
+      source-map-js: 1.2.1
+    optional: true
+
   postgres-array@2.0.0: {}
 
   postgres-bytea@1.0.0: {}
@@ -33444,7 +33455,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.253.2(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.253.3(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -34798,7 +34809,7 @@ snapshots:
 
   rrweb-snapshot@2.0.0-alpha.18:
     dependencies:
-      postcss: 8.5.5
+      postcss: 8.5.6
     optional: true
 
   run-async@2.4.1: {}
