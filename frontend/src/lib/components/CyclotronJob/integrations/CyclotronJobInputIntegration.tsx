@@ -13,14 +13,12 @@ export function CyclotronJobInputIntegration({
     ...props
 }: CyclotronJobInputIntegrationProps): JSX.Element {
     return (
-        <>
-            <IntegrationChoice
-                {...props}
-                schema={schema}
-                integration={schema.integration}
-                redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
-                beforeRedirect={() => persistForUnload?.()}
-            />
-        </>
+        <IntegrationChoice
+            {...props}
+            schema={schema}
+            integration={schema.integration}
+            redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
+            beforeRedirect={() => persistForUnload?.()}
+        />
     )
 }
