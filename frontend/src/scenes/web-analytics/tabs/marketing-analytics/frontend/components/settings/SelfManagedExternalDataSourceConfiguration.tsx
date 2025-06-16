@@ -6,9 +6,8 @@ import { urls } from 'scenes/urls'
 import { ManualLinkSourceType, PipelineStage } from '~/types'
 
 import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { VALID_SELF_MANAGED_MARKETING_SOURCES } from '../../logic/utils'
 import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
-
-const VALID_MANUAL_LINK_SOURCES: ManualLinkSourceType[] = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
 // This allows users to map columns from self-managed data warehouse sources (AWS, GCP, etc.)
 // to the correct fields in the Marketing Analytics product.
@@ -19,7 +18,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
 
     const tables: ExternalTable[] | null =
         externalTables.filter((source) =>
-            VALID_MANUAL_LINK_SOURCES.includes(source.source_type as ManualLinkSourceType)
+            VALID_SELF_MANAGED_MARKETING_SOURCES.includes(source.source_type as ManualLinkSourceType)
         ) ?? null
 
     const handleSourceAdd = (manualLinkSource: ManualLinkSourceType): void => {
@@ -34,7 +33,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
             description="Configure self-managed data warehouse sources to display marketing analytics in PostHog. You'll need to map the required columns for each table to enable the functionality."
             tables={tables}
             loading={loading}
-            validSources={VALID_MANUAL_LINK_SOURCES}
+            validSources={VALID_SELF_MANAGED_MARKETING_SOURCES}
             onSourceAdd={handleSourceAdd}
         />
     )

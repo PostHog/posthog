@@ -592,6 +592,7 @@ export interface EntityNode extends Node {
     name?: string
     custom_name?: string
     math?: MathType
+    math_multiplier?: number
     math_property?: string
     math_property_type?: string
     math_property_revenue_currency?: RevenueCurrencyPropertyConfig

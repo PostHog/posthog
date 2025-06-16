@@ -29,17 +29,12 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
-    ConversionGoalFilter,
-    CurrencyCode,
     CustomEventConversionGoal,
-    DatabaseSchemaDataWarehouseTable,
     DataTableNode,
-    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
     QuerySchema,
-    SourceMap,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -59,7 +54,6 @@ import {
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
-    EntityTypes,
     EventDefinitionType,
     FilterLogicalOperator,
     InsightLogicProps,
@@ -77,12 +71,8 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import {
-    ExternalTable,
-    marketingAnalyticsLogic,
-} from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
-
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
@@ -435,7 +425,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['validExternalTables'],
+            ['loading', 'createMarketingDataWarehouseNodes', 'createDynamicCampaignQuery'],
         ],
     })),
     actions({
@@ -765,196 +755,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
-        // Helper functions for dynamic marketing analytics
-        createMarketingDataWarehouseNodes: [
-            (s) => [s.validExternalTables, s.baseCurrency],
-            (validExternalTables: ExternalTable[], baseCurrency: string): DataWarehouseNode[] => {
-                if (!validExternalTables || validExternalTables.length === 0) {
-                    return []
-                }
-
-                const nodeList: DataWarehouseNode[] = validExternalTables
-                    .map((table) => {
-                        if (!table.source_map || !table.source_map.date || !table.source_map.total_cost) {
-                            return null
-                        }
-
-                        const returning: DataWarehouseNode = {
-                            kind: NodeKind.DataWarehouseNode,
-                            id: table.id,
-                            name: table.schema_name,
-                            custom_name: `${table.schema_name} Cost`,
-                            id_field: 'id',
-                            distinct_id_field: 'id',
-                            timestamp_field: table.source_map.date,
-                            table_name: table.name,
-                            math: PropertyMathType.Sum,
-                            math_property: table.source_map.total_cost,
-                            math_property_revenue_currency: {
-                                static: (table.source_map.currency || baseCurrency) as CurrencyCode,
-                            },
-                        }
-                        return returning
-                    })
-                    .filter(Boolean) as DataWarehouseNode[]
-
-                return nodeList
-            },
-        ],
-
-        createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables, s.conversion_goals, s.baseCurrency],
-            (
-                validExternalTables: ExternalTable[],
-                conversionGoals: ConversionGoalFilter[],
-                baseCurrency: string
-            ): string | null => {
-                if (!validExternalTables || validExternalTables.length === 0) {
-                    return null
-                }
-
-                const unionQueries = validExternalTables
-                    .map((table) => {
-                        const tableName = table.name
-                        const schemaName = table.schema_name
-                        if (
-                            !table.source_map ||
-                            !table.source_map.date ||
-                            !table.source_map.total_cost ||
-                            !table.source_map.campaign_name
-                        ) {
-                            return null
-                        }
-
-                        // Get source name from schema mapping or fallback
-                        const sourceNameField =
-                            table.source_map.utm_source_name || table.source_map.source_name || `'${schemaName}'`
-                        const campaignNameField = table.source_map.utm_campaign_name || table.source_map.campaign_name
-
-                        const costSelect = table.source_map.currency
-                            ? `toFloat(convertCurrency('${table.source_map.currency}', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0))))`
-                            : `toFloat(coalesce(${table.source_map.total_cost}, 0))`
-
-                        // TODO: we should replicate this logic for the area charts once we build the query runner
-                        return `
-                        SELECT 
-                            ${campaignNameField} as campaignname,
-                            ${costSelect} as cost,
-                            toFloat(coalesce(${table.source_map.clicks || '0'}, 0)) as clicks,
-                            toFloat(coalesce(${table.source_map.impressions || '0'}, 0)) as impressions,
-                            ${sourceNameField} as source_name
-                        FROM ${tableName}
-                        WHERE ${table.source_map.date} >= '2025-01-01'
-                    `.trim()
-                    })
-                    .filter(Boolean)
-                // Generate CTEs for all conversion goals
-                const conversionGoalCTEs = conversionGoals
-                    .map((conversionGoal, index) => {
-                        const propertyName = conversionGoal.type === EntityTypes.EVENTS ? 'properties.' : ''
-                        // Sanitize the CTE name to be a valid SQL identifier
-                        const cteName = getConversionGoalCTEName(index, conversionGoal)
-                        return `${cteName} AS (
-                        SELECT 
-                            ${propertyName}${conversionGoal.schema.utm_campaign_name} as campaign_name,
-                            ${propertyName}${conversionGoal.schema.utm_source_name} as source_name,
-                            count(*) as conversion_${index}
-                        FROM ${
-                            conversionGoal.type === EntityTypes.EVENTS
-                                ? 'events'
-                                : conversionGoal.type === EntityTypes.DATA_WAREHOUSE
-                                ? conversionGoal.name
-                                : 'TBD'
-                        } 
-                        WHERE ${
-                            conversionGoal.type === EntityTypes.EVENTS && conversionGoal.id
-                                ? `event = '${conversionGoal.id}'`
-                                : '1=1'
-                        }
-                            AND campaign_name IS NOT NULL
-                            AND campaign_name != ''
-                            AND source_name IS NOT NULL
-                            AND source_name != ''
-                        GROUP BY campaign_name, source_name
-                    )`
-                    })
-                    .join(',\n                    ')
-
-                if (unionQueries.length === 0) {
-                    return `SELECT 'No valid sources_map configured' as message`
-                }
-
-                // Generate JOIN clauses for all conversion goals
-                const conversionJoins =
-                    conversionGoals.length > 0
-                        ? conversionGoals
-                              .map((conversionGoal, index) => {
-                                  const cteName = getConversionGoalCTEName(index, conversionGoal)
-                                  return `LEFT JOIN ${cteName} cg_${index} ON cc.campaignname = cg_${index}.campaign_name AND cc.source_name = cg_${index}.source_name`
-                              })
-                              .join('\n                    ')
-                        : ''
-
-                // Generate SELECT columns for all conversion goals
-                const conversionColumns =
-                    conversionGoals.length > 0
-                        ? conversionGoals
-                              .map((conversionGoal, index) => [
-                                  `cg_${index}.conversion_${index} as "${conversionGoal.conversion_goal_name}"`,
-                                  `round(cc.total_cost / nullif(cg_${index}.conversion_${index}, 0), 2) as "Cost per ${conversionGoal.conversion_goal_name}"`,
-                              ])
-                              .flat()
-                              .join(',\n                        ')
-                        : ''
-
-                // Build WITH clause correctly based on whether we have conversion goals
-                const withClause = conversionGoalCTEs
-                    ? `WITH campaign_costs AS (
-                        SELECT 
-                            campaignname,
-                            source_name,
-                            sum(cost) as total_cost,
-                            sum(clicks) as total_clicks,
-                            sum(impressions) as total_impressions
-                        FROM (
-                            ${unionQueries.join('\n                            UNION ALL\n')}
-                        )
-                        GROUP BY campaignname, source_name
-                    ),
-                    ${conversionGoalCTEs}`
-                    : `WITH campaign_costs AS (
-                        SELECT 
-                            campaignname,
-                            source_name,
-                            sum(cost) as total_cost,
-                            sum(clicks) as total_clicks,
-                            sum(impressions) as total_impressions
-                        FROM (
-                            ${unionQueries.join('\n                            UNION ALL\n')}
-                        )
-                        GROUP BY campaignname, source_name
-                    )`
-
-                const query = `
-                    ${withClause}
-                    SELECT 
-                        cc.campaignname as "Campaign",
-                        cc.source_name as "Source",
-                        round(cc.total_cost, 2) as "Total Cost",
-                        cc.total_clicks as "Total Clicks", 
-                        cc.total_impressions as "Total Impressions",
-                        round(cc.total_cost / nullif(cc.total_clicks, 0), 2) as "Cost per Click",
-                        round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR"${
-                            conversionColumns ? `,\n                        ${conversionColumns}` : ''
-                        }
-                    FROM campaign_costs cc
-                    ${conversionJoins}
-                    ORDER BY cc.total_cost DESC
-                    LIMIT 20
-                `.trim()
-                return query
-            },
-        ],
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
@@ -1149,6 +949,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.currentTeam,
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
+                () => values.campaignCostsBreakdown,
+                s.createMarketingDataWarehouseNodes,
             ],
             (
                 productTab,
@@ -1168,7 +970,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd,
                 currentTeam,
                 tileVisualizations,
-                preAggregatedEnabled
+                preAggregatedEnabled,
+                campaignCostsBreakdown,
+                createMarketingDataWarehouseNodes
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -1447,18 +1251,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 if (productTab === ProductTab.MARKETING) {
-                    // Generate dynamic series from sources_map
-                    const createDynamicMarketingSeries = (): DataWarehouseNode[] => {
-                        const dynamicNodes = values.createMarketingDataWarehouseNodes
-
-                        if (!dynamicNodes || dynamicNodes.length === 0) {
-                            return []
-                        }
-
-                        return dynamicNodes
-                    }
-
-                    const dynamicSeries = createDynamicMarketingSeries()
                     return [
                         {
                             kind: 'query',
@@ -1476,8 +1268,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 source: {
                                     kind: NodeKind.TrendsQuery,
                                     series:
-                                        dynamicSeries.length > 0
-                                            ? dynamicSeries
+                                        createMarketingDataWarehouseNodes.length > 0
+                                            ? createMarketingDataWarehouseNodes
                                             : [
                                                   // Fallback when no sources are configured
                                                   {
@@ -1502,12 +1294,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             docs: {
                                 title: 'Marketing Costs',
                                 description:
-                                    dynamicSeries.length > 0
+                                    createMarketingDataWarehouseNodes.length > 0
                                         ? 'Track costs from your configured marketing data sources.'
                                         : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
                             },
                         },
-                        values.campaignCostsBreakdown
+                        campaignCostsBreakdown
                             ? {
                                   kind: 'query',
                                   tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
@@ -1516,7 +1308,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       orderWhenLargeClassName: 'xxl:order-2',
                                   },
                                   title: 'Campaign Costs Breakdown',
-                                  query: values.campaignCostsBreakdown,
+                                  query: campaignCostsBreakdown,
                                   insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
                                   canOpenModal: true,
                                   canOpenInsight: false,
@@ -2602,17 +2394,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.sources_map, s.dataWarehouseTables],
-            (
-                sources_map: { [key: string]: SourceMap },
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
-            ): DataTableNode | null => {
-                if (!values.createDynamicCampaignQuery) {
-                    return null
-                }
-
-                // Don't run if data isn't loaded yet
-                if (!sources_map || !dataWarehouseTables) {
+            (s) => [s.loading, s.createDynamicCampaignQuery],
+            (loading: boolean, createDynamicCampaignQuery: string | null): DataTableNode | null => {
+                if (!createDynamicCampaignQuery || loading) {
                     return null
                 }
 
@@ -2620,7 +2404,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.HogQLQuery,
-                        query: values.createDynamicCampaignQuery,
+                        query: createDynamicCampaignQuery,
                     },
                 }
             },
@@ -3044,8 +2828,4 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     } else {
         setConversionGoalWarning(null)
     }
-}
-
-const getConversionGoalCTEName = (index: number, conversionGoal: ConversionGoalFilter): string => {
-    return `cg_${index}_${conversionGoal.conversion_goal_name}`.replace(/[^a-zA-Z0-9_]/g, '_')
 }
