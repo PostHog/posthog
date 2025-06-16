@@ -43,7 +43,7 @@ health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
 common-geoip = { path = "../common/geoip" }
 tower = { workspace = true }
-tower-http = { workspace = true, features = ["timeout"] }
+tower-http = { workspace = true }
 petgraph = "0.6.5"
 moka = { workspace = true }
 dateparser = "0.2.1"

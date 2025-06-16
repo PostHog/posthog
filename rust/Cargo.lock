@@ -7299,7 +7299,6 @@ dependencies = [
  "http-body 1.0.0",
  "http-body-util",
  "pin-project-lite",
- "tokio",
  "tower-layer",
  "tower-service",
  "tracing",
