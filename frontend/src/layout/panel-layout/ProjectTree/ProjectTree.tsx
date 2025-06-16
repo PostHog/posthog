@@ -165,8 +165,8 @@ export function ProjectTree({
 
         const showSelectMenuItems = root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
 
-        // Show product menu items if the item is a product or shortcut and the item isn't user made (ref is for user-made items)
-        const showProductMenuItems = (root === 'products://' || root === 'shortcuts://') && item.record?.ref === null
+        // Show product menu items if the item is a product or shortcut
+        const showProductMenuItems = root === 'products://' || root === 'shortcuts://'
 
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
@@ -496,7 +496,7 @@ export function ProjectTree({
                 )
             }}
             itemSideActionButton={(item) => {
-                if ((root === 'products://' || root === 'shortcuts://') && item.record?.ref === null) {
+                if (root === 'products://' || root === 'shortcuts://') {
                     if (item.name === 'Product analytics') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
