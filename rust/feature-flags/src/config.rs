@@ -124,9 +124,6 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
 
-    #[envconfig(default = "30")]
-    pub request_timeout_secs: u64,
-
     #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
     pub maxmind_db_path: String,
 
@@ -185,7 +182,6 @@ impl Config {
             max_concurrency: 1000,
             max_pg_connections: 10,
             acquire_timeout_secs: 5,
-            request_timeout_secs: 30,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,

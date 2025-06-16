@@ -15,7 +15,6 @@ use limiters::redis::RedisLimiter;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
-    timeout::TimeoutLayer,
     trace::TraceLayer,
 };
 
@@ -90,7 +89,6 @@ where
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
-        .layer(TimeoutLayer::new(Duration::from_secs(config.request_timeout_secs)))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))

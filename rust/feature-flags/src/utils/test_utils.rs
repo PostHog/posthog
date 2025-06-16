@@ -94,12 +94,12 @@ pub async fn insert_flags_for_team_in_redis(
     Ok(())
 }
 
-pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
+pub fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
     let redis_url = match url {
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
     };
-    let client = RedisClient::new(redis_url).await.expect("Failed to create redis client");
+    let client = RedisClient::new(redis_url).expect("Failed to create redis client");
     Arc::new(client)
 }
 
