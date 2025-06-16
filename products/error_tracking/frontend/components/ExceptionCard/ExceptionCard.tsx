@@ -83,7 +83,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
     return (
         <LemonCard hoverEffect={false} className="group p-0 relative overflow-hidden">
             <TabsPrimitive defaultValue="stacktrace">
-                <div className="flex justify-between">
+                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
                             <TabsPrimitiveTrigger value="raw" className="flex items-center gap-1 text-lg h-full">
@@ -92,8 +92,12 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                             </TabsPrimitiveTrigger>
                         </div>
                         <div className="flex gap-2 w-full justify-center h-full">
-                            <TabsPrimitiveTrigger value="stacktrace" />
-                            <TabsPrimitiveTrigger value="properties" />
+                            <TabsPrimitiveTrigger className="px-2" value="stacktrace">
+                                Stacktrace
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2" value="properties">
+                                Properties
+                            </TabsPrimitiveTrigger>
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}

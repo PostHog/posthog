@@ -30,7 +30,7 @@ export function StacktraceTab({ className, issue, issueLoading, ...props }: Stac
     const { exceptionAttributes } = useValues(errorPropertiesLogic)
     return (
         <TabsPrimitiveContent {...props}>
-            <div className="flex justify-between items-center px-2 py-1">
+            <div className="flex justify-between items-center border-b-1 bg-surface-secondary px-2 py-1">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                 </div>
