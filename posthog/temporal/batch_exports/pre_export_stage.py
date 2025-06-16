@@ -56,7 +56,11 @@ from posthog.temporal.batch_exports.sql import (
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClientTimeoutError,
+    ClickHouseQueryStatus,
+    get_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_temporal_worker_logger,
@@ -526,7 +530,14 @@ async def _write_batch_export_record_batches_to_s3(
             query_id = uuid.uuid4()
             await logger.ainfo(f"Executing query with ID = {query_id}")
             try:
-                await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id))
+                await client.execute_query(
+                    query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
+                )
+            except ClickHouseClientTimeoutError:
+                status = ClickHouseQueryStatus.RUNNING
+                while status == ClickHouseQueryStatus.RUNNING:
+                    status = await client.acheck_query(str(query_id), raise_on_error=True)
+
             except Exception as e:
                 await logger.aexception("Unexpected error occurred while writing record batches to S3", exc_info=e)
                 raise
