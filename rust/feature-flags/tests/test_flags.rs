@@ -1664,7 +1664,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let json_data = res.json::<Value>().await?;
     println!("json_data: {:?}", json_data);
     assert!(json_data.get("supportedCompression").is_none());
-    assert_eq!(json_data["autocapture_opt_out"], json!(false));
+    assert!(json_data.get("autocapture_opt_out").is_none());
 
     // With config param
     let res = server
@@ -3473,6 +3473,173 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
     assert!(json_data.get("supportedCompression").is_none());
     assert!(json_data.get("config").is_none());
     assert!(json_data.get("toolbarParams").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_numeric_group_ids_work_correctly() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_with_numeric_group".to_string();
+    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+
+    let token = team.api_token;
+
+    // Create a group with a numeric group_key (as a string in DB, but represents a number)
+    create_group_in_pg(
+        pg_client.clone(),
+        team.id,
+        "organization",
+        "123",
+        json!({"name": "Organization 123", "size": "large"}),
+    )
+    .await?;
+
+    // Define a group-based flag with simple rollout (no property filters)
+    let flags_json = json!([
+        {
+            "id": 1,
+            "key": "numeric-group-flag",
+            "name": "Flag targeting numeric group ID",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "aggregation_group_type_index": 1,
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        redis_client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with numeric group ID (integer in JSON, not string)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": 123  // This is a JSON number, not a string
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
+
+    // Test with string group ID (should also work)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": "123"  // This is a JSON string
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
+
+    // Test with different numeric group ID (should still match since we have 100% rollout)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": 456  // Different number, but should still match due to 100% rollout
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
+
+    // Test with float number (should also work since we convert numbers to strings)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": 123.0  // Float that equals our integer group key
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
 
     Ok(())
 }

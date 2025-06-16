@@ -20,7 +20,6 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -56,6 +55,8 @@ from .views import (
     robots_txt,
     security_txt,
     stats,
+    preferences_page,
+    update_preferences,
 )
 from posthog.api.query import progress
 
@@ -84,7 +85,7 @@ def handler500(request):
     Context: None
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"sentry_event_id": last_event_id()}))
+    return HttpResponseServerError(template.render())
 
 
 @ensure_csrf_cookie
@@ -240,6 +241,9 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+    # Message preferences
+    path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
+    opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
 
 if settings.DEBUG:

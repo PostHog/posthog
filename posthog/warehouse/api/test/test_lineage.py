@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.api.lineage import join_components_greedily
+from posthog.warehouse.api.lineage import join_components_greedily, topological_sort
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -143,3 +143,70 @@ class TestLineage(APIBaseTest):
             (base_query.id.hex, intermediate_query.id.hex),
         }
         self.assertEqual(edges, expected_edges)
+
+    def test_get_upstream_no_paths(self):
+        # Create a saved query with external tables but no paths
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select * from postgres.supabase.users",
+            },
+            external_tables=["postgres.supabase.users", "postgres.supabase.events"],
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={saved_query.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        # Should have 3 nodes: the view and 2 external tables
+        self.assertEqual(len(data["nodes"]), 3)
+
+        # Should have 2 edges: from each external table to the view
+        self.assertEqual(len(data["edges"]), 2)
+
+        # Check nodes
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertEqual(nodes[str(saved_query.id)]["type"], "view")
+        self.assertEqual(nodes[str(saved_query.id)]["name"], "test_query")
+        self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
+        self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
+
+        # Check edges
+        edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
+        expected_edges = {
+            ("postgres.supabase.users", str(saved_query.id)),
+            ("postgres.supabase.events", str(saved_query.id)),
+        }
+        self.assertEqual(edges, expected_edges)
+
+    def test_topological_sort(self):
+        nodes = ["A", "B", "C"]
+        edges = [{"source": "A", "target": "B"}, {"source": "B", "target": "C"}]
+        result = topological_sort(nodes, edges)
+        self.assertEqual(result, ["A", "B", "C"])
+
+        # Test DAG with multiple paths and random order
+        nodes = ["E", "D", "C", "B", "A"]
+        edges = [
+            {"source": "D", "target": "E"},
+            {"source": "C", "target": "D"},
+            {"source": "B", "target": "D"},
+            {"source": "A", "target": "C"},
+            {"source": "A", "target": "B"},
+        ]
+        result = topological_sort(nodes, edges)
+        # A must come before B and C, B and C must come before D, D must come before E
+        self.assertEqual(result[0], "A")
+        self.assertEqual(result[-1], "E")
+        self.assertIn(result[1], ["B", "C"])
+        self.assertIn(result[2], ["B", "C"])
+        self.assertEqual(result[3], "D")
+
+        nodes = ["A", "B", "C", "D"]
+        edges = [{"source": "A", "target": "B"}, {"source": "C", "target": "D"}]
+        result = topological_sort(nodes, edges)
+        # A must come before B, C must come before D
+        self.assertLess(result.index("A"), result.index("B"))
+        self.assertLess(result.index("C"), result.index("D"))

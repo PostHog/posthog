@@ -5,6 +5,7 @@ import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { RenderBatchExportIcon } from 'scenes/data-pipelines/batch-exports/BatchExportIcon'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 import { shouldShowHogFunctionTemplate } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { hogFunctionTypeToPipelineStage } from 'scenes/hog-functions/misc/urls'
@@ -13,9 +14,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, HogFunctionTemplateType, PipelineStage } from '~/types'
 
-import { humanizeBatchExportName } from '../batch-exports/utils'
+import { humanizeBatchExportName } from '../../data-pipelines/batch-exports/utils'
 import { NewDestinationItemType, PipelineBackend } from '../types'
-import { RenderBatchExportIcon } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { PipelineDestinationsLogicProps } from './destinationsLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
@@ -95,7 +95,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         .map((hogFunction) => ({
                             icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                             name: hogFunction.name,
-                            description: hogFunction.description,
+                            description: typeof hogFunction.description === 'string' ? hogFunction.description : '',
                             backend: PipelineBackend.HogFunction as const,
                             url: combineUrl(
                                 urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(hogFunction.type), {

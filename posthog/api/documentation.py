@@ -5,6 +5,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
     extend_schema_field,
+    extend_schema_serializer,  # noqa: F401
 )  # # noqa: F401 for easy import
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import fields, serializers

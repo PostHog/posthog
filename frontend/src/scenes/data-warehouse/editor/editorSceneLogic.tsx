@@ -49,7 +49,7 @@ const checkIsManagedView = (
     view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
 ): view is DatabaseSchemaManagedViewTable => 'type' in view && view.type === 'managed_view'
 
-const renderTableCount = (count: undefined | number): null | JSX.Element => {
+export const renderTableCount = (count: undefined | number): null | JSX.Element => {
     if (!count) {
         return null
     }
