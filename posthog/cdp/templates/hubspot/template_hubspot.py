@@ -115,7 +115,7 @@ if (empty(inputs.email)) {
 
 let eventName := replaceAll(replaceAll(trim(lower(inputs.eventName)), '$', ''), ' ', '_')
 
-if (not match(eventName, '^([a-z])([a-z0-9_-])+$')) {
+if (not match(eventName, '^[a-z][a-z0-9_-]*$')) {
     throw Error(f'Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event...')
     return
 }
