@@ -20,11 +20,7 @@ export function formatJsonValue(value: any): string {
 }
 
 export const cyclotronJobInputLogic = kea<cyclotronJobInputLogicType>({
-<<<<<<< HEAD
     path: ['lib', 'components', 'CyclotronJob', 'cyclotronJobInputLogic'],
-=======
-    path: ['components', 'cyclotron-jobs', 'cyclotronJobInputLogic'],
->>>>>>> hogfunctioninputs-hogflows-refactor
     props: {} as CyclotronJobInputLogicProps,
     key: (props: CyclotronJobInputLogicProps) => `json_validation_${props.fieldKey}`,
 
