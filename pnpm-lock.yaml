@@ -903,8 +903,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.252.0
-        version: 1.252.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.252.1
+        version: 1.252.1(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.6.0
         version: 3.6.0
@@ -9721,6 +9721,9 @@ packages:
   dayjs@1.11.11:
     resolution: {integrity: sha512-okzr3f11N6WuqYtZSvm+F776mB41wRZMhKP+hc34YdW+KmtYYK9iqvHSwo2k9FEH3fhGXvOPV6yz2IcSrfRUDg==}
 
+  dayjs@1.11.13:
+    resolution: {integrity: sha512-oaMBel6gjolK862uaPQOVTA7q3TZhuSvuMQAAglQDOWYO9A91IrAOUJEyKVlqJlHE0vq5p5UXxzdPfMH/x6xNg==}
+
   debounce@1.2.1:
     resolution: {integrity: sha512-XRRe6Glud4rd/ZGQfiV1ruXSfbvfJedlV9Y6zOlP+2K04vBYiJEte6stfFkCP03aMnY5tsipamumUjL14fofug==}
 
@@ -14396,8 +14399,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.252.0:
-    resolution: {integrity: sha512-Mm72gKYYYaQGilxLPPH+KXF8TcveloOvsMemEz0jna0tV0O++n9SJ/dko+U2ePb+FajZ4vqVvfmkHSIILXdgKg==}
+  posthog-js@1.252.1:
+    resolution: {integrity: sha512-EkUCULWJqonMAvzE6CRX9MQupKG18X+r81+hYp3CBRcvbZG5gkbwR39t6p1347wBZJEsC1cKrjRnklc4w7XAUw==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -15100,6 +15103,9 @@ packages:
 
   react-is@18.2.0:
     resolution: {integrity: sha512-xWGDIW6x921xtzPkhiULtthJHoJvBbF3q26fzloPCK0hsvxtPVelvftw3zjbHWSkR2km9Z+4uxbDDK/6Zw9B8w==}
+
+  react-is@18.3.1:
+    resolution: {integrity: sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==}
 
   react-lifecycles-compat@3.0.4:
     resolution: {integrity: sha512-fBASbA6LnOU9dOU2eW7aQ8xmYBSXUIWr+UmF9b1efZBazGNO+rcXT/icdKnYm2pTwcRylVUYwW7H1PHfLekVzA==}
@@ -16890,8 +16896,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.275.0:
-    resolution: {integrity: sha512-nqG/IwbhYoHMKkT6I59Q9KSgwAZ42XrnlYe5vnnrCGC+Z/Dz5zAgOcpXHwhCgRTpDB3kFRhNN6YRrakyk579Xg==}
+  unlayer-types@1.278.0:
+    resolution: {integrity: sha512-5GpkhTsDyBBtjcGOFxTKHrIwdP2x/qrYC2iDC3z20hFI6KMlQLRryN/ch1EiHbSN3gfILEv3eb7fp4Ox4iTX0A==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -25561,7 +25567,7 @@ snapshots:
       '@rc-component/trigger': 2.2.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       classnames: 2.5.1
       copy-to-clipboard: 3.3.3
-      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
+      dayjs: 1.11.13
       rc-cascader: 3.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-checkbox: 3.5.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-collapse: 3.9.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -25577,7 +25583,7 @@ snapshots:
       rc-motion: 2.9.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-notification: 5.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-pagination: 5.1.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      rc-picker: 4.11.3(date-fns@2.29.3)(dayjs@1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq))(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      rc-picker: 4.11.3(date-fns@2.29.3)(dayjs@1.11.13)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-progress: 4.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-rate: 2.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-resize-observer: 1.4.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -27527,6 +27533,8 @@ snapshots:
   dateformat@4.6.3: {}
 
   dayjs@1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq): {}
+
+  dayjs@1.11.13: {}
 
   debounce@1.2.1: {}
 
@@ -33436,7 +33444,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.252.0(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.252.1(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -33998,7 +34006,7 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  rc-picker@4.11.3(date-fns@2.29.3)(dayjs@1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq))(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
+  rc-picker@4.11.3(date-fns@2.29.3)(dayjs@1.11.13)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
       '@babel/runtime': 7.27.6
       '@rc-component/trigger': 2.2.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -34010,7 +34018,7 @@ snapshots:
       react-dom: 18.2.0(react@18.2.0)
     optionalDependencies:
       date-fns: 2.29.3
-      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
+      dayjs: 1.11.13
       luxon: 3.5.0
       moment: 2.29.4
 
@@ -34177,7 +34185,7 @@ snapshots:
       '@babel/runtime': 7.27.6
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
-      react-is: 18.2.0
+      react-is: 18.3.1
 
   rc-virtual-list@3.18.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
@@ -34270,7 +34278,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.275.0
+      unlayer-types: 1.278.0
 
   react-error-overlay@6.0.9: {}
 
@@ -34318,6 +34326,8 @@ snapshots:
   react-is@18.1.0: {}
 
   react-is@18.2.0: {}
+
+  react-is@18.3.1: {}
 
   react-lifecycles-compat@3.0.4: {}
 
@@ -36407,7 +36417,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.275.0: {}
+  unlayer-types@1.278.0: {}
 
   unpipe@1.0.0: {}
 

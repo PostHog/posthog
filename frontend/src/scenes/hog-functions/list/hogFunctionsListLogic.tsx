@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { HogFunctionFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
-import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
+import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -31,6 +31,7 @@ export type HogFunctionListLogicProps = {
     additionalTypes?: HogFunctionTypeType[]
     forceFilterGroups?: HogFunctionFiltersType[]
     syncFiltersWithUrl?: boolean
+    manualFunctions?: HogFunctionType[]
 }
 
 export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserType | null): boolean => {
@@ -43,10 +44,15 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
     return true
 }
 
-export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
+export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     props({} as HogFunctionListLogicProps),
-    key((props) => JSON.stringify(props)),
-    path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
+    key((props) =>
+        JSON.stringify({
+            ...props,
+            manualFunctions: null, // We don't care about these
+        })
+    ),
+    path((id) => ['scenes', 'pipeline', 'hogFunctionsListLogic', id]),
     connect(() => ({
         values: [
             projectLogic,
@@ -146,9 +152,11 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     selectors({
         loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
-            (s) => [s.hogFunctions],
-            (hogFunctions): HogFunctionType[] => {
-                const enabledFirst = hogFunctions.sort((a, b) => Number(b.enabled) - Number(a.enabled))
+            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? []],
+            (hogFunctions, manualFunctions): HogFunctionType[] => {
+                const enabledFirst = [...hogFunctions, ...manualFunctions].sort(
+                    (a, b) => Number(b.enabled) - Number(a.enabled)
+                )
                 return enabledFirst
             },
         ],
