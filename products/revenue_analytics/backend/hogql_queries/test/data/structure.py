@@ -47,6 +47,7 @@ STRIPE_CUSTOMER_COLUMNS = {
     "name": "String",
     "email": "String",
     "phone": "String",
+    "address": "String",
 }
 
 STRIPE_INVOICE_COLUMNS = {

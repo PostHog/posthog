@@ -34,6 +34,11 @@ class FileSystemSyncMixin(Model):
         """
         raise NotImplementedError()
 
+    def _get_assigned_folder(self, default_folder: str) -> str:
+        if isinstance(self._create_in_folder, str):
+            return self._create_in_folder
+        return default_folder
+
     def get_file_system_representation(self) -> FileSystemRepresentation:
         """
         Returns a FileSystemRepresentation with base_folder, ref, name, href, meta, should_delete.

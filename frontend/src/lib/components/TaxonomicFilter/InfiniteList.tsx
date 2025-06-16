@@ -24,6 +24,7 @@ import { isDefinitionStale } from 'lib/utils/definitions'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { MaxContextOption } from 'scenes/max/maxTypes'
 
 import { EventDefinition, PropertyDefinition } from '~/types'
 
@@ -109,6 +110,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType === TaxonomicFilterGroupType.Metadata ||
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
+        listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -147,29 +149,33 @@ const selectedItemHasPopover = (
 ): boolean => {
     return (
         // NB: also update "renderItemContents" above
-        !!item &&
-        !!group?.getValue?.(item) &&
-        !!listGroupType &&
-        ([
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.Elements,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.DataWarehouse,
-            TaxonomicFilterGroupType.DataWarehouseProperties,
-            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-            TaxonomicFilterGroupType.CustomEvents,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.EventMetadata,
-            TaxonomicFilterGroupType.RevenueAnalyticsProperties,
-            TaxonomicFilterGroupType.NumericalEventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-            TaxonomicFilterGroupType.CohortsWithAllUsers,
-            TaxonomicFilterGroupType.Metadata,
-            TaxonomicFilterGroupType.SessionProperties,
-        ].includes(listGroupType) ||
-            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+        TaxonomicFilterGroupType.EventMetadata,
+        (!!item &&
+            !!group?.getValue?.(item) &&
+            !!listGroupType &&
+            ([
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.DataWarehouse,
+                TaxonomicFilterGroupType.DataWarehouseProperties,
+                TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                TaxonomicFilterGroupType.CustomEvents,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.EventMetadata,
+                TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                TaxonomicFilterGroupType.NumericalEventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.Cohorts,
+                TaxonomicFilterGroupType.CohortsWithAllUsers,
+                TaxonomicFilterGroupType.Metadata,
+                TaxonomicFilterGroupType.SessionProperties,
+            ].includes(listGroupType) ||
+                listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))) ||
+            (!!item &&
+                listGroupType === TaxonomicFilterGroupType.MaxAIContext &&
+                (item as MaxContextOption).value === 'current_page')
     )
 }
 
