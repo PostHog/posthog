@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '../../schema/hogflow'
-import { Hub, Person } from '../../types'
+import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import {

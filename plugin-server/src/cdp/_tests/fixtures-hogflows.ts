@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 
-import { HogFlow } from '~/src/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/src/schema/hogflow'
 import { insertRow } from '~/tests/helpers/sql'
 
 import { Team } from '../../types'
@@ -26,6 +26,22 @@ export const createHogFlow = (hogFlow: Partial<HogFlow>) => {
     }
 
     return item
+}
+
+export const createHogFlowAction = <T extends HogFlowAction['type']>(
+    type: T,
+    config: Extract<HogFlowAction, { type: T }>['config']
+): Extract<HogFlowAction, { type: T }> => {
+    return {
+        id: randomUUID(),
+        name: 'Action',
+        description: 'Test action',
+        on_error: 'continue',
+        created_at: new Date().getTime(),
+        updated_at: new Date().getTime(),
+        type,
+        config,
+    } as Extract<HogFlowAction, { type: T }>
 }
 
 export const insertHogFlow = async (

@@ -2,7 +2,8 @@ import { HogFlow } from '~/src/schema/hogflow'
 
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { createExampleHogFlowInvocation, createHogFlow } from '../_tests/fixtures-hogflows'
+import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
+import { createExampleHogFlowInvocation, createHogFlow, createHogFlowAction } from '../_tests/fixtures-hogflows'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
 describe('Hogflow Executor', () => {
@@ -21,7 +22,13 @@ describe('Hogflow Executor', () => {
         let hogFlow: HogFlow
 
         beforeEach(() => {
-            hogFlow = createHogFlow({})
+            hogFlow = createHogFlow({
+                actions: [
+                    createHogFlowAction('trigger', {
+                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    }),
+                ],
+            })
         })
 
         it('can execute an invocation', async () => {
