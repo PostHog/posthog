@@ -1560,7 +1560,7 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
 
 export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
     columns: any[]
-    types: string[]
+    types?: string[]
     hogql: string
     hasMore?: boolean
     limit: integer
@@ -1890,12 +1890,16 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort' | 'country'
+export enum RevenueAnalyticsInsightsQueryGroupBy {
+    COHORT = 'cohort',
+    COUNTRY = 'country',
+    PRODUCT = 'product',
+}
 
 export interface RevenueAnalyticsInsightsQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
     kind: NodeKind.RevenueAnalyticsInsightsQuery
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    groupBy: RevenueAnalyticsInsightsQueryGroupBy[]
     interval: IntervalType
 }
 
@@ -2096,7 +2100,7 @@ export type FileSystemIconType =
     | 'insightLifecycle'
     | 'insightStickiness'
     | 'insightHogQL'
-
+    | 'insightCalendarHeatmap'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType

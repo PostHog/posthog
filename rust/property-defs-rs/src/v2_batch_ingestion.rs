@@ -318,10 +318,12 @@ pub async fn process_batch_v2(
         }));
     }
 
-    for handle in handles {
-        match handle.await {
+    // Execute final batch handles concurrently
+    let final_results = futures::future::join_all(handles).await;
+    for result in final_results {
+        match result {
             // metrics are statted in write_*_batch methods so we just log here
-            Ok(result) => match result {
+            Ok(batch_result) => match batch_result {
                 Ok(_) => continue,
                 Err(db_err) => {
                     metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);

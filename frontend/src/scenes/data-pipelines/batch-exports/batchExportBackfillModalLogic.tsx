@@ -6,7 +6,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
-import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
+import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 
 export interface BatchExportBackfillModalLogicProps {
     id: string
@@ -18,7 +18,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillModalLogic', key]),
     connect((props: BatchExportBackfillModalLogicProps) => ({
         values: [
-            pipelineBatchExportConfigurationLogic({
+            batchExportConfigurationLogic({
                 id: props.id,
                 service: null,
             }),

@@ -27,15 +27,16 @@ import {
     BatchExportService,
 } from '~/types'
 
-import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
-import { BatchExportConfigurationForm } from './batch-exports/types'
-import { humanizeBatchExportName } from './batch-exports/utils'
-import { getDefaultConfiguration, pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
-import { RenderBatchExportIcon } from './utils'
+import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
+import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
+import { RenderBatchExportIcon } from './BatchExportIcon'
+import { BatchExportConfigurationForm } from './types'
+import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
-export function PipelineBatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
+export function BatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
+    service = normalizeBatchExportService(service ?? '')
     const logicProps = { service: (service as BatchExportService['type']) || null, id: id || null }
-    const logic = pipelineBatchExportConfigurationLogic(logicProps)
+    const logic = batchExportConfigurationLogic(logicProps)
 
     const {
         isNew,
@@ -62,7 +63,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
 
-    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as any)) {
+    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as BatchExportService['type'])) {
         return <NotFound object={`batch export service ${service}`} />
     }
 
@@ -116,19 +117,19 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
             <>
                 <PageHeader buttons={buttons} />
                 <Form
-                    logic={pipelineBatchExportConfigurationLogic}
+                    logic={batchExportConfigurationLogic}
                     props={logicProps}
                     formKey="configuration"
                     className="deprecated-space-y-3"
                 >
-                    <div className="flex items-start gap-4 flex-wrap">
+                    <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 min-w-100 deprecated-space-y-3">
-                            <div className="border bg-surface-primary p-3 rounded deprecated-space-y-2">
-                                <div className="flex flex-row gap-2 min-h-16 items-center">
+                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                                <div className="flex flex-row gap-2 items-center min-h-16">
                                     {configuration.destination ? (
                                         <>
                                             <RenderBatchExportIcon size="medium" type={configuration.destination} />
-                                            <div className="flex-1 font-semibold text-sm">
+                                            <div className="flex-1 text-sm font-semibold">
                                                 {humanizeBatchExportName(configuration.destination)}
                                             </div>
                                         </>
@@ -185,7 +186,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                     </LemonField>
                                 </div>
                             </div>
-                            <div className="border bg-surface-primary p-3 rounded deprecated-space-y-2">
+                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
                                 <div className="flex gap-2 min-h-16">
                                     <LemonField
                                         name="model"
@@ -231,7 +232,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                 {selectedModel === 'events' ? (
                                     <>
                                         <div className="flex flex-col gap-2 min-h-16">
-                                            <div className="flex justify-between w-full gap-2">
+                                            <div className="flex gap-2 justify-between w-full">
                                                 <LemonLabel>Include events</LemonLabel>
                                             </div>
                                             <p className="mb-0 text-xs text-secondary">
@@ -261,7 +262,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                             />
                                         </div>
                                         <div className="flex flex-col gap-2 min-h-16">
-                                            <div className="flex justify-between w-full gap-2">
+                                            <div className="flex gap-2 justify-between w-full">
                                                 <LemonLabel>Exclude events</LemonLabel>
                                             </div>
                                             <p className="mb-0 text-xs text-secondary">
@@ -318,15 +319,15 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                             </div>
                         </div>
 
-                        <div className="flex-2 gap-4 deprecated-space-y-4 min-w-100">
-                            <div className="border bg-surface-primary p-3 rounded">
+                        <div className="gap-4 flex-2 deprecated-space-y-4 min-w-100">
+                            <div className="p-3 rounded border bg-surface-primary">
                                 <BatchExportConfigurationFields
                                     isNew={isNew}
                                     formValues={configuration as BatchExportConfigurationForm}
                                 />
                             </div>
                             {batchExportConfigTest && (
-                                <div className="border bg-surface-primary p-3 rounded">
+                                <div className="p-3 rounded border bg-surface-primary">
                                     <BatchExportConfigurationTests
                                         batchExportConfigTest={batchExportConfigTest}
                                         batchExportConfigTestLoading={batchExportConfigTestLoading}
@@ -375,7 +376,7 @@ export function BatchExportConfigurationTests({
 }): JSX.Element | null {
     if (!batchExportConfigTest && batchExportConfigTestLoading) {
         return (
-            <div className="flex items-center justify-center p-4">
+            <div className="flex justify-center items-center p-4">
                 <Spinner />
             </div>
         )
@@ -399,7 +400,7 @@ export function BatchExportConfigurationTests({
 
     const header = (
         <div className="space-y-2">
-            <h2 className="text-lg font-semibold flex items-center gap-2 m-0">Test configuration</h2>
+            <h2 className="flex gap-2 items-center m-0 text-lg font-semibold">Test configuration</h2>
             <p className="text-xs text-secondary">
                 Test the batch export's configuration to uncover errors before saving it
             </p>
@@ -420,7 +421,7 @@ export function BatchExportConfigurationTests({
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex justify-between items-center">
                 {header}
                 <LemonButton
                     onClick={() => runBatchExportConfigTestStep(0)}
@@ -441,7 +442,7 @@ export function BatchExportConfigurationTests({
 
                     return (
                         <div key={`${step.name}-${index}`}>
-                            <div className="flex items-start gap-2">
+                            <div className="flex gap-2 items-start">
                                 <div className="mt-1">{renderStatusIcon(step, index)}</div>
                                 <div className="flex-1">
                                     <LemonLabel info={step.description} className="mb-2">

@@ -1,5 +1,5 @@
-import { DB } from 'utils/db/db'
-import { TeamManager } from 'utils/team-manager'
+import { DB } from '~/utils/db/db'
+import { TeamManager } from '~/utils/team-manager'
 
 import { Hub, PipelineEvent, Team } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
