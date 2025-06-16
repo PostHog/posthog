@@ -396,4 +396,112 @@ describe('the feature flag release conditions logic', () => {
             })
         })
     })
+
+    describe('moving condition sets', () => {
+        it('moves simple condition set up', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null },
+                { properties: [], rollout_percentage: 75, variant: null },
+                { properties: [], rollout_percentage: 100, variant: null },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.moveConditionSetUp(1)
+
+            expect(logic.values.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 75, variant: null },
+                { properties: [], rollout_percentage: 50, variant: null },
+                { properties: [], rollout_percentage: 100, variant: null },
+            ])
+        })
+
+        it('moves simple condition set down', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null },
+                { properties: [], rollout_percentage: 75, variant: null },
+                { properties: [], rollout_percentage: 100, variant: null },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.moveConditionSetDown(0)
+
+            expect(logic.values.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 75, variant: null },
+                { properties: [], rollout_percentage: 50, variant: null },
+                { properties: [], rollout_percentage: 100, variant: null },
+            ])
+        })
+
+        it('preserves properties after reordering', () => {
+            const filters = generateFeatureFlagFilters([
+                {
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: PropertyFilterType.Person,
+                            value: 'qa-33-percent-off-yearly-v1',
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                    rollout_percentage: 50,
+                    variant: null,
+                },
+                {
+                    properties: [
+                        {
+                            key: 'current_organization_membership_level',
+                            type: PropertyFilterType.Person,
+                            value: ['15'],
+                            operator: PropertyOperator.Exact,
+                        },
+                        {
+                            key: 'email',
+                            type: PropertyFilterType.Person,
+                            value: ['customer-two@example.com', 'customer-six@example.com'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                    rollout_percentage: 75,
+                    variant: null,
+                },
+            ])
+
+            logic.actions.setFilters(filters)
+
+            logic.actions.moveConditionSetUp(1)
+
+            expect(logic.values.filters.groups).toEqual([
+                {
+                    properties: [
+                        {
+                            key: 'current_organization_membership_level',
+                            type: PropertyFilterType.Person,
+                            value: ['15'],
+                            operator: 'exact',
+                        },
+                        {
+                            key: 'email',
+                            type: PropertyFilterType.Person,
+                            value: ['customer-two@example.com', 'customer-six@example.com'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                    rollout_percentage: 75,
+                    variant: null,
+                },
+                {
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: PropertyFilterType.Person,
+                            value: 'qa-33-percent-off-yearly-v1',
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                    rollout_percentage: 50,
+                    variant: null,
+                },
+            ])
+        })
+    })
 })
