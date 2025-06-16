@@ -9,6 +9,7 @@
         "dist",
         "build",
         "rust",
+        "cli",
         "plugin-server",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
@@ -210,7 +211,7 @@
                     },
                     {
                         "element": "Modal",
-                        "message": "use <LemonModal> or `<LemonDialog> instead"
+                        "message": "use <LemonModal> or <LemonDialog> instead"
                     },
                     {
                         "element": "Select",
