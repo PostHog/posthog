@@ -511,7 +511,7 @@ OAUTH2_PROVIDER = {
     # NOTE: Clear refresh tokens after 30 days + retention period, this effectively invalidates them. This stops stale applications from using refresh tokens.
     "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
     "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
-    "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 10,
+    "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 5,
 }
 
 
