@@ -22,7 +22,7 @@ export class HogFlowActionRunner {
             // Se the current action to the trigger action
             invocation.state.currentAction = {
                 id: triggerAction.id,
-                startedAt: DateTime.now(),
+                startedAtTimestamp: DateTime.now().toMillis(),
             }
 
             // TODO: For the trigger action we need to assume that we have already been "started" this way and move on...
