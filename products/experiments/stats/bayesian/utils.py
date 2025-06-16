@@ -11,7 +11,7 @@ from scipy.stats import norm, truncnorm
 
 from ..shared.statistics import SampleMeanStatistic, ProportionStatistic, StatisticError
 from ..shared.enums import DifferenceType
-from ..shared.utils import get_mean, get_variance, get_sample_size
+from ..shared.utils import get_mean, get_variance, get_sample_size, validate_test_inputs
 
 from .priors import GaussianPrior
 
@@ -287,21 +287,5 @@ def validate_inputs(
     Raises:
         StatisticError: If inputs are invalid
     """
-
-    # Check that both are the same type
-    if not isinstance(treatment_stat, type(control_stat)):
-        raise StatisticError("Treatment and control statistics must be the same type")
-
-    # Check sample sizes
-    if get_sample_size(treatment_stat) <= 0:
-        raise StatisticError("Treatment sample size must be positive")
-
-    if get_sample_size(control_stat) <= 0:
-        raise StatisticError("Control sample size must be positive")
-
-    # Check variances
-    if get_variance(treatment_stat) < 0:
-        raise StatisticError("Treatment variance cannot be negative")
-
-    if get_variance(control_stat) < 0:
-        raise StatisticError("Control variance cannot be negative")
+    # Use comprehensive shared validation
+    validate_test_inputs(treatment_stat, control_stat)
