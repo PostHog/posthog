@@ -43,7 +43,7 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
-                        - .eslintrc.js
+                        - .oxlintrc.json
                         - .prettier*
                         - babel.config.js
                         - package.json
@@ -107,11 +107,9 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
-            - name: Lint with ESLint
+            - name: Lint with Oxlint
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
