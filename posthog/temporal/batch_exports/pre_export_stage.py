@@ -534,8 +534,10 @@ async def _write_batch_export_record_batches_to_s3(
                     query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
                 )
             except ClickHouseClientTimeoutError:
-                status = ClickHouseQueryStatus.RUNNING
+                status = await client.acheck_query(str(query_id), raise_on_error=True)
+
                 while status == ClickHouseQueryStatus.RUNNING:
+                    await asyncio.sleep(10)
                     status = await client.acheck_query(str(query_id), raise_on_error=True)
 
             except Exception as e:
