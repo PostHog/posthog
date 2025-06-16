@@ -5115,7 +5115,16 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
+    type:
+        | 'string'
+        | 'number'
+        | 'boolean'
+        | 'dictionary'
+        | 'choice'
+        | 'json'
+        | 'integration'
+        | 'integration_field'
+        | 'email'
     key: string
     label: string
     choices?: { value: string; label: string }[]
