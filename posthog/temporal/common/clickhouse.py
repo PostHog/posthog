@@ -469,7 +469,7 @@ class ClickHouseClient:
         """
         query = """
         SELECT type, exception
-        FROM clusterAllReplicas('{{cluster_name:String}}', system.query_log)
+        FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
         WHERE query_id = {{query_id:String}}
         FORMAT CSV
         """
