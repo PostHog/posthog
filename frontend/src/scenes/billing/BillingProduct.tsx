@@ -98,7 +98,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 <div className="border-b border-primary rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product icon */}
-                        {getProductIcon(product.name, product.icon_key, 'text-2xl')}
+                        {getProductIcon(product.name, product.icon_key, 'text-2xl shrink-0')}
 
                         {/* Product name and description */}
                         <div>
