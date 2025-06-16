@@ -138,7 +138,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
 }
 
 function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
-    const { activeFeedbackFlagKey, activeFeedbackFlagKeyLoading, enrollmentUpdating } = useValues(featurePreviewsLogic)
+    const { activeFeedbackFlagKey, activeFeedbackFlagKeyLoading } = useValues(featurePreviewsLogic)
     const {
         beginEarlyAccessFeatureFeedback,
         cancelEarlyAccessFeatureFeedback,
@@ -165,7 +165,6 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                 </div>
                 <LemonSwitch
                     checked={enabled}
-                    disabled={enrollmentUpdating[flagKey]}
                     onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}
                 />
             </div>

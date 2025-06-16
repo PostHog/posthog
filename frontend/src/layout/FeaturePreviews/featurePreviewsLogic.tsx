@@ -23,7 +23,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        actions: [supportLogic, ['submitZendeskTicket'], featureFlagLogic, ['setFeatureFlags']],
+        actions: [supportLogic, ['submitZendeskTicket']],
     })),
     actions({
         updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean) => ({ flagKey, enabled }),
@@ -72,16 +72,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             beginEarlyAccessFeatureFeedback: (_, { flagKey }) => flagKey,
             cancelEarlyAccessFeatureFeedback: () => null,
         },
-        enrollmentUpdating: [
-            {} as Record<string, boolean>,
-            {
-                updateEarlyAccessFeatureEnrollment: (state, { flagKey }) => ({
-                    ...state,
-                    [flagKey]: true,
-                }),
-                setFeatureFlags: () => ({}), // Clear loading states when flags refresh
-            },
-        ],
     }),
     listeners(() => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled }) => {
