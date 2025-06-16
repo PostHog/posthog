@@ -408,6 +408,9 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
@@ -9977,6 +9980,27 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
+        "ExternalQueryError": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "$ref": "#/definitions/ExternalQueryErrorCode"
+                },
+                "detail": {
+                    "type": "string"
+                }
+            },
+            "required": ["code", "detail"],
+            "type": "object"
+        },
+        "ExternalQueryErrorCode": {
+            "enum": ["platform_access_required", "query_execution_failed"],
+            "type": "string"
+        },
+        "ExternalQueryStatus": {
+            "enum": ["success", "error"],
+            "type": "string"
+        },
         "FailureMessage": {
             "additionalProperties": false,
             "properties": {
@@ -11748,6 +11772,9 @@
                 "type": {
                     "const": "human",
                     "type": "string"
+                },
+                "ui_context": {
+                    "$ref": "#/definitions/MaxContextShape"
                 }
             },
             "required": ["type", "content"],
@@ -13149,6 +13176,65 @@
                 }
             ]
         },
+        "MaxContextShape": {
+            "additionalProperties": false,
+            "properties": {
+                "dashboards": {
+                    "items": {
+                        "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "MaxDashboardContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "filters": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "insights", "filters"],
+            "type": "object"
+        },
         "MaxInnerUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -13163,6 +13249,32 @@
                 }
             },
             "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxInsightContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/QuerySchema"
+                }
+            },
+            "required": ["id", "query"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -13340,6 +13452,7 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
+                "WebAnalyticsExternalSummaryQuery",
                 "RevenueAnalyticsGrowthRateQuery",
                 "RevenueAnalyticsInsightsQuery",
                 "RevenueAnalyticsOverviewQuery",
@@ -15168,6 +15281,22 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "type": "object"
+                        },
+                        "error": {
+                            "$ref": "#/definitions/ExternalQueryError"
+                        },
+                        "status": {
+                            "$ref": "#/definitions/ExternalQueryStatus"
+                        }
+                    },
+                    "required": ["data", "status"],
                     "type": "object"
                 },
                 {
@@ -17020,6 +17149,9 @@
                 },
                 {
                     "$ref": "#/definitions/WebPageURLSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
@@ -19286,7 +19418,8 @@
                 "log_attributes",
                 "replay",
                 "revenue_analytics_properties",
-                "resources"
+                "resources",
+                "max_ai_context"
             ],
             "type": "string"
         },
@@ -20144,6 +20277,58 @@
                     "$ref": "#/definitions/CustomEventConversionGoal"
                 }
             ]
+        },
+        "WebAnalyticsExternalSummaryQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebAnalyticsExternalSummaryQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAnalyticsExternalSummaryQueryResponse"
+                }
+            },
+            "required": ["dateRange", "kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                },
+                "error": {
+                    "$ref": "#/definitions/ExternalQueryError"
+                },
+                "status": {
+                    "$ref": "#/definitions/ExternalQueryStatus"
+                }
+            },
+            "required": ["data", "status"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalSummaryRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "type": "string"
+                },
+                "explicit_date": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["date_from", "date_to"],
+            "type": "object"
         },
         "WebAnalyticsOrderBy": {
             "items": [

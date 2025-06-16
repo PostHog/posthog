@@ -53,6 +53,7 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
     "flags",
+    "messaging-preferences",
 ]
 
 if DEBUG:

@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -13,9 +14,15 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingType, DateMappingOption, OrganizationType } from '~/types'
 
-import { canAccessBilling, syncBillingSearchParams, updateBillingSearchParams } from './billing-utils'
+import {
+    buildTrackingProperties,
+    canAccessBilling,
+    syncBillingSearchParams,
+    updateBillingSearchParams,
+} from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
+import type { BillingFilters } from './types'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
@@ -35,14 +42,7 @@ export interface BillingUsageResponse {
     next?: string
 }
 
-export interface BillingUsageFilters {
-    usage_types?: string[]
-    team_ids?: number[]
-    breakdowns?: ('type' | 'team')[]
-    interval?: 'day' | 'week' | 'month'
-}
-
-export const DEFAULT_BILLING_USAGE_FILTERS: BillingUsageFilters = {
+export const DEFAULT_BILLING_USAGE_FILTERS: BillingFilters = {
     breakdowns: ['type'],
     usage_types: [],
     team_ids: [],
@@ -59,9 +59,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
     connect({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     }),
     actions({
-        setFilters: (filters: Partial<BillingUsageFilters>, shouldDebounce: boolean = true) => ({
+        setFilters: (filters: Partial<BillingFilters>, shouldDebounce: boolean = true) => ({
             filters,
             shouldDebounce,
         }),
@@ -107,10 +108,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     })),
     reducers({
         filters: [
-            { ...DEFAULT_BILLING_USAGE_FILTERS } as BillingUsageFilters,
+            { ...DEFAULT_BILLING_USAGE_FILTERS } as BillingFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
-                toggleTeamBreakdown: (state: BillingUsageFilters) => {
+                toggleTeamBreakdown: (state: BillingFilters) => {
                     // Always toggle only 'team' in breakdowns, preserving 'type'
                     const current: ('type' | 'team')[] = state.breakdowns ?? []
                     const hasTeam = current.includes('team')
@@ -217,7 +218,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
         heading: [
             (s) => [s.filters],
-            (filters: BillingUsageFilters): string => {
+            (filters: BillingFilters): string => {
                 const { interval, breakdowns } = filters
                 let heading = ''
                 if (interval === 'day') {
@@ -330,7 +331,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
 
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
-            const filtersFromUrl: Partial<BillingUsageFilters> = {}
+            const filtersFromUrl: Partial<BillingFilters> = {}
 
             if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {
                 filtersFromUrl.usage_types = params.usage_types
@@ -370,16 +371,19 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
+                actions.reportBillingUsageInteraction(buildTrackingProperties('filters_changed', values))
             }
             actions.loadBillingUsage()
         },
         setDateRange: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
+                actions.reportBillingUsageInteraction(buildTrackingProperties('date_changed', values))
             }
             actions.loadBillingUsage()
         },
         resetFilters: async () => {
+            actions.reportBillingUsageInteraction(buildTrackingProperties('filters_cleared', values))
             actions.loadBillingUsage()
         },
         toggleAllSeries: () => {
@@ -389,6 +393,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
             const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
+            actions.reportBillingUsageInteraction(buildTrackingProperties('series_toggled', values))
+
             if (isAllVisible) {
                 // Hide all series
                 ids.forEach((id) => actions.toggleSeries(id))
@@ -399,6 +405,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         },
         toggleTeamBreakdown: async (_payload, breakpoint) => {
             await breakpoint(200)
+            actions.reportBillingUsageInteraction(buildTrackingProperties('breakdown_toggled', values))
             actions.loadBillingUsage()
         },
     })),

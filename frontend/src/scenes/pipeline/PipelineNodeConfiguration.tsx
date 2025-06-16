@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { BatchExportConfiguration } from 'scenes/data-pipelines/batch-exports/BatchExportConfiguration'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 
-import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
 import { PipelineBackend } from './types'
@@ -21,7 +21,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
             ) : node.backend === PipelineBackend.Plugin ? (
                 <PipelinePluginConfiguration stage={stage} pluginConfigId={node.id} />
             ) : (
-                <PipelineBatchExportConfiguration id={node.id.toString()} />
+                <BatchExportConfiguration id={node.id.toString()} />
             )}
         </div>
     )

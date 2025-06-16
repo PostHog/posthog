@@ -37,18 +37,15 @@ export function CodeEditorResizeable({
 
     useEffect(() => {
         const value = typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value
-        const lineCount = (value?.split('\n').length ?? 1) + 2
-        const lineHeight = 15
-        const calculatedHeight = value
-            ? Math.max(lineHeight * lineCount) // Add padding and minimum height when there's content
-            : lineHeight * lineCount // Just basic line height calculation when no content
-        setHeight(calculatedHeight)
+        const lineCount = (value?.split('\n').length ?? 1) + 1
+        const lineHeight = 18
+        setHeight(lineHeight * lineCount)
     }, [props.value])
 
     return (
         <div
             ref={ref}
-            className={clsx('CodeEditorResizeable relative', !embedded ? 'border rounded w-full' : '', className)}
+            className={clsx('relative CodeEditorResizeable', !embedded ? 'w-full rounded border' : '', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 minHeight,
@@ -68,7 +65,7 @@ export function CodeEditorResizeable({
             </AutoSizer>
 
             {showDiffActions && (
-                <div className="absolute top-2 right-2 z-20 flex gap-1 p-1 bg-white rounded-lg border shadow-sm">
+                <div className="flex absolute top-2 right-2 z-20 gap-1 p-1 bg-white rounded-lg border shadow-sm">
                     <LemonButton
                         status="danger"
                         icon={<IconX />}
@@ -92,7 +89,7 @@ export function CodeEditorResizeable({
 
             {/* Using a standard resize css means we need overflow-hidden which hides parts of the editor unnecessarily */}
             <div
-                className="absolute bottom-0 right-0 z-10 resize-y h-5 w-5 cursor-s-resize overflow-hidden"
+                className="overflow-hidden absolute right-0 bottom-0 z-10 w-5 h-5 resize-y cursor-s-resize"
                 onMouseDown={(e) => {
                     const startY = e.clientY
                     const startHeight = ref.current?.clientHeight ?? 0
