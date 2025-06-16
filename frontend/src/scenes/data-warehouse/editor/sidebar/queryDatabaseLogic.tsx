@@ -1032,10 +1032,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         addFolder: () => {
             const basePath = UNFILED_SAVED_QUERIES_PATH + '/'
-            let folderName = 'Untitled'
+            const baseFolderName = 'Untitled'
+            let folderName = baseFolderName
             let counter = 2
             while (values.viableItems.find((item) => item.path === basePath + folderName && item.type === 'folder')) {
-                folderName = `${folderName} ${counter}`
+                folderName = `${baseFolderName} ${counter}`
                 counter++
             }
 
