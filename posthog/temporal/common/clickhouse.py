@@ -474,7 +474,7 @@ class ClickHouseClient:
         FORMAT CSV
         """
 
-        async with self.apost_query(
+        async with self.aget_query(
             query,
             query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
             query_id=f"{query_id}-CHECK",
@@ -489,11 +489,11 @@ class ClickHouseClient:
             events = set()
             error = None
             for line in lines:
-                event, error = line.decode("utf-8").split(",")
+                event, error_value = line.decode("utf-8").split(",")
                 events.add(event)
 
-                if error:
-                    error = error
+                if error_value:
+                    error = error_value
 
             if "QueryFinish" in events:
                 return ClickHouseQueryStatus.FINISHED
