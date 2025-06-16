@@ -11,7 +11,6 @@ from posthog.schema import (
     CurrencyCode,
     DateRange,
     PropertyOperator,
-    RevenueSources,
     RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsInsightsQueryResponse,
     RevenueAnalyticsInsightsQueryGroupBy,
@@ -167,15 +166,12 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_revenue_analytics_insights_query(
         self,
         date_range: DateRange | None = None,
-        revenue_sources: RevenueSources | None = None,
         interval: IntervalType | None = None,
         group_by: RevenueAnalyticsInsightsQueryGroupBy | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range: DateRange = DateRange(date_from="-6m")
-        if revenue_sources is None:
-            revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
         if interval is None:
             interval = IntervalType.MONTH
         if group_by is None:
@@ -186,7 +182,6 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with freeze_time(self.QUERY_TIMESTAMP):
             query = RevenueAnalyticsInsightsQuery(
                 dateRange=date_range,
-                revenueSources=revenue_sources,
                 interval=interval,
                 groupBy=group_by,
                 properties=properties,
@@ -212,7 +207,13 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_no_crash_when_no_source_is_selected(self):
         results = self._run_revenue_analytics_insights_query(
-            revenue_sources=RevenueSources(events=[], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["non-existent-source"],
+                )
+            ],
         ).results
 
         self.assertEqual(results, [])
@@ -404,6 +405,24 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([result["label"] for result in results], ["stripe.posthog_test - Product C"])
         self.assertEqual([result["data"] for result in results], expected_data)
 
+    def test_with_country_filter(self):
+        results = self._run_revenue_analytics_insights_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="country",
+                    operator=PropertyOperator.EXACT,
+                    value=["US"],
+                )
+            ]
+        ).results
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual([result["label"] for result in results], ["stripe.posthog_test"])
+        self.assertEqual(
+            [result["data"] for result in results],
+            [[0, 0, Decimal("294.093"), 0, Decimal("287.6373"), 0, Decimal("135.49")]],
+        )
+
     def test_with_events_data(self):
         s1 = str(uuid7("2024-12-25"))
         s2 = str(uuid7("2025-01-03"))
@@ -415,7 +434,13 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = self._run_revenue_analytics_insights_query(
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(
@@ -451,7 +476,13 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = self._run_revenue_analytics_insights_query(
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(

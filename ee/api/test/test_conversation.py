@@ -2,13 +2,16 @@ import datetime
 import uuid
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
 
+from ee.api.conversation import ConversationViewSet
 from ee.hogai.assistant import Assistant
 from ee.models.assistant import Conversation
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.test.base import APIBaseTest
 
 
@@ -195,8 +198,8 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Generation has already been cancelled.")
+        # should be idempotent
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_cancel_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
@@ -356,3 +359,25 @@ class TestConversation(APIBaseTest):
             # Second result should be the older conversation
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
+
+    @override_settings(DEBUG=False)
+    def test_get_throttles_applies_rate_limits_for_create_action(self):
+        """Test that rate limits are applied for create action in non-debug, non-exempt conditions."""
+
+        viewset = ConversationViewSet()
+        viewset.action = "create"
+        viewset.team_id = 12345
+        throttles = viewset.get_throttles()
+        self.assertIsInstance(throttles[0], AIBurstRateThrottle)
+        self.assertIsInstance(throttles[1], AISustainedRateThrottle)
+
+    @override_settings(DEBUG=True)
+    def test_get_throttles_skips_rate_limits_for_debug_mode(self):
+        """Test that rate limits are skipped in debug mode."""
+
+        viewset = ConversationViewSet()
+        viewset.action = "create"
+        viewset.team_id = 12345
+        throttles = viewset.get_throttles()
+        self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
+        self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)

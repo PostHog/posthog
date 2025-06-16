@@ -2,7 +2,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '~/src/kafka/producer'
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 import {
     Database,
@@ -17,8 +17,8 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
+import { PersonState } from '../../../src/worker/ingestion/persons/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, insertRow } from '../../helpers/sql'
 
@@ -119,11 +119,7 @@ describe('PersonState.update()', () => {
             ...event,
         }
 
-        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-            customHub ? customHub.db : hub.db,
-            team.api_token,
-            event.distinct_id!
-        )
+        const personsStore = new MeasuringPersonsStoreForBatch(customHub ? customHub.db : hub.db)
         return new PersonState(
             fullEvent as any,
             team,
@@ -2306,7 +2302,7 @@ describe('JSONB optimization flag compatibility', () => {
             timestamp,
             true,
             hub.db.kafkaProducer,
-            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, legacyDistinctId),
+            new MeasuringPersonsStoreForBatch(hub.db),
             0,
             0.0
         )
@@ -2326,7 +2322,7 @@ describe('JSONB optimization flag compatibility', () => {
             timestamp,
             true,
             hub.db.kafkaProducer,
-            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, optimizedDistinctId),
+            new MeasuringPersonsStoreForBatch(hub.db),
             0,
             1.0
         )
@@ -2509,7 +2505,7 @@ describe('JSONB optimization flag compatibility', () => {
                 timestamp,
                 true,
                 hub.db.kafkaProducer,
-                new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, newUserDistinctId),
+                new MeasuringPersonsStoreForBatch(hub.db),
                 0,
                 0.0
             )
@@ -2522,7 +2518,7 @@ describe('JSONB optimization flag compatibility', () => {
                 timestamp,
                 true,
                 hub.db.kafkaProducer,
-                new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, oldUserDistinctId),
+                new MeasuringPersonsStoreForBatch(hub.db),
                 0,
                 1.0
             )

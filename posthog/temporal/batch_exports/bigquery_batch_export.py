@@ -293,13 +293,21 @@ class BigQueryClient(bigquery.Client):
     ):
         """Attempt to SELECT from table to check for query permissions."""
         job_config = bigquery.QueryJobConfig()
+
         if "timestamp" in [field.name for field in table.schema]:
             query = f"""
-            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
             """
+
+            if table.time_partitioning is not None and table.time_partitioning.field == "timestamp":
+                today = dt.date.today()
+                query += f" AND DATE(timestamp) = '{today.isoformat()}'"
+
+            query += " LIMIT 1"
+
         else:
             query = f"""
-            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` TABLESAMPLE SYSTEM (0.0001 PERCENT) LIMIT 1
             """
 
         try:
@@ -646,8 +654,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
+        is_orderless = str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS
+
         _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
-        if details is None or str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
+        if details is None or is_orderless:
             details = BigQueryHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
@@ -779,6 +789,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
                         table_schema=stage_schema if can_perform_merge else schema,
                     )
+
                     try:
                         await run_consumer(
                             consumer=consumer,
@@ -791,9 +802,24 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                             multiple_files=True,
                         )
 
-                    # ensure we always write data to final table, even if we fail halfway through, as if we resume from
-                    # a heartbeat, we can continue without losing data
-                    finally:
+                    except Exception:
+                        # Ensure we always write data to final table,  even if
+                        # we fail halfway through, as if we resume from a
+                        # heartbeat, we can continue without losing data
+                        # However, orderless batch exports should not merge
+                        # partial data as they will resume from the beginning.
+                        if can_perform_merge and not is_orderless:
+                            await bq_client.amerge_tables(
+                                final_table=bigquery_table,
+                                stage_table=bigquery_stage_table,
+                                mutable=mutable,
+                                merge_key=merge_key,
+                                update_key=update_key,
+                                stage_fields_cast_to_json=json_columns,
+                            )
+                        raise
+
+                    else:
                         if can_perform_merge:
                             await bq_client.amerge_tables(
                                 final_table=bigquery_table,

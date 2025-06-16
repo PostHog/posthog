@@ -19,13 +19,13 @@ class TrendsPlannerNode(TaxonomyAgentPlannerNode):
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
+        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
 
 
 class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TrendsTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
+        return super()._run_with_toolkit(state, toolkit, config)
 
 
 TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]

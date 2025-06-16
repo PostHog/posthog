@@ -1,7 +1,7 @@
 import base64
 from datetime import datetime
 import json
-from unittest.mock import call, patch
+from unittest.mock import patch, call
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,7 +12,6 @@ from django.test.client import RequestFactory
 from freezegun import freeze_time
 from rest_framework.request import Request
 
-from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import EventDefinition
 from posthog.settings.utils import get_from_env
@@ -305,20 +304,19 @@ class TestLoadDataFromRequest(TestCase):
         post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
         return post_request
 
-    @patch("posthog.utils.configure_scope")
-    def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_scope):
+    @patch("posthoganalytics.tag")
+    @patch("posthoganalytics.new_context")
+    def test_pushes_debug_information_into_context_from_origin_header(self, patched_context, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
-
-        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         post_request = self._create_request_with_headers(origin, referer)
 
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_scope.assert_called_once()
-        mock_set_tag.assert_has_calls(
+        patched_context.assert_called_once()
+        patched_tag.assert_has_calls(
             [
                 call("origin", origin),
                 call("referer", referer),
@@ -326,20 +324,19 @@ class TestLoadDataFromRequest(TestCase):
             ]
         )
 
-    @patch("posthog.utils.configure_scope")
-    def test_pushes_debug_information_into_sentry_scope_when_origin_header_not_present(self, patched_scope):
+    @patch("posthoganalytics.tag")
+    @patch("posthoganalytics.new_context")
+    def test_pushes_debug_information_into_context_when_origin_header_not_present(self, patched_context, patched_tag):
         origin = "potato.io"
         referer = "https://" + origin
-
-        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         post_request = self._create_request_with_headers(origin, referer)
 
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_scope.assert_called_once()
-        mock_set_tag.assert_has_calls(
+        patched_context.assert_called_once()
+        patched_tag.assert_has_calls(
             [
                 call("origin", origin),
                 call("referer", referer),
@@ -347,18 +344,17 @@ class TestLoadDataFromRequest(TestCase):
             ]
         )
 
-    @patch("posthog.utils.configure_scope")
-    def test_still_tags_sentry_scope_even_when_debug_signal_is_not_available(self, patched_scope):
-        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
-
+    @patch("posthoganalytics.tag")
+    @patch("posthoganalytics.new_context")
+    def test_still_tags_context_even_when_debug_signal_is_not_available(self, patched_context, patched_tag):
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
 
         with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
-        patched_scope.assert_called_once()
-        mock_set_tag.assert_has_calls(
+        patched_context.assert_called_once()
+        patched_tag.assert_has_calls(
             [
                 call("origin", "unknown"),
                 call("referer", "unknown"),
@@ -398,10 +394,9 @@ class TestLoadDataFromRequest(TestCase):
 
     @patch("posthog.utils.gzip")
     def test_can_decompress_gzipped_body_received_with_no_compression_flag(self, patched_gzip):
-        # see https://sentry.io/organizations/posthog2/issues/3136510367
         # one organization is causing a request parsing error by sending an encoded body
         # but the empty string for the compression value
-        # this accounts for a large majority of our Sentry errors
+        # this accounts for a large majority of our error tracking errors
 
         patched_gzip.decompress.return_value = '{"what is it": "the decompressed value"}'
 
@@ -450,16 +445,13 @@ class TestShouldRefresh(TestCase):
         assert refresh_requested_by_client(drf_request) == "async"
 
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
-        """
-        regression test see https://sentry.io/organizations/posthog/issues/3719740579/events/latest/?project=1899813&referrer=latest-event
-        """
         assert get_compare_period_dates(
             date_from=datetime(2022, 1, 1, 0, 0),
             date_to=datetime(2022, 11, 4, 21, 20, 41, 730028),
             date_from_delta_mapping={"day": 1, "month": 1},
             date_to_delta_mapping=None,
             interval="day",
-        ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))
+        ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 21, 20, 41, 730028))
 
 
 class TestUtilities(TestCase):
@@ -488,7 +480,6 @@ class TestUtilities(TestCase):
         self.assertEqual(base64_decode(no_padding), simple_string)
 
         # Tests with real URL encoded data
-        # from: https://posthog.sentry.io/issues/5680826999/events/ee804fe6ffd148559180c61d7c822766/
         encoded_data = b"data=eyJ0b2tlbiI6InBoY19HNEFGZkNtRWJXSXZXS05GWlVLaWhpNXRIaGNJU1FYd2xVYXpLMm5MdkE0IiwiZGlzdGluY3RfaWQiOiIwMTkxMmJjMS1iY2ZkLTcwNDYtOTQ0My0wNjVjZjhjYzUyYzUiLCJncm91cHMiOnt9fQ%3D%3D"
         decoded = base64_decode(encoded_data)
         decoded_json = json.loads(decoded)
@@ -497,7 +488,6 @@ class TestUtilities(TestCase):
         self.assertEqual(decoded_json["distinct_id"], "01912bc1-bcfd-7046-9443-065cf8cc52c5")
         self.assertEqual(decoded_json["groups"], {})
 
-        # from: https://posthog.sentry.io/issues/5680826999/events/2ec7bfd975594873a84ce8153388c6e2/
         encoded_data = b"eyJ0b2tlbiI6InBoY19JN3hJY09idHNrcDFWc2FFY0pPdEhycThrWGxrdVg3bGpwdnFWaDNJQ0Z6IiwiZGlzdGluY3RfaWQiOiIwMTkxMmU3Ny1hMjYwLTc5NWMtYjBmYy1lOWE4NzI5MWViNzAiLCJncm91cHMiOnt9fQ%3D%3D"
         decoded = base64_decode(encoded_data)
         decoded_json = json.loads(decoded)

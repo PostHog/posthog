@@ -21,7 +21,7 @@ export function SavedFilters({
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     const { savedFilters, paginationSavedFilters, savedFiltersSearch, savedFiltersLoading } =
         useValues(savedFiltersLogic)
-    const { deletePlaylist, setSavedFiltersSearch } = useActions(savedFiltersLogic)
+    const { deletePlaylist, setSavedFiltersSearch, setAppliedSavedFilter } = useActions(savedFiltersLogic)
     const { setActiveFilterTab } = useActions(playlistLogic)
 
     const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
@@ -47,6 +47,7 @@ export function SavedFilters({
                                 if (filter && filter.filters) {
                                     setFilters(filter.filters)
                                     setActiveFilterTab('filters')
+                                    setAppliedSavedFilter(filter)
                                 }
                             }}
                             className="cursor-pointer text-current hover:text-accent"

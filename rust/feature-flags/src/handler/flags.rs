@@ -81,7 +81,13 @@ pub async fn evaluate_for_request(
     groups: Option<HashMap<String, Value>>,
     hash_key_override: Option<String>,
     request_id: Uuid,
+    disable_flags: bool,
 ) -> FlagsResponse {
+    // If flags are disabled, return empty FlagsResponse
+    if disable_flags {
+        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+    }
+
     let ctx = FeatureFlagEvaluationContext {
         team_id,
         project_id,

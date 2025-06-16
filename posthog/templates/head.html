@@ -30,16 +30,6 @@
         window.POSTHOG_JS_UUID_VERSION = "{{posthog_js_uuid_version}}";
     </script>
 {% endif %}
-{% if sentry_dsn %}
-    <script>
-        window.SENTRY_DSN = '{{ sentry_dsn | escapejs }}';
-    </script>
-{% endif %}
-{% if sentry_environment %}
-    <script>
-        window.SENTRY_ENVIRONMENT = '{{ sentry_environment | escapejs }}';
-    </script>
-{% endif %}
 {% if stripe_public_key %}
     <script>
         window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}';

@@ -18,6 +18,7 @@ from posthog.api.utils import action
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team.team import Team
 from posthog.schema import ExperimentEventExposureConfig
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
@@ -244,7 +245,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
             feature_flag = feature_flag_serializer.save()
 
         if not validated_data.get("stats_config"):
-            validated_data["stats_config"] = {"version": 2}
+            # Get organization's default stats method setting
+            team = Team.objects.get(id=self.context["team_id"])
+            default_method = team.organization.default_experiment_stats_method
+            validated_data["stats_config"] = {"version": 2, "method": default_method}
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
