@@ -443,7 +443,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 )
 
                 const children = convertFileSystemEntryToTreeDataItem({
-                    imports: viableFileteredItems.map((i) => ({ ...i, protocol: 'project://' })),
+                    imports: viableFilteredItems.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
