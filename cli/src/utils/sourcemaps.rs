@@ -15,6 +15,7 @@ use walkdir::WalkDir;
 
 use super::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE};
 
+#[derive(Clone)]
 pub struct SourceFile {
     pub path: PathBuf,
     pub content: String,
@@ -51,6 +52,7 @@ pub struct SourceMapContent {
     fields: HashMap<String, Value>,
 }
 
+#[derive(Clone)]
 pub struct SourcePair {
     pub chunk_id: Option<String>,
 

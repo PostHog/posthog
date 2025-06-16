@@ -15,6 +15,7 @@ pub fn upload(
     directory: &PathBuf,
     project: Option<String>,
     version: Option<String>,
+    delete_after: &bool,
 ) -> Result<()> {
     let token = load_token().context("While starting upload command")?;
     let host = token.get_host(host.as_deref());
@@ -28,7 +29,7 @@ pub fn upload(
 
     let pairs = read_pairs(directory)?;
 
-    let uploads = collect_uploads(pairs).context("While preparing files for upload")?;
+    let uploads = collect_uploads(pairs.clone()).context("While preparing files for upload")?;
     info!("Found {} chunks to upload", uploads.len());
 
     // See if we have enough information to create a release object
@@ -47,6 +48,10 @@ pub fn upload(
     .context("While creating release")?;
 
     upload_chunks(&url, &token.token, uploads, release.as_ref())?;
+
+    if *delete_after {
+        delete_sourcemaps(pairs).context("While deleting sourcemaps")?;
+    }
 
     let _ = capture_handle.join();
 
@@ -104,4 +109,18 @@ fn content_hash(uploads: &[ChunkUpload]) -> String {
         hasher.update(&upload.data);
     }
     format!("{:x}", hasher.finalize())
+}
+
+fn delete_sourcemaps(pairs: Vec<SourcePair>) -> Result<()> {
+    // Delete local sourcemaps files from the sourcepair
+    for pair in pairs {
+        let path = pair.sourcemap.path;
+        if path.exists() {
+            std::fs::remove_file(&path).context(format!(
+                "Failed to delete sourcemaps file: {}",
+                path.display()
+            ))?;
+        }
+    }
+    Ok(())
 }
