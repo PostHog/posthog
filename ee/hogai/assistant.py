@@ -30,7 +30,7 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import should_output_assistant_message
+from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -242,9 +242,14 @@ class Assistant:
     @property
     def _initial_state(self) -> AssistantState:
         if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
+            return AssistantState(
+                messages=[self._latest_message],
+                start_id=self._latest_message.id,
+            )
         else:
-            return AssistantState(messages=[])
+            return AssistantState(
+                messages=[],
+            )
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
@@ -361,6 +366,11 @@ class Assistant:
                 return ReasoningMessage(
                     content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
                 )
+            case AssistantNodeName.ROOT:
+                ui_context = find_last_ui_context(input.messages)
+                if ui_context and (ui_context.dashboards or ui_context.insights):
+                    return ReasoningMessage(content="Calculating insights")
+                return None
             case _:
                 return None
 
