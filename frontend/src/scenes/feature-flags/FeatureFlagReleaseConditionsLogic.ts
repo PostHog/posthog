@@ -19,6 +19,15 @@ import {
 
 import type { featureFlagReleaseConditionsLogicType } from './FeatureFlagReleaseConditionsLogicType'
 
+// Helper function to move a condition set to a new index
+function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] {
+    const updatedGroups = [...groups]
+    const item = updatedGroups[index]
+    updatedGroups.splice(index, 1)
+    updatedGroups.splice(newIndex, 0, item)
+    return updatedGroups
+}
+
 // TODO: Type onChange errors properly
 export interface FeatureFlagReleaseConditionsLogicProps {
     filters: FeatureFlagFilters
@@ -123,25 +132,16 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     return { ...state, groups }
                 },
                 moveConditionSetDown: (state, { index }) => {
-                    if (!state || index === state.groups.length - 1) {
+                    if (!state || index >= state.groups.length - 1) {
                         return state
                     }
-
-                    const groups = [...state.groups]
-                    const condition = groups[index]
-                    groups.splice(index, 1)
-                    groups.splice(index + 1, 0, condition)
-                    return { ...state, groups }
+                    return { ...state, groups: moveConditionSet(state.groups, index, index + 1) }
                 },
                 moveConditionSetUp: (state, { index }) => {
-                    if (!state || index === 0) {
+                    if (!state || index <= 0) {
                         return state
                     }
-                    const groups = [...state.groups]
-                    const condition = groups[index]
-                    groups.splice(index, 1)
-                    groups.splice(index - 1, 0, condition)
-                    return { ...state, groups }
+                    return { ...state, groups: moveConditionSet(state.groups, index, index - 1) }
                 },
             },
         ],
