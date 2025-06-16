@@ -171,16 +171,16 @@ export function PipelinePluginConfiguration({
                 className="deprecated-space-y-3"
             >
                 <div className="flex flex-wrap gap-4 items-start">
-                    <div className="flex flex-col gap-4 flex-1 min-w-100">
-                        <div className="border bg-surface-primary rounded p-3 deprecated-space-y-2">
-                            <div className="flex flex-row gap-2 min-h-16 items-center">
+                    <div className="flex flex-col flex-1 gap-4 min-w-100">
+                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                            <div className="flex flex-row gap-2 items-center min-h-16">
                                 <RenderApp plugin={plugin} imageSize="medium" />
-                                <div className="flex flex-col py-1 flex-1">
-                                    <div className="flex flex-row items-center font-semibold text-sm gap-1">
+                                <div className="flex flex-col flex-1 py-1">
+                                    <div className="flex flex-row gap-1 items-center text-sm font-semibold">
                                         {plugin.name}
                                     </div>
                                     {plugin.description ? (
-                                        <div className="text-text-3000 text-xs text-tertiary mt-1">
+                                        <div className="mt-1 text-xs text-text-3000 text-tertiary">
                                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                                                 {plugin.description}
                                             </LemonMarkdown>
@@ -218,7 +218,7 @@ export function PipelinePluginConfiguration({
                     </div>
 
                     <div className="flex-2 min-w-100 deprecated-space-y-4">
-                        <div className="border bg-surface-primary rounded p-3  deprecated-space-y-2">
+                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
                             <>
                                 {fields.length ? (
                                     fields

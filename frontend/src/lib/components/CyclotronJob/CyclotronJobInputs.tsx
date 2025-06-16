@@ -25,8 +25,6 @@ import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { HogFlowAction } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CyclotronJobInputIntegration } from 'scenes/hog-functions/integrations/CyclotronJobInputIntegration'
-import { CyclotronJobInputIntegrationField } from 'scenes/hog-functions/integrations/CyclotronJobInputIntegrationField'
 
 import {
     CyclotronJobInputSchemaType,
@@ -39,6 +37,8 @@ import {
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
+import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
+import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 
 export type CyclotronJobInputProps = {
     schema: CyclotronJobInputSchemaType
@@ -61,7 +61,7 @@ export type CyclotronJobInputWithSchemaProps = {
     showSource: boolean
 }
 
-const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+const typeList = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 function JsonConfigField(props: {
     input: CyclotronJobInputType
@@ -291,6 +291,8 @@ export function CyclotronJobInputRenderer({
                     templating={templating}
                 />
             )
+        case 'number':
+            return <LemonInput type="number" value={input.value} onChange={onValueChange} className="ph-no-capture" />
         case 'json':
             return (
                 <JsonConfigField input={input} onChange={onChange} className="ph-no-capture" templating={templating} />
