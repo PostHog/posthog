@@ -180,12 +180,15 @@ impl AssignmentRule {
         while i < context.max_steps {
             let step_result = vm.step()?;
             match step_result {
-                StepOutcome::Finished(Value::Bool(b)) if b => {
+                StepOutcome::Finished(Value::Bool(true)) => {
                     return Ok(NewAssignment::try_new(
                         self.user_id,
                         self.user_group_id,
                         self.role_id,
-                    ))
+                    ));
+                }
+                StepOutcome::Finished(Value::Bool(false)) => {
+                    return Ok(None);
                 }
                 StepOutcome::Finished(res) => {
                     return Err(VmError::Other(format!(
