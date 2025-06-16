@@ -69,7 +69,9 @@ def calculate_effect_size_and_variance(
     return effect, effect_variance
 
 
-def variance_of_ratios(mean_numerator: float, var_numerator: float, mean_denominator: float, var_denominator: float, covariance: float) -> float:
+def variance_of_ratios(
+    mean_numerator: float, var_numerator: float, mean_denominator: float, var_denominator: float, covariance: float
+) -> float:
     """
     Calculate variance of ratio using delta method.
 
@@ -89,9 +91,11 @@ def variance_of_ratios(mean_numerator: float, var_numerator: float, mean_denomin
     if abs(mean_denominator) < 1e-10:
         raise StatisticError("Denominator mean cannot be zero for ratio variance calculation")
 
-    return (var_numerator / mean_denominator**2 + 
-            mean_numerator**2 * var_denominator / mean_denominator**4 - 
-            2 * mean_numerator * covariance / mean_denominator**3)
+    return (
+        var_numerator / mean_denominator**2
+        + mean_numerator**2 * var_denominator / mean_denominator**4
+        - 2 * mean_numerator * covariance / mean_denominator**3
+    )
 
 
 def calculate_posterior(effect_size: float, effect_variance: float, prior: GaussianPrior) -> tuple[float, float]:

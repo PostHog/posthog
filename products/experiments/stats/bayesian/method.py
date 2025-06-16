@@ -234,7 +234,7 @@ class BayesianMethod:
         """Make a business recommendation based on the test result."""
         chance_to_win = result.chance_to_win
         preferred_variation = result.preferred_variation
-        
+
         if chance_to_win > 0.95:
             return f"Strong evidence for {preferred_variation}. Safe to proceed."
         elif chance_to_win > 0.85:
