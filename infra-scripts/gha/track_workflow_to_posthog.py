@@ -41,18 +41,18 @@ for job in jobs:
             {
                 "event": "github action step",
                 "properties": {
-                    "workflow": WORKFLOW,
-                    "job": job.get("name"),
-                    "step": step.get("name"),
-                    "conclusion": step.get("conclusion"),
-                    "run_id": RUN_ID,
-                    "run_number": RUN_NUMBER,
-                    "run_attempt": RUN_ATTEMPT,
-                    "pr_number": os.environ.get("GITHUB_REF", "").split("/")[-1]
+                    "ci_workflow": WORKFLOW,
+                    "ci_job": job.get("name"),
+                    "ci_step": step.get("name"),
+                    "ci_conclusion": step.get("conclusion"),
+                    "ci_run_id": RUN_ID,
+                    "ci_run_number": RUN_NUMBER,
+                    "ci_run_attempt": RUN_ATTEMPT,
+                    "ci_pr_number": os.environ.get("GITHUB_REF", "").split("/")[-1]
                     if os.environ.get("GITHUB_REF", "").startswith("refs/pull/")
                     else None,
-                    "sha": os.environ.get("GITHUB_SHA"),
-                    "duration_seconds": duration,
+                    "ci_sha": os.environ.get("GITHUB_SHA"),
+                    "ci_duration_seconds": duration,
                 },
                 "distinct_id": ACTOR,
                 "timestamp": completed or started,
