@@ -7,7 +7,7 @@ def capture_exception(error=None, additional_properties=None):
 
     logger = structlog.get_logger(__name__)
 
-    properties = get_query_tags()
+    properties = get_query_tags().model_dump(exclude_none=True)
 
     if additional_properties:
         properties.update(additional_properties)
