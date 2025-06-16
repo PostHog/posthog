@@ -532,13 +532,10 @@ def WEB_BOUNCES_INSERT_SQL(
         os,
         viewport_width,
         viewport_height
-    SETTINGS {settings}
+    {"SETTINGS " + settings if settings and not select_only else ""}
     """
 
     if select_only:
-        # Remove the SETTINGS clause for SELECT-only queries when settings is empty
-        if not settings.strip():
-            query = query.replace(f"SETTINGS {settings}", "").strip()
         return query
     else:
         return f"INSERT INTO {table_name}\n{query}"
