@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclasses.dataclass
 class ScheduleSubscriptionsActivityInputs:
-    """Inputs for the `schedule_subscriptions_activity`."""
+    """Inputs for the`schedule_subscriptions_activity`."""
 
     buffer_minutes: int = 15
 
@@ -37,13 +37,10 @@ async def schedule_subscriptions_activity(inputs: ScheduleSubscriptionsActivityI
     async with Heartbeater():
         logger = get_internal_logger()
 
-        # This is similar to the Celery implementation but adapted for async
         now_with_buffer = datetime.utcnow() + timedelta(minutes=inputs.buffer_minutes)
 
-        # We need to use sync_to_async for Django ORM operations in async context
         from asgiref.sync import sync_to_async
 
-        # Get all subscriptions that need to be delivered
         @sync_to_async
         def get_subscriptions():
             return list(
@@ -76,7 +73,7 @@ async def schedule_subscriptions_activity(inputs: ScheduleSubscriptionsActivityI
                 deliver_subscription_report_activity,
                 DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
                 start_to_close_timeout=dt.timedelta(
-                    seconds=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 60 * 1.5
+                    minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
                 ),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
