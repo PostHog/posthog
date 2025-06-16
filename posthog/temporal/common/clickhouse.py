@@ -471,48 +471,48 @@ class ClickHouseClient:
         SELECT type, exception
         FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
         WHERE query_id = {{query_id:String}}
-        FORMAT CSV
+        FORMAT JSONEachRow
         """
 
-        async with self.aget_query(
+        resp = await self.read_query(
             query,
             query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
             query_id=f"{query_id}-CHECK",
-        ) as response:
-            resp = await response.content.read()
+        )
 
-            if not resp:
-                raise ClickHouseQueryNotFound(query, query_id)
+        if not resp:
+            raise ClickHouseQueryNotFound(query, query_id)
 
-            lines = resp.split(b"\n")
+        lines = resp.split(b"\n")
 
-            events = set()
-            error = None
-            for line in lines:
-                if not line:
-                    continue
+        events = set()
+        error = None
+        for line in lines:
+            if not line:
+                continue
 
-                event, error_value = line.decode("utf-8").split(",", 1)
-                events.add(event)
+            loaded = json.loads(line)
+            events.add(loaded["type"])
 
-                if error_value:
-                    error = error_value
+            error_value = loaded.get("exception", None)
+            if error_value:
+                error = error_value
 
-            if "QueryFinish" in events:
-                return ClickHouseQueryStatus.FINISHED
-            elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
-                if raise_on_error:
-                    if error is not None:
-                        error_message = error
-                    else:
-                        error_message = f"Unknown query error in query with ID: {query_id}"
-                    raise ClickHouseError(query, error_message=error_message)
+        if "QueryFinish" in events:
+            return ClickHouseQueryStatus.FINISHED
+        elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
+            if raise_on_error:
+                if error is not None:
+                    error_message = error
+                else:
+                    error_message = f"Unknown query error in query with ID: {query_id}"
+                raise ClickHouseError(query, error_message=error_message)
 
-                return ClickHouseQueryStatus.ERROR
-            elif "QueryStart" in events:
-                return ClickHouseQueryStatus.RUNNING
-            else:
-                raise ClickHouseQueryNotFound(query, query_id)
+            return ClickHouseQueryStatus.ERROR
+        elif "QueryStart" in events:
+            return ClickHouseQueryStatus.RUNNING
+        else:
+            raise ClickHouseQueryNotFound(query, query_id)
 
     async def stream_query_as_jsonl(
         self,
