@@ -73,9 +73,7 @@ class ActorsQueryRunner(QueryRunner):
         recordings_column_index: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
         events_distinct_id_lookup: Optional[dict[str, list[str]]],
-    ) -> list:
-        enriched = []
-
+    ) -> Iterator[list]:
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
@@ -94,9 +92,7 @@ class ActorsQueryRunner(QueryRunner):
                     self._get_recordings(result[recordings_column_index], recordings_lookup) or []
                 )
 
-            enriched.append(new_row)
-
-        return enriched
+            yield new_row
 
     def prepare_recordings(
         self, column_name: str, input_columns: list[str]
@@ -166,7 +162,7 @@ class ActorsQueryRunner(QueryRunner):
                     self.paginator.results[index] = row
 
         return ActorsQueryResponse(
-            results=results,
+            results=list(results),
             timings=response.timings,
             types=[t for _, t in response.types] if response.types else None,
             columns=input_columns,
