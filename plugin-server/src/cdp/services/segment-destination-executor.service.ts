@@ -158,7 +158,6 @@ export class SegmentDestinationExecutorService {
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
-                    endpoint = 'http://localhost:2080/e2e78703-8f15-438a-8712-d360d6f1f785'
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
