@@ -81,8 +81,12 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                 # Create a new project for the source team
                 source_team = teams.get(id=source_id)
                 if source_team.id != source_team.project_id:
+                    original_project_name = source_team.project.name
+                    environment_name = source_team.name
+                    new_project_name = f"{original_project_name} - {environment_name}"
+
                     new_project = Project.objects.create(
-                        id=source_team.id, name=source_team.name, organization=organization
+                        id=source_team.id, name=new_project_name, organization=organization
                     )
                     source_team.project = new_project
                     source_team.save()
