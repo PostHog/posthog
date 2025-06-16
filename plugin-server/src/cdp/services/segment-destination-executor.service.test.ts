@@ -1,8 +1,8 @@
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
-import { fetch, FetchResponse } from '~/utils/request'
 import { forSnapshot } from '~/tests/helpers/snapshots'
+import { fetch, FetchResponse } from '~/utils/request'
 
 import { createHogFunction } from '../_tests/fixtures'
 import {
