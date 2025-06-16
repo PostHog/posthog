@@ -618,6 +618,7 @@ class ProjectSecretAPITokenPermission(BasePermission):
         return request.resolver_match.view_name in (
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
+            "project_feature_flags-local-evaluation",
         )
 
 
