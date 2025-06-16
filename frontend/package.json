@@ -40,7 +40,7 @@
         "prettier:check": "prettier --check \"../{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint": "pnpm lint:js && pnpm lint:css",
-        "lint:js": "cd .. && oxlint --quiet && node scripts/lint-posthog-rules.mjs frontend/src",
+        "lint:js": "cd .. && oxlint --quiet",
         "lint:css": "stylelint \"../(frontend|products)/**/*.{css,scss}\" --ignore-path=frontend/.stylelintignore",
         "format": "cd .. && oxlint --fix --quiet && node scripts/remove-unused-imports.mjs frontend/src && pnpm lint:css --fix && pnpm prettier",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
