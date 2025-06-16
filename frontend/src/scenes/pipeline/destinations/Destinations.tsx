@@ -28,7 +28,7 @@ import { FrontendApps } from '../FrontendApps'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
-import { pipelineNodeMenuCommonItems, RenderApp } from '../utils'
+import { usePipelineNodeMenuCommonItems, RenderApp } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -310,7 +310,7 @@ export function DestinationsTable({
                                                         ? `Data pipelines add-on is required for enabling new ${simpleName}s`
                                                         : undefined,
                                                 },
-                                                ...pipelineNodeMenuCommonItems(destination),
+                                                ...usePipelineNodeMenuCommonItems(destination),
                                                 {
                                                     label: `Delete ${simpleName}`,
                                                     status: 'danger' as const, // for typechecker happiness

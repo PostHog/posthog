@@ -212,7 +212,9 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
     return []
 }
 
-export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
+export function usePipelineNodeMenuCommonItems(
+    node: Transformation | SiteApp | ImportApp | Destination
+): LemonMenuItem[] {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
@@ -246,7 +248,7 @@ export async function loadPluginsFromUrl(url: string): Promise<Record<number, Pl
     return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
 }
 
-export function pipelinePluginBackedNodeMenuCommonItems(
+export function usePipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,
     loadPluginConfigs: any,
@@ -265,7 +267,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                 }),
             disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
         },
-        ...pipelineNodeMenuCommonItems(node),
+        ...usePipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
                   {

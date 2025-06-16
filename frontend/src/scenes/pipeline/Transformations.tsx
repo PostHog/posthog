@@ -16,7 +16,7 @@ import { NewButton } from './NewButton'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'
-import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
+import { appColumn, nameColumn, usePipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
     const { sortedTransformations, loading } = useValues(pipelineTransformationsLogic)
@@ -134,7 +134,7 @@ export const TransformationsMoreOverlay = ({
                           },
                       ]
                     : []),
-                ...pipelinePluginBackedNodeMenuCommonItems(
+                ...usePipelinePluginBackedNodeMenuCommonItems(
                     transformation,
                     toggleEnabled,
                     loadPluginConfigs,
