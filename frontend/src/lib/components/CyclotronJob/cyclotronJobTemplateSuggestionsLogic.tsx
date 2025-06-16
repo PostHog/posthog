@@ -45,7 +45,7 @@ export const cyclotronJobTemplateSuggestionsLogic = kea<cyclotronJobTemplateSugg
     props({} as CyclotronJobTemplateSuggestionsLogicProps),
     key(({ templating }: CyclotronJobTemplateSuggestionsLogicProps) => templating),
 
-    path((key) => ['scenes', 'hog-functions', 'configuration', 'hogFunctionTemplateSuggestionsLogic', key]),
+    path((key) => ['components', 'cyclotron-jobs', 'cyclotronJobTemplateSuggestionsLogic', key]),
     actions({
         setSearch: (search: string) => ({ search }),
     }),

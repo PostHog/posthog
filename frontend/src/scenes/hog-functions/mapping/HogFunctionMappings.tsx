@@ -13,13 +13,13 @@ import {
 } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Group } from 'kea-forms'
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { CyclotronJobInputs } from '~/lib/components/CyclotronJob/CyclotronJobInputs'
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
 
@@ -53,7 +53,7 @@ const MappingSummary = memo(function MappingSummary({
     const firstInputValue = (firstInput?.key ? mapping.inputs?.[firstInput.key]?.value : null) ?? '(custom value)'
 
     return (
-        <span className="flex items-center flex-1 gap-4">
+        <span className="flex flex-1 gap-4 items-center">
             <span>
                 {eventSummary ? humanize(eventSummary) : <span className="text-secondary">All events</span>}{' '}
                 {propertyFiltersCount ? (
@@ -278,8 +278,8 @@ export function HogFunctionMappings(): JSX.Element | null {
                 ) : null
 
                 return (
-                    <div className="p-3 border rounded bg-surface-primary">
-                        <div className="flex items-start justify-between">
+                    <div className="p-3 rounded border bg-surface-primary">
+                        <div className="flex justify-between items-start">
                             <div className="flex-1">
                                 <LemonLabel>Mappings</LemonLabel>
                                 <p className="text-sm text-secondary">
