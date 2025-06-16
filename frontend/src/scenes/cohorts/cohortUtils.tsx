@@ -157,7 +157,7 @@ export function validateGroup(
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
         const errorMsg = `${negatedCriteria
-            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)].label}'`)
+            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)]!.label}'`)
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
             CohortClientErrors.NegationCriteriaMissingOther
         }`
