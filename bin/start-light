@@ -1,0 +1,32 @@
+#!/bin/bash
+
+set -e
+
+export DEBUG=${DEBUG:-1}
+export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
+export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
+export API_QUERIES_PER_TEAM='{"1": 100}'
+
+# Disable OpenTelemetry for light mode
+export OTEL_SDK_DISABLED="true"
+
+if [ -f .env ]; then
+    set -o allexport
+    source .env
+    set +o allexport
+fi
+
+./bin/download-mmdb
+
+if ! command -v mprocs &>/dev/null; then
+    if command -v brew &>/dev/null; then
+        echo "🔁 Installing mprocs via Homebrew..."
+        brew install mprocs
+    else
+        echo "👉 To run bin/start-light, install mprocs: https://github.com/pvolok/mprocs#installation"
+        exit 1
+    fi
+fi
+
+exec mprocs --config bin/mprocs-light.yaml
