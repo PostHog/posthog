@@ -18,7 +18,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -85,7 +85,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -174,7 +174,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -263,7 +263,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/a\\/\\d+', '/a/:id'), '\\/b\\/\\d+', '/b/:id'), '\\/c\\/\\d+', '/c/:id') AS breakdown_value,
+               replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/a\\/\\d+', '/a/:id'), '\\/b\\/\\d+', '/b/:id'), '\\/c\\/\\d+', '/c/:id') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -352,7 +352,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -371,7 +371,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), tuple('/onboarding/portfolio-selection', '/')), 1, isNotNull(breakdown_value)))
+        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), in(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), tuple('/onboarding/portfolio-selection', '/')), 1, isNotNull(breakdown_value)))
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS counts
@@ -441,7 +441,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -460,7 +460,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/a'), 0), 1, isNotNull(breakdown_value)))
+        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), ifNull(equals(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '/a'), 0), 1, isNotNull(breakdown_value)))
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS counts
@@ -584,7 +584,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -689,7 +689,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -740,7 +740,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -958,7 +958,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -1014,7 +1014,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -1070,7 +1070,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -1124,7 +1124,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1393,7 +1393,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/a'), 0), isNotNull(breakdown_value)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '/a'), 0), isNotNull(breakdown_value)))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -1421,7 +1421,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1480,7 +1480,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1721,7 +1721,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1781,7 +1781,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1830,7 +1830,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2012,7 +2012,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2133,7 +2133,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
+            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2193,7 +2193,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id') AS breakdown_value,
+            replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2214,7 +2214,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), replaceRegexpAll('/cleaned/123456', '\\/cleaned\\/\\d+', '/cleaned/:id')), isNull(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), replaceRegexpAll('/cleaned/123456', '\\/cleaned\\/\\d+', '/cleaned/:id')), isNull(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'))
                                                                                                                                                                                                                                                                                                                                                                         and isNull(replaceRegexpAll('/cleaned/123456', '\\/cleaned\\/\\d+', '/cleaned/:id'))), isNotNull(breakdown_value)))
      GROUP BY session_id,
               breakdown_value)
@@ -2254,7 +2254,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
+            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2275,7 +2275,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'), replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll('/cleaned/:id', '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c')), isNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'), replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll('/cleaned/:id', '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c')), isNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'))
                                                                                                                                                                                                                                                                                                                                                                         and isNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll('/cleaned/:id', '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'))), isNotNull(breakdown_value)))
      GROUP BY session_id,
               breakdown_value)
@@ -2315,7 +2315,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
+            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2336,7 +2336,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'), replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll('/cleaned/123456', '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c')), isNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(equals(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'), replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll('/cleaned/123456', '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c')), isNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'))
                                                                                                                                                                                                                                                                                                                                                                         and isNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll('/cleaned/123456', '\\/cleaned\\/\\d+', '/cleaned/:id'), '\\/path\\/\\d+', '/path/:id'), 'thing_a', 'thing_b'), 'thing_b', 'thing_c'))), isNotNull(breakdown_value)))
      GROUP BY session_id,
               breakdown_value)
@@ -2437,7 +2437,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -2504,7 +2504,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -2595,7 +2595,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -2711,7 +2711,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -2827,7 +2827,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -2943,7 +2943,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '\\/a\\/\\d+', '/a/:id'), '\\/b\\/\\d+', '/b/:id'), '\\/c\\/\\d+', '/c/:id') AS breakdown_value,
+               replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '\\/a\\/\\d+', '/a/:id'), '\\/b\\/\\d+', '/b/:id'), '\\/c\\/\\d+', '/c/:id') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -3059,7 +3059,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -3078,7 +3078,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), isNotNull(breakdown_value), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/a'), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), isNotNull(breakdown_value), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), ifNull(equals(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '/a'), 0), 1))
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS counts
@@ -3102,7 +3102,7 @@
            WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
                     raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
-        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), isNotNull(breakdown_value), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/a'), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), isNotNull(breakdown_value), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), ifNull(equals(nullIf(nullIf(events.`mat_$pathname`, ''), 'null'), '/a'), 0), 1))
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
@@ -3173,7 +3173,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -3263,7 +3263,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -3337,7 +3337,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -3394,7 +3394,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -3469,7 +3469,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -3586,7 +3586,7 @@
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+               nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
         FROM events
@@ -3685,7 +3685,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -3741,7 +3741,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp,
@@ -3806,7 +3806,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -3866,7 +3866,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -3926,7 +3926,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -3986,7 +3986,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            nullIf(nullIf(events.`mat_$pathname`, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
