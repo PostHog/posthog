@@ -31,6 +31,7 @@ export function ContextDisplay(): JSX.Element {
                     icon={<IconAtSign />}
                     placeholder={!hasData ? 'Add context' : null}
                     maxContextOptions={contextOptions}
+                    width={450}
                 />
                 <ContextTags
                     insights={contextInsights}
