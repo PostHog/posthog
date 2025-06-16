@@ -1,13 +1,10 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { router } from 'node_modules/kea-router/lib/router'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-
-import { Breadcrumb } from '~/types'
 
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
@@ -74,33 +71,6 @@ export const campaignLogic = kea<campaignLogicType>([
                 loadCampaignSuccess: (_, { campaign }) => {
                     return campaign
                 },
-            },
-        ],
-    }),
-    selectors({
-        breadcrumbs: [
-            (s) => [s.campaign],
-            (campaign: HogFlow): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.MessagingCampaigns,
-                        name: 'Messaging',
-                        path: urls.messagingCampaigns(),
-                    },
-                    {
-                        key: 'campaigns',
-                        name: 'Campaigns',
-                        path: urls.messagingCampaigns(),
-                    },
-                    {
-                        key: 'campaign',
-                        name: campaign.name || 'Untitled Campaign',
-                        onRename: async (name: string): Promise<void> => {
-                            // TODO(team-messaging): use campaignLogic action
-                            alert(`Renaming campaign to ${name}`)
-                        },
-                    },
-                ]
             },
         ],
     }),
