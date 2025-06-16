@@ -19,7 +19,7 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let redis_client = match RedisClient::new(config.redis_url.clone()) {
+    let redis_client = match RedisClient::new(config.redis_url.clone()).await {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!(
