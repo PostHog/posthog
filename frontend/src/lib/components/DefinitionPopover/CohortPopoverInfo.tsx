@@ -48,7 +48,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                         {cohortGroup.values.slice(0, MAX_CRITERIA).map((criteria, criteriaIndex) => (
                                             <>
                                                 <li>
-                                                    {(BEHAVIORAL_TYPE_TO_LABEL as Record<string, { label: string }>)[
+                                                    {BEHAVIORAL_TYPE_TO_LABEL[
                                                         criteriaToBehavioralFilterType(
                                                             criteria as AnyCohortCriteriaType
                                                         )
