@@ -647,7 +647,7 @@ export interface RawOrganization {
 }
 
 // NOTE: We don't need to list all options here - only the ones we use
-export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines'
+export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
 /** Usable Team model. */
 export interface Team {

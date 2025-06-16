@@ -44,7 +44,9 @@ describe('TeamManager()', () => {
                 {
                   "anonymize_ips": false,
                   "api_token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                  "available_features": [],
+                  "available_features": [
+                    "data_pipelines",
+                  ],
                   "cookieless_server_hash_mode": 2,
                   "heatmaps_opt_in": null,
                   "id": 2,
@@ -134,6 +136,7 @@ describe('TeamManager()', () => {
 
     describe('hasAvailableFeature()', () => {
         it('returns false by default', async () => {
+            await updateOrganizationAvailableFeatures(postgres, organizationId, [])
             const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(false)
         })
