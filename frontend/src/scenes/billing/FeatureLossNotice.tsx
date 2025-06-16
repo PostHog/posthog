@@ -1,4 +1,4 @@
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import posthog from 'posthog-js'
 
 import { BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -17,14 +17,12 @@ const FeatureCategoryList = ({ groupedFeatures }: FeatureCategoryListProps): JSX
         <div className="space-y-3">
             {Object.entries(groupedFeatures)
                 .sort(([categoryA], [categoryB]) => {
-                    // Always put "Other Features" at the end
                     if (categoryA === 'Other Features') {
                         return 1
                     }
                     if (categoryB === 'Other Features') {
                         return -1
                     }
-                    // Sort other categories alphabetically
                     return categoryA.localeCompare(categoryB)
                 })
                 .map(([category, features]) => (
@@ -53,9 +51,7 @@ export const FeatureLossNotice = ({ product, isAddonProduct }: FeatureLossNotice
         return null
     }
 
-    // Group features by category for better organization
     const groupedFeatures = featuresToLose.reduce((groups, feature) => {
-        // Use the category from the API response, fallback to 'Other Features' if not provided
         const category = feature.category || 'Other Features'
 
         if (!groups[category]) {
@@ -90,9 +86,14 @@ export const FeatureLossNotice = ({ product, isAddonProduct }: FeatureLossNotice
                     <div className="space-y-1">
                         {keyFeatures.map((feature) => (
                             <div key={feature.key} className="text-xs">
-                                <span className="font-medium">{feature.name}</span>
-                                {feature.description && (
-                                    <span className="text-secondary ml-1">- {feature.description}</span>
+                                {feature.description ? (
+                                    <Tooltip title={feature.description}>
+                                        <span className="font-medium cursor-help underline decoration-dotted underline-offset-2">
+                                            {feature.name}
+                                        </span>
+                                    </Tooltip>
+                                ) : (
+                                    <span className="font-medium">{feature.name}</span>
                                 )}
                             </div>
                         ))}
