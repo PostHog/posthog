@@ -10,7 +10,7 @@ import {
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { TabsContent, TabsContentProps, TabsSubHeader } from 'lib/ui/Tabs'
+import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
@@ -20,7 +20,7 @@ import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrac
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
 
-export interface StacktraceTabProps extends Omit<TabsContentProps, 'children'> {
+export interface StacktraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
 }
@@ -29,20 +29,20 @@ export function StacktraceTab({ className, issue, issueLoading, ...props }: Stac
     const { loading } = useValues(exceptionCardLogic)
     const { exceptionAttributes } = useValues(errorPropertiesLogic)
     return (
-        <TabsContent {...props}>
-            <TabsSubHeader className="flex justify-between items-center px-2 py-1">
+        <TabsPrimitiveContent {...props}>
+            <div className="flex justify-between items-center px-2 py-1">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                 </div>
                 <ShowDropDownMenu />
-            </TabsSubHeader>
+            </div>
             <StacktraceIssueDisplay
                 className="p-2"
                 truncateMessage={false}
                 issue={issue ?? undefined}
                 issueLoading={issueLoading}
             />
-        </TabsContent>
+        </TabsPrimitiveContent>
     )
 }
 

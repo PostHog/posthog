@@ -1,6 +1,0 @@
-export { TabsContent, type TabsContentProps } from './TabsContent'
-export { TabsHeader, type TabsHeaderProps } from './TabsHeader'
-export { TabsList, type TabsListProps } from './TabsList'
-export { TabsRoot, type TabsRootProps } from './TabsRoot'
-export { TabsSubHeader, type TabsSubHeaderProps } from './TabsSubHeader'
-export { TabsTrigger, type TabsTriggerProps } from './TabsTrigger'

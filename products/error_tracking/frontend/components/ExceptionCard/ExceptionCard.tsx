@@ -6,7 +6,7 @@ import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { TabsHeader, TabsList, TabsRoot, TabsTrigger } from 'lib/ui/Tabs'
+import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { useEffect } from 'react'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -82,18 +82,18 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
     const showFixButton = hasResolvedStackFrames(exceptionList)
     return (
         <LemonCard hoverEffect={false} className="group p-0 relative overflow-hidden">
-            <TabsRoot defaultValue="stacktrace">
-                <TabsHeader>
-                    <TabsList className="flex justify-between w-full h-full items-center">
+            <TabsPrimitive defaultValue="stacktrace">
+                <div className="flex justify-between">
+                    <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
-                            <TabsTrigger value="raw" className="flex items-center gap-1 text-lg h-full">
+                            <TabsPrimitiveTrigger value="raw" className="flex items-center gap-1 text-lg h-full">
                                 <IconLogomark />
                                 <span className="text-sm">Exception</span>
-                            </TabsTrigger>
+                            </TabsPrimitiveTrigger>
                         </div>
                         <div className="flex gap-2 w-full justify-center h-full">
-                            <TabsTrigger value="stacktrace" />
-                            <TabsTrigger value="properties" />
+                            <TabsPrimitiveTrigger value="stacktrace" />
+                            <TabsPrimitiveTrigger value="properties" />
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
@@ -110,12 +110,13 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                             )}
                             {label}
                         </div>
-                    </TabsList>
-                </TabsHeader>
+                    </TabsPrimitiveList>
+                </div>
                 <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} />
                 <PropertiesTab value="properties" />
                 <RawTab value="raw" />
-            </TabsRoot>
+
+            </TabsPrimitive>
             <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} />
         </LemonCard>
     )
