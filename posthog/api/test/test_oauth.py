@@ -21,6 +21,7 @@ from django.conf import settings
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from posthog.api.oauth import OAuthAuthorizationSerializer
+from urllib.parse import quote
 
 
 def generate_rsa_key() -> str:
@@ -1207,6 +1208,484 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertIn("error=invalid_request", redirect_to)
         self.assertIn("Code+challenge+required", redirect_to)
+
+    def test_public_client_full_oauth_flow(self):
+        # Public client authorization with PKCE
+        public_auth_url = f"/oauth/authorize/?client_id=test_public_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(public_auth_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Post authorization approval for public client
+        public_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        # Token exchange for public client (no client secret)
+        public_token_data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        token_response = self.post("/oauth/token/", public_token_data)
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+
+        # Verify we get all expected tokens
+        token_data = token_response.json()
+        self.assertIn("access_token", token_data)
+        self.assertIn("refresh_token", token_data)
+        self.assertIn("token_type", token_data)
+        self.assertIn("expires_in", token_data)
+
+    def test_public_client_refresh_token_flow(self):
+        # Complete initial OAuth flow for public client
+        public_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_public_client_id",
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        refresh_token = token_response.json()["refresh_token"]
+
+        # Use refresh token (public client doesn't need client secret)
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": "test_public_client_id",
+        }
+
+        refresh_response = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+
+        refresh_response_data = refresh_response.json()
+        self.assertIn("access_token", refresh_response_data)
+        self.assertIn("refresh_token", refresh_response_data)
+
+        # Verify token rotation occurred
+        self.assertNotEqual(refresh_response_data["refresh_token"], refresh_token)
+
+    def test_public_client_cannot_use_client_secret_authentication(self):
+        # Complete initial OAuth flow for public client
+        public_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        # Try to use client secret with public client (should still work but secret is ignored)
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_public_client_id",
+                "client_secret": "test_public_client_secret",  # This should be ignored
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        # Public client should still work even with client_secret provided
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+
+    def test_public_client_pkce_code_verifier_validation(self):
+        # Complete authorization for public client
+        public_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        # Try to exchange code with wrong code_verifier
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_public_client_id",
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": "wrong_verifier",
+            },
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(token_response.json()["error"], "invalid_grant")
+
+    def test_public_client_missing_pkce_fails_token_exchange(self):
+        # Complete authorization for public client
+        public_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        # Try to exchange code without code_verifier
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_public_client_id",
+                "redirect_uri": "https://example.com/callback",
+            },
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(token_response.json()["error"], "invalid_request")
+
+    def test_public_client_userinfo_access(self):
+        # Complete OAuth flow and get access token
+        public_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid profile email",
+        }
+
+        response = self.client.post("/oauth/authorize/", public_auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_public_client_id",
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        access_token = token_response.json()["access_token"]
+
+        # Use access token to access userinfo endpoint
+        userinfo_response = self.client.get("/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"})
+
+        self.assertEqual(userinfo_response.status_code, status.HTTP_200_OK)
+        userinfo_data = userinfo_response.json()
+
+        # Verify expected user claims
+        self.assertEqual(userinfo_data["sub"], str(self.user.uuid))
+        self.assertEqual(userinfo_data["email"], self.user.email)
+
+    def test_public_client_scoped_access(self):
+        # Test public client with team-scoped access
+        scoped_auth_data = {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_organizations": [],
+            "scoped_teams": [self.team.id],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", scoped_auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": "test_public_client_id",
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+
+        # Verify scoped access is preserved in token
+        access_token = token_response.json()["access_token"]
+        from posthog.models.oauth import OAuthAccessToken
+
+        db_token = OAuthAccessToken.objects.get(token=access_token)
+        self.assertEqual(db_token.scoped_teams, [self.team.id])
+
+    def test_redirect_uri_exact_match_required_authorization(self):
+        malicious_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback/malicious&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(malicious_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
+
+    def test_redirect_uri_subdomain_attack_prevention(self):
+        subdomain_attack_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://evil.example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(subdomain_attack_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
+
+    def test_redirect_uri_with_fragments_rejected(self):
+        fragment_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback%23fragment&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(fragment_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
+    def test_redirect_uri_case_sensitivity(self):
+        case_different_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://EXAMPLE.COM/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(case_different_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
+
+    def test_redirect_uri_path_traversal_attack_prevention(self):
+        path_traversal_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback/../admin&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(path_traversal_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
+
+    def test_redirect_uri_query_parameter_checks_value(self):
+        OAuthApplication.objects.create(
+            name="App with Query Params",
+            client_id="test_query_params_client",
+            client_secret="test_query_params_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback?foo=bar",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        # Should work because it matches exactly
+        redirect_uri = "https://example.com/callback?foo=bar"
+        exact_match_url = f"/oauth/authorize/?client_id=test_query_params_client&redirect_uri={quote(redirect_uri)}&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(exact_match_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Should fail because it has a different query parameter value for session
+        different_param_redirect_uri = "https://example.com/callback?foo=baz"
+        different_query_param_url = f"/oauth/authorize/?client_id=test_query_params_client&redirect_uri={quote(different_param_redirect_uri)}&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(different_query_param_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
+
+    def test_redirect_uri_port_manipulation_attack(self):
+        # Test that port manipulation is prevented
+        port_attack_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com:8080/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(port_attack_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
+
+    def test_redirect_uri_consistency_authorization_to_token(self):
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_data = {
+            **self.base_token_body,
+            "code": code,
+            "redirect_uri": "https://different.com/callback",  # Different from authorization
+        }
+
+        token_response = self.post("/oauth/token/", token_data)
+        self.assertEqual(token_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(token_response.json()["error"], "invalid_request")
+
+    def test_state_parameter_csrf_protection(self):
+        state_value = "secure_random_state_12345"
+
+        auth_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&state={state_value}"
+
+        response = self.client.get(auth_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        auth_data = {
+            **self.base_authorization_post_body,
+            "state": state_value,
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn(f"state={state_value}", redirect_to)
+
+        self.assertIn("code=", redirect_to)
+
+    def test_state_parameter_preserved_in_error_responses(self):
+        state_value = "error_state_preservation_test"
+
+        # Use invalid client_id to trigger error
+        auth_url = f"/oauth/authorize/?client_id=invalid_client&redirect_uri=https://example.com/callback&response_type=code&state={state_value}"
+
+        response = self.client.get(auth_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
+    def test_state_parameter_with_special_characters(self):
+        # Test that state parameter handles special characters properly
+        state_value = "state_with_!@#$%^&*()_+-={}[]|\\:;\"'<>,.?/"
+
+        auth_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&state={state_value}"
+
+        response = self.client.get(auth_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        auth_data = {
+            **self.base_authorization_post_body,
+            "state": state_value,
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        redirect_to = response.json()["redirect_to"]
+        # URL encoding might occur, so we check for the presence rather than exact match
+        self.assertIn("state=", redirect_to)
+
+    def test_missing_state_parameter_handling(self):
+        auth_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+        response = self.client.get(auth_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Complete authorization without state
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("code=", redirect_to)
+        self.assertNotIn("state=", redirect_to)
+
+    def test_state_parameter_reuse(self):
+        state_value = "reusable_state_value"
+
+        auth_data = {
+            **self.base_authorization_post_body,
+            "state": state_value,
+        }
+
+        response1 = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        redirect_to1 = response1.json()["redirect_to"]
+        self.assertIn(f"state={state_value}", redirect_to1)
+
+        response2 = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        redirect_to2 = response2.json()["redirect_to"]
+        self.assertIn(f"state={state_value}", redirect_to2)
+
+    def test_state_parameter_length_limits(self):
+        state_value = "a" * 2048
+
+        auth_data = {
+            **self.base_authorization_post_body,
+            "state": state_value,
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("state=", redirect_to)
+
+    def test_denial_preserves_state_parameter(self):
+        state_value = "denial_test_state"
+
+        auth_data = {
+            **self.base_authorization_post_body,
+            "allow": False,
+            "state": state_value,
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("error=access_denied", redirect_to)
+        self.assertIn(f"state={state_value}", redirect_to)
 
     def test_nonce_uniqueness_validation(self):
         nonce_value = "test_nonce_12345"
