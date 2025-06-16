@@ -198,8 +198,7 @@ Dashboard insights:
 
 ROOT_INSIGHTS_CONTEXT_PROMPT = """
 # Insights
-The user has provided the following insights, which may be releveant to the question at hand:
-
+The user has provided the following insights, which may be relevant to the question at hand:
 {{{insights}}}
 """.strip()
 
