@@ -131,10 +131,10 @@ symbol_set_cleanup_job = dagster.define_asset_job(
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def daily_symbol_set_cleanup_schedule():
+def daily_symbol_set_cleanup_schedule(context):
     """Schedule the symbol set cleanup job to run daily at 3 AM UTC."""
     return dagster.RunRequest(
-        run_key=f"symbol_set_cleanup_{dagster.get_context().scheduled_execution_time.strftime('%Y%m%d_%H%M%S')}",
+        run_key=f"symbol_set_cleanup_{context.scheduled_execution_time.strftime('%Y%m%d_%H%M%S')}",
         run_config={
             "ops": {
                 "symbol_sets_to_delete": {

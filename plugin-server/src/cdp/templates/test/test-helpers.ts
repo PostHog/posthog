@@ -1,5 +1,7 @@
-import { defaultConfig } from '~/src/config/config'
-import { GeoIp, GeoIPService } from '~/src/utils/geoip'
+import merge from 'deepmerge'
+
+import { defaultConfig } from '~/config/config'
+import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
@@ -244,4 +246,39 @@ export class TemplateTester {
 
         return this.executor.execute(modifiedInvocation)
     }
+}
+
+export const createAdDestinationPayload = (
+    globals?: DeepPartialHogFunctionInvocationGlobals
+): DeepPartialHogFunctionInvocationGlobals => {
+    let defaultPayload = {
+        event: {
+            properties: {},
+            event: 'Order Completed',
+            uuid: 'event-id',
+            timestamp: '2025-01-01T00:00:00Z',
+            distinct_id: 'distinct-id',
+            elements_chain: '',
+            url: 'https://us.posthog.com/projects/1/events/1234',
+        },
+        person: {
+            id: 'person-id',
+            properties: {
+                email: 'example@posthog.com',
+                ttclid: 'tiktok-id',
+                gclid: 'google-id',
+                sccid: 'snapchat-id',
+                rdt_cid: 'reddit-id',
+                phone: '+1234567890',
+                external_id: '1234567890',
+                first_name: 'Max',
+                last_name: 'AI',
+            },
+            url: 'https://us.posthog.com/projects/1/persons/1234',
+        },
+    }
+
+    defaultPayload = merge(defaultPayload, globals ?? {})
+
+    return defaultPayload
 }

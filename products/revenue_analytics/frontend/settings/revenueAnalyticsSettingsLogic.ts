@@ -7,6 +7,7 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    CurrencyCode,
     DataTableNode,
     NodeKind,
     RevenueAnalyticsConfig,
@@ -21,6 +22,7 @@ import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettin
 const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
     goals: [],
+    filter_test_accounts: false,
 })
 
 const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] => {
@@ -30,16 +32,11 @@ const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] =>
 export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam', 'currentTeamId', 'baseCurrency'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
-        ],
+        values: [teamLogic, ['currentTeam', 'currentTeamId'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
         actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
-        addEvent: (eventName: string) => ({ eventName }),
+        addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),
         deleteEvent: (eventName: string) => ({ eventName }),
         updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
         updateEventRevenueCurrencyProperty: (
@@ -58,6 +55,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         deleteGoal: (index: number) => ({ index }),
         updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
 
+        updateFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+
         save: true,
         resetConfig: true,
     }),
@@ -65,14 +64,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         revenueAnalyticsConfig: [
             null as RevenueAnalyticsConfig | null,
             {
-                addEvent: (state: RevenueAnalyticsConfig | null, { eventName }) => {
-                    if (
-                        !state ||
-                        !eventName ||
-                        typeof eventName !== 'string' ||
-                        eventName == '$pageview' ||
-                        eventName == '$autocapture'
-                    ) {
+                addEvent: (state: RevenueAnalyticsConfig | null, { eventName, revenueCurrency }) => {
+                    if (!state || !eventName || typeof eventName !== 'string') {
                         return state
                     }
 
@@ -90,7 +83,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                             {
                                 eventName,
                                 revenueProperty: 'revenue',
-                                revenueCurrencyProperty: { static: values.baseCurrency },
+                                revenueCurrencyProperty: { static: revenueCurrency },
                                 currencyAwareDecimal: false,
                             },
                         ],
@@ -176,6 +169,12 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     const goals = sortByDueDate(state.goals.map((item, i) => (i === index ? goal : item)))
                     return { ...state, goals }
                 },
+                updateFilterTestAccounts: (state: RevenueAnalyticsConfig | null, { filterTestAccounts }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return { ...state, filter_test_accounts: filterTestAccounts }
+                },
                 resetConfig: () => {
                     return values.savedRevenueAnalyticsConfig
                 },
@@ -193,6 +192,12 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         ],
     })),
     selectors({
+        filterTestAccounts: [
+            (s) => [s.revenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
+                revenueAnalyticsConfig?.filter_test_accounts || false,
+        ],
+
         goals: [
             (s) => [s.revenueAnalyticsConfig],
             (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => revenueAnalyticsConfig?.goals || [],
@@ -278,6 +283,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             addGoal: updateCurrentTeam,
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
+            updateFilterTestAccounts: updateCurrentTeam,
             save: updateCurrentTeam,
         }
     }),

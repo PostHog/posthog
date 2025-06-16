@@ -9,7 +9,6 @@ import { Conversation, ConversationStatus } from '~/types'
 export const maxMocks: Mocks = {
     get: {
         '/api/environments/:team_id/conversations/': { results: [] },
-        '/api/environments/:team_id/core_memory/': { results: [] },
     },
     post: {
         'api/environments/:team_id/query': { questions: ['Question'] },

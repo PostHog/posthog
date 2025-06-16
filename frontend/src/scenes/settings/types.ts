@@ -52,6 +52,7 @@ export type SettingSectionId =
     | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
+    | 'user-notifications'
     | 'user-api-keys'
     | 'user-customization'
     | 'user-danger-zone'
@@ -108,6 +109,7 @@ export type SettingId =
     | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
+    | 'organization-experiment-stats-method'
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
@@ -126,6 +128,7 @@ export type SettingId =
     | 'session-join-mode'
     | 'bounce-rate-duration'
     | 'revenue-base-currency'
+    | 'revenue-analytics-filter-test-accounts'
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
@@ -141,8 +144,8 @@ export type SettingId =
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'csp-reporting'
-    | 'marketing-analytics-external-data-sources'
     | 'base-currency'
+    | 'marketing-settings'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

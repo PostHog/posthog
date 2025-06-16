@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { CampaignTab } from 'products/messaging/frontend/Campaigns/campaignSceneLogic'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
@@ -77,11 +78,6 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-    errorTrackingConfiguration: (): string => '/error_tracking/configuration',
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    errorTrackingIssue: (id: string, fingerprint?: string): string =>
-        combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
         if (query) {
@@ -179,17 +175,20 @@ export const urls = {
     messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
     messagingCampaigns: (): string => '/messaging/campaigns',
     messagingCampaignNew: (): string => '/messaging/campaigns/new',
-    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
+    messagingCampaign: (id: string, tab?: CampaignTab): string => `/messaging/campaigns/${id}${tab ? `/${tab}` : ''}`,
     messagingLibrary: (): string => '/messaging/library',
     messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
     messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
     messagingSenders: (): string => '/messaging/senders',
-    startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
+    dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
+    batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,
+    batchExport: (id: string): string => `/data-pipelines/batch-exports/${id}`,
+    legacyPlugin: (id: string): string => `/data-pipelines/plugins/${id}`,
     hogFunction: (id: string): string => `/functions/${id}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
-    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
-    errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
 }

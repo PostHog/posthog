@@ -324,6 +324,11 @@
             "examples": ["free goodies"],
             "label": "Initial UTM term"
         },
+        "$config_defaults": {
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "label": "Config defaults",
+            "type": "String"
+        },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
             "examples": ["1800000"],
@@ -1433,6 +1438,11 @@
             "description": "The timezone as reported by the device",
             "label": "Timezone"
         },
+        "$timezone_offset": {
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "label": "Timezone offset",
+            "type": "Numeric"
+        },
         "$touch_x": {
             "description": "The location of a Touch event on the X axis",
             "label": "Touch X"
@@ -2128,6 +2138,11 @@
             "description": "UTM term. (First-touch, session-scoped)",
             "examples": ["free goodies"],
             "label": "Initial UTM term"
+        },
+        "$config_defaults": {
+            "description": "The version of the PostHog config defaults that were used when capturing the event.",
+            "label": "Config defaults",
+            "type": "String"
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
@@ -3530,6 +3545,11 @@
             "description": "The timezone as reported by the device",
             "label": "Timezone"
         },
+        "$timezone_offset": {
+            "description": "The timezone offset, as reported by the device. Minutes difference from UTC.",
+            "label": "Timezone offset",
+            "type": "Numeric"
+        },
         "$touch_x": {
             "description": "The location of a Touch event on the X axis",
             "label": "Touch X"
@@ -3556,6 +3576,20 @@
             "description": "The width of the user's actual browser window (in pixels). Data from the last time this user was seen.",
             "examples": ["1439", "1915"],
             "label": "Latest viewport width"
+        },
+        "$virt_initial_channel_type": {
+            "description": "What type of acquisition channel this user initially came from. Learn more about channels types and how to customise them in [our documentation](https://posthog.com/docs/data/channel-type)",
+            "examples": ["Paid Search", "Organic Video", "Direct"],
+            "label": "Initial channel type",
+            "type": "String",
+            "virtual": true
+        },
+        "$virt_initial_referring_domain_type": {
+            "description": "What type of referring domain this user initially came from.",
+            "examples": ["Search", "Video", "Direct"],
+            "label": "Initial referring domain type",
+            "type": "String",
+            "virtual": true
         },
         "$web_vitals_CLS_event": {
             "label": "Web vitals CLS measure event details"
@@ -3622,7 +3656,8 @@
         "email": {
             "description": "The email address of the user.",
             "examples": ["johnny.appleseed@icloud.com", "sales@posthog.com", "test@example.com"],
-            "label": "Email address"
+            "label": "Email address",
+            "type": "String"
         },
         "epik": {
             "description": "Pinterest Click ID Data from the last time this user was seen.",
@@ -3807,9 +3842,19 @@
             "label": "Cohort",
             "type": "String"
         },
+        "country": {
+            "description": "The country of the customer connected to the revenue event.",
+            "label": "Country",
+            "type": "String"
+        },
         "product": {
             "description": "The product of the revenue event.",
             "label": "Product",
+            "type": "String"
+        },
+        "source": {
+            "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
+            "label": "Source",
             "type": "String"
         }
     },
@@ -4013,6 +4058,12 @@
             "description": "The time it took for the Largest Contentful Paint on the page. This captures the perceived load time of the page, and measure how long it took for the main content of the page to be visible to users.",
             "examples": ["2.2"],
             "label": "Web vitals LCP"
+        }
+    },
+    "max_ai_context": {
+        "Current page": {
+            "description": "Give Max context about the current dashboard or insight you are working on",
+            "label": "Current page"
         }
     }
 }

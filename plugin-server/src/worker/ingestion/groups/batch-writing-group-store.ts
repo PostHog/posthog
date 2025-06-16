@@ -18,6 +18,7 @@ import {
     groupCacheOperationsCounter,
     groupCacheSizeHistogram,
     groupDatabaseOperationsPerBatchHistogram,
+    groupFetchPromisesCacheOperationsCounter,
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
 
@@ -97,9 +98,24 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                                 () => this.updateGroupOptimistically(update),
                                 'updateGroupOptimistically',
                                 this.options.maxOptimisticUpdateRetries,
-                                this.options.optimisticUpdateRetryInterval
+                                this.options.optimisticUpdateRetryInterval,
+                                undefined,
+                                [MessageSizeTooLarge]
                             )
                         } catch (error) {
+                            // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
+                            if (error instanceof MessageSizeTooLarge) {
+                                await captureIngestionWarning(
+                                    this.db.kafkaProducer,
+                                    update.team_id,
+                                    'group_upsert_message_size_too_large',
+                                    {
+                                        groupTypeIndex: update.group_type_index,
+                                        groupKey: update.group_key,
+                                    }
+                                )
+                                return
+                            }
                             logger.warn('⚠️', 'Falling back to direct upsert after max retries', {
                                 teamId: update.team_id,
                                 groupTypeIndex: update.group_type_index,
@@ -178,7 +194,15 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, null)
 
         if (!group) {
-            await this.upsertGroupDirectly(teamId, groupTypeIndex, groupKey, properties, timestamp, false, 'cr')
+            await this.upsertGroupDirectly(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                properties,
+                timestamp,
+                false,
+                'batch-create'
+            )
             return
         }
 
@@ -437,6 +461,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
 
         let fetchPromise = this.fetchPromises.get(cacheKey)
         if (!fetchPromise) {
+            groupFetchPromisesCacheOperationsCounter.inc({ operation: 'miss' })
             fetchPromise = (async () => {
                 try {
                     this.incrementDatabaseOperation('fetchGroup')
@@ -446,7 +471,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                             const groupUpdate = fromGroup(existingGroup)
                             this.addGroupToCache(teamId, groupKey, {
                                 ...groupUpdate,
-                                needsWrite: true,
+                                needsWrite: false,
                             })
                             return groupUpdate
                         } else {
@@ -460,6 +485,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                 }
             })()
             this.fetchPromises.set(cacheKey, fetchPromise)
+        } else {
+            groupFetchPromisesCacheOperationsCounter.inc({ operation: 'hit' })
         }
         return fetchPromise
     }

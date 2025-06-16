@@ -1,12 +1,12 @@
 import 'chartjs-adapter-dayjs-3'
 
-import { LegendOptions, ScaleOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { LegendOptions, ScaleOptions } from 'lib/Chart'
 import {
     ActiveElement,
     Chart,

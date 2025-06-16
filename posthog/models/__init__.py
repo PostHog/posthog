@@ -59,6 +59,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
+from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
 from .insight import Insight, InsightViewed
@@ -69,6 +70,7 @@ from .integration import Integration
 from .link import Link
 from .message_template import MessageTemplate
 from .messaging import MessagingRecord
+from .message_preferences import MessageCategory, MessageRecipientPreference
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -152,6 +154,7 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
+    "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
     "Link",
@@ -163,6 +166,8 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MessageCategory",
+    "MessageRecipientPreference",
     "MessageTemplate",
     "MessagingRecord",
     "Notebook",
