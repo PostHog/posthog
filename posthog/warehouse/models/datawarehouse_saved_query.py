@@ -222,6 +222,7 @@ class DataWarehouseSavedQuery(FileSystemSyncMixin, CreatedMetaFields, UUIDModel,
         return cls._filter_unfiled_queryset(base_qs, team, type="saved_query", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
+        should_delete = self.deleted
         return FileSystemRepresentation(
             base_folder=self._create_in_folder or "Unfiled/Saved queries",
             type="saved_query",  # sync with APIScopeObject in scopes.py
@@ -232,7 +233,7 @@ class DataWarehouseSavedQuery(FileSystemSyncMixin, CreatedMetaFields, UUIDModel,
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
             },
-            should_delete=self.deleted,
+            should_delete=should_delete,
         )
 
 
