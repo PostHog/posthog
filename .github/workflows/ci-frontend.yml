@@ -42,7 +42,7 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
-                        - .eslintrc.js
+                        - .oxlintrc.json
                         - .prettier*
                         - babel.config.js
                         - package.json
@@ -197,11 +197,9 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Lint with ESLint
+            - name: Lint with Oxlint
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
 
     frontend-toolbar-checks:
         name: Frontend toolbar checks

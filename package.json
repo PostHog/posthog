@@ -45,20 +45,6 @@
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
-        "eslint": "^8.57.0",
-        "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-compat": "^4.2.0",
-        "eslint-plugin-cypress": "^2.15.1",
-        "eslint-plugin-eslint-comments": "^3.2.0",
-        "eslint-plugin-import": "^2.29.0",
-        "eslint-plugin-jest": "^28.6.0",
-        "eslint-plugin-posthog": "workspace:*",
-        "eslint-plugin-react": "^7.33.2",
-        "eslint-plugin-react-google-translate": "^0.0.114",
-        "eslint-plugin-react-hooks": "^4.6.2",
-        "eslint-plugin-simple-import-sort": "^10.0.0",
-        "eslint-plugin-storybook": "^0.6.15",
-        "eslint-plugin-unused-imports": "^3.1.0",
         "oxlint": "^1.1.0",
         "prettier": "^2.8.8",
         "stylelint": "^15.11.0",
@@ -88,34 +74,8 @@
             "stylelint --fix",
             "prettier --write"
         ],
-        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
+        "{cypress,playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
             "oxlint --fix --quiet",
-            "eslint --cache --fix",
-            "prettier --write"
-        ],
-        "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --quiet",
-            "eslint --cache --fix",
-            "prettier --write"
-        ],
-        "frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --quiet",
-            "eslint --cache --fix",
-            "prettier --write"
-        ],
-        "products/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --quiet",
-            "eslint --cache --fix",
-            "prettier --write"
-        ],
-        "common/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --quiet",
-            "eslint --cache --fix",
-            "prettier --write"
-        ],
-        "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --quiet",
-            "eslint --cache --fix",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [

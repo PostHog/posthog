@@ -4,6 +4,17 @@
     "env": {
         "builtin": true
     },
+    "ignorePatterns": [
+        "node_modules",
+        "dist",
+        "build",
+        "rust",
+        "plugin-server",
+        "common/hogvm/typescript",
+        "common/hogvm/typescript/dist",
+        "common/plugin_transpiler/dist",
+        "common/hogvm/__tests__/__snapshots__"
+    ],
     "rules": {
         "react-hooks/rules-of-hooks": "error",
         "react-hooks/exhaustive-deps": "warn",
@@ -64,15 +75,19 @@
                 "paths": [
                     {
                         "name": "dayjs",
-                        "message": "Do not directly import dayjs. Only import the dayjs exported from lib/dayjs."
+                        "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
                     },
                     {
                         "name": "chart.js",
-                        "message": "Do not directly import chart.js. Only import the Chart and friends exported from lib/Chart."
+                        "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
                     },
                     {
                         "name": "chart.js/auto",
-                        "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from lib/Chart."
+                        "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
+                    },
+                    {
+                        "name": "~/queries/schema",
+                        "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
                     }
                 ]
             }
@@ -175,6 +190,26 @@
                     {
                         "element": "Popconfirm",
                         "message": "use <LemonDialog> instead"
+                    },
+                    {
+                        "element": "Button",
+                        "message": "use <LemonButton> instead"
+                    },
+                    {
+                        "element": "Input",
+                        "message": "use <LemonInput> instead"
+                    },
+                    {
+                        "element": "Modal",
+                        "message": "use <LemonModal> or `<LemonDialog> instead"
+                    },
+                    {
+                        "element": "Select",
+                        "message": "use <LemonSelect> instead"
+                    },
+                    {
+                        "element": "Progress",
+                        "message": "use <LemonProgress> instead"
                     }
                 ]
             }
@@ -198,6 +233,12 @@
                         "message": "EE licensed TypeScript should only be accessed via the posthogEE objects. Use `import posthogEE from '@posthog/ee/exports'`"
                     }
                 ]
+            }
+        ],
+        "jest/no-restricted-matchers": [
+            "error",
+            {
+                "toBeDefined": "Do not use .toBeDefined() in tests, use .toBeTruthy() or .not.toBeUndefined() instead."
             }
         ],
         "no-else-return": "warn"
