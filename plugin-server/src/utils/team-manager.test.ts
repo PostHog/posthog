@@ -4,7 +4,7 @@ import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } 
 import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
-import { PostgresRouter, PostgresUse } from './db/postgres'
+import { PostgresRouter } from './db/postgres'
 import { TeamManager } from './team-manager'
 
 describe('TeamManager()', () => {
@@ -134,23 +134,23 @@ describe('TeamManager()', () => {
 
     describe('hasAvailableFeature()', () => {
         it('returns false by default', async () => {
-            const result = await teamManager.hasAvailableFeature(teamId, 'feature1')
+            const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(false)
         })
 
         it('returns false if the available features does not exist', async () => {
             await updateOrganizationAvailableFeatures(postgres, organizationId, [
-                { key: 'feature1', name: 'Feature 1' },
+                { key: 'not_data_pipelines', name: 'Feature 1' },
             ])
-            const result = await teamManager.hasAvailableFeature(teamId, 'feature2')
+            const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(false)
         })
 
         it('returns true if the available features exists', async () => {
             await updateOrganizationAvailableFeatures(postgres, organizationId, [
-                { key: 'feature1', name: 'Feature 1' },
+                { key: 'data_pipelines', name: 'Feature 1' },
             ])
-            const result = await teamManager.hasAvailableFeature(teamId, 'feature1')
+            const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(true)
         })
     })
