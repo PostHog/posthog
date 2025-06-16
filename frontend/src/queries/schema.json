@@ -10132,7 +10132,8 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL"
+                "insightHogQL",
+                "insightCalendarHeatmap"
             ],
             "type": "string"
         },
