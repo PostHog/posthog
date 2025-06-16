@@ -25,8 +25,6 @@ import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { HogFlowAction } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CyclotronJobInputIntegration } from 'scenes/hog-functions/integrations/CyclotronJobInputIntegration'
-import { CyclotronJobInputIntegrationField } from 'scenes/hog-functions/integrations/CyclotronJobInputIntegrationField'
 
 import {
     CyclotronJobInputSchemaType,
@@ -39,6 +37,8 @@ import {
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
+import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
+import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 
 export type CyclotronJobInputProps = {
     schema: CyclotronJobInputSchemaType

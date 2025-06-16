@@ -19,7 +19,7 @@ import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { CyclotronJobInputs } from '~/lib/components/CyclotronJob/CyclotronJobInputs'
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
 
