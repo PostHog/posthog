@@ -14,14 +14,13 @@ export class HogFlowActionRunner {
     }
 
     runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
-        let currentAction = invocation.state.currentAction
-        if (!currentAction) {
+        if (!invocation.state.currentAction) {
             const triggerAction = invocation.hogFlow.actions.find((action) => action.type === 'trigger')
             if (!triggerAction) {
                 throw new Error('No trigger action found')
             }
             // Se the current action to the trigger action
-            currentAction = invocation.state.currentAction = {
+            invocation.state.currentAction = {
                 id: triggerAction.id,
                 startedAt: DateTime.now(),
             }
@@ -29,9 +28,10 @@ export class HogFlowActionRunner {
             // TODO: For the trigger action we need to assume that we have already been "started" this way and move on...
         }
 
-        const action = invocation.hogFlow.actions.find((action) => action.id === currentAction.id)
+        const currentActionId = invocation.state.currentAction?.id
+        const action = invocation.hogFlow.actions.find((action) => action.id === currentActionId)
         if (!action) {
-            throw new Error(`Action ${currentAction.id} not found`)
+            throw new Error(`Action ${currentActionId} not found`)
         }
 
         switch (action.type) {
