@@ -1,11 +1,11 @@
 import './StoriesModal.scss'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconPause, IconPlay, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Stories from 'react-insta-stories'
 import { Story } from 'react-insta-stories/dist/interfaces'
 
@@ -50,6 +50,7 @@ export const StoriesModal = (): JSX.Element | null => {
     const { setOpenStoriesModal, setActiveStoryIndex, setActiveGroupIndex, markStoryAsViewed } =
         useActions(storiesLogic)
     const storyStartTimeRef = useRef<number>(Date.now())
+    const [isPaused, setIsPaused] = useState(false)
 
     // Calculate dimensions based on window size and aspect ratio
     const dimensions = useMemo(() => {
@@ -168,7 +169,7 @@ export const StoriesModal = (): JSX.Element | null => {
             }
             posthog.capture('posthog_story_ended', props)
         },
-        [activeGroup, activeStoryIndex]
+        [activeGroup, activeStoryIndex, activeStory]
     )
 
     const handleNext = useCallback(() => {
@@ -219,72 +220,119 @@ export const StoriesModal = (): JSX.Element | null => {
     )
 
     return (
-        <LemonModal isOpen={openStoriesModal} onClose={() => handleClose(true)} simple className="StoriesModal__modal">
-            <div className="relative cursor-pointer">
-                <Stories
-                    stories={stories}
-                    defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
-                    width="100%"
-                    height="100%"
-                    currentIndex={activeStoryIndex}
-                    onNext={() => {
-                        if (!activeGroup?.stories[activeStoryIndex]) {
-                            return
-                        }
-                        sendStoryEndEvent('next')
-
-                        // Check if this is the last story in the current group
-                        if (activeStoryIndex >= maxStoryIndex - 1) {
-                            // Last story in group - close the modal
-                            setOpenStoriesModal(false)
-                        } else {
-                            // Not last story - advance to next story in group
-                            setActiveStoryIndex(activeStoryIndex + 1)
-                        }
+        <LemonModal
+            isOpen={openStoriesModal}
+            simple
+            className="StoriesModal__modal"
+            hideCloseButton={true}
+            onClose={() => handleClose(true)}
+        >
+            <div className="flex flex-col">
+                {/* Header with play/pause and close buttons */}
+                <div
+                    className="flex justify-end gap-2"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        handleClose(true)
                     }}
-                    onPrevious={handlePrevious}
-                    onAllStoriesEnd={() => handleClose(false)}
-                    onStoryEnd={() => {
-                        sendStoryEndEvent('ended_naturally')
-
-                        // Check if this is the last story in the current group
-                        if (activeStoryIndex >= maxStoryIndex - 1) {
-                            // Last story in group - close the modal
-                            setOpenStoriesModal(false)
-                        } else {
-                            // Not last story - advance to next story in group
-                            setActiveStoryIndex(activeStoryIndex + 1)
-                        }
-                    }}
-                    onStoryStart={handleStoryStart}
-                    storyContainerStyles={{
-                        maxWidth: `${dimensions.width}px`,
-                        minWidth: `${dimensions.width}px`,
-                        maxHeight: `${dimensions.height}px`,
-                        minHeight: `${dimensions.height}px`,
-                    }}
-                />
-
-                {/* Navigation arrows */}
-                {canGoPrevious && (
+                >
                     <button
-                        onClick={handlePrevious}
-                        className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10"
-                        title="Previous story"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setIsPaused(!isPaused)
+                        }}
+                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                        title={isPaused ? 'Resume story' : 'Pause story'}
                     >
-                        <IconChevronLeft className="w-4 h-4" />
+                        {isPaused ? (
+                            <IconPlay className="w-5 h-5 [&>*]:fill-white" />
+                        ) : (
+                            <IconPause className="w-5 h-5 [&>*]:fill-white" />
+                        )}
                     </button>
-                )}
-
-                {canGoNext && (
                     <button
-                        onClick={handleNext}
-                        className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10"
-                        title="Next story"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            handleClose(true)
+                        }}
+                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                        title="Close stories"
                     >
-                        <IconChevronRight className="w-4 h-4" />
+                        <IconX className="w-5 h-5 [&>*]:fill-white" />
                     </button>
-                )}
+                </div>
+
+                <div className="relative cursor-pointer flex-1">
+                    <Stories
+                        stories={stories}
+                        defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
+                        width="100%"
+                        height="100%"
+                        currentIndex={activeStoryIndex}
+                        isPaused={isPaused}
+                        onNext={() => {
+                            if (!activeGroup?.stories[activeStoryIndex]) {
+                                return
+                            }
+                            sendStoryEndEvent('next')
+
+                            // Check if this is the last story in the current group
+                            if (activeStoryIndex >= maxStoryIndex - 1) {
+                                // Last story in group - close the modal
+                                setOpenStoriesModal(false)
+                            } else {
+                                // Not last story - advance to next story in group
+                                setActiveStoryIndex(activeStoryIndex + 1)
+                            }
+                        }}
+                        onPrevious={handlePrevious}
+                        onAllStoriesEnd={() => handleClose(false)}
+                        onStoryEnd={() => {
+                            sendStoryEndEvent('ended_naturally')
+
+                            // Check if this is the last story in the current group
+                            if (activeStoryIndex >= maxStoryIndex - 1) {
+                                // Last story in group - close the modal
+                                setOpenStoriesModal(false)
+                            } else {
+                                // Not last story - advance to next story in group
+                                setActiveStoryIndex(activeStoryIndex + 1)
+                            }
+                        }}
+                        onStoryStart={handleStoryStart}
+                        storyContainerStyles={{
+                            maxWidth: `${dimensions.width}px`,
+                            minWidth: `${dimensions.width}px`,
+                            maxHeight: `${dimensions.height}px`,
+                            minHeight: `${dimensions.height}px`,
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                        }}
+                    />
+
+                    {/* Navigation arrows */}
+                    {canGoPrevious && (
+                        <button
+                            onClick={handlePrevious}
+                            className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
+                            title="Previous story"
+                        >
+                            <IconChevronLeft className="w-4 h-4" />
+                        </button>
+                    )}
+
+                    {canGoNext && (
+                        <button
+                            onClick={handleNext}
+                            className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
+                            title="Next story"
+                        >
+                            <IconChevronRight className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
             </div>
         </LemonModal>
     )
