@@ -266,7 +266,7 @@ impl SymbolSetRecord {
             SymbolSetRecord,
             r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash, last_used
             FROM posthog_errortrackingsymbolset
-            WHERE team_id = $1 AND ref = $2"#,
+            WHERE content_hash is not null AND team_id = $1 AND ref = $2"#,
             team_id,
             set_ref
         )
