@@ -50,7 +50,7 @@ describe('query', () => {
             ],
             limit: 100,
         }
-        const actual = queryExportContext(q)
+        const actual = queryExportContext(q, {}, false)
         expect(actual).toEqual({
             source: {
                 kind: 'EventsQuery',

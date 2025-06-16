@@ -28,7 +28,7 @@ import { FrontendApps } from '../FrontendApps'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
-import { RenderApp, usePipelineNodeMenuCommonItems } from '../utils'
+import { usePipelineNodeMenuCommonItems, RenderApp } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -363,10 +363,13 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
     // Store initial orders when modal opens
     useEffect(() => {
         if (reorderTransformationsModalOpen) {
-            const orders = enabledTransformations.reduce((acc, transformation) => {
-                acc[transformation.hog_function.id] = transformation.hog_function.execution_order || 0
-                return acc
-            }, {} as Record<string, number>)
+            const orders = enabledTransformations.reduce(
+                (acc, transformation) => ({
+                    ...acc,
+                    [transformation.hog_function.id]: transformation.hog_function.execution_order || 0,
+                }),
+                {} as Record<string, number>
+            )
             setInitialOrders(orders)
         }
     }, [reorderTransformationsModalOpen, enabledTransformations])
@@ -407,7 +410,10 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
         const changedOrders = Object.entries(temporaryTransformationOrder).reduce((acc, [id, newOrder]) => {
             const originalOrder = initialOrders[id]
             if (originalOrder !== newOrder) {
-                acc[id] = newOrder
+                return {
+                    ...acc,
+                    [id]: newOrder,
+                }
             }
             return acc
         }, {} as Record<string, number>)

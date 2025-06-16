@@ -260,7 +260,7 @@ export function getCookie(name: string): string | null {
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch {
+    } catch (e) {
         return null
     }
 }
@@ -2664,7 +2664,7 @@ const api = {
                 if (textLines) {
                     return textLines.split('\n')
                 }
-            } catch {
+            } catch (e) {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
             return []
@@ -2877,13 +2877,13 @@ const api = {
             return await new ApiRequest()
                 .batchExport(id)
                 .withAction('run_test_step')
-                .create({ data: { step: step, ...data } })
+                .create({ data: { ...{ step: step }, ...data } })
         },
         async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
             return await new ApiRequest()
                 .batchExports()
                 .withAction('run_test_step_new')
-                .create({ data: { step: step, ...data } })
+                .create({ data: { ...{ step: step }, ...data } })
         },
     },
 
@@ -3709,8 +3709,6 @@ const api = {
                 break
             }
 
-            // we're fetching the next page, this is as intended
-            // eslint-disable-next-line no-await-in-loop
             const { results: partialResults, next } = await api.get(url)
             results = results.concat(partialResults)
             url = next

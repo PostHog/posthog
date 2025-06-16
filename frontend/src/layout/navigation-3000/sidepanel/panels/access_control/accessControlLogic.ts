@@ -79,7 +79,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     try {
                         const response = await api.get<AccessControlResponseType>(values.endpoint)
                         return response
-                    } catch {
+                    } catch (error) {
                         // Return empty access controls
                         return {
                             access_controls: [],
@@ -111,7 +111,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlRoles: async ({ accessControls }) => {
                     for (const { role, level } of accessControls) {
-                        // eslint-disable-next-line no-await-in-loop
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             role: role,
                             access_level: level,
@@ -132,7 +131,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlMembers: async ({ accessControls }) => {
                     for (const { member, level } of accessControls) {
-                        // eslint-disable-next-line no-await-in-loop
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             organization_member: member,
                             access_level: level,

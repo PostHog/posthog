@@ -144,8 +144,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                         if (field.type === 'file-upload' && payload[field.name]) {
                             try {
                                 // Assumes we're loading a JSON file
-                                // TODO: fix this
-                                // eslint-disable-next-line no-await-in-loop
                                 const loadedFile: string = await new Promise((resolve, reject) => {
                                     const fileReader = new FileReader()
                                     fileReader.onload = (e) => resolve(e.target?.result as string)
@@ -153,7 +151,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                                     fileReader.readAsText(payload[field.name][0])
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch {
+                            } catch (e) {
                                 lemonToast.error('File is not valid')
                                 return
                             }

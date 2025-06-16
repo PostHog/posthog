@@ -144,10 +144,15 @@ export const urls = {
             Object.entries(exportOptions)
                 // strip falsey values
                 .filter((x) => x[1])
-                .reduce((acc, [key, val]) => {
-                    acc[key] = val === true ? null : val
-                    return acc
-                }, {})
+                .reduce(
+                    (acc, [key, val]) => ({
+                        ...acc,
+                        // just sends the key and not a value
+                        // e.g., &showInspector not &showInspector=true
+                        [key]: val === true ? null : val,
+                    }),
+                    {}
+                )
         ).url,
     embedded: (token: string, exportOptions?: ExportOptions): string =>
         urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),

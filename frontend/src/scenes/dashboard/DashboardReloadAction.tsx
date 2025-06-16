@@ -20,10 +20,12 @@ const REFRESH_INTERVAL_SECONDS = [1800, 3600]
 if (process.env.NODE_ENV === 'development') {
     REFRESH_INTERVAL_SECONDS.unshift(10)
 }
-const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
-    label: humanFriendlyDuration(value),
-    value: value,
-}))
+const INTERVAL_OPTIONS = [
+    ...Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
+        label: humanFriendlyDuration(value),
+        value: value,
+    })),
+]
 
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, oldestClientRefreshAllowed } =

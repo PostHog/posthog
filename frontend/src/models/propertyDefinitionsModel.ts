@@ -216,7 +216,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 setOptions: (state, { key, values, allowCustomValues }) => ({
                     ...state,
                     [key]: {
-                        values: Array.from(new Set(values)),
+                        values: [...Array.from(new Set(values))],
                         status: 'loaded',
                         allowCustomValues,
                     },
@@ -308,14 +308,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     // and then fetch them
                     let propertyDefinitions: CountedPaginatedResponse<PropertyDefinition>
                     if (type === 'session') {
-                        // TODO: improve this
-                        // eslint-disable-next-line no-await-in-loop
                         propertyDefinitions = await api.sessions.propertyDefinitions({
                             properties: pending,
                         })
                     } else {
-                        // TODO: improve this
-                        // eslint-disable-next-line no-await-in-loop
                         propertyDefinitions = await api.propertyDefinitions.list({
                             properties: pending,
                             ...queryParams,
@@ -337,7 +333,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     }
                     actions.updatePropertyDefinitions(newProperties)
                 }
-            } catch {
+            } catch (e) {
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const [type, pending] of Object.entries(pendingByType)) {
                     for (const property of pending) {

@@ -468,7 +468,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         filters: {
                             ...state.filters,
                             multivariate: {
-                                ...state.filters.multivariate,
+                                ...(state.filters.multivariate || {}),
                                 variants: [...variants, NEW_VARIANT],
                             },
                         },

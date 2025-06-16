@@ -17,8 +17,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.entries(coreFilterDefinit
             // ignore the comment
             return acc
         }
-        acc[key] = transformFilterDefinitions(group)
-        return acc
+        return {
+            ...acc,
+            [key]: transformFilterDefinitions(group),
+        }
     },
     {} as Record<CoreFilterDefinitionsGroup, Record<string, CoreFilterDefinition>>
 )

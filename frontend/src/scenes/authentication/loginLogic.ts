@@ -37,7 +37,7 @@ export function handleLoginRedirect(): void {
             // `login_required()` decorator, and hash params never make it to the server
             nextURL = url.pathname + url.search + encodeParams(router.values.hashParams, '#')
         }
-    } catch {
+    } catch (e) {
         // do nothing
     }
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change

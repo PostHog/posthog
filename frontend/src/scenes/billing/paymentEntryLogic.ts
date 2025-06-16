@@ -104,7 +104,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                 const response = await api.create('api/billing/activate/authorize')
                 actions.setClientSecret(response.clientSecret)
                 actions.setLoading(false)
-            } catch {
+            } catch (error) {
                 actions.setError('Failed to initialize payment')
             }
         },

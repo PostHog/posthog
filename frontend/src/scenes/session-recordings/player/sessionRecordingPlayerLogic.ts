@@ -804,7 +804,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         if (theMountedLogic) {
                             return theMountedLogic
                         }
-                        // eslint-disable-next-line no-await-in-loop
                         await new Promise((resolve) => setTimeout(resolve, 100))
                     }
                     return null
@@ -1284,7 +1283,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         throw new Error('Timeout waiting for recording to load')
                     }
                     maxWaitTime -= delayTime
-                    // eslint-disable-next-line no-await-in-loop
                     await delay(delayTime)
                 }
 

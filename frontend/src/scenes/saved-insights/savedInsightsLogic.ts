@@ -119,7 +119,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                             filters,
                             offset: params.offset,
                         } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
-                    } catch {
+                    } catch (e) {
                         // no insight with this ID found, discard
                     }
                 }
@@ -297,7 +297,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 }
             }
         },
-        renameInsight: ({ insight }) => {
+        renameInsight: async ({ insight }) => {
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
@@ -383,7 +383,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     router.actions.replace(
                         hashParams.edit ? urls.insightEdit(insight.short_id) : urls.insightView(insight.short_id)
                     )
-                } catch {
+                } catch (e) {
                     lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
                 }

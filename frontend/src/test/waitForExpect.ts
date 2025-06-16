@@ -7,13 +7,11 @@ export const waitForExpect = async <T>(fn: () => T | Promise<T>, timeout = 10_00
     const start = Date.now()
     while (true) {
         try {
-            // eslint-disable-next-line no-await-in-loop
             return await fn()
         } catch (error) {
             if (Date.now() - start > timeout) {
                 throw error
             }
-            // eslint-disable-next-line no-await-in-loop
             await new Promise((resolve) => setTimeout(resolve, interval))
         }
     }

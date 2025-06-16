@@ -416,7 +416,7 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
         if (unparsedPersonProperties && unparsedPersonProperties !== null) {
             try {
                 response.personProperties = JSON.parse(unparsedPersonProperties as string)
-            } catch {
+            } catch (e) {
                 // Ignore parsing errors for person properties as there's no real action here
                 // It just means we won't show the person properties in the question visualization
             }
@@ -545,7 +545,7 @@ export const surveyLogic = kea<surveyLogicType>([
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
-            summarize: ({ questionIndex, questionId }: { questionIndex?: number; questionId?: string }) => {
+            summarize: async ({ questionIndex, questionId }: { questionIndex?: number; questionId?: string }) => {
                 return api.surveys.summarize_responses(props.id, questionIndex, questionId)
             },
         },
@@ -1038,7 +1038,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             if (r[2] && r[2] !== 'null') {
                                 personProperties = JSON.parse(r[2])
                             }
-                        } catch {
+                        } catch (e) {
                             // If parsing fails, use an empty object
                         }
 
@@ -1196,7 +1196,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
                 actions.setFlagPropertyErrors(null)
             },
-            submitSurveyFailure: () => {
+            submitSurveyFailure: async () => {
                 // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
                 if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)

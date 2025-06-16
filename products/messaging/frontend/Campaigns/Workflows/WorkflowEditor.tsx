@@ -161,7 +161,7 @@ function WorkflowEditorContent({
             const edgeIdToInsertNodeInto = intersectingDropzone?.id.replace('dropzone_edge_', '')
             const edgeToInsertNodeInto = edges.find((edge) => edge.id === edgeIdToInsertNodeInto)
 
-            const updatedNodes = nodes.filter((nd) => !DROPZONE_NODE_TYPES.includes(nd.type || ''))
+            const updatedNodes = [...nodes.filter((nd) => !DROPZONE_NODE_TYPES.includes(nd.type || ''))]
 
             if (!toolbarNodeUsed || !intersectingDropzone || !edgeToInsertNodeInto) {
                 setNodes(updatedNodes)
@@ -177,7 +177,7 @@ function WorkflowEditorContent({
             updatedNodes.push({ ...newNode })
 
             // Create incoming and outgoing edges for the new node, and remove the edge that was inserted into
-            const updatedEdges = edges.filter((edge) => edge.id !== edgeIdToInsertNodeInto)
+            const updatedEdges = [...edges.filter((edge) => edge.id !== edgeIdToInsertNodeInto)]
             const newEdges = createEdgesForNewNode(newNodeId, toolbarNodeUsed.type, edgeToInsertNodeInto)
             updatedEdges.push(...newEdges)
 

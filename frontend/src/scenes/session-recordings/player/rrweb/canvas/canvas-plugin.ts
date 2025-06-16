@@ -201,7 +201,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         nextPreloadIndex = currentIndex + 1
 
         for (const event of eventsToPreload) {
-            // eslint-disable-next-line no-await-in-loop
             await deserializeAndPreloadCanvasEvents(event.data as canvasMutationData, event)
         }
     }

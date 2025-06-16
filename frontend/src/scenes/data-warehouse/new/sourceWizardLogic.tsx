@@ -1095,8 +1095,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         payload: {
-                            ...state.payload,
-                            ...source.payload,
+                            ...(state.payload ?? {}),
+                            ...(source.payload ?? {}),
                         },
                     }
                 },
@@ -1550,8 +1550,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             if (type === 'file-upload') {
                                 try {
                                     // Assumes we're loading a JSON file
-                                    // TODO: fix this
-                                    // eslint-disable-next-line no-await-in-loop
                                     const loadedFile: string = await new Promise((resolve, reject) => {
                                         const fileReader = new FileReader()
                                         fileReader.onload = (e) => resolve(e.target?.result as string)
@@ -1559,7 +1557,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
-                                } catch {
+                                } catch (e) {
                                     return lemonToast.error('File is not valid')
                                 }
                             } else {

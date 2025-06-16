@@ -116,10 +116,9 @@ export function extractObjectDiffKeys(
                     changedKeys['changed_events_length'] = oldValue?.length
                 } else {
                     events.forEach((event, idx) => {
-                        for (const [key, value] of Object.entries(
-                            extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`)
-                        )) {
-                            changedKeys[key] = value
+                        changedKeys = {
+                            ...changedKeys,
+                            ...extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`),
                         }
                     })
                 }
@@ -129,10 +128,9 @@ export function extractObjectDiffKeys(
                     changedKeys['changed_actions_length'] = oldValue.length
                 } else {
                     actions.forEach((action, idx) => {
-                        for (const [key, value] of Object.entries(
-                            extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`)
-                        )) {
-                            changedKeys[key] = value
+                        changedKeys = {
+                            ...changedKeys,
+                            ...extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`),
                         }
                     })
                 }

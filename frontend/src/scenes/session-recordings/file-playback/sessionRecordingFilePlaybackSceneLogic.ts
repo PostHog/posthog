@@ -72,7 +72,6 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
         }
 
         // Wait for a short period before trying again
-        // eslint-disable-next-line no-await-in-loop
         await new Promise((resolve) => setTimeout(resolve, 1))
         retries++
     }

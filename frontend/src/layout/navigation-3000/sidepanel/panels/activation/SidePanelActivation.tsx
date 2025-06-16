@@ -209,7 +209,7 @@ const ActivationTask = ({
                     // Handle popup blocked case
                     window.location.href = url
                 }
-            } catch {
+            } catch (e) {
                 // Fallback to regular navigation
                 window.location.href = url
             }

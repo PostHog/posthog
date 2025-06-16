@@ -32,8 +32,6 @@ async function runWithParallelism<T, R>(
         void promise.finally(() => executing.delete(promise))
 
         if (executing.size >= maxParallel) {
-            // we're batching the promises, this is as intended
-            // eslint-disable-next-line no-await-in-loop
             await Promise.race(executing)
         }
     }
@@ -276,7 +274,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
 
                             actions.addLogGroups([newLogGroup])
                             actions.retryInvocationSuccess(groupedLogEntry)
-                        } catch {
+                        } catch (e) {
                             actions.retryInvocationFailure(groupedLogEntry)
                         }
                     })

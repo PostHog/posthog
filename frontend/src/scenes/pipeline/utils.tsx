@@ -49,7 +49,7 @@ const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     'https://github.com/PostHog/timestamp-parser-plugin',
     'https://github.com/PostHog/user-agent-plugin',
 ]
-export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set(PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR)
+export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set([...PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR])
 
 const GLOBAL_EXPORT_PLUGINS = [
     // export apps
@@ -95,8 +95,7 @@ export async function loadPaginatedResults(
         if (!url) {
             break
         }
-        // we're fetching the next page, this is as intended
-        // eslint-disable-next-line no-await-in-loop
+
         const { results: partialResults, next } = await api.get(url)
         results = results.concat(partialResults)
         url = next
@@ -216,6 +215,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 export function usePipelineNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | Destination
 ): LemonMenuItem[] {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
@@ -254,6 +254,7 @@ export function usePipelinePluginBackedNodeMenuCommonItems(
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [

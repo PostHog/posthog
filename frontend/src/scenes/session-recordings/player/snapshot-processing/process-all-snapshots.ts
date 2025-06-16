@@ -247,7 +247,7 @@ export const parseEncodedSnapshots = async (
                 // Apply chunking to the snapshot if needed
                 return chunkMutationSnapshot(baseSnapshot)
             })
-        } catch {
+        } catch (e) {
             if (typeof l === 'string') {
                 unparseableLines.push(l)
             }

@@ -468,7 +468,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 lemonToast.success('Your trial has been activated!')
                 await breakpoint(400)
                 window.location.reload()
-            } catch {
+            } catch (e) {
                 lemonToast.error('There was an error activating your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
                 actions.loadBilling()
@@ -480,7 +480,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
                 window.location.reload()
-            } catch {
+            } catch (e) {
                 lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
                 actions.loadBilling()
@@ -489,8 +489,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
         triggerMoreHedgehogs: async (_, breakpoint) => {
             for (let i = 0; i < 5; i++) {
                 props.hogfettiTrigger?.()
-                // we're triggering the hogfetti, this is as intended
-                // eslint-disable-next-line no-await-in-loop
                 await breakpoint(200)
             }
         },
@@ -518,7 +516,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                             : undefined
                         : 'Please enter a whole number',
             }),
-            submit: ({ input }) => {
+            submit: async ({ input }) => {
                 const addonTiers =
                     'addons' in props.product
                         ? props.product.addons
