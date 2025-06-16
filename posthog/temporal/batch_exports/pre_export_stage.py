@@ -303,6 +303,8 @@ async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInpu
                 fields=fields,
                 filters=filters,
                 destination_default_fields=inputs.destination_default_fields,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
             )
             query_or_model = query

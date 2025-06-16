@@ -10,15 +10,19 @@ export const HogFlowSchema = z.object({
         type: z.literal('event'),
         filters: z.any(),
     }),
-    trigger_masking: z.object({
-        ttl: z.number(),
-        hash: z.string(),
-        threshold: z.number(),
-    }),
-    conversion: z.object({
-        window_minutes: z.number(),
-        filters: z.any(),
-    }),
+    trigger_masking: z
+        .object({
+            ttl: z.number(),
+            hash: z.string(),
+            threshold: z.number(),
+        })
+        .optional(),
+    conversion: z
+        .object({
+            window_minutes: z.number(),
+            filters: z.any(),
+        })
+        .optional(),
     exit_condition: z.enum([
         'exit_on_conversion',
         'exit_on_trigger_not_matched',

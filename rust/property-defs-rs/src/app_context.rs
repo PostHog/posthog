@@ -1,7 +1,7 @@
 use health::{HealthHandle, HealthRegistry};
 use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 use time::Duration;
 use tracing::{error, warn};
 
@@ -164,51 +164,80 @@ impl AppContext {
             return Ok(());
         }
 
-        for update in updates {
-            // Only property definitions have group types
+        // Collect all unresolved group types that need database lookup
+        let mut to_resolve: Vec<(usize, String, i32)> = Vec::new();
+
+        // First pass: check cache and collect uncached items
+        for (idx, update) in updates.iter_mut().enumerate() {
             let Update::Property(update) = update else {
                 continue;
             };
-            // If we didn't find a group type, we have nothing to resolve.
             let Some(GroupType::Unresolved(group_name)) = &update.group_type_index else {
                 continue;
             };
 
             let cache_key = format!("{}:{}", update.team_id, group_name);
 
-            let cached = self.group_type_cache.get(&cache_key);
-            if let Some(index) = cached {
+            if let Some(index) = self.group_type_cache.get(&cache_key) {
                 metrics::counter!(GROUP_TYPE_CACHE, &[("action", "hit")]).increment(1);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
-                continue;
-            }
-
-            metrics::counter!(GROUP_TYPE_READS).increment(1);
-
-            let found = sqlx::query_scalar!(
-                    "SELECT group_type_index FROM posthog_grouptypemapping WHERE group_type = $1 AND team_id = $2",
-                    group_name,
-                    update.team_id
-                )
-                .fetch_optional(&self.pool)
-                .await?;
-
-            if let Some(index) = found {
-                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "miss")]).increment(1);
-                self.group_type_cache.insert(cache_key, index);
-                update.group_type_index =
-                    update.group_type_index.take().map(|gti| gti.resolve(index));
             } else {
-                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
-                warn!(
-                    "Failed to resolve group type index for group name: {} and team id: {}",
-                    group_name, update.team_id
-                );
-                // If we fail to resolve a group type, we just don't write it
-                update.group_type_index = None;
+                to_resolve.push((idx, group_name.clone(), update.team_id));
             }
         }
+
+        // Batch resolve all uncached group types
+        if !to_resolve.is_empty() {
+            metrics::counter!(GROUP_TYPE_READS).increment(to_resolve.len() as u64);
+
+            let (group_names, team_ids): (Vec<String>, Vec<i32>) = to_resolve
+                .iter()
+                .map(|(_, name, team_id)| (name.clone(), team_id))
+                .unzip();
+
+            let results = sqlx::query!(
+                "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping
+                 WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
+                &group_names,
+                &team_ids
+            )
+            .fetch_all(&self.pool)
+            .await?;
+
+            // Create a lookup map for resolved group types
+            let mut resolved_map: HashMap<(String, i32), i32> =
+                HashMap::with_capacity(results.len());
+            for result in results {
+                resolved_map.insert((result.group_type, result.team_id), result.group_type_index);
+            }
+
+            // Second pass: apply resolved group types to updates
+            for (idx, group_name, team_id) in to_resolve {
+                let cache_key = format!("{}:{}", team_id, group_name);
+
+                if let Some(&index) = resolved_map.get(&(group_name.clone(), team_id)) {
+                    metrics::counter!(GROUP_TYPE_CACHE, &[("action", "miss")]).increment(1);
+                    self.group_type_cache.insert(cache_key, index);
+
+                    if let Update::Property(update) = &mut updates[idx] {
+                        update.group_type_index =
+                            update.group_type_index.take().map(|gti| gti.resolve(index));
+                    }
+                } else {
+                    metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
+                    warn!(
+                        "Failed to resolve group type index for group name: {} and team id: {}",
+                        group_name, team_id
+                    );
+
+                    if let Update::Property(update) = &mut updates[idx] {
+                        update.group_type_index = None;
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 }
