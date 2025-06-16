@@ -123,7 +123,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                     <AddSourceDropdown<ExternalDataSource['source_type']>
                         sources={VALID_MARKETING_SOURCES}
                         onSourceAdd={(source) => {
-                            router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
+                            router.actions.push(urls.dataWarehouseSource(`managed-${source}`))
                         }}
                     />
                 }
