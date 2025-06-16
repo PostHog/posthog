@@ -499,7 +499,8 @@ export function ProjectTree({
             }}
             itemSideActionButton={(item) => {
                 const showProductMenuItems =
-                    root === 'products://' || (root === 'shortcuts://' && item.record?.href.split('/').length - 1 === 1)
+                    root === 'products://' ||
+                    (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
                 if (showProductMenuItems) {
                     if (item.name === 'Product analytics') {
