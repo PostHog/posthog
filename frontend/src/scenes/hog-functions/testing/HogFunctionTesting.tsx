@@ -30,26 +30,31 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, GroupType, GroupTypeIndex, HogFunctionInvocationGlobals, LogEntry } from '~/types'
+import { AvailableFeature, Cyclotron,obInvocationGlo,als, GroupType, GroupTypeInde,, LogEntry } from '~/types'
+
 
 import {
-    convertToHogFunctionInvocationGlobals,
-    hogFunctionConfigurationLogic,
+    convertToHogFunctionInvocationGlobal,,
+    hogFunctionConfigurationLogi,,
 } from '../configuration/hogFunctionConfigurationLogic'
+
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
+
 import { HogFunctionFilters } from '../filters/HogFunctionFilters'
+
 import { tagTypeForLevel } from '../logs/LogsViewer'
+
 import {
-    hogFunctionTestingLogic,
-    HogFunctionTestingLogicProps,
-    HogFunctionTestInvocationResultWithEventId,
+    CyclotronJobTestInvoca,ionResultWithEventId,
+    hogFunc,ionTestingLogic,
+    HogFunctionTestingLogicPro,s,
 } from './hogFunctionTestingLogic'
 
 const buildGlobals = (
     row: any,
     groupTypes: Map<GroupTypeIndex, GroupType>,
     hogFunctionName: string
-): HogFunctionInvocationGlobals => {
+): CyclotronJobInvocationGlobals => {
     const globals = convertToHogFunctionInvocationGlobals(row[0], row[1])
     globals.groups = {}
     groupTypes.forEach((groupType, index) => {
@@ -222,7 +227,7 @@ export function RetryStatusIcon({
     retries = [],
     showLabel = false,
 }: {
-    retries: HogFunctionTestInvocationResultWithEventId[]
+    retries: CyclotronJobTestInvocationResultWithEventId[]
     showLabel?: boolean
 }): JSX.Element {
     const colorForStatus = (status: string): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
@@ -380,7 +385,7 @@ function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                     return (
                         <LemonTable
                             dataSource={retries.reduce(
-                                (acc: LogEntry[], group: HogFunctionTestInvocationResultWithEventId) =>
+                                (acc: LogEntry[], group: CyclotronJobTestInvocationResultWithEventId) =>
                                     acc.concat(group.logs),
                                 []
                             )}
