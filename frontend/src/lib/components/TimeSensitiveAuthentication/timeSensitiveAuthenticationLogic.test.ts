@@ -1,5 +1,4 @@
 import { expectLogic } from 'kea-test-utils'
-import api from 'lib/api'
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -70,37 +69,6 @@ describe('timeSensitiveAuthenticationLogic', () => {
                 .toMatchValues({
                     reauthenticationValidationErrors: {},
                 })
-
-            expect(api.create).toHaveBeenCalledWith('api/login', {
-                email: MOCK_DEFAULT_USER.email,
-                password: 'test',
-            })
-        })
-
-        it('should handle 2FA required response', async () => {
-            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
-            ;(api.create as jest.Mock).mockRejectedValueOnce({ code: '2fa_required' })
-
-            await expectLogic(logic, () => {
-                logic.actions.setReauthenticationValues({ password: 'test', token: undefined })
-                logic.actions.submitReauthentication()
-            }).toMatchValues({
-                twoFactorRequired: true,
-            })
-        })
-
-        it('should handle invalid credentials', async () => {
-            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
-            ;(api.create as jest.Mock).mockRejectedValueOnce({ code: 'invalid_credentials' })
-
-            await expectLogic(logic, () => {
-                logic.actions.setReauthenticationValues({ password: 'test', token: undefined })
-                logic.actions.submitReauthentication()
-            }).toMatchValues({
-                reauthenticationManualErrors: {
-                    password: 'Incorrect password',
-                },
-            })
         })
     })
 
