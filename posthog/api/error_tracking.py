@@ -537,7 +537,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         symbol_set = self.get_object()
-
         s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
 
         if s3_upload:
@@ -797,7 +796,7 @@ def upload_content(content: bytearray) -> tuple[str, str]:
 
     if len(content) > ONE_HUNDRED_MEGABYTES:
         raise ValidationError(
-            code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
+            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
         )
 
     upload_path = generate_symbol_set_file_key()

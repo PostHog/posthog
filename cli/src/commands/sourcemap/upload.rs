@@ -164,12 +164,12 @@ fn finish_upload(
     content_hash: String,
 ) -> Result<()> {
     let finish_upload_url: String = format!("{}/{}/{}", base_url, symbol_set_id, "finish_upload");
-    let params: Vec<(&'static str, &str)> = vec![("content_hash", &content_hash)];
+    let params = vec![("content_hash", &content_hash)];
 
     let res = client
-        .get(finish_upload_url)
+        .post(finish_upload_url)
         .header("Authorization", format!("Bearer {}", auth_token))
-        .query(&params)
+        .form(&params)
         .send()
         .context(format!("While finishing upload to {}", base_url))?;
 
