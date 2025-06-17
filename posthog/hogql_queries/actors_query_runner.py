@@ -74,7 +74,16 @@ class ActorsQueryRunner(QueryRunner):
         recordings_lookup: Optional[dict[str, list[dict]]],
         events_distinct_id_lookup: Optional[dict[str, list[str]]],
     ) -> list:
-        for result in results:
+        # Convert to list if it's an iterator, then modify in-place
+        if hasattr(results, "__iter__") and not isinstance(results, list):
+            results = list(results)
+
+        for i, result in enumerate(results):
+            # Convert to mutable list if it's a tuple/immutable
+            if not isinstance(result, list):
+                result = list(result)
+                results[i] = result
+
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             if actor:
