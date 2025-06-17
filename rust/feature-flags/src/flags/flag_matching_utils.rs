@@ -203,26 +203,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     Ok(())
 }
 
-/// /// Check if all required properties are present in the overrides
-/// and none of them are of type "cohort" – if so, return the overrides,
-/// otherwise return None, because we can't locally compute cohort properties
-// pub fn locally_computable_property_overrides(
-//     property_overrides: &Option<HashMap<String, Value>>,
-//     property_filters: &[PropertyFilter],
-// ) -> Option<HashMap<String, Value>> {
-//     property_overrides.as_ref().and_then(|overrides| {
-//         let should_prefer_overrides = property_filters.iter().all(|prop| {
-//             overrides.contains_key(&prop.key) && prop.prop_type != PropertyType::Cohort
-//         });
-
-//         if should_prefer_overrides {
-//             Some(overrides.clone())
-//         } else {
-//             None
-//         }
-//     })
-// }
-
 /// Return any locally computable property overrides (non-cohort properties).
 /// This returns the subset of overrides that can be computed locally, even if not all flag properties are overridden.
 pub fn locally_computable_property_overrides(
@@ -800,41 +780,6 @@ mod tests {
             Some(&json!("user@example.com")),
             "The email override should be present"
         );
-    }
-
-    #[tokio::test]
-    async fn test_integration_person_property_overrides_with_merge() {
-        // This test verifies the end-to-end behavior of our fix
-        // Simulating what happens in the failing test case
-
-        // Create a simple flag that checks for email
-        let flag_property_filters = vec![PropertyFilter {
-            key: "email".to_string(),
-            value: Some(json!("user5@example.com")),
-            operator: Some(OperatorType::Exact),
-            prop_type: PropertyType::Person,
-            group_type_index: None,
-            negation: None,
-        }];
-
-        // Person property overrides contain only age, not email
-        let person_property_overrides = Some(HashMap::from([("age".to_string(), json!(35))]));
-
-        // With the new targeted behavior, this should return None because overrides
-        // don't contain any properties that the flag needs (flag needs email, overrides have age)
-        let result = locally_computable_property_overrides(
-            &person_property_overrides,
-            &flag_property_filters,
-        );
-        assert!(
-            result.is_none(),
-            "Should return None because overrides don't contain properties the flag needs"
-        );
-
-        // Since we returned None, the system will fall back to DB evaluation
-        // where it will fetch the person's email from the database. The age override
-        // will not be considered for this flag since it doesn't need the age property.
-        // This is the new targeted behavior that ensures flags only use relevant overrides.
     }
 
     #[rstest]
