@@ -433,6 +433,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
+    scope_object_write_actions = ["start_upload", "finish_upload"]
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(team_id=self.team.id)
@@ -507,13 +508,13 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        file_key = str(uuid7())
-        presigned_url = object_storage.get_presigned_url(
-            file_key=file_key, expiration=60, bucket=settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER
+        file_key = generate_symbol_set_file_key()
+        presigned_url = object_storage.get_presigned_upload_url(
+            file_key=file_key,
+            expiration=60,
         )
 
-        storage_ptr = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{file_key}"
-        symbol_set = create_symbol_set(chunk_id, self.team, release_id, storage_ptr)
+        symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
 
         return Response(
             {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
@@ -521,7 +522,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=True)
     def finish_upload(self, request, **kwargs):
-        content_hash = request.query_params.get("content_hash")
+        content_hash = request.data.get("content_hash")
 
         if not content_hash:
             raise ValidationError(
@@ -537,22 +538,28 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         symbol_set = self.get_object()
 
-        s3_upload = object_storage.head_object(
-            file_key="12345", bucket=settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER
-        )
+        s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
 
-        content_length = s3_upload.get("ContentLength")
-        if content_length > ONE_HUNDRED_MEGABYTES:
-            # TODO: add hook to remove from s3
-            symbol_set.delete()
+        if s3_upload:
+            content_length = s3_upload.get("ContentLength")
 
+            if content_length > ONE_HUNDRED_MEGABYTES:
+                # TODO: remove from s3 (reuse dagster job)
+                symbol_set.delete()
+
+                raise ValidationError(
+                    code="file_too_large",
+                    detail="The uploaded symbol set file was too large.",
+                )
+        else:
             raise ValidationError(
-                code="file_too_large",
-                detail="The uploaded symbol set file was too large.",
+                code="file_not_found",
+                detail="No file has been uploaded for the symbol set.",
             )
 
-        symbol_set.content_hash = content_hash
-        symbol_set.save()
+        if not symbol_set.content_hash:
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
 
@@ -793,7 +800,7 @@ def upload_content(content: bytearray) -> tuple[str, str]:
             code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
         )
 
-    upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
+    upload_path = generate_symbol_set_file_key()
     object_storage.write(upload_path, bytes(content))
     return (upload_path, content_hash)
 
@@ -837,3 +844,7 @@ def validate_bytecode(bytecode: list[Any]) -> None:
 
 def get_suppression_rules(team: Team):
     return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
+
+
+def generate_symbol_set_file_key():
+    return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
