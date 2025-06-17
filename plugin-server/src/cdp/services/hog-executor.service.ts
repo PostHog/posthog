@@ -96,13 +96,11 @@ export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlob
             }
         }
 
-        ret = {
-            ...ret,
-            ...Object.fromEntries(
-                Object.entries(bytecode)
-                    .filter(([key, _]) => key !== EXTEND_OBJECT_KEY)
-                    .map(([key2, value]) => [key2, formatHogInput(value, globals, key ? `${key}.${key2}` : key2)])
-            ),
+        for (const [subkey, value] of Object.entries(bytecode)) {
+            if (subkey === EXTEND_OBJECT_KEY) {
+                continue
+            }
+            ret[subkey] = formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
         }
 
         return ret
