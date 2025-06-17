@@ -7,6 +7,7 @@ const _commonActionFields = {
     on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
     created_at: z.number(),
     updated_at: z.number(),
+    filters: z.any(), // TODO: Correct to the right type
 }
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -39,13 +40,33 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         ..._commonActionFields,
-        type: z.literal('wait_for_condition'),
+        type: z.literal('wait_until_condition'),
         config: z.object({
             condition: z.object({
                 filter: z.any(), // type this stronger
                 on_match: z.string(), // TODO: Can we type this more directly to an edge?
             }),
-            delay_duration: z.string(),
+            max_wait_duration: z.string(),
+        }),
+    }),
+
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('wait_until_time_window'),
+        config: z.object({
+            timezone: z.string(),
+            // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+            date: z.union([
+                z.literal('any'),
+                z.literal('weekday'),
+                z.literal('weekend'),
+                z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])),
+            ]),
+            // time can be "any", or a time range [start, end]
+            time: z.union([
+                z.literal('any'),
+                z.array(z.string()), // e.g. ['10:00', '11:00']
+            ]),
         }),
     }),
     // z.object({

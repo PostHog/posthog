@@ -12,7 +12,7 @@ const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 export class HogFlowActionRunnerWaitForCondition {
     run(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'wait_for_condition' }>
+        action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
     ): Promise<HogFlowActionRunnerResult> {
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
@@ -33,10 +33,10 @@ export class HogFlowActionRunnerWaitForCondition {
             })
         }
 
-        if (action.config.delay_duration) {
+        if (action.config.max_wait_duration) {
             // Calculate the scheduledAt based on the delay duration - max we will wait for is 10 minutes which means we check every 10 minutes until the condition is met
             const scheduledAt = calculatedScheduledAt(
-                action.config.delay_duration,
+                action.config.max_wait_duration,
                 invocation.state.currentAction?.startedAtTimestamp,
                 DEFAULT_WAIT_DURATION_SECONDS
             )

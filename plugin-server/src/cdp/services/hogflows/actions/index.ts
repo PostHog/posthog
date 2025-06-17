@@ -7,16 +7,19 @@ import { logger } from '~/utils/logger'
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
 import { HogFlowActionRunnerDelay } from './action.delay'
 import { HogFlowActionRunnerWaitForCondition } from './action.wait_for_condition'
+import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
 import { HogFlowActionRunnerResult } from './types'
 
 export class HogFlowActionRunner {
     private hogFlowActionRunnerConditionalBranch: HogFlowActionRunnerConditionalBranch
     private hogFlowActionRunnerDelay: HogFlowActionRunnerDelay
     private hogFlowActionRunnerWaitForCondition: HogFlowActionRunnerWaitForCondition
+    private hogFlowActionRunnerWaitUntilTimeWindow: HogFlowActionRunnerWaitUntilTimeWindow
     constructor(private hub: Hub) {
         this.hogFlowActionRunnerConditionalBranch = new HogFlowActionRunnerConditionalBranch()
         this.hogFlowActionRunnerDelay = new HogFlowActionRunnerDelay()
         this.hogFlowActionRunnerWaitForCondition = new HogFlowActionRunnerWaitForCondition()
+        this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
     }
 
     async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
@@ -51,13 +54,15 @@ export class HogFlowActionRunner {
             case 'conditional_branch':
                 result = await this.hogFlowActionRunnerConditionalBranch.run(invocation, action)
                 break
-            case 'wait_for_condition':
+            case 'wait_until_condition':
                 result = await this.hogFlowActionRunnerWaitForCondition.run(invocation, action)
                 break
             case 'delay':
                 result = await this.hogFlowActionRunnerDelay.run(invocation, action)
                 break
-
+            case 'wait_until_time_window':
+                result = await this.hogFlowActionRunnerWaitUntilTimeWindow.run(invocation, action)
+                break
             case 'exit':
                 result = {
                     finished: true,

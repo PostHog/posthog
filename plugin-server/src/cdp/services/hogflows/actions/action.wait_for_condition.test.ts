@@ -10,7 +10,7 @@ import { HogFlowActionRunnerWaitForCondition } from './action.wait_for_condition
 describe('HogFlowActionRunnerWaitForCondition', () => {
     let runner: HogFlowActionRunnerWaitForCondition
     let invocation: CyclotronJobInvocationHogFlow
-    let action: Extract<HogFlowAction, { type: 'wait_for_condition' }>
+    let action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
 
     beforeEach(() => {
         jest.useFakeTimers()
@@ -18,13 +18,13 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
 
         runner = new HogFlowActionRunnerWaitForCondition()
         action = createHogFlowAction({
-            type: 'wait_for_condition',
+            type: 'wait_until_condition',
             config: {
                 condition: {
                     filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
                     on_match: 'next-action',
                 },
-                delay_duration: '10m',
+                max_wait_duration: '10m',
             },
         })
         invocation = createExampleHogFlowInvocation(
@@ -42,7 +42,7 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
 
     describe('no matching events', () => {
         it('should handle wait duration and schedule next check', async () => {
-            action.config.delay_duration = '2h'
+            action.config.max_wait_duration = '2h'
             const result = await runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
@@ -52,7 +52,7 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
         })
 
         it('should not schedule for later than the max wait duration', async () => {
-            action.config.delay_duration = '5m'
+            action.config.max_wait_duration = '5m'
             const result = await runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
@@ -63,7 +63,7 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
 
         it('should throw error if action started at timestamp is invalid', async () => {
             invocation.state.currentAction = undefined
-            action.config.delay_duration = '300s'
+            action.config.max_wait_duration = '300s'
             await expect(async () => await runner.run(invocation, action)).rejects.toThrow(
                 "'startedAtTimestamp' is not set or is invalid"
             )
