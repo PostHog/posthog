@@ -1,5 +1,5 @@
 import unittest.mock
-from datetime import datetime, timedelta
+from datetime import timedelta
 from django.test import TestCase, override_settings
 from django.utils import timezone
 import dagster
@@ -169,7 +169,7 @@ class TestBatchDeleteFunctionality(TestCase):
     @override_settings(OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD=3600)  # 1 hour
     def test_clear_expired_oauth_tokens_with_custom_retention(self):
         """Test the full cleanup function with custom retention period."""
-        now = datetime.now()
+        now = timezone.now()
         cutoff_time = now - timedelta(hours=2)  # Beyond retention period
         recent_time = now - timedelta(minutes=30)  # Within retention period
 
