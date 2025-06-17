@@ -5,10 +5,10 @@ import { createExampleHogFlowInvocation, createHogFlowAction } from '~/cdp/_test
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { HogFlowActionRunnerCondition } from './condition.action'
+import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
 
 describe('HogFlowActionRunnerCondition', () => {
-    let runner: HogFlowActionRunnerCondition
+    let runner: HogFlowActionRunnerConditionalBranch
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'conditional_branch' }>
 
@@ -16,7 +16,7 @@ describe('HogFlowActionRunnerCondition', () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
 
-        runner = new HogFlowActionRunnerCondition()
+        runner = new HogFlowActionRunnerConditionalBranch()
         action = createHogFlowAction({
             type: 'conditional_branch',
             config: {

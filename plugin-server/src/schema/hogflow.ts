@@ -41,7 +41,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('wait_for_condition'),
         config: z.object({
-            condition: z.any(),
+            condition: z.object({
+                filter: z.any(), // type this stronger
+                on_match: z.string(), // TODO: Can we type this more directly to an edge?
+            }),
             delay_duration: z.string(),
         }),
     }),

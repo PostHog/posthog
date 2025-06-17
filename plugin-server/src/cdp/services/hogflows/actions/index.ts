@@ -4,17 +4,19 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
 
-import { HogFlowActionRunnerCondition } from './condition.action'
-import { HogFlowActionRunnerDelay } from './delay.action'
+import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
+import { HogFlowActionRunnerDelay } from './action.delay'
+import { HogFlowActionRunnerWaitForCondition } from './action.wait_for_condition'
 import { HogFlowActionRunnerResult } from './types'
 
 export class HogFlowActionRunner {
-    private hogFlowActionRunnerCondition: HogFlowActionRunnerCondition
+    private hogFlowActionRunnerConditionalBranch: HogFlowActionRunnerConditionalBranch
     private hogFlowActionRunnerDelay: HogFlowActionRunnerDelay
-
+    private hogFlowActionRunnerWaitForCondition: HogFlowActionRunnerWaitForCondition
     constructor(private hub: Hub) {
-        this.hogFlowActionRunnerCondition = new HogFlowActionRunnerCondition()
+        this.hogFlowActionRunnerConditionalBranch = new HogFlowActionRunnerConditionalBranch()
         this.hogFlowActionRunnerDelay = new HogFlowActionRunnerDelay()
+        this.hogFlowActionRunnerWaitForCondition = new HogFlowActionRunnerWaitForCondition()
     }
 
     async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
@@ -47,7 +49,10 @@ export class HogFlowActionRunner {
 
         switch (action.type) {
             case 'conditional_branch':
-                result = await this.hogFlowActionRunnerCondition.run(invocation, action)
+                result = await this.hogFlowActionRunnerConditionalBranch.run(invocation, action)
+                break
+            case 'wait_for_condition':
+                result = await this.hogFlowActionRunnerWaitForCondition.run(invocation, action)
                 break
             case 'delay':
                 result = await this.hogFlowActionRunnerDelay.run(invocation, action)

@@ -8,7 +8,7 @@ import { HogFlowActionRunnerResult } from './types'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
-export class HogFlowActionRunnerCondition {
+export class HogFlowActionRunnerConditionalBranch {
     run(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
