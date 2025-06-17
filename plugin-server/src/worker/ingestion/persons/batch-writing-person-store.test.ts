@@ -323,7 +323,6 @@ describe('BatchWritingPersonStore', () => {
                     shared_prop: 'new_value',
                     test: 'test',
                 },
-                version: 3,
             }),
             expect.anything(),
             'forUpdate'
