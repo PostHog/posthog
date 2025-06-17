@@ -58,8 +58,8 @@ def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]
     Returns nodes ordered from most upstream to the node itself.
     """
     # Build adjacency list and in-degree count
-    graph = defaultdict(list)
-    in_degree = defaultdict(int)
+    graph: defaultdict[str, list[str]] = defaultdict(list)
+    in_degree: defaultdict[str, int] = defaultdict(int)
 
     for edge in edges:
         source, target = edge["source"], edge["target"]

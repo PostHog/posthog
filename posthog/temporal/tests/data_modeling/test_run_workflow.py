@@ -37,7 +37,6 @@ from posthog.temporal.data_modeling.run_workflow import (
     finish_run_activity,
     get_dlt_destination,
     materialize_model,
-    run_dag_activity,
     start_run_activity,
     create_job_model_activity,
     fail_jobs_activity,
@@ -99,7 +98,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
 
     with unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", new=magic_mock):
         async with asyncio.timeout(10):
-            results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
+            results = await activity_environment.run(run_dag_activity_inputs)
 
         models_materialized = [model for model in dag.keys() if model not in posthog_tables]
 
@@ -232,7 +231,7 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
     magic_mock = unittest.mock.AsyncMock(side_effect=raise_if_should_make_fail)
     with unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", new=magic_mock):
         async with asyncio.timeout(10):
-            results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
+            results = await activity_environment.run(run_dag_activity_inputs)
 
         models_materialized = [model for model in expected_failed | expected_completed if model not in posthog_tables]
 
@@ -358,12 +357,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             workflow_id="test_workflow",
         )
 
-        key, delta_table, job_id = await materialize_model(
-            saved_query.id.hex,
-            ateam,
-            saved_query,
-            job,
-        )
+        key, delta_table, job_id = await materialize_model(saved_query.id.hex, ateam, saved_query, job, False)
 
     s3_objects = await minio_client.list_objects_v2(
         Bucket=bucket_name, Prefix=f"team_{ateam.pk}_model_{saved_query.id.hex}/"
@@ -433,6 +427,7 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
+            False,
         )
 
     s3_objects = await minio_client.list_objects_v2(
@@ -760,7 +755,6 @@ async def test_run_workflow_with_minio_bucket(
             activities=[
                 start_run_activity,
                 build_dag_activity,
-                run_dag_activity,
                 finish_run_activity,
                 create_table_activity,
                 create_job_model_activity,
@@ -868,7 +862,6 @@ async def test_run_workflow_with_minio_bucket_with_errors(
             activities=[
                 start_run_activity,
                 build_dag_activity,
-                run_dag_activity,
                 finish_run_activity,
                 create_table_activity,
                 create_job_model_activity,

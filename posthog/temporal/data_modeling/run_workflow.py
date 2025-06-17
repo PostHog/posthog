@@ -169,7 +169,7 @@ class CannotCoerceColumnException(Exception):
     pass
 
 
-async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue[QueueMessage], job_id: str) -> None:
+async def handle_model_ready(model: ModelNode, team_id: int, job_id: str) -> None:
     """Handle a model that is ready to run by materializing.
 
     After materializing is done, we can report back to the execution queue the result. If
@@ -179,7 +179,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
     Args:
         model: The model we are trying to run.
         team_id: The ID of the team who owns this model.
-        queue: The execution queue where we will report back results.
+        job_id: The ID of the job that is running this model.
     """
 
     try:
@@ -194,47 +194,39 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
             key, delta_table, _ = await materialize_model(model.label, team, saved_query, job, False)
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
-        await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
+        await handle_error(job, model, err)
     except CannotCoerceColumnException as err:
         await logger.aexception("Type coercion error for model %s", model.label, job_id=job_id)
-        await handle_error(job, model, queue, err, "Type coercion error for model %s: %s")
+        await handle_error(job, model, err)
     except DataModelingCancelledException as err:
         await logger.aexception("Data modeling run was cancelled for model %s", model.label, job_id=job_id)
-        await handle_cancelled(job, model, queue, err, "Data modeling run was cancelled for model %s: %s")
+        await handle_cancelled(job, model, err)
     except Exception as err:
         await logger.aexception(
             "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
         )
         capture_exception(err)
-        await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
+        await handle_error(job, model, err)
     else:
         await logger.ainfo("Materialized model %s", model.label)
-        if queue:
-            await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
+
     finally:
-        if queue:
-            queue.task_done()
+        pass
 
 
-async def handle_error(
-    job: DataModelingJob, model: ModelNode, queue: asyncio.Queue[QueueMessage], error: Exception, error_message: str
-):
+async def handle_error(job: DataModelingJob, model: ModelNode, error: Exception):
     if job:
         await logger.ainfo("Marking job %s as failed", job.id)
         job.status = DataModelingJob.Status.FAILED
         job.error = str(error)
         await database_sync_to_async(job.save)()
-    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
-async def handle_cancelled(
-    job: DataModelingJob, model: ModelNode, queue: asyncio.Queue[QueueMessage], error: Exception, error_message: str
-):
+async def handle_cancelled(job: DataModelingJob, model: ModelNode, error: Exception):
     if job:
         job.status = DataModelingJob.Status.CANCELLED
         job.error = str(error)
         await database_sync_to_async(job.save)()
-    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
 async def start_job_modeling_run(
@@ -855,8 +847,7 @@ async def run_single_model_activity(inputs: RunDagActivityInputs, label: str) ->
     """Runs a single materialized view node."""
     model = inputs.dag[label]
     try:
-        # We don't need the queue param here
-        await handle_model_ready(model, inputs.team_id, None, inputs.job_id)
+        await handle_model_ready(model, inputs.team_id, inputs.job_id)
         return "completed"
     except Exception:
         return "failed"
@@ -908,7 +899,7 @@ class RunWorkflow(PostHogWorkflow):
             all_deps[edge["target"]].add(edge["source"])
 
         # For each materialized view, find its materialized dependencies, traversing through non-materialized views
-        dependencies = {node_id: set() for node_id in mat_view_ids}
+        dependencies: dict[str, set[str]] = {node_id: set() for node_id in mat_view_ids}
         dependents: dict[str, set[str]] = collections.defaultdict(set)
         for node_id in mat_view_ids:
             q = collections.deque(list(all_deps.get(node_id, [])))
@@ -928,7 +919,7 @@ class RunWorkflow(PostHogWorkflow):
         completed = set()
         failed = set()
         ancestor_failed = set()
-        running = {}
+        running: dict[str, asyncio.Task[str]] = {}
         ready = [node_id for node_id, deps in dependencies.items() if not deps]
 
         inputs.select[0] = dataclasses.replace(inputs.select[0], ancestors="ALL")
