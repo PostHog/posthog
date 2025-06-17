@@ -2,7 +2,7 @@ import asyncio
 import dataclasses
 import datetime as dt
 import typing
-from datetime import datetime, timedelta
+import json
 
 import structlog
 import temporalio.activity
@@ -10,17 +10,21 @@ import temporalio.common
 import temporalio.workflow
 from django.conf import settings
 
+from asgiref.sync import sync_to_async
+
 from posthog.models.subscription import Subscription
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
+from ee.tasks.subscriptions import _deliver_subscription_report
+
 logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass
-class ScheduleSubscriptionsActivityInputs:
-    """Inputs for the`schedule_subscriptions_activity`."""
+class FetchDueSubscriptionsActivityInputs:
+    """Inputs for `fetch_due_subscriptions_activity`."""
 
     buffer_minutes: int = 15
 
@@ -32,61 +36,25 @@ class ScheduleSubscriptionsActivityInputs:
 
 
 @temporalio.activity.defn
-async def schedule_subscriptions_activity(inputs: ScheduleSubscriptionsActivityInputs) -> None:
-    """Schedule all subscriptions that are due for delivery."""
+async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[int]:
+    """Return a list of subscription IDs that are due for delivery."""
+
     async with Heartbeater():
         logger = get_internal_logger()
-
-        now_with_buffer = datetime.utcnow() + timedelta(minutes=inputs.buffer_minutes)
-
-        from asgiref.sync import sync_to_async
+        now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
 
         @sync_to_async
-        def get_subscriptions():
+        def get_subscription_ids() -> list[int]:
             return list(
                 Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
                 .exclude(dashboard__deleted=True)
                 .exclude(insight__deleted=True)
-                .all()
+                .values_list("id", flat=True)
             )
 
-        subscriptions = await get_subscriptions()
-
-        await logger.ainfo(
-            "Processing subscriptions in parallel",
-            subscription_count=len(subscriptions),
-        )
-
-        # Create a list of tasks to execute in parallel
-        tasks = []
-
-        for subscription in subscriptions:
-            await logger.ainfo(
-                "Scheduling subscription",
-                subscription_id=subscription.id,
-                next_delivery_date=subscription.next_delivery_date,
-                destination=subscription.target_type,
-            )
-
-            # Create a task for each subscription but don't await it yet
-            task = temporalio.workflow.execute_activity(
-                deliver_subscription_report_activity,
-                DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
-                start_to_close_timeout=dt.timedelta(
-                    minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
-                ),
-                retry_policy=temporalio.common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(minutes=5),
-                    maximum_attempts=3,
-                    non_retryable_error_types=[],
-                ),
-            )
-            tasks.append(task)
-
-        # Execute all tasks in parallel and wait for all to complete
-        if tasks:
-            await asyncio.gather(*tasks)
+        sub_ids = await get_subscription_ids()
+        await logger.ainfo("Fetched subscriptions", subscription_count=len(sub_ids))
+        return sub_ids
 
 
 @dataclasses.dataclass
@@ -112,13 +80,6 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
     async with Heartbeater():
         logger = get_internal_logger()
 
-        # We need to use sync_to_async for Django ORM operations in async context
-        from asgiref.sync import sync_to_async
-
-        # Import the original function to reuse the logic
-        from ee.tasks.subscriptions import _deliver_subscription_report
-
-        # Wrap the synchronous function to be called in async context
         deliver_subscription = sync_to_async(_deliver_subscription_report)
 
         await logger.ainfo(
@@ -156,13 +117,6 @@ async def handle_subscription_value_change_activity(inputs: HandleSubscriptionVa
     async with Heartbeater():
         logger = get_internal_logger()
 
-        # We need to use sync_to_async for Django ORM operations in async context
-        from asgiref.sync import sync_to_async
-
-        # Import the original function to reuse the logic
-        from ee.tasks.subscriptions import _deliver_subscription_report
-
-        # Wrap the synchronous function to be called in async context
         deliver_subscription = sync_to_async(_deliver_subscription_report)
 
         await logger.ainfo(
@@ -197,9 +151,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ScheduleAllSubscriptionsWorkflowInputs:
-        """Parse inputs from the management command CLI."""
-        import json
-
         if not inputs:
             return ScheduleAllSubscriptionsWorkflowInputs()
 
@@ -209,14 +160,13 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
         """Run the workflow to schedule all subscriptions."""
-        schedule_subscriptions_inputs = ScheduleSubscriptionsActivityInputs(
-            buffer_minutes=inputs.buffer_minutes,
-        )
 
-        await temporalio.workflow.execute_activity(
-            schedule_subscriptions_activity,
-            schedule_subscriptions_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=30),
+        # Fetch subscription IDs that are due
+        fetch_inputs = FetchDueSubscriptionsActivityInputs(buffer_minutes=inputs.buffer_minutes)
+        subscription_ids: list[int] = await temporalio.workflow.execute_activity(
+            fetch_due_subscriptions_activity,
+            fetch_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(minutes=5),
@@ -224,3 +174,24 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                 non_retryable_error_types=[],
             ),
         )
+
+        # Fan-out delivery activities in parallel
+        tasks = []
+        for sub_id in subscription_ids:
+            task = temporalio.workflow.execute_activity(
+                deliver_subscription_report_activity,
+                DeliverSubscriptionReportActivityInputs(subscription_id=sub_id),
+                start_to_close_timeout=dt.timedelta(
+                    minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
+                ),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=3,
+                    non_retryable_error_types=[],
+                ),
+            )
+            tasks.append(task)
+
+        if tasks:
+            await asyncio.gather(*tasks)

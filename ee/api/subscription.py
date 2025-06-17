@@ -1,18 +1,23 @@
+import asyncio
 from typing import Any
 
 import jwt
+import uuid
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
-from ee.tasks import subscriptions
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
+    HandleSubscriptionValueChangeActivityInputs,
+)
 from posthog.utils import str_to_bool
 
 
@@ -75,7 +80,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance: Subscription = super().create(validated_data)
 
-        subscriptions.handle_subscription_value_change.delay(instance.id, "", invite_message)
+        temporal = sync_connect()
+        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+        temporal.start_workflow(
+            "handle-subscription-value-change",
+            HandleSubscriptionValueChangeActivityInputs(
+                subscription_id=instance.id,
+                previous_value="",
+                invite_message=invite_message,
+            ),
+            id=workflow_id,
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        )
 
         return instance
 
@@ -84,7 +100,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
 
-        subscriptions.handle_subscription_value_change.delay(instance.id, previous_value, invite_message)
+        temporal = sync_connect()
+        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+        asyncio.run(
+            temporal.start_workflow(
+                "handle-subscription-value-change",
+                HandleSubscriptionValueChangeActivityInputs(
+                    subscription_id=instance.id,
+                    previous_value=previous_value,
+                    invite_message=invite_message,
+                ),
+                id=workflow_id,
+                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            )
+        )
 
         return instance
 

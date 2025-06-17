@@ -144,7 +144,7 @@ export function invertDataSource(
         if (datumKey in flattenedData) {
             flattenedData[datumKey].seriesData.push(s)
             flattenedData[datumKey].seriesData = flattenedData[datumKey].seriesData.sort(
-                (a, b) => (b.action?.order ?? b.dataIndex) - (a.action?.order ?? a.dataIndex)
+                (a, b) => (a.action?.order ?? a.dataIndex) - (b.action?.order ?? b.dataIndex)
             )
         } else {
             flattenedData[datumKey] = {
