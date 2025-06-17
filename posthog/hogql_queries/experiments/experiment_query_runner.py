@@ -1,5 +1,6 @@
 import json
 from zoneinfo import ZoneInfo
+import posthoganalytics
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -30,6 +31,7 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 
 from posthog.hogql_queries.experiments.utils import (
     get_frequentist_experiment_result_new_format,
+    get_bayesian_experiment_result_new_format,
     get_legacy_funnels_variant_results,
     get_legacy_trends_variant_results,
     get_new_variant_results,
@@ -645,7 +647,21 @@ class ExperimentQueryRunner(QueryRunner):
     def calculate(self) -> ExperimentQueryResponse:
         sorted_results = self._evaluate_experiment_query()
 
-        if self.stats_method == "frequentist":
+        # Check if we should use the new Bayesian method
+        if self._should_use_new_bayesian_method():
+            bayesian_variants = get_new_variant_results(sorted_results)
+
+            self._validate_event_variants(bayesian_variants)
+
+            control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
+
+            return get_bayesian_experiment_result_new_format(
+                metric=self.metric,
+                control_variant=control_variant,
+                test_variants=test_variants,
+            )
+
+        elif self.stats_method == "frequentist":
             frequentist_variants = get_new_variant_results(sorted_results)
 
             self._validate_event_variants(frequentist_variants)
@@ -790,3 +806,35 @@ class ExperimentQueryRunner(QueryRunner):
         if not last_refresh:
             return True
         return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)
+
+    def _should_use_new_bayesian_method(self) -> bool:
+        """
+        Check if we should use the new Bayesian method based on:
+        1. Feature flag "new-bayesian-method" is enabled
+        2. stats_version is 3 or higher
+        3. stats_method is "bayesian"
+        """
+        if self.stats_method != "bayesian":
+            return False
+
+        if self.stats_version < 3:
+            return False
+
+        return posthoganalytics.feature_enabled(
+            "new-bayesian-method",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
