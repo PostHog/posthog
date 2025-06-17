@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from unittest.mock import MagicMock, call, patch
+from django.conf import settings
+
 
 import pytest
 from freezegun import freeze_time
@@ -23,8 +25,6 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
 )
 from posthog.warehouse.util import database_sync_to_async
 
-TASK_QUEUE = "TEST-SUBSCRIPTIONS-TQ"
-
 pytestmark = [pytest.mark.django_db]
 
 
@@ -39,7 +39,7 @@ async def subscriptions_worker(temporal_client: Client):
 
     async with Worker(
         temporal_client,
-        task_queue=TASK_QUEUE,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[ScheduleAllSubscriptionsWorkflow, HandleSubscriptionValueChangeWorkflow],
         activities=[deliver_subscription_report_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),
@@ -112,7 +112,7 @@ async def test_subscription_delivery_scheduling(
         ScheduleAllSubscriptionsWorkflow.run,
         ScheduleAllSubscriptionsWorkflowInputs(),
         id=str(uuid.uuid4()),
-        task_queue=TASK_QUEUE,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
     )
     await wf_handle.result()
 
@@ -169,7 +169,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
         ScheduleAllSubscriptionsWorkflow.run,
         ScheduleAllSubscriptionsWorkflowInputs(),
         id=str(uuid.uuid4()),
-        task_queue=TASK_QUEUE,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
     )
     await wf_handle.result()
 
@@ -214,7 +214,7 @@ async def test_handle_subscription_value_change_email(
             invite_message="My invite message",
         ),
         id=str(uuid.uuid4()),
-        task_queue=TASK_QUEUE,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
     )
     await wf_handle.result()
 
@@ -262,7 +262,7 @@ async def test_deliver_subscription_report_slack(
         HandleSubscriptionValueChangeWorkflow.run,
         DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
         id=str(uuid.uuid4()),
-        task_queue=TASK_QUEUE,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
     )
     await wf_handle.result()
 
