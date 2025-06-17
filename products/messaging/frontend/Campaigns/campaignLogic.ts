@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { router } from 'node_modules/kea-router/lib/router'
 import { urls } from 'scenes/urls'
@@ -64,21 +65,29 @@ export const campaignLogic = kea<campaignLogicType>([
     actions({
         setOriginalCampaign: (campaign: HogFlow) => ({ campaign }),
     }),
-    loaders(() => ({
+    loaders(({ props }) => ({
         campaign: {
             loadCampaign: async () => {
-                return { ...NEW_CAMPAIGN }
+                if (!props.id || props.id === 'new') {
+                    return { ...NEW_CAMPAIGN }
+                }
+
+                return api.hogFlows.getHogFlow(props.id)
             },
-            saveCampaign: async () => {
-                return { ...NEW_CAMPAIGN }
+            saveCampaign: async (updates: Partial<HogFlow>) => {
+                if (!props.id || props.id === 'new') {
+                    return api.hogFlows.createHogFlow(updates)
+                }
+
+                return api.hogFlows.updateHogFlow(props.id, updates)
             },
         },
     })),
     forms(({ actions }) => ({
         campaign: {
             defaults: { ...NEW_CAMPAIGN },
-            submit: async () => {
-                actions.saveCampaign()
+            submit: async (values) => {
+                actions.saveCampaign(values)
             },
         },
     })),
