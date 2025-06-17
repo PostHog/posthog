@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Group } from 'kea-forms'
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { memo, useEffect, useState } from 'react'
@@ -20,10 +21,9 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
+import { EntityTypes, HogFunctionMappingType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
-import { HogFunctionInputs } from '../configuration/HogFunctionInputs'
 
 const humanize = (value: string): string => {
     const fallback = typeof value === 'string' ? value ?? '' : ''
@@ -53,7 +53,7 @@ const MappingSummary = memo(function MappingSummary({
     const firstInputValue = (firstInput?.key ? mapping.inputs?.[firstInput.key]?.value : null) ?? '(custom value)'
 
     return (
-        <span className="flex items-center flex-1 gap-4">
+        <span className="flex flex-1 gap-4 items-center">
             <span>
                 {eventSummary ? humanize(eventSummary) : <span className="text-secondary">All events</span>}{' '}
                 {propertyFiltersCount ? (
@@ -135,11 +135,18 @@ export function HogFunctionMapping({
                     buttonCopy="Add event matcher"
                 />
                 <Group name={['mappings', index]}>
-                    <HogFunctionInputs
-                        configuration={mapping as HogFunctionConfigurationType}
-                        setConfigurationValue={(key, value) => {
-                            onChange({ ...mapping, [key]: value })
+                    <CyclotronJobInputs
+                        configuration={{
+                            inputs_schema: mapping.inputs_schema ?? [],
+                            inputs: mapping.inputs ?? {},
                         }}
+                        onInputSchemaChange={(schema) => {
+                            onChange({ ...mapping, inputs_schema: schema })
+                        }}
+                        onInputChange={(key, value) => {
+                            onChange({ ...mapping, inputs: { ...mapping.inputs, [key]: value } })
+                        }}
+                        showSource={showSource}
                     />
                 </Group>
                 {showSource ? (
@@ -277,8 +284,8 @@ export function HogFunctionMappings(): JSX.Element | null {
                 ) : null
 
                 return (
-                    <div className="p-3 border rounded bg-surface-primary">
-                        <div className="flex items-start justify-between">
+                    <div className="p-3 rounded border bg-surface-primary">
+                        <div className="flex justify-between items-start">
                             <div className="flex-1">
                                 <LemonLabel>Mappings</LemonLabel>
                                 <p className="text-sm text-secondary">

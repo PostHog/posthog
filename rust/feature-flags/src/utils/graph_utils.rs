@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use petgraph::{algo::is_cyclic_directed, graph::DiGraph};
+use petgraph::{algo::toposort, graph::DiGraph};
 
 use crate::api::errors::FlagError;
 
@@ -128,17 +128,14 @@ where
         }
     }
 
-    if is_cyclic_directed(&graph) {
-        return Err(FlagError::DependencyCycle(
-            T::dependency_type(),
-            format!(
-                "Cyclic dependency detected starting at {} {}",
-                std::any::type_name::<T>(),
-                initial_id
-            ),
-        )
-        .into());
+    // Use toposort to detect cycles and get the cycle starting point
+    match toposort(&graph, None) {
+        Ok(_) => Ok(graph),
+        Err(e) => {
+            // Use the node that started the cycle (from the toposort error)
+            let cycle_start_id = e.node_id();
+            let dependency_id = graph[cycle_start_id].into();
+            Err(FlagError::DependencyCycle(T::dependency_type(), dependency_id).into())
+        }
     }
-
-    Ok(graph)
 }
