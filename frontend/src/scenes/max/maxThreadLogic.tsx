@@ -19,6 +19,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 
 import {
     AssistantEventType,
@@ -35,13 +36,7 @@ import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import {
-    isAssistantMessage,
-    isAssistantToolCallMessage,
-    isHumanMessage,
-    isReasoningMessage,
-    isVisualizationMessage,
-} from './utils'
+import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -96,6 +91,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxLogic,
             ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            maxContextLogic,
+            ['compiledContext'],
         ],
         actions: [
             maxLogic,
@@ -106,7 +103,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'prependOrReplaceConversation as updateGlobalConversationCache',
                 'setActiveStreamingThreads',
                 'setConversationId',
-                'scrollThreadToBottom',
                 'setAutoRun',
             ],
         ],
@@ -151,7 +147,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
-                resetThread: (state) => state.filter((message) => !isReasoningMessage(message)),
+                resetThread: (state) => filterOutReasoningMessages(state),
+                completeThreadGeneration: (state) => filterOutReasoningMessages(state),
                 setThread: (_, { thread }) => thread,
             },
         ],
@@ -200,11 +197,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
 
             if (generationAttempt === 0) {
-                actions.addMessage({
+                const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: prompt,
                     status: 'completed',
-                })
+                }
+                if (values.compiledContext) {
+                    message.ui_context = values.compiledContext
+                }
+                actions.addMessage(message)
             }
 
             try {
@@ -218,6 +219,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     {
                         content: prompt,
                         contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
+                        ui_context: values.compiledContext || undefined,
                         conversation: values.conversation?.id,
                         trace_id: traceId,
                     },
@@ -312,18 +314,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
-                // Exclude AbortController exceptions
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
-                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
-                    if (e instanceof ApiError && e.status === 409 && generationAttempt < 6) {
-                        await breakpoint(1000 * (generationAttempt + 1))
-                        actions.askMax(prompt, generationAttempt + 1)
-                        return
-                    }
-
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
-                    if (e instanceof ApiError && e.status === 429) {
-                        relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
+
+                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                    if (e instanceof ApiError) {
+                        if (e.status === 409 && generationAttempt < 6) {
+                            await breakpoint(1000 * (generationAttempt + 1))
+                            actions.askMax(prompt, generationAttempt + 1)
+                            return
+                        }
+
+                        if (e.status === 429) {
+                            relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                        }
+
+                        if (e.status === 400 && e.data?.attr === 'content') {
+                            relevantErrorMessage.content =
+                                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                        }
+                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
+                        relevantErrorMessage.content =
+                            'Oops! You appear to be offline. Please check your internet connection.'
                     } else {
                         posthog.captureException(e)
                         console.error(e)
@@ -360,18 +372,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
-            }
-        },
-
-        addMessage: (payload) => {
-            if (isHumanMessage(payload.message) || isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
-            }
-        },
-
-        replaceMessage: (payload) => {
-            if (isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
             }
         },
 
@@ -468,6 +468,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         threadGrouped.push([thinkingMessage])
                     }
                 }
+
                 return threadGrouped
             },
         ],
@@ -560,4 +561,13 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
+}
+
+/**
+ * Filter out reasoning messages from the thread.
+ * @param thread
+ * @returns
+ */
+function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
+    return thread.filter((message) => !isReasoningMessage(message))
 }

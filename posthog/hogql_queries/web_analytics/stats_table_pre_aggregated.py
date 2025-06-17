@@ -3,31 +3,11 @@ from typing import TYPE_CHECKING, Literal, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-
-# Keep those in sync with frontend/src/scenes/web-analytics/WebPropertyFilters.tsx
-STATS_TABLE_SUPPORTED_FILTERS = {
-    "$entry_pathname": "entry_pathname",
-    "$pathname": "pathname",
-    "$end_pathname": "end_pathname",
-    "$host": "host",
-    "$device_type": "device_type",
-    "$browser": "browser",
-    "$os": "os",
-    "$referring_domain": "referring_domain",
-    "$entry_utm_source": "utm_source",
-    "$entry_utm_medium": "utm_medium",
-    "$entry_utm_campaign": "utm_campaign",
-    "$entry_utm_term": "utm_term",
-    "$entry_utm_content": "utm_content",
-    "$geoip_country_name": "country_name",
-    "$geoip_country_code": "country_code",
-    "$geoip_city_name": "city_name",
-    "$geoip_subdivision_1_code": "region_code",
-}
 
 
 class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
@@ -43,6 +23,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.INITIAL_UTM_TERM,
         WebStatsBreakdown.INITIAL_UTM_CONTENT,
         WebStatsBreakdown.COUNTRY,
+        WebStatsBreakdown.REGION,
+        WebStatsBreakdown.CITY,
         WebStatsBreakdown.INITIAL_PAGE,
         WebStatsBreakdown.PAGE,
         WebStatsBreakdown.EXIT_PAGE,
@@ -70,7 +52,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {visitors_tuple} AS `context.columns.visitors`,
                 {views_tuple} as `context.columns.views`,
                 {bounce_rate_tuple} as `context.columns.bounce_rate`
-            FROM web_bounces_daily
+            FROM web_bounces_combined FINAL
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
@@ -91,7 +73,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         return query
 
     def _path_query(self) -> ast.SelectQuery:
-        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_daily")
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_combined")
 
         query = cast(
             ast.SelectQuery,
@@ -103,7 +85,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
             FROM
-                web_stats_daily
+                web_stats_combined FINAL
             LEFT JOIN ({bounce_subquery}) bounces
                 ON {join_condition}
             GROUP BY `context.columns.breakdown_value`
@@ -115,19 +97,19 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         "uniqMergeIf",
                         current_period_filter,
                         previous_period_filter,
-                        table_prefix="web_stats_daily",
+                        table_prefix="web_stats_combined",
                     ),
                     "views_tuple": self._period_comparison_tuple(
                         "pageviews_count_state",
                         "sumMergeIf",
                         current_period_filter,
                         previous_period_filter,
-                        table_prefix="web_stats_daily",
+                        table_prefix="web_stats_combined",
                     ),
                     "bounce_subquery": self._bounce_rate_query(),
                     "join_condition": ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_daily", "pathname"])),
+                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
                         right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
                     ),
                 },
@@ -139,10 +121,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     def get_query(self) -> ast.SelectQuery:
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query = self._bounce_rate_query()
-            table_name = "web_bounces_daily"
+            table_name = "web_bounces_combined"
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
             query = self._path_query()
-            table_name = "web_stats_daily"
+            table_name = "web_stats_combined"
         else:
             previous_period_filter, current_period_filter = self.get_date_ranges()
 
@@ -154,7 +136,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     {breakdown_field} as `context.columns.breakdown_value`,
                     {visitors_tuple} AS `context.columns.visitors`,
                     {views_tuple} as `context.columns.views`
-                FROM web_stats_daily
+                FROM web_stats_combined FINAL
                 GROUP BY `context.columns.breakdown_value`
                 """,
                     placeholders={
@@ -168,7 +150,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     },
                 ),
             )
-            table_name = "web_stats_daily"
+            table_name = "web_stats_combined"
 
         filters = self._get_filters(table_name=table_name)
         if filters:
@@ -236,11 +218,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return ast.Field(chain=["utm_content"])
             case WebStatsBreakdown.COUNTRY:
-                return ast.Field(chain=["country_name"])
-            case WebStatsBreakdown.CITY:
-                return ast.Field(chain=["city_name"])
+                return ast.Field(chain=["country_code"])
             case WebStatsBreakdown.REGION:
                 return ast.Field(chain=["region_code"])
+            case WebStatsBreakdown.CITY:
+                return ast.Field(chain=["city_name"])
             case WebStatsBreakdown.EXIT_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
 

@@ -1,9 +1,7 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { TopicMessage } from '~/src/kafka/producer'
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
-
+import { TopicMessage } from '../../../src/kafka/producer'
 import {
     Database,
     Hub,
@@ -17,8 +15,12 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
+import { MeasuringPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/measuring-person-store'
+import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
+import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
+import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
+import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, insertRow } from '../../helpers/sql'
 
@@ -57,7 +59,7 @@ async function createPerson(
     return person
 }
 
-describe('PersonState.update()', () => {
+describe('PersonState.processEvent()', () => {
     let hub: Hub
 
     let teamId: number
@@ -106,7 +108,72 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(
+    function personProcessor(
+        event: Partial<PluginEvent>,
+        propertyService?: PersonPropertyService,
+        mergeService?: PersonMergeService,
+        customHub?: Hub,
+        processPerson = true,
+        timestampParam = timestamp,
+        team = mainTeam
+    ) {
+        const fullEvent = {
+            team_id: teamId,
+            properties: {},
+            ...event,
+        }
+
+        const personsStore = new MeasuringPersonsStoreForBatch(customHub ? customHub.db : hub.db)
+
+        const context = new PersonContext(
+            fullEvent as any,
+            team,
+            event.distinct_id!,
+            timestampParam,
+            processPerson,
+            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
+            personsStore,
+            0
+        )
+        const processor = new PersonEventProcessor(
+            context,
+            propertyService ?? new PersonPropertyService(context),
+            mergeService ?? new PersonMergeService(context)
+        )
+        return processor
+    }
+
+    function personPropertyService(
+        event: Partial<PluginEvent>,
+        customHub?: Hub,
+        processPerson = true,
+        timestampParam = timestamp,
+        team = mainTeam,
+        updateIsIdentified: boolean = false
+    ) {
+        const fullEvent = {
+            team_id: teamId,
+            properties: {},
+            ...event,
+        }
+
+        const personsStore = new MeasuringPersonsStoreForBatch(customHub ? customHub.db : hub.db)
+
+        const context = new PersonContext(
+            fullEvent as any,
+            team,
+            event.distinct_id!,
+            timestampParam,
+            processPerson,
+            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
+            personsStore,
+            0
+        )
+        context.updateIsIdentified = updateIsIdentified
+        return new PersonPropertyService(context)
+    }
+
+    function personMergeService(
         event: Partial<PluginEvent>,
         customHub?: Hub,
         processPerson = true,
@@ -119,12 +186,9 @@ describe('PersonState.update()', () => {
             ...event,
         }
 
-        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
-            customHub ? customHub.db : hub.db,
-            team.api_token,
-            event.distinct_id!
-        )
-        return new PersonState(
+        const personsStore = new MeasuringPersonsStoreForBatch(customHub ? customHub.db : hub.db)
+
+        const context = new PersonContext(
             fullEvent as any,
             team,
             event.distinct_id!,
@@ -134,6 +198,7 @@ describe('PersonState.update()', () => {
             personsStore,
             0
         )
+        return new PersonMergeService(context)
     }
 
     const sortPersons = (persons: InternalPerson[]) => persons.sort((a, b) => Number(a.id) - Number(b.id))
@@ -170,7 +235,7 @@ describe('PersonState.update()', () => {
         it('creates deterministic person uuids that are different between teams', async () => {
             const event_uuid = new UUIDT().toString()
             const primaryTeamId = teamId
-            const [personPrimaryTeam, kafkaAcks] = await personState({
+            const [personPrimaryTeam, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: event_uuid,
@@ -179,7 +244,7 @@ describe('PersonState.update()', () => {
             const otherTeamId = await createTeam(hub.db.postgres, organizationId)
             const otherTeam = (await getTeam(hub, otherTeamId))!
             teamId = otherTeamId
-            const [personOtherTeam, kafkaAcksOther] = await personState(
+            const [personOtherTeam, kafkaAcksOther] = await personPropertyService(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
@@ -205,16 +270,18 @@ describe('PersonState.update()', () => {
 
             const hubParam = undefined
             const processPerson = false
-            const [fakePerson, kafkaAcks] = await personState(
+            const [fakePerson, kafkaAcks] = await personProcessor(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
                     uuid: event_uuid,
                     properties: { $set: { should_be_dropped: 100 } },
                 },
+                undefined,
+                undefined,
                 hubParam,
                 processPerson
-            ).update()
+            ).processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -252,7 +319,7 @@ describe('PersonState.update()', () => {
 
             const hubParam = undefined
             const processPerson = true
-            const [_person, kafkaAcks] = await personState(
+            const [_person, kafkaAcks] = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: oldUserDistinctId,
@@ -260,11 +327,13 @@ describe('PersonState.update()', () => {
                         $anon_distinct_id: 'old2',
                     },
                 },
+                undefined,
+                undefined,
                 hubParam,
                 processPerson
-            ).update()
+            ).processEvent()
 
-            const [_person2, kafkaAcks2] = await personState(
+            const [_person2, kafkaAcks2] = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: newUserDistinctId,
@@ -272,9 +341,11 @@ describe('PersonState.update()', () => {
                         $anon_distinct_id: 'new2',
                     },
                 },
+                undefined,
+                undefined,
                 hubParam,
                 processPerson
-            ).update()
+            ).processEvent()
 
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
@@ -315,7 +386,7 @@ describe('PersonState.update()', () => {
 
             const hubParam = undefined
             let processPerson = true
-            const [_person, kafkaAcks] = await personState(
+            const [_person, kafkaAcks] = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: newUserDistinctId,
@@ -323,9 +394,11 @@ describe('PersonState.update()', () => {
                         $anon_distinct_id: oldUserDistinctId,
                     },
                 },
+                undefined,
+                undefined,
                 hubParam,
                 processPerson
-            ).update()
+            ).processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -334,17 +407,19 @@ describe('PersonState.update()', () => {
             processPerson = false
             const event_uuid = new UUIDT().toString()
             const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
-            const [fakePerson, kafkaAcks2] = await personState(
+            const [fakePerson, kafkaAcks2] = await personProcessor(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
                     uuid: event_uuid,
                     properties: { $set: { should_be_dropped: 100 } },
                 },
+                undefined,
+                undefined,
                 hubParam,
                 processPerson,
                 timestampParam
-            ).update()
+            ).processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks2
 
@@ -376,7 +451,7 @@ describe('PersonState.update()', () => {
 
             const hubParam = undefined
             let processPerson = true
-            const [_person, kafkaAcks] = await personState(
+            const [_person, kafkaAcks] = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: newUserDistinctId,
@@ -384,9 +459,11 @@ describe('PersonState.update()', () => {
                         $anon_distinct_id: oldUserDistinctId,
                     },
                 },
+                undefined,
+                undefined,
                 hubParam,
                 processPerson
-            ).update()
+            ).processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -395,17 +472,19 @@ describe('PersonState.update()', () => {
             processPerson = false
             const event_uuid = new UUIDT().toString()
             const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
-            const [fakePerson, kafkaAcks2] = await personState(
+            const [fakePerson, kafkaAcks2] = await personProcessor(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
                     uuid: event_uuid,
                     properties: { $set: { should_be_dropped: 100 } },
                 },
+                undefined,
+                undefined,
                 hubParam,
                 processPerson,
                 timestampParam
-            ).update()
+            ).processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks2
 
@@ -414,7 +493,7 @@ describe('PersonState.update()', () => {
 
         it('creates person if they are new', async () => {
             const event_uuid = new UUIDT().toString()
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: event_uuid,
@@ -450,12 +529,12 @@ describe('PersonState.update()', () => {
 
         it('does not attach existing person properties to $process_person_profile=false events', async () => {
             const originalEventUuid = new UUIDT().toString()
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personProcessor({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: originalEventUuid,
                 properties: { $set: { c: 420 } },
-            }).update()
+            }).processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -481,25 +560,27 @@ describe('PersonState.update()', () => {
 
             // OK, a person now exists with { c: 420 }, let's prove the properties come back out
             // of the DB.
-            const [personVerifyProps] = await personState({
+            const [personVerifyProps] = await personProcessor({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: new UUIDT().toString(),
                 properties: {},
-            }).update()
+            }).processEvent()
             expect(personVerifyProps.properties).toEqual({ $creator_event_uuid: originalEventUuid, c: 420 })
 
             // But they don't when $process_person_profile=false
-            const [processPersonFalseResult] = await personState(
+            const [processPersonFalseResult] = await personProcessor(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
                     uuid: new UUIDT().toString(),
                     properties: {},
                 },
+                undefined,
+                undefined,
                 hub,
                 false
-            ).update()
+            ).processEvent()
             expect(processPersonFalseResult.properties).toEqual({})
         })
 
@@ -521,7 +602,7 @@ describe('PersonState.update()', () => {
                 return Promise.resolve(undefined)
             })
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
             }).handleUpdate()
@@ -568,7 +649,7 @@ describe('PersonState.update()', () => {
                 return Promise.resolve(undefined)
             })
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -602,7 +683,7 @@ describe('PersonState.update()', () => {
         })
 
         it('creates person with properties', async () => {
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -643,7 +724,7 @@ describe('PersonState.update()', () => {
             await createPerson(hub, timestamp, { b: 3, c: 4, toString: {} }, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -681,7 +762,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: event,
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -715,7 +796,7 @@ describe('PersonState.update()', () => {
             await createPerson(hub, timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -757,7 +838,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$set',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -791,7 +872,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -834,7 +915,7 @@ describe('PersonState.update()', () => {
                 [{ distinctId: newUserDistinctId }]
             )
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -876,19 +957,23 @@ describe('PersonState.update()', () => {
                 newUserUuid,
                 [{ distinctId: newUserDistinctId }]
             )
-
-            const personS = personState({
+            const event = {
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
                     $set_once: { c: 3, e: 4 },
                     $set: { b: 4 },
                 },
-            })
-            jest.spyOn(personS, 'handleIdentifyOrAlias').mockReturnValue(
+            }
+
+            // create mock merge service,
+            const mergeService = personMergeService(event)
+            jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
                 Promise.resolve([personInitial, Promise.resolve()])
             )
-            const [person, kafkaAcks] = await personS.update()
+
+            const personS = personProcessor(event, undefined, mergeService)
+            const [person, kafkaAcks] = await personS.processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -916,7 +1001,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -952,12 +1037,18 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const personS = personState({
-                event: '$pageview',
-                distinct_id: newUserDistinctId,
-                properties: {},
-            })
-            personS.updateIsIdentified = true
+            const personS = personPropertyService(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    properties: {},
+                },
+                undefined,
+                true,
+                timestamp,
+                mainTeam,
+                true
+            )
 
             const [person, kafkaAcks] = await personS.updateProperties()
             await hub.db.kafkaProducer.flush()
@@ -981,8 +1072,6 @@ describe('PersonState.update()', () => {
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(person)
 
-            // Second call no-update
-            personS.updateIsIdentified = true // double just in case
             await personS.updateProperties()
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
         })
@@ -1006,16 +1095,21 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
                 { distinctId: oldUserDistinctId },
             ]) // the merged Person
-            const personS = personState({
+
+            const event = {
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: { $set: { a: 7, d: 9 } },
-            })
-            jest.spyOn(personS, 'handleIdentifyOrAlias').mockReturnValue(
+            }
+            // create mock merge service
+            const mergeService = personMergeService(event)
+            jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
                 Promise.resolve([mergeDeletedPerson, Promise.resolve()])
             )
 
-            const [person, kafkaAcks] = await personS.update()
+            const personS = personProcessor(event, undefined, mergeService)
+
+            const [person, kafkaAcks] = await personS.processEvent()
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -1042,7 +1136,7 @@ describe('PersonState.update()', () => {
 
     describe('on $identify event', () => {
         it(`no-op when $anon_distinct_id not passed`, async () => {
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1058,7 +1152,7 @@ describe('PersonState.update()', () => {
         })
 
         it(`creates person with both distinct_ids and marks user as is_identified when $anon_distinct_id passed`, async () => {
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1097,7 +1191,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
                 { distinctId: oldUserDistinctId },
             ])
-            const personS = personState({
+            const personS = personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1118,7 +1212,7 @@ describe('PersonState.update()', () => {
                     is_identified: false,
                 })
             )
-            expect(personS.updateIsIdentified).toBeTruthy()
+            expect(personS.getUpdateIsIdentified()).toBeTruthy()
 
             // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
@@ -1130,7 +1224,7 @@ describe('PersonState.update()', () => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
-            const personS = personState({
+            const personS = personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1152,7 +1246,7 @@ describe('PersonState.update()', () => {
                     is_identified: false,
                 })
             )
-            expect(personS.updateIsIdentified).toBeTruthy()
+            expect(personS.getUpdateIsIdentified()).toBeTruthy()
 
             // verify Postgres persons
             expect(persons.length).toEqual(1)
@@ -1168,7 +1262,7 @@ describe('PersonState.update()', () => {
                 { distinctId: oldUserDistinctId },
             ])
 
-            const personS = personState({
+            const personS = personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1191,7 +1285,7 @@ describe('PersonState.update()', () => {
                     is_identified: false,
                 })
             )
-            expect(personS.updateIsIdentified).toBeTruthy()
+            expect(personS.getUpdateIsIdentified()).toBeTruthy()
 
             // verify Postgres persons
             expect(persons.length).toEqual(1)
@@ -1210,7 +1304,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1277,7 +1371,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1344,7 +1438,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const personS = personState({
+            const personS = personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1355,7 +1449,7 @@ describe('PersonState.update()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
-            expect(personS.updateIsIdentified).toBeTruthy()
+            expect(personS.getUpdateIsIdentified()).toBeTruthy()
             expect(person).toEqual(
                 expect.objectContaining({
                     id: expect.any(String),
@@ -1396,7 +1490,7 @@ describe('PersonState.update()', () => {
             await createPerson(hub, timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1447,7 +1541,7 @@ describe('PersonState.update()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1532,7 +1626,7 @@ describe('PersonState.update()', () => {
                 }
             )
 
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$identify',
                 distinct_id: oldUserDistinctId,
                 properties: {
@@ -1569,7 +1663,7 @@ describe('PersonState.update()', () => {
     describe('on $create_alias events', () => {
         // All the functionality tests are provided above in $identify tests, here we just make sure the calls are equivalent
         it('calls merge on $identify as expected', async () => {
-            const state: PersonState = personState(
+            const state: PersonMergeService = personMergeService(
                 {
                     event: '$identify',
                     distinct_id: newUserDistinctId,
@@ -1586,7 +1680,7 @@ describe('PersonState.update()', () => {
         })
 
         it('calls merge on $create_alias as expected', async () => {
-            const state: PersonState = personState(
+            const state: PersonMergeService = personMergeService(
                 {
                     event: '$create_alias',
                     distinct_id: newUserDistinctId,
@@ -1604,7 +1698,7 @@ describe('PersonState.update()', () => {
         })
 
         it('calls merge on $merge_dangerously as expected', async () => {
-            const state: PersonState = personState(
+            const state: PersonMergeService = personMergeService(
                 {
                     event: '$merge_dangerously',
                     distinct_id: newUserDistinctId,
@@ -1631,7 +1725,7 @@ describe('PersonState.update()', () => {
             await createPerson(hub, timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
-            const [person, kafkaAcks] = await personState({
+            const [person, kafkaAcks] = await personMergeService({
                 event: '$merge_dangerously',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -1694,7 +1788,7 @@ describe('PersonState.update()', () => {
     describe('illegal aliasing', () => {
         const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
         it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
-            const [person] = await personState({
+            const [person] = await personMergeService({
                 event: '$identify',
                 distinct_id: illegalId,
                 properties: {
@@ -1708,7 +1802,7 @@ describe('PersonState.update()', () => {
         })
 
         it.each(illegalIds)('stops $identify if $anon_distinct_id is illegal: `%s`', async (illegalId: string) => {
-            const [person] = await personState({
+            const [person] = await personMergeService({
                 event: '$identify',
                 distinct_id: 'some_distinct_id',
                 properties: {
@@ -1722,7 +1816,7 @@ describe('PersonState.update()', () => {
         })
 
         it('stops $create_alias if current distinct_id is illegal', async () => {
-            const [person] = await personState({
+            const [person] = await personMergeService({
                 event: '$create_alias',
                 distinct_id: 'false',
                 properties: {
@@ -1736,7 +1830,7 @@ describe('PersonState.update()', () => {
         })
 
         it('stops $create_alias if alias is illegal', async () => {
-            const [person] = await personState({
+            const [person] = await personMergeService({
                 event: '$create_alias',
                 distinct_id: 'some_distinct_id',
                 properties: {
@@ -1794,14 +1888,14 @@ describe('PersonState.update()', () => {
 
             // this event means the person will be merged
             // so hashkeyoverride should be updated to the new person id whichever way we merged
-            await personState({
+            await personProcessor({
                 event: '$identify',
                 distinct_id: 'new_distinct_id',
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                     distinct_id: 'new_distinct_id',
                 },
-            }).update()
+            }).processEvent()
             await hub.db.kafkaProducer.flush()
 
             const [person] = await fetchPostgresPersonsH()
@@ -1882,14 +1976,14 @@ describe('PersonState.update()', () => {
             // this event means the person will be merged
             // so hashkeyoverride should be updated to be either
             // we're optimizing on updates to not write on conflict and ordering is not guaranteed
-            await personState({
+            await personProcessor({
                 event: '$identify',
                 distinct_id: 'new_distinct_id',
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                     distinct_id: 'new_distinct_id',
                 },
-            }).update()
+            }).processEvent()
             await hub.db.kafkaProducer.flush()
 
             const [person] = await fetchPostgresPersonsH()
@@ -1958,13 +2052,13 @@ describe('PersonState.update()', () => {
                 hash_key: 'different_id',
             })
 
-            await personState({
+            await personProcessor({
                 event: '$identify',
                 distinct_id: 'new_distinct_id',
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                 },
-            }).update()
+            }).processEvent()
             await hub.db.kafkaProducer.flush()
 
             const [person] = await fetchPostgresPersonsH()
@@ -2016,7 +2110,7 @@ describe('PersonState.update()', () => {
                 { distinctId: secondUserDistinctId },
             ])
 
-            const state: PersonState = personState({}, hub)
+            const state: PersonMergeService = personMergeService({}, hub)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
             const [person, kafkaAcks] = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             await hub.db.kafkaProducer.flush()
@@ -2045,7 +2139,7 @@ describe('PersonState.update()', () => {
                 { distinctId: secondUserDistinctId },
             ])
 
-            const state: PersonState = personState({}, hub)
+            const state: PersonMergeService = personMergeService({}, hub)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
             const [person, kafkaAcks] = await state.mergePeople({
                 mergeInto: first,
@@ -2112,7 +2206,7 @@ describe('PersonState.update()', () => {
             const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
                 { distinctId: secondUserDistinctId },
             ])
-            const state: PersonState = personState({}, hub)
+            const state: PersonMergeService = personMergeService({}, hub)
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(() => {
@@ -2163,7 +2257,7 @@ describe('PersonState.update()', () => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
                 { distinctId: secondUserDistinctId },
             ])
-            const state: PersonState = personState({}, hub)
+            const state: PersonMergeService = personMergeService({}, hub)
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
@@ -2212,7 +2306,7 @@ describe('PersonState.update()', () => {
                 { distinctId: secondUserDistinctId },
             ])
 
-            const state: PersonState = personState(
+            const state: PersonMergeService = personMergeService(
                 {
                     event: '$merge_dangerously',
                     distinct_id: firstUserDistinctId,
@@ -2255,5 +2349,483 @@ describe('PersonState.update()', () => {
                 ])
             )
         })
+    })
+})
+
+describe('JSONB optimization flag compatibility', () => {
+    let hub: Hub
+    let teamId: number
+    let mainTeam: Team
+    let organizationId: string
+    let newUserUuid: string
+    let oldUserUuid: string
+    const newUserDistinctId = 'new-user-opt-test'
+    const oldUserDistinctId = 'old-user-opt-test'
+
+    beforeAll(async () => {
+        hub = await createHub({})
+        await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+        organizationId = await createOrganization(hub.db.postgres)
+    })
+
+    beforeEach(async () => {
+        teamId = await createTeam(hub.db.postgres, organizationId)
+        mainTeam = (await getTeam(hub, teamId))!
+        newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
+        oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
+    })
+
+    afterAll(async () => {
+        await closeHub(hub)
+        await hub.db.clickhouseQuery('SYSTEM START MERGES')
+    })
+
+    async function testBothUpdatePaths(
+        testName: string,
+        eventData: Partial<PluginEvent>,
+        initialPersonProperties: Properties = {},
+        testFn: (person: InternalPerson, useOptimized: boolean) => void = () => {}
+    ) {
+        const baseDistinctId = eventData.distinct_id || `test-${Date.now()}`
+        const legacyDistinctId = `${baseDistinctId}-legacy`
+        const optimizedDistinctId = `${baseDistinctId}-optimized`
+        await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, newUserUuid, [
+            { distinctId: legacyDistinctId },
+        ])
+
+        const personContext = new PersonContext(
+            { team_id: teamId, properties: {}, ...eventData, distinct_id: legacyDistinctId } as any,
+            mainTeam,
+            legacyDistinctId,
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForBatch(hub.db),
+            0,
+            0.0
+        )
+        const legacyPropertyService = new PersonPropertyService(personContext)
+
+        const [legacyPerson, legacyKafkaAcks] = await legacyPropertyService.updateProperties()
+        await hub.db.kafkaProducer.flush()
+        await legacyKafkaAcks
+
+        await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, oldUserUuid, [
+            { distinctId: optimizedDistinctId },
+        ])
+
+        const optimizedPersonContext = new PersonContext(
+            { team_id: teamId, properties: {}, ...eventData, distinct_id: optimizedDistinctId } as any,
+            mainTeam,
+            optimizedDistinctId,
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForBatch(hub.db),
+            0,
+            1.0
+        )
+        const optimizedPropertyService = new PersonPropertyService(optimizedPersonContext)
+
+        const [optimizedPerson, optimizedKafkaAcks] = await optimizedPropertyService.updateProperties()
+        await hub.db.kafkaProducer.flush()
+        await optimizedKafkaAcks
+
+        expect(legacyPerson.properties).toEqual(optimizedPerson.properties)
+        expect(legacyPerson.is_identified).toEqual(optimizedPerson.is_identified)
+        expect(legacyPerson.version).toEqual(optimizedPerson.version)
+
+        testFn(legacyPerson, false)
+        testFn(optimizedPerson, true)
+
+        console.log(`✅ ${testName}: Legacy and optimized paths produced identical results`)
+    }
+
+    it('produces identical results for $set operations', async () => {
+        await testBothUpdatePaths(
+            '$set operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'John', age: 30, active: true },
+                },
+            },
+            { existing: 'value' }
+        )
+    })
+
+    it('produces identical results for $set_once operations', async () => {
+        await testBothUpdatePaths(
+            '$set_once operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set_once: { initial_source: 'google', first_seen: '2023-01-01' },
+                },
+            },
+            { existing: 'value', initial_source: 'existing' }
+        )
+    })
+
+    it('produces identical results for $unset operations', async () => {
+        await testBothUpdatePaths(
+            '$unset operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $unset: ['temp_property', 'old_field'],
+                },
+            },
+            {
+                keep_this: 'value',
+                temp_property: 'should_be_removed',
+                old_field: 'also_removed',
+                another_keeper: 123,
+            }
+        )
+    })
+
+    it('produces identical results for mixed operations', async () => {
+        await testBothUpdatePaths(
+            'mixed $set, $set_once, and $unset',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Updated', counter: 5 },
+                    $set_once: { initial_value: 'new', existing_initial: 'should_not_override' },
+                    $unset: ['temp_data', 'old_counter'],
+                },
+            },
+            {
+                name: 'Original',
+                existing_initial: 'keep_this',
+                temp_data: 'remove_me',
+                old_counter: 3,
+                permanent: 'stays',
+            }
+        )
+    })
+
+    it('produces identical results for special property values', async () => {
+        await testBothUpdatePaths('special values and edge cases', {
+            event: '$pageview',
+            distinct_id: newUserDistinctId,
+            properties: {
+                $set: {
+                    null_value: null,
+                    empty_string: '',
+                    zero: 0,
+                    false_value: false,
+                    array: [1, 2, 3],
+                    object: { nested: 'value' },
+                    null_byte: '\u0000',
+                },
+            },
+        })
+    })
+
+    it('produces identical results for person events vs regular events', async () => {
+        await testBothUpdatePaths(
+            'person event updates',
+            {
+                event: '$set',
+                distinct_id: `${newUserDistinctId}-person-event`,
+                properties: {
+                    $set: { $current_url: 'https://new-url.com' },
+                },
+            },
+            { $current_url: 'https://old-url.com' }
+        )
+
+        await testBothUpdatePaths(
+            'regular event updates',
+            {
+                event: '$pageview',
+                distinct_id: `${newUserDistinctId}-regular-event`,
+                properties: {
+                    $set: { $current_url: 'https://new-url.com' },
+                },
+            },
+            { $current_url: 'https://old-url.com' }
+        )
+    })
+
+    it('produces identical results when no updates needed', async () => {
+        await testBothUpdatePaths(
+            'no-op updates',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Same' },
+                    $set_once: { existing: 'keep' },
+                },
+            },
+            { name: 'Same', existing: 'keep' }
+        )
+    })
+
+    it('produces identical results for is_identified updates', async () => {
+        const testWithIdentified = async (updateIsIdentified: boolean) => {
+            const uuid_suffix = updateIsIdentified ? '-identified' : '-unidentified'
+            await createPerson(
+                hub,
+                timestamp,
+                { test: 'value' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, `${newUserDistinctId}-${uuid_suffix}`),
+                [{ distinctId: `${newUserDistinctId}-${uuid_suffix}` }]
+            )
+
+            await createPerson(
+                hub,
+                timestamp,
+                { test: 'value' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, `${oldUserDistinctId}-${uuid_suffix}`),
+                [{ distinctId: `${oldUserDistinctId}-${uuid_suffix}` }]
+            )
+
+            const legacyPersonContext = new PersonContext(
+                { team_id: teamId, properties: {}, event: '$pageview', distinct_id: newUserDistinctId } as any,
+                mainTeam,
+                newUserDistinctId,
+                timestamp,
+                true,
+                hub.db.kafkaProducer,
+                new MeasuringPersonsStoreForBatch(hub.db),
+                0,
+                0.0
+            )
+            legacyPersonContext.updateIsIdentified = updateIsIdentified
+            const legacyPropertyService = new PersonPropertyService(legacyPersonContext)
+
+            const optimizedPersonContext = new PersonContext(
+                { team_id: teamId, properties: {}, event: '$pageview', distinct_id: oldUserDistinctId } as any,
+                mainTeam,
+                oldUserDistinctId,
+                timestamp,
+                true,
+                hub.db.kafkaProducer,
+                new MeasuringPersonsStoreForBatch(hub.db),
+                0,
+                1.0
+            )
+            optimizedPersonContext.updateIsIdentified = updateIsIdentified
+            const optimizedPropertyService = new PersonPropertyService(optimizedPersonContext)
+
+            const [legacyResult] = await legacyPropertyService.updateProperties()
+            const [optimizedResult] = await optimizedPropertyService.updateProperties()
+
+            expect(legacyResult.is_identified).toEqual(optimizedResult.is_identified)
+            expect(legacyResult.properties).toEqual(optimizedResult.properties)
+            expect(legacyResult.version).toEqual(optimizedResult.version)
+        }
+
+        await testWithIdentified(true)
+        await testWithIdentified(false)
+    })
+
+    it('uses different SQL queries but produces same results', async () => {
+        const legacyQueries: string[] = []
+        const optimizedQueries: string[] = []
+
+        const originalQuery = hub.db.postgres.query
+        jest.spyOn(hub.db.postgres, 'query').mockImplementation((...args) => {
+            const query = args[1] as string
+            if (query.includes('UPDATE posthog_person')) {
+                if (query.includes('properties ||') || query.includes('properties -')) {
+                    optimizedQueries.push(query)
+                } else {
+                    legacyQueries.push(query)
+                }
+            }
+            return originalQuery.apply(hub.db.postgres, args)
+        })
+
+        await testBothUpdatePaths(
+            'different SQL queries',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { new_prop: 'value' },
+                    $unset: ['old_prop'],
+                },
+            },
+            { old_prop: 'remove_me', keep_prop: 'keep_me' }
+        )
+
+        expect(legacyQueries.length).toBeGreaterThan(0)
+        expect(optimizedQueries.length).toBeGreaterThan(0)
+
+        expect(legacyQueries[0]).toContain('"properties" = $')
+        expect(legacyQueries[0]).not.toContain('||')
+        expect(legacyQueries[0]).not.toContain(' - ')
+
+        expect(optimizedQueries[0]).toContain('properties ||')
+        expect(optimizedQueries[0]).toContain('-')
+
+        jest.restoreAllMocks()
+    })
+
+    it('produces identical results for events that should not update persons', async () => {
+        const excludedEvents = ['$exception', '$$heatmap']
+
+        for (const eventType of excludedEvents) {
+            await testBothUpdatePaths(
+                `excluded event: ${eventType}`,
+                {
+                    event: eventType,
+                    distinct_id: `${newUserDistinctId}-${eventType}`,
+                    properties: {
+                        $set: { should_not_update: 'value' },
+                        $set_once: { also_should_not: 'value' },
+                        $unset: ['existing_prop'],
+                    },
+                },
+                {
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                },
+                (person, _useOptimized) => {
+                    expect(person.properties).toEqual({
+                        existing_prop: 'should_stay',
+                        other: 'prop',
+                    })
+                    expect(person.version).toBe(0)
+                }
+            )
+        }
+    })
+
+    it('produces identical results for events that should not update persons $exception', async () => {
+        const eventType = '$exception'
+        await testBothUpdatePaths(
+            `excluded event: ${eventType}`,
+            {
+                event: eventType,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { should_not_update: 'value' },
+                    $set_once: { also_should_not: 'value' },
+                    $unset: ['existing_prop'],
+                },
+            },
+            {
+                existing_prop: 'should_stay',
+                other: 'prop',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties).toEqual({
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                })
+                expect(person.version).toBe(0)
+            }
+        )
+    })
+
+    it('produces identical results for events that should not update persons $$heatmap', async () => {
+        const eventType = '$$heatmap'
+        await testBothUpdatePaths(
+            `excluded event: ${eventType}`,
+            {
+                event: eventType,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { should_not_update: 'value' },
+                    $set_once: { also_should_not: 'value' },
+                    $unset: ['existing_prop'],
+                },
+            },
+            {
+                existing_prop: 'should_stay',
+                other: 'prop',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties).toEqual({
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                })
+                expect(person.version).toBe(0)
+            }
+        )
+    })
+
+    it('produces identical results for GeoIP properties', async () => {
+        await testBothUpdatePaths(
+            'GeoIP property handling',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: {
+                        $geoip_country_name: 'United States',
+                        $initial_geoip_city_name: 'San Francisco',
+                        regular_prop: 'should_update',
+                    },
+                },
+            },
+            {
+                $geoip_country_name: 'Canada',
+                regular_prop: 'old_value',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties.$geoip_country_name).toBe('United States')
+                expect(person.properties.$initial_geoip_city_name).toBe('San Francisco')
+                expect(person.properties.regular_prop).toBe('should_update')
+            }
+        )
+    })
+
+    it('produces identical results for large property payloads', async () => {
+        const largeProperties: Properties = {}
+        const initialProperties: Properties = {}
+
+        for (let i = 0; i < 50; i++) {
+            largeProperties[`prop_${i}`] = `value_${i}`
+            if (i < 25) {
+                initialProperties[`prop_${i}`] = `old_value_${i}`
+            }
+        }
+
+        initialProperties.remove_me_1 = 'gone'
+        initialProperties.remove_me_2 = 'also_gone'
+        initialProperties.keep_me = 'stays'
+
+        await testBothUpdatePaths(
+            'large property payload',
+            {
+                event: '$set',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: largeProperties,
+                    $unset: ['remove_me_1', 'remove_me_2'],
+                },
+            },
+            initialProperties,
+            (person, _useOptimized) => {
+                for (let i = 0; i < 50; i++) {
+                    expect(person.properties[`prop_${i}`]).toBe(`value_${i}`)
+                }
+                expect(person.properties.keep_me).toBe('stays')
+                expect(person.properties.remove_me_1).toBeUndefined()
+                expect(person.properties.remove_me_2).toBeUndefined()
+                expect(person.version).toBe(1)
+            }
+        )
     })
 })

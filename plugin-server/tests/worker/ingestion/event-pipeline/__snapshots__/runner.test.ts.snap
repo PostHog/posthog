@@ -1,23 +1,7 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`EventPipelineRunner runEventPipeline() runs steps starting from cookielessServerHashStep 1`] = `
+exports[`EventPipelineRunner runEventPipeline() runs steps starting from pluginsProcessEventStep 1`] = `
 [
-  [
-    "cookielessServerHashStep",
-    [
-      {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00.000Z",
-        "properties": {},
-        "site_url": "http://localhost",
-        "team_id": 2,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-        "uuid": "uuid1",
-      },
-    ],
-  ],
   [
     "pluginsProcessEventStep",
     [
@@ -90,19 +74,19 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from cookiel
           "updateCacheHits": 0,
           "updateCacheMisses": 0,
         },
-        "databaseOperationCounts": {},
+        "databaseOperationCountsPerDistinctId": {},
         "db": {
           "kafkaProducer": {},
         },
-        "distinctId": "my_id",
-        "methodCounts": {},
+        "fetchPromisesForChecking": {},
+        "fetchPromisesForUpdate": {},
+        "methodCountsPerDistinctId": {},
         "options": {
           "personCacheEnabledForChecks": true,
           "personCacheEnabledForUpdates": true,
         },
         "personCache": {},
         "personCheckCache": {},
-        "token": "token1",
         "updateLatencyPerDistinctIdSeconds": {},
       },
     ],

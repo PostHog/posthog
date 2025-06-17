@@ -1,10 +1,10 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { fetch, FetchResponse } from '~/src/utils/request'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { fetch, FetchResponse } from '~/utils/request'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -196,7 +196,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(invocationResults[0].error).toBeInstanceOf(Error)
-            expect(forSnapshot(invocationResults[0].logs)).toMatchInlineSnapshot(`[]`)
+            expect(forSnapshot(invocationResults[0].logs.map((x) => x.message))).toMatchInlineSnapshot(`
+                [
+                  "Plugin execution failed: Service is down, retry later",
+                ]
+            `)
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
                 {

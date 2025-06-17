@@ -10,14 +10,21 @@ import { Billing } from './Billing'
 import { billingLogic } from './billingLogic'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
+import { BillingSectionId } from './types'
 
 export const scene: SceneExport = {
     component: BillingSection,
     logic: billingLogic,
 }
 
+const tabs: { key: BillingSectionId; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'usage', label: 'Usage' },
+    { key: 'spend', label: 'Spend' },
+]
+
 export function BillingSection(): JSX.Element {
-    const { location } = useValues(router)
+    const { location, searchParams } = useValues(router)
 
     const section = location.pathname.includes('spend')
         ? 'spend'
@@ -25,17 +32,36 @@ export function BillingSection(): JSX.Element {
         ? 'usage'
         : 'overview'
 
+    const handleTabChange = (key: BillingSectionId): void => {
+        const newUrl = urls.organizationBillingSection(key)
+
+        const currentHasParams = section === 'usage' || section === 'spend'
+        const targetHasParams = key === 'usage' || key === 'spend'
+        const shouldPreserveParams = currentHasParams && targetHasParams
+
+        if (!shouldPreserveParams) {
+            router.actions.push(newUrl)
+            return
+        }
+
+        const paramsToPreserve = { ...searchParams }
+
+        // When switching from spend to usage and breakdowns param is present,
+        // ensure 'type' breakdown is included, since it's required for usage
+        if (section === 'spend' && key === 'usage' && paramsToPreserve.breakdowns) {
+            const currentBreakdowns = Array.isArray(paramsToPreserve.breakdowns) ? paramsToPreserve.breakdowns : []
+
+            if (!currentBreakdowns.includes('type')) {
+                paramsToPreserve.breakdowns = ['type', ...currentBreakdowns]
+            }
+        }
+
+        router.actions.push(newUrl, paramsToPreserve)
+    }
+
     return (
         <div className="flex flex-col">
-            <LemonTabs
-                activeKey={section}
-                onChange={(key) => router.actions.push(urls.organizationBillingSection(key))}
-                tabs={[
-                    { key: 'overview', label: 'Overview' },
-                    { key: 'usage', label: 'Usage' },
-                    { key: 'spend', label: 'Spend' },
-                ]}
-            />
+            <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />
 
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}

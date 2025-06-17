@@ -1,5 +1,5 @@
 from typing import Any
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Q
 from django.db.models.functions import Lower
 from rest_framework import serializers, viewsets
 
@@ -44,5 +44,17 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system_shortcut"
     serializer_class = FileSystemShortcutSerializer
 
+    def _scope_by_project(self, queryset):
+        return queryset.filter(team__project_id=self.team.project_id)
+
+    def _scope_by_project_and_environment(self, queryset: QuerySet) -> QuerySet:
+        queryset = self._scope_by_project(queryset)
+        # type !~ 'hog_function/.*' or team = $current
+        queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
+        return queryset
+
+    def _filter_queryset_by_parents_lookups(self, queryset):
+        return self._scope_by_project(queryset)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team=self.team, user=self.request.user).order_by(Lower("path"))
+        return self._scope_by_project_and_environment(queryset).filter(user=self.request.user).order_by(Lower("path"))

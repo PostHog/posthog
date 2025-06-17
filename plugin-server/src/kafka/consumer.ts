@@ -295,7 +295,10 @@ export class KafkaConsumer {
 
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
-        await ensureTopicExists(this.consumerConfig, this.config.topic)
+        if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
+            // For hobby deploys we want to auto-create, but on cloud we don't
+            await ensureTopicExists(this.consumerConfig, this.config.topic)
+        }
 
         // The consumer has an internal pre-fetching queue that sequentially pools
         // each partition, with the consumerMaxWaitMs timeout. We want to read big

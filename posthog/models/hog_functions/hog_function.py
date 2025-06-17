@@ -44,6 +44,7 @@ class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
     INTERNAL_DESTINATION = "internal_destination"
+    SOURCE_WEBHOOK = "source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
     EMAIL = "email"
@@ -55,6 +56,7 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.BROADCAST,
+    HogFunctionType.SOURCE_WEBHOOK,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,
@@ -125,6 +127,9 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
             href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.SOURCE_WEBHOOK:
+            folder = "Unfiled/Sources"
+            href = f"/functions/{self.pk}/configuration"
         elif self.type == HogFunctionType.BROADCAST:
             folder = "Unfiled/Broadcasts"
             href = f"/messaging/broadcasts/{self.pk}"
@@ -134,7 +139,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             type = "campaign"
 
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or folder,
+            base_folder=self._get_assigned_folder(folder),
             type=f"hog_function/{type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",

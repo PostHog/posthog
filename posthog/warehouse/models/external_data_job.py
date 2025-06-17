@@ -13,7 +13,8 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         RUNNING = "Running", "Running"
         FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
     class PipelineVersion(models.TextChoices):
         V1 = "v1-dlt-sync", "v1-dlt-sync"

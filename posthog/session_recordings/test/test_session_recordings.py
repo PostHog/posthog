@@ -1018,7 +1018,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         """
         includes regression test to allow utf16 surrogate pairs in realtime snapshots response
-        see: https://posthog.sentry.io/issues/4981128697/
         """
 
         expected_response = b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}'
@@ -1306,7 +1305,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
+        personal_api_key_object: PersonalAPIKey = PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
@@ -1322,7 +1321,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         assert mock_capture.call_args_list[0] == call(
-            self.user.distinct_id,
+            personal_api_key_object.secure_value,
             "snapshots_api_called_with_personal_api_key",
             {
                 "key_label": "X",

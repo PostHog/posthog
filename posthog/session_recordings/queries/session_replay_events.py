@@ -397,12 +397,7 @@ def ttl_days(team: Team) -> int:
         # NOTE: We use file export as a proxy to see if they are subbed to Recordings
         is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_FILE_EXPORT)
         ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
-
-        # NOTE: The date we started reliably ingested data to blob storage
-        days_since_blob_ingestion = (datetime.now() - datetime(2023, 8, 1)).days
-
-        if days_since_blob_ingestion < ttl_days:
-            ttl_days = days_since_blob_ingestion
     else:
         ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
     return ttl_days

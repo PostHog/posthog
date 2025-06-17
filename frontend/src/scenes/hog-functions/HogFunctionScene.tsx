@@ -16,7 +16,14 @@ import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTest
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, Breadcrumb, HogFunctionTypeType, PipelineTab } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    CyclotronJobFilterPropertyFilter,
+    HogFunctionType,
+    HogFunctionTypeType,
+    PipelineTab,
+} from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
@@ -29,6 +36,7 @@ const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, PipelineTab
     destination: PipelineTab.Destinations,
     site_destination: PipelineTab.Destinations,
     site_app: PipelineTab.SiteApps,
+    source_webhook: PipelineTab.Sources,
 }
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
@@ -51,18 +59,32 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
+        alertId: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): string | undefined => {
+                if (!configuration?.filters?.properties) {
+                    return undefined
+                }
+                const alertIdProp = configuration.filters.properties.find(
+                    (p: CyclotronJobFilterPropertyFilter) => p.key === 'alert_id'
+                )
+                const value = alertIdProp?.value
+                return value ? String(value) : undefined
+            },
+        ],
         breadcrumbs: [
-            (s) => [s.type, s.loading, s.configuration],
-            (type, loading, configuration): Breadcrumb[] => {
+            (s) => [s.type, s.loading, s.configuration, s.alertId],
+            (
+                type: HogFunctionTypeType,
+                loading: boolean,
+                configuration: HogFunctionType | null,
+                alertId: string | undefined
+            ): Breadcrumb[] => {
                 if (loading) {
                     return [
                         {
                             key: Scene.HogFunction,
                             name: 'Loading...',
-                        },
-                        {
-                            key: Scene.HogFunction,
-                            name: '',
                         },
                     ]
                 }
@@ -70,6 +92,22 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 const finalCrumb: Breadcrumb = {
                     key: Scene.HogFunction,
                     name: configuration?.name || '(Untitled)',
+                }
+
+                if (type === 'internal_destination' && alertId) {
+                    return [
+                        {
+                            key: Scene.Insight,
+                            name: 'Insight',
+                            path: urls.alerts(),
+                        },
+                        {
+                            key: 'alert',
+                            name: 'Alert',
+                            path: urls.alert(alertId),
+                        },
+                        finalCrumb,
+                    ]
                 }
 
                 const pipelineTab = DataPipelinesSceneMapping[type]
@@ -93,24 +131,21 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 if (type === 'internal_destination') {
                     // Returns a Scene that is closest to the element based on the configuration.
                     // This is used to help the HogFunctionScene render correct breadcrumbs and redirections
-                    if (configuration.type === 'internal_destination') {
-                        if (configuration.filters?.events?.some((e) => e.id.includes('error_tracking'))) {
-                            // Error tracking scene
-                            return [
-                                {
-                                    key: Scene.ErrorTracking,
-                                    name: 'Error tracking',
-                                    path: urls.errorTracking(),
-                                },
-                                {
-                                    key: Scene.HogFunction,
-                                    name: 'Alerts',
-                                    path:
-                                        urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
-                                },
-                                finalCrumb,
-                            ]
-                        }
+                    if (configuration?.filters?.events?.some((e) => e.id.includes('error_tracking'))) {
+                        // Error tracking scene
+                        return [
+                            {
+                                key: Scene.ErrorTracking,
+                                name: 'Error tracking',
+                                path: urls.errorTracking(),
+                            },
+                            {
+                                key: Scene.HogFunction,
+                                name: 'Alerts',
+                                path: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
+                            },
+                            finalCrumb,
+                        ]
                     }
 
                     return [
@@ -168,7 +203,7 @@ export const scene: SceneExport = {
 }
 
 export function HogFunctionScene(): JSX.Element {
-    const { currentTab, loading, loaded, logicProps } = useValues(hogFunctionSceneLogic)
+    const { currentTab, loading, loaded, logicProps, type } = useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
 
     const { id, templateId } = logicProps
@@ -194,32 +229,34 @@ export function HogFunctionScene(): JSX.Element {
         return <NotFound object="Hog function" />
     }
 
-    const tabs: LemonTab<HogFunctionSceneTab>[] = [
+    const tabs: (LemonTab<HogFunctionSceneTab> | null)[] = [
         {
             label: 'Configuration',
             key: 'configuration',
-            content: (
-                <HogFunctionConfiguration
-                    id={id}
-                    // displayOptions={{ hideTestingConfiguration: false }}
-                />
-            ),
+            content: <HogFunctionConfiguration id={id} />,
         },
-        {
-            label: 'Metrics',
-            key: 'metrics',
-            content: <HogFunctionMetrics id={id} />,
-        },
-        {
-            label: 'Logs',
-            key: 'logs',
-            content: <HogFunctionLogs hogFunctionId={id} />,
-        },
-        {
-            label: 'Testing',
-            key: 'testing',
-            content: <HogFunctionTesting id={id} />,
-        },
+
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Metrics',
+                  key: 'metrics',
+                  content: <HogFunctionMetrics id={id} />,
+              },
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Logs',
+                  key: 'logs',
+                  content: <HogFunctionLogs hogFunctionId={id} />,
+              },
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Testing',
+                  key: 'testing',
+                  content: <HogFunctionTesting id={id} />,
+              },
         {
             label: 'History',
             key: 'history',

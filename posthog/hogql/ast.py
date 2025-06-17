@@ -880,6 +880,9 @@ class SelectSetQuery(Expr):
     def create_from_queries(
         cls, queries: Sequence[Union[SelectQuery, "SelectSetQuery"]], set_operator: SetOperator
     ) -> "SelectSetQuery":
+        if len(queries) == 0:
+            raise ValueError("Cannot create a SelectSetQuery from an empty list of queries")
+
         return SelectSetQuery(
             initial_select_query=queries[0],
             subsequent_select_queries=[

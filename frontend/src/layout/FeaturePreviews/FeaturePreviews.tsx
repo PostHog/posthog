@@ -54,6 +54,10 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                                 <LemonBanner type="info" className="mb-2">
                                     Get early access to these upcoming features. Let us know what you think!
                                 </LemonBanner>
+                                <LemonBanner type="info" className="mb-2">
+                                    Note that toggling these features will enable it for your account only. Each
+                                    individual user in your organization will need to enable it separately.
+                                </LemonBanner>
                                 {betaFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
                                         {i > 0 && <LemonDivider className="mt-3 mb-2" />}

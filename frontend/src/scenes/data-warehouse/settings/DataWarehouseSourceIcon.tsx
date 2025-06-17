@@ -8,6 +8,7 @@ import IconBigQuery from 'public/services/bigquery.png'
 import IconBraze from 'public/services/braze.png'
 import IconChargebee from 'public/services/chargebee.png'
 import IconCloudflare from 'public/services/cloudflare.png'
+import IconDoIt from 'public/services/doit.svg'
 import IconGoogleSheets from 'public/services/Google_Sheets.svg'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
@@ -24,6 +25,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconMSSQL from 'public/services/sql-azure.png'
 import IconStripe from 'public/services/stripe.png'
+import IconTemporalIO from 'public/services/temporal.png'
 import IconVitally from 'public/services/vitally.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { getDataWarehouseSourceUrl } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
@@ -46,10 +48,54 @@ export function mapUrlToProvider(url: string): string {
     return 'BlushingHog'
 }
 
+export function mapUrlToSourceName(url: string): string {
+    if (url.includes('amazonaws.com')) {
+        return 'AWS'
+    } else if (url.startsWith('https://storage.googleapis.com')) {
+        return 'GCS'
+    } else if (url.includes('.blob.')) {
+        return 'Azure'
+    } else if (url.includes('.r2.cloudflarestorage.com')) {
+        return 'Cloudflare'
+    }
+    return 'BlushingHog'
+}
+
 const SIZE_PX_MAP = {
     xsmall: 16,
     small: 30,
     medium: 60,
+}
+
+export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
+    Stripe: IconStripe,
+    Hubspot: IconHubspot,
+    Zendesk: IconZendesk,
+    Postgres: IconPostgres,
+    MySQL: IconMySQL,
+    Snowflake: IconSnowflake,
+    aws: IconAwsS3,
+    'google-cloud': IconGoogleCloudStorage,
+    'cloudflare-r2': IconCloudflare,
+    azure: Iconazure,
+    Salesforce: IconSalesforce,
+    MSSQL: IconMSSQL,
+    Vitally: IconVitally,
+    BigQuery: IconBigQuery,
+    Chargebee: IconChargebee,
+    BlushingHog: BlushingHog, // fallback, we don't know what this is
+    PostHog: IconPostHog,
+    GoogleAds: IconGoogleAds,
+    MetaAds: IconMetaAds,
+    Klaviyo: IconKlaviyo,
+    Mailchimp: IconMailchimp,
+    Braze: IconBraze,
+    Mailjet: IconMailjet,
+    Redshift: IconRedshift,
+    GoogleSheets: IconGoogleSheets,
+    Mongodb: IconMongodb,
+    TemporalIO: IconTemporalIO,
+    DoIt: IconDoIt,
 }
 
 export function DataWarehouseSourceIcon({
@@ -65,51 +111,24 @@ export function DataWarehouseSourceIcon({
 }): JSX.Element {
     const sizePx = sizePxProps ?? SIZE_PX_MAP[size]
 
-    const icon = {
-        Stripe: IconStripe,
-        Hubspot: IconHubspot,
-        Zendesk: IconZendesk,
-        Postgres: IconPostgres,
-        MySQL: IconMySQL,
-        Snowflake: IconSnowflake,
-        aws: IconAwsS3,
-        'google-cloud': IconGoogleCloudStorage,
-        'cloudflare-r2': IconCloudflare,
-        azure: Iconazure,
-        Salesforce: IconSalesforce,
-        MSSQL: IconMSSQL,
-        Vitally: IconVitally,
-        BigQuery: IconBigQuery,
-        Chargebee: IconChargebee,
-        BlushingHog: BlushingHog, // fallback, we don't know what this is
-        PostHog: IconPostHog,
-        GoogleAds: IconGoogleAds,
-        MetaAds: IconMetaAds,
-        Klaviyo: IconKlaviyo,
-        Mailchimp: IconMailchimp,
-        Braze: IconBraze,
-        Mailjet: IconMailjet,
-        Redshift: IconRedshift,
-        GoogleSheets: IconGoogleSheets,
-        Mongodb: IconMongodb,
-    }[type]
+    const icon = DATA_WAREHOUSE_SOURCE_ICON_MAP[type]
 
     if (disableTooltip) {
         return (
-            <div className="flex items-center gap-4">
+            <div className="flex gap-4 items-center">
                 <img
                     src={icon}
                     alt={type}
                     height={sizePx}
                     width={sizePx}
-                    className="rounded object-contain max-w-none"
+                    className="object-contain max-w-none rounded"
                 />
             </div>
         )
     }
 
     return (
-        <div className="flex items-center gap-4">
+        <div className="flex gap-4 items-center">
             <Tooltip
                 title={
                     <>
@@ -125,7 +144,7 @@ export function DataWarehouseSourceIcon({
                         alt={type}
                         height={sizePx}
                         width={sizePx}
-                        className="rounded object-contain max-w-none"
+                        className="object-contain max-w-none rounded"
                     />
                 </Link>
             </Tooltip>

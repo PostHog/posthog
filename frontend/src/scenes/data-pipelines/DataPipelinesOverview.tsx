@@ -1,14 +1,19 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { useEffect } from 'react'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
 import { PipelineTab } from '~/types'
+
+import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 function Section({
     title,
@@ -41,6 +46,14 @@ export function DataPipelinesOverview(): JSX.Element {
         { label: 'Destination', to: urls.dataPipelinesNew('destination') },
     ]
 
+    const { hogFunctionPluginsDestinations, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
+
+    useEffect(() => {
+        loadHogFunctionPluginsDestinations()
+        loadHogFunctionBatchExports()
+    }, [])
+
     return (
         <>
             <PageHeader
@@ -60,10 +73,15 @@ export function DataPipelinesOverview(): JSX.Element {
                 }
             />
             <div className="deprecated-space-y-4">
-                <Section title="Managed sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <FlaggedFeature flag="cdp-hog-sources">
+                    <Section title="Event sources" to={urls.pipeline(PipelineTab.Sources)}>
+                        <HogFunctionList logicKey="overview-data-sources" type="source_webhook" />
+                    </Section>
+                </FlaggedFeature>
+                <Section title="Managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
                     <DataWarehouseManagedSourcesTable />
                 </Section>
-                <Section title="Self-managed sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <Section title="Self-managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
                     <DataWarehouseSelfManagedSourcesTable />
                 </Section>
                 <Section title="Transformations" to={urls.pipeline(PipelineTab.Transformations)}>
@@ -78,14 +96,11 @@ export function DataPipelinesOverview(): JSX.Element {
                     <HogFunctionList
                         logicKey="destination"
                         type="destination"
-                        extraControls={
-                            <>
-                                <LemonButton type="primary" size="small" to={urls.dataPipelinesNew('destination')}>
-                                    New destination
-                                </LemonButton>
-                            </>
-                        }
                         hideFeedback={true}
+                        manualFunctions={[
+                            ...(hogFunctionPluginsDestinations ?? []),
+                            ...(hogFunctionBatchExports ?? []),
+                        ]}
                     />
                 </Section>
             </div>

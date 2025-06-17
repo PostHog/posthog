@@ -47,6 +47,7 @@ from posthog.warehouse.models.external_data_schema import update_should_sync
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
     "Primary key required for incremental syncs",
+    "The primary keys for this table are not unique",
 ]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
@@ -70,6 +71,12 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "Address not in tenant allow_list",
         "FATAL: no such database",
         "does not exist",
+        "timestamp too small",
+        "QueryTimeoutException",
+        "TemporaryFileSizeExceedsLimitException",
+        "Name or service not known",
+        "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
+        "InsufficientPrivilege",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: [
@@ -90,6 +97,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ],
     ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
+    ExternalDataSource.Type.GOOGLEADS: ["PERMISSION_DENIED"],
 }
 
 
@@ -264,7 +272,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             if hit_billing_limit:
-                update_inputs.status = ExternalDataJob.Status.CANCELLED
+                update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
 
             await workflow.execute_activity(

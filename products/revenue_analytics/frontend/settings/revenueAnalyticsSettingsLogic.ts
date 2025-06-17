@@ -4,7 +4,6 @@ import { beforeUnload } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -16,17 +15,14 @@ import {
     RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
 } from '~/queries/schema/schema-general'
-import { ExternalDataSource, Region } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
 
-const createEmptyConfig = (region: Region | null | undefined): RevenueAnalyticsConfig => ({
+const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
     goals: [],
-
-    // Region won't be always set because we might mount this before we mount preflightLogic
-    // so we default to USD if we can't determine the region
-    base_currency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
+    filter_test_accounts: false,
 })
 
 const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] => {
@@ -36,20 +32,11 @@ const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] =>
 export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam', 'currentTeamId'],
-            preflightLogic,
-            ['preflight'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
-        ],
+        values: [teamLogic, ['currentTeam', 'currentTeamId'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
         actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
-        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
-
-        addEvent: (eventName: string) => ({ eventName }),
+        addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),
         deleteEvent: (eventName: string) => ({ eventName }),
         updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
         updateEventRevenueCurrencyProperty: (
@@ -68,6 +55,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         deleteGoal: (index: number) => ({ index }),
         updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
 
+        updateFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+
         save: true,
         resetConfig: true,
     }),
@@ -75,21 +64,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         revenueAnalyticsConfig: [
             null as RevenueAnalyticsConfig | null,
             {
-                updateBaseCurrency: (state: RevenueAnalyticsConfig | null, { baseCurrency }) => {
-                    if (!state) {
-                        return state
-                    }
-
-                    return { ...state, base_currency: baseCurrency }
-                },
-                addEvent: (state: RevenueAnalyticsConfig | null, { eventName }) => {
-                    if (
-                        !state ||
-                        !eventName ||
-                        typeof eventName !== 'string' ||
-                        eventName == '$pageview' ||
-                        eventName == '$autocapture'
-                    ) {
+                addEvent: (state: RevenueAnalyticsConfig | null, { eventName, revenueCurrency }) => {
+                    if (!state || !eventName || typeof eventName !== 'string') {
                         return state
                     }
 
@@ -107,7 +83,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                             {
                                 eventName,
                                 revenueProperty: 'revenue',
-                                revenueCurrencyProperty: { static: state.base_currency },
+                                revenueCurrencyProperty: { static: revenueCurrency },
                                 currencyAwareDecimal: false,
                             },
                         ],
@@ -193,6 +169,12 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     const goals = sortByDueDate(state.goals.map((item, i) => (i === index ? goal : item)))
                     return { ...state, goals }
                 },
+                updateFilterTestAccounts: (state: RevenueAnalyticsConfig | null, { filterTestAccounts }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return { ...state, filter_test_accounts: filterTestAccounts }
+                },
                 resetConfig: () => {
                     return values.savedRevenueAnalyticsConfig
                 },
@@ -200,20 +182,20 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         ],
         savedRevenueAnalyticsConfig: [
             // TODO: Check how to pass the preflight region here
-            values.currentTeam?.revenue_analytics_config || createEmptyConfig(null),
+            values.currentTeam?.revenue_analytics_config || createEmptyConfig(),
             {
                 updateCurrentTeam: (_, { revenue_analytics_config }) => {
                     // TODO: Check how to pass the preflight region here
-                    return revenue_analytics_config || createEmptyConfig(null)
+                    return revenue_analytics_config || createEmptyConfig()
                 },
             },
         ],
     })),
     selectors({
-        baseCurrency: [
+        filterTestAccounts: [
             (s) => [s.revenueAnalyticsConfig],
             (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
-                revenueAnalyticsConfig?.base_currency || CurrencyCode.USD,
+                revenueAnalyticsConfig?.filter_test_accounts || false,
         ],
 
         goals: [
@@ -298,10 +280,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         }
 
         return {
-            updateBaseCurrency: updateCurrentTeam,
             addGoal: updateCurrentTeam,
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
+            updateFilterTestAccounts: updateCurrentTeam,
             save: updateCurrentTeam,
         }
     }),
@@ -309,7 +291,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         revenueAnalyticsConfig: {
             loadRevenueAnalyticsConfig: async () => {
                 if (values.currentTeam) {
-                    return values.currentTeam.revenue_analytics_config || createEmptyConfig(values.preflight?.region)
+                    return values.currentTeam.revenue_analytics_config || createEmptyConfig()
                 }
                 return null
             },

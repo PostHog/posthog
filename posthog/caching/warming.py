@@ -3,6 +3,7 @@ from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
 from typing import Optional
 
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from celery import shared_task
 from celery.canvas import chain
@@ -16,11 +17,10 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_cache import QueryCacheManager
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
 from posthog.tasks.utils import CeleryQueue
-from posthog.ph_client import ph_us_client
+from posthog.ph_client import ph_scoped_capture
 import posthoganalytics
 
 
@@ -162,7 +162,7 @@ def schedule_warming_for_teams_task():
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = datetime.now(UTC) + timedelta(minutes=50)
 
-    with ph_us_client() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
         for team, shared_only in all_teams:
             insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
@@ -209,7 +209,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
@@ -234,7 +234,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 is_cached=is_cached,
             ).inc()
 
-            with ph_us_client() as capture_ph_event:
+            with ph_scoped_capture() as capture_ph_event:
                 capture_ph_event(
                     str(insight.team.uuid),
                     "cache warming - warming insight",

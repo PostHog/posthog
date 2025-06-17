@@ -3,9 +3,10 @@ use std::sync::Arc; // Add this crate for async traits
 use thiserror::Error;
 
 use common_database::Client as DatabaseClient;
-use common_redis::{Client as RedisClient, CustomRedisError};
+use common_redis::CustomRedisError;
 
-use super::{redirect_query::fetch_redirect_url, redis_utils::RedisRedirectKeyPrefix};
+use crate::redirect::redirect_cache::RedirectCacheManager;
+use crate::redirect::redirect_query::fetch_redirect_url;
 
 #[derive(Error, Debug)]
 pub enum RedirectError {
@@ -37,17 +38,17 @@ pub trait RedirectServiceTrait {
 }
 
 pub struct ExternalRedirectService {
-    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    cache_manager: Arc<dyn RedirectCacheManager + Send + Sync>,
     default_domain_for_public_store: String,
 }
 
 impl ExternalRedirectService {
     pub fn new(
-        redis_client: Arc<dyn RedisClient + Send + Sync>,
+        cache_manager: Arc<dyn RedirectCacheManager + Send + Sync>,
         default_domain_for_public_store: String,
     ) -> Self {
         Self {
-            redis_client,
+            cache_manager,
             default_domain_for_public_store,
         }
     }
@@ -55,17 +56,17 @@ impl ExternalRedirectService {
 
 pub struct InternalRedirectService {
     db_reader_client: Arc<dyn DatabaseClient + Send + Sync>,
-    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    cache_manager: Arc<dyn RedirectCacheManager + Send + Sync>,
 }
 
 impl InternalRedirectService {
     pub fn new(
         db_reader_client: Arc<dyn DatabaseClient + Send + Sync>,
-        redis_client: Arc<dyn RedisClient + Send + Sync>,
+        cache_manager: Arc<dyn RedirectCacheManager + Send + Sync>,
     ) -> Self {
         Self {
             db_reader_client,
-            redis_client,
+            cache_manager,
         }
     }
 
@@ -74,24 +75,7 @@ impl InternalRedirectService {
         short_code: &str,
         short_link_domain: &str,
     ) -> Result<String, RedirectError> {
-        let redirect_url =
-            fetch_redirect_url(self.db_reader_client.clone(), short_link_domain, short_code)
-                .await?;
-        // If redis set fails, we shouldn't fail the retrieval and just log
-        if let Err(error) = self
-            .redis_client
-            .set_nx_ex(
-                RedisRedirectKeyPrefix::Internal
-                    .get_redis_key_for_url(short_link_domain, short_code),
-                redirect_url.clone(),
-                60 * 60 * 24, // 1 day
-            )
-            .await
-        {
-            // TODO: add metric here
-            tracing::error!("Failed to write to redis: {}", error);
-        }
-        Ok(redirect_url)
+        fetch_redirect_url(self.db_reader_client.clone(), short_link_domain, short_code).await
     }
 }
 
@@ -104,25 +88,28 @@ impl RedirectServiceTrait for ExternalRedirectService {
         short_code: &str,
         short_link_domain: &str,
     ) -> Result<String, RedirectError> {
-        // Try Redis first
-        tracing::info!(
-            "Fetching redirect URL from Redis for key {} and domain {}",
-            short_code,
-            short_link_domain
-        );
         match self
-            .redis_client
-            .get(
-                RedisRedirectKeyPrefix::External
-                    .get_redis_key_for_url(short_link_domain, short_code),
-            )
+            .cache_manager
+            .get_cached_url(short_code, short_link_domain)
             .await
         {
-            Ok(redirect_url) => Ok(redirect_url),
-            Err(error) => match error {
-                CustomRedisError::NotFound => Err(RedirectError::LinkNotFound),
-                error => Err(error.into()),
-            },
+            Ok(url) => {
+                tracing::debug!(
+                    "Cache hit via manager for {}:{}",
+                    short_link_domain,
+                    short_code
+                );
+                Ok(url)
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Error from cache manager for {}:{}: {}",
+                    short_link_domain,
+                    short_code,
+                    e
+                );
+                Err(e)
+            }
         }
     }
 
@@ -131,21 +118,16 @@ impl RedirectServiceTrait for ExternalRedirectService {
         redirect_url: &str,
         short_string: &str,
     ) -> Result<String, RedirectError> {
-        let key = RedisRedirectKeyPrefix::External
-            .get_redis_key_for_url(&self.default_domain_for_public_store, short_string);
-
-        // First check if the key exists
-        match self
-            .redis_client
-            .set_nx_ex(key, redirect_url.to_string(), TWENTY_FOUR_HOURS_IN_SECONDS)
-            .await
-        {
-            Ok(true) => Ok(short_string.to_string()),
-            Ok(false) => Err(RedirectError::InvalidOperation(
-                "Redirect URL already exists".into(),
-            )),
-            Err(e) => Err(e.into()),
-        }
+        // Cache the URL using the cache manager
+        self.cache_manager
+            .cache_url(
+                short_string,
+                &self.default_domain_for_public_store,
+                redirect_url.to_string(),
+                Some(TWENTY_FOUR_HOURS_IN_SECONDS),
+            )
+            .await?;
+        Ok(short_string.to_string())
     }
 }
 
@@ -156,22 +138,59 @@ impl RedirectServiceTrait for InternalRedirectService {
         short_code: &str,
         short_link_domain: &str,
     ) -> Result<String, RedirectError> {
+        // Attempt to get from the cache manager (local Moka cache then Redis)
         match self
-            .redis_client
-            .get(
-                RedisRedirectKeyPrefix::Internal
-                    .get_redis_key_for_url(short_link_domain, short_code),
-            )
+            .cache_manager
+            .get_cached_url(short_code, short_link_domain)
             .await
         {
-            Ok(redirect_url) => Ok(redirect_url),
-            Err(error) => match error {
-                CustomRedisError::NotFound => {
-                    self.fetch_redirect_url_from_database(short_code, short_link_domain)
-                        .await
+            Ok(url) => {
+                tracing::debug!(
+                    "Cache hit via manager for {}:{}",
+                    short_link_domain,
+                    short_code
+                );
+                Ok(url)
+            }
+            Err(RedirectError::LinkNotFound) => {
+                // Cache miss from both local and Redis tier of the cache manager
+                tracing::debug!(
+                    "Cache miss via manager for {}:{}, fetching from database.",
+                    short_link_domain,
+                    short_code
+                );
+                let db_url = self
+                    .fetch_redirect_url_from_database(short_code, short_link_domain)
+                    .await?;
+
+                // Cache the freshly fetched URL using the cache manager.
+                // This will populate both local Moka cache and Redis.
+                // Using default TTL as defined in RedisRedirectCacheManager, or pass a specific one if needed.
+                if let Err(cache_err) = self
+                    .cache_manager
+                    .cache_url(short_code, short_link_domain, db_url.clone(), None)
+                    .await
+                {
+                    // Log caching error but still return the URL from DB as the primary operation succeeded.
+                    tracing::error!(
+                        "Failed to cache URL for {}:{} via manager: {}",
+                        short_link_domain,
+                        short_code,
+                        cache_err
+                    );
                 }
-                error => Err(error.into()),
-            },
+                Ok(db_url)
+            }
+            Err(e) => {
+                // Other errors from cache_manager (e.g., underlying RedisError propagated by RedirectCacheManager)
+                tracing::error!(
+                    "Error from cache manager for {}:{}: {}",
+                    short_link_domain,
+                    short_code,
+                    e
+                );
+                Err(e)
+            }
         }
     }
 
@@ -188,15 +207,19 @@ impl RedirectServiceTrait for InternalRedirectService {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::test_utils::{
-        insert_new_link_in_pg, insert_new_team_in_pg, random_string, setup_pg_client,
+    use crate::{
+        redirect::{
+            redirect_cache::RedisRedirectCacheManager, redis_utils::RedisRedirectKeyPrefix,
+        },
+        utils::test_utils::{
+            insert_new_link_in_pg, insert_new_team_in_pg, random_string, setup_pg_client,
+        },
     };
 
     use super::*;
     use crate::utils::generator::generate_base62_string;
     use anyhow::Result;
-    use common_redis::MockRedisClient;
-
+    use common_redis::{MockRedisClient, MockRedisValue};
     use std::sync::Arc;
 
     const PHOG_GG_DOMAIN: &str = "phog.gg";
@@ -207,14 +230,17 @@ mod tests {
         let key = "p2dsws3";
         let short_link_domain = "example.com";
         let redirect_url = "https://example.com".to_string();
-        let ret = Ok(redirect_url.clone());
         redis_client.get_ret(
             &RedisRedirectKeyPrefix::External.get_redis_key_for_url(short_link_domain, key),
-            ret,
+            Ok(redirect_url.clone()),
+        );
+        let cache_manager = RedisRedirectCacheManager::new(
+            Arc::new(redis_client),
+            RedisRedirectKeyPrefix::External,
         );
 
         let service =
-            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
+            ExternalRedirectService::new(Arc::new(cache_manager), PHOG_GG_DOMAIN.to_string());
         let result = service.redirect_url(key, short_link_domain).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), redirect_url);
@@ -229,9 +255,13 @@ mod tests {
             &RedisRedirectKeyPrefix::External.get_redis_key_for_url(short_link_domain, key),
             Err(CustomRedisError::NotFound),
         );
+        let cache_manager = RedisRedirectCacheManager::new(
+            Arc::new(redis_client),
+            RedisRedirectKeyPrefix::External,
+        );
 
         let service =
-            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
+            ExternalRedirectService::new(Arc::new(cache_manager), PHOG_GG_DOMAIN.to_string());
         let result = service.redirect_url(key, short_link_domain).await;
         if !matches!(result, Err(RedirectError::LinkNotFound)) {
             panic!("Expected LinkNotFound error");
@@ -239,21 +269,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_should_redirect_internal_url_if_in_redis() {
-        let mut redis_client = MockRedisClient::new();
+    async fn test_should_redirect_internal_url_if_in_cache_manager() {
         let db_client = setup_pg_client(None).await;
+
         let key = "p2dsws3";
         let short_link_domain = "example.com";
         let redirect_url = "https://example.com".to_string();
-        let ret = Ok(redirect_url.clone());
+        let mut redis_client = MockRedisClient::new();
         redis_client.get_ret(
             &RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(short_link_domain, key),
-            ret,
+            Ok(redirect_url.clone()),
         );
-        let service = InternalRedirectService::new(db_client, Arc::new(redis_client));
+        let cache_manager = RedisRedirectCacheManager::new(
+            Arc::new(redis_client),
+            RedisRedirectKeyPrefix::Internal,
+        );
+
+        let service = InternalRedirectService::new(db_client, Arc::new(cache_manager));
         let result = service.redirect_url(key, short_link_domain).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), redirect_url);
+        assert_eq!(result.unwrap(), "https://example.com");
     }
 
     #[tokio::test]
@@ -264,23 +299,41 @@ mod tests {
         let key =
             RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, &short_code);
 
-        // Should succeed
         redis_client.set_nx_ex_ret(&key, Ok(true));
+        let cache_manager = RedisRedirectCacheManager::new(
+            Arc::new(redis_client),
+            RedisRedirectKeyPrefix::External,
+        );
 
         let service =
-            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
+            ExternalRedirectService::new(Arc::new(cache_manager), PHOG_GG_DOMAIN.to_string());
         let result = service.store_url(redirect_url, &short_code).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), short_code);
     }
 
     #[tokio::test]
-    async fn test_should_redirect_internal_url_if_in_database() -> Result<()> {
-        let redis_client = MockRedisClient::new();
+    async fn test_should_redirect_internal_url_if_in_database_and_should_be_cached() -> Result<()> {
+        let mut redis_client = MockRedisClient::new();
+        let cache_manager = Arc::new(RedisRedirectCacheManager::new(
+            Arc::new(redis_client.clone()),
+            RedisRedirectKeyPrefix::Internal,
+        ));
         let db_client = setup_pg_client(None).await;
+
         let key = &random_string("", 6);
         let short_link_domain = "example.com";
         let redirect_url = "https://example.com".to_string();
+
+        redis_client.get_ret(
+            &RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(short_link_domain, key),
+            Err(CustomRedisError::NotFound),
+        );
+
+        redis_client.set_nx_ex_ret(
+            &RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(short_link_domain, key),
+            Ok(true),
+        );
 
         let team = insert_new_team_in_pg(db_client.clone(), None).await?;
         insert_new_link_in_pg(
@@ -292,10 +345,24 @@ mod tests {
         )
         .await?;
 
-        let service = InternalRedirectService::new(db_client, Arc::new(redis_client));
+        let service = InternalRedirectService::new(db_client, cache_manager.clone());
         let result = service.redirect_url(key, short_link_domain).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), redirect_url);
+        // Check that the URL was cached
+        let calls = redis_client.get_calls();
+
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].op, "set_nx_ex");
+        assert_eq!(
+            calls[1].key,
+            RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(short_link_domain, key)
+        );
+        assert_eq!(
+            calls[1].value,
+            MockRedisValue::StringWithTTL(redirect_url, 24 * 60 * 60)
+        );
+
         Ok(())
     }
 
@@ -307,11 +374,14 @@ mod tests {
         let key =
             RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, &short_string);
 
-        redis_client.get_ret(&key, Err(CustomRedisError::NotFound));
         redis_client.set_nx_ex_ret(&key, Err(CustomRedisError::NotFound));
+        let cache_manager = RedisRedirectCacheManager::new(
+            Arc::new(redis_client),
+            RedisRedirectKeyPrefix::External,
+        );
 
         let service =
-            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
+            ExternalRedirectService::new(Arc::new(cache_manager), PHOG_GG_DOMAIN.to_string());
         let result = service.store_url(redirect_url, &short_string).await;
         assert!(result.is_err());
         assert!(matches!(result, Err(RedirectError::RedisError(_))));
@@ -326,9 +396,13 @@ mod tests {
             RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, &short_string);
 
         redis_client.set_nx_ex_ret(&key, Ok(false));
+        let cache_manager = RedisRedirectCacheManager::new(
+            Arc::new(redis_client),
+            RedisRedirectKeyPrefix::External,
+        );
 
         let service =
-            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
+            ExternalRedirectService::new(Arc::new(cache_manager), PHOG_GG_DOMAIN.to_string());
         let result = service.store_url(redirect_url, &short_string).await;
         assert!(result.is_err());
         assert!(matches!(result, Err(RedirectError::InvalidOperation(_))));

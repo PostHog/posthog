@@ -11,12 +11,20 @@ import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic
 import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import {
+    branchingConfigToDropdownValue,
+    canQuestionHaveResponseBasedBranching,
+    createBranchingConfig,
+    getDefaultBranchingType,
+} from 'scenes/surveys/components/question-branching/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
+import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryString } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -43,7 +51,13 @@ import {
     SurveyStats,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import {
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_RATING_SCALE,
+} from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
@@ -56,10 +70,9 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
-    sanitizeHTML,
+    sanitizeSurvey,
     sanitizeSurveyAppearance,
-    sanitizeSurveyDisplayConditions,
-    validateColor,
+    validateSurveyAppearance,
 } from './utils'
 
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
@@ -214,6 +227,25 @@ export interface ConsolidatedSurveyResults {
     }
 }
 
+/**
+ * Raw survey response data from the SQL query.
+ * Each SurveyResponseRow represents one user's complete response to all questions.
+ *
+ * Structure:
+ * - response[questionIndex] contains the answer to that specific question
+ * - For rating/single choice/open questions: response[questionIndex] is a string
+ * - For multiple choice questions: response[questionIndex] is a string[]
+ * - The last elements may contain metadata like person properties and distinct_id
+ *
+ * Example:
+ * [
+ *   ["9", ["Customer case studies"], "Great product!", "user123"],
+ *   ["7", ["Tutorials", "Other"], "Good but could improve", "user456"]
+ * ]
+ */
+export type SurveyResponseRow = Array<string | string[]>
+export type SurveyRawResults = SurveyResponseRow[]
+
 function isEmptyOrUndefined(value: any): boolean {
     return value === null || value === undefined || value === ''
 }
@@ -229,7 +261,7 @@ function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): bo
 function processSingleChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     let total = 0
@@ -242,7 +274,7 @@ function processSingleChoiceQuestion(
     })
 
     // Count responses
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string
         if (!isEmptyOrUndefined(value)) {
             counts[value] = (counts[value] || 0) + 1
@@ -268,28 +300,51 @@ function processSingleChoiceQuestion(
 function processRatingQuestion(
     question: RatingSurveyQuestion,
     questionIndex: number,
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
-    const scaleSize = question.scale === 10 ? 11 : question.scale
+    const scaleSize = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? 11 : question.scale
     const counts = new Array(scaleSize).fill(0)
     let total = 0
 
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string
         if (!isEmptyOrUndefined(value)) {
             const parsedValue = parseInt(value, 10)
-            if (!isNaN(parsedValue) && parsedValue >= 0 && parsedValue < scaleSize) {
-                counts[parsedValue] += 1
-                total += 1
+            if (!isNaN(parsedValue)) {
+                let arrayIndex: number
+                let isValid = false
+
+                if (question.scale === SURVEY_RATING_SCALE.NPS_10_POINT) {
+                    // NPS scale: 0-10 (11 values)
+                    isValid = parsedValue >= 0 && parsedValue <= 10
+                    arrayIndex = parsedValue
+                } else {
+                    // Regular rating scales: 1-N (N values, but we use 0-based indexing)
+                    // For a 5-point scale, accept ratings 1-5 and map them to indices 0-4
+                    isValid = parsedValue >= 1 && parsedValue <= question.scale
+                    arrayIndex = parsedValue - 1 // Convert 1-based to 0-based
+                }
+
+                if (isValid) {
+                    counts[arrayIndex] += 1
+                    total += 1
+                }
             }
         }
     })
 
-    const data = counts.map((count, index) => ({
-        label: index.toString(),
-        value: count,
-        isPredefined: true,
-    }))
+    const data = counts.map((count, index) => {
+        // For display labels:
+        // - NPS (scale 10): show 0-10
+        // - Regular scales: show 1-N (convert from 0-based index)
+        const label = question.scale === SURVEY_RATING_SCALE.NPS_10_POINT ? index.toString() : (index + 1).toString()
+
+        return {
+            label,
+            value: count,
+            isPredefined: true,
+        }
+    })
 
     return {
         type: SurveyQuestionType.Rating,
@@ -301,7 +356,7 @@ function processRatingQuestion(
 function processMultipleChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     let total = 0
@@ -313,7 +368,7 @@ function processMultipleChoiceQuestion(
         }
     })
 
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string[]
         if (value !== null && value !== undefined) {
             total += 1
@@ -341,18 +396,18 @@ function processMultipleChoiceQuestion(
     }
 }
 
-function processOpenQuestion(questionIndex: number, results: Array<string | string[]>): OpenQuestionProcessedResponses {
+function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
     const data: { distinctId: string; response: string; personProperties?: Record<string, any> }[] = []
     let totalResponses = 0
 
-    results?.forEach((row: any) => {
+    results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string
         if (isEmptyOrUndefined(value)) {
             return
         }
 
         const response = {
-            distinctId: row.at(-1),
+            distinctId: row.at(-1) as string,
             response: value,
             personProperties: undefined as Record<string, any> | undefined,
         }
@@ -360,7 +415,7 @@ function processOpenQuestion(questionIndex: number, results: Array<string | stri
         const unparsedPersonProperties = row.at(-2)
         if (unparsedPersonProperties && unparsedPersonProperties !== null) {
             try {
-                response.personProperties = JSON.parse(unparsedPersonProperties)
+                response.personProperties = JSON.parse(unparsedPersonProperties as string)
             } catch (e) {
                 // Ignore parsing errors for person properties as there's no real action here
                 // It just means we won't show the person properties in the question visualization
@@ -378,9 +433,9 @@ function processOpenQuestion(questionIndex: number, results: Array<string | stri
     }
 }
 
-function processResultsForSurveyQuestions(
+export function processResultsForSurveyQuestions(
     questions: SurveyQuestion[],
-    results: Array<string | string[]>
+    results: SurveyRawResults
 ): ResponsesByQuestion {
     const responsesByQuestion: ResponsesByQuestion = {}
 
@@ -554,10 +609,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(sanitizeQuestions(surveyPayload))
+                return await api.surveys.create(surveyPayload)
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
-                const response = await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                const response = await api.surveys.update(props.id, surveyPayload)
                 refreshTreeItem('survey', props.id)
                 return response
             },
@@ -576,7 +631,7 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
                 lemonToast.success('Survey duplicated.', {
                     toastId: `survey-duplicated-${createdSurvey.id}`,
@@ -602,48 +657,51 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? values.answerFilterHogQLExpression.slice(4)
                     : '1=1' // Use '1=1' for SQL TRUE
 
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING BASE STATS
-                        SELECT
-                            event as event_name,
-                            count() as total_count,
-                            count(DISTINCT person_id) as unique_persons,
-                            if(count() > 0, min(timestamp), null) as first_seen,
-                            if(count() > 0, max(timestamp), null) as last_seen
-                        FROM events
-                        WHERE team_id = ${teamLogic.values.currentTeamId}
-                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            ${values.timestampFilter}
-                            AND {filters} -- Apply property filters here to the main query
-                            -- Main condition for handling partial responses and answer filters:
-                            AND (
-                                event != '${SurveyEventName.DISMISSED}'
-                                OR
-                                COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                const query = `
+                    -- QUERYING BASE STATS
+                    SELECT
+                        event as event_name,
+                        count() as total_count,
+                        count(DISTINCT person_id) as unique_persons,
+                        if(count() > 0, min(timestamp), null) as first_seen,
+                        if(count() > 0, max(timestamp), null) as last_seen
+                    FROM events
+                    WHERE team_id = ${teamLogic.values.currentTeamId}
+                        AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
+                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        ${values.timestampFilter}
+                        AND {filters} -- Apply property filters here to the main query
+                        -- Main condition for handling partial responses and answer filters:
+                        AND (
+                            event != '${SurveyEventName.DISMISSED}'
+                            OR
+                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                        )
+                        AND (
+                            -- Include non-'sent' events directly
+                            event != '${SurveyEventName.SENT}'
+                            OR
+                            -- Include 'sent' events only if they meet the outer query's answer filter AND are in the unique list (old or latest partial/complete)
+                            (
+                                (${answerFilterCondition}) -- Apply answer filters ONLY to 'sent' events in the outer query
+                                -- Check if the event's UUID is in the list generated by the subquery
+                                ${values.partialResponsesFilter}
                             )
-                            AND (
-                                -- Include non-'sent' events directly
-                                event != '${SurveyEventName.SENT}'
-                                OR
-                                -- Include 'sent' events only if they meet the outer query's answer filter AND are in the unique list (old or latest partial/complete)
-                                (
-                                    (${answerFilterCondition}) -- Apply answer filters ONLY to 'sent' events in the outer query
-                                    -- Check if the event's UUID is in the list generated by the subquery
-                                    ${values.partialResponsesFilter}
-                                )
-                            )
-                        GROUP BY event
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
+                        )
+                    GROUP BY event` as HogQLQueryString
 
-                const response = await api.query(query)
+                const response = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
+                    },
+                })
                 actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
+                const numberOfSurveySentEvents = response.results?.find(
+                    (result) => result[0] === SurveyEventName.SENT
+                )?.[1]
+                actions.loadConsolidatedSurveyResults(numberOfSurveySentEvents)
                 return response.results as SurveyBaseStatsResult
             },
         },
@@ -658,34 +716,34 @@ export const surveyLogic = kea<surveyLogicType>([
                         ? '1=1' // Use '1=1' for SQL TRUE
                         : values.answerFilterHogQLExpression.substring(4)
 
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING DISMISSED AND SENT COUNT
-                        SELECT count()
-                        FROM (
-                            SELECT person_id
-                            FROM events
-                            WHERE team_id = ${teamLogic.values.currentTeamId}
-                              AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                              AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                              ${values.timestampFilter}
-                              AND (
-                                event != '${SurveyEventName.DISMISSED}'
-                                OR
-                                COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
-                              )
-                              AND {filters} -- Apply property filters here to reduce initial events
-                            GROUP BY person_id
-                            HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
-                              AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
-                        ) AS PersonsWithBothEvents
-                    `,
-                    filters: {
-                        properties: values.propertyFilters, // Property filters applied in WHERE
+                const query = `
+                    -- QUERYING DISMISSED AND SENT COUNT
+                    SELECT count()
+                    FROM (
+                        SELECT person_id
+                        FROM events
+                        WHERE team_id = ${teamLogic.values.currentTeamId}
+                            AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
+                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                            ${values.timestampFilter}
+                            AND (
+                            event != '${SurveyEventName.DISMISSED}'
+                            OR
+                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                            )
+                            AND {filters} -- Apply property filters here to reduce initial events
+                        GROUP BY person_id
+                        HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
+                            AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
+                    ) AS PersonsWithBothEvents` as HogQLQueryString
+
+                const response = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters, // Property filters applied in WHERE
+                        },
                     },
-                }
-                const response = await api.query(query)
+                })
                 const count = response.results?.[0]?.[0] ?? 0
                 actions.setDismissedAndSentCount(count)
                 return count as DismissedAndSentCountResult
@@ -702,28 +760,27 @@ export const surveyLogic = kea<surveyLogicType>([
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING NPS RESPONSES
-                        SELECT
-                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
-                            COUNT(survey_response)
-                        FROM events
-                        WHERE event = '${SurveyEventName.SENT}'
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            ${values.timestampFilter}
-                            ${values.answerFilterHogQLExpression}
-                            AND {filters}
-                            ${values.partialResponsesFilter}
-                        GROUP BY survey_response
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
+                const query = `
+                    -- QUERYING NPS RESPONSES
+                    SELECT
+                        getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
+                        COUNT(survey_response)
+                    FROM events
+                    WHERE event = '${SurveyEventName.SENT}'
+                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        ${values.timestampFilter}
+                        ${values.answerFilterHogQLExpression}
+                        AND {filters}
+                        ${values.partialResponsesFilter}
+                    GROUP BY survey_response` as HogQLQueryString
 
-                const responseJSON = await api.query(query)
+                const responseJSON = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
+                    },
+                })
                 // TODO:Dylan - I don't like how we lose our types here
                 // would be cool if we could parse this in a more type-safe way
                 const { results } = responseJSON
@@ -754,29 +811,28 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const survey: Survey = values.survey as Survey
 
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING NPS RECURRING RESPONSES
-                        SELECT
-                            JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ITERATION}') AS survey_iteration,
-                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
-                            COUNT(survey_response)
-                        FROM events
-                        WHERE event = '${SurveyEventName.SENT}'
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
-                            ${values.timestampFilter}
-                            ${values.answerFilterHogQLExpression}
-                            ${values.partialResponsesFilter}
-                            AND {filters}
-                        GROUP BY survey_response, survey_iteration
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
+                const query = `
+                    -- QUERYING NPS RECURRING RESPONSES
+                    SELECT
+                        JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ITERATION}') AS survey_iteration,
+                        getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
+                        COUNT(survey_response)
+                    FROM events
+                    WHERE event = '${SurveyEventName.SENT}'
+                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+                        ${values.timestampFilter}
+                        ${values.answerFilterHogQLExpression}
+                        ${values.partialResponsesFilter}
+                        AND {filters}
+                    GROUP BY survey_response, survey_iteration` as HogQLQueryString
 
-                const responseJSON = await api.query(query)
+                const responseJSON = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
+                    },
+                })
                 const { results } = responseJSON
                 let total = 100
                 const data = new Array(survey.iteration_count).fill(0)
@@ -835,29 +891,28 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
                 const question = values.survey.questions[questionIndex]
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING SINGLE CHOICE RESPONSES
-                        SELECT
-                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
-                            COUNT(survey_response)
-                        FROM events
-                        WHERE event = '${SurveyEventName.SENT}'
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            ${values.timestampFilter}
-                            ${values.answerFilterHogQLExpression}
-                            ${values.partialResponsesFilter}
-                            AND survey_response != null
-                            AND {filters}
-                        GROUP BY survey_response
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
+                const query = `
+                    -- QUERYING SINGLE CHOICE RESPONSES
+                    SELECT
+                        getSurveyResponse(${questionIndex}, '${question?.id ? question.id : ''}') AS survey_response,
+                        COUNT(survey_response)
+                    FROM events
+                    WHERE event = '${SurveyEventName.SENT}'
+                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        ${values.timestampFilter}
+                        ${values.answerFilterHogQLExpression}
+                        ${values.partialResponsesFilter}
+                        AND survey_response != null
+                        AND {filters}
+                    GROUP BY survey_response` as HogQLQueryString
 
-                const responseJSON = await api.query(query)
+                const responseJSON = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
+                    },
+                })
                 const { results } = responseJSON
 
                 const labels = results?.map((r) => r[0])
@@ -881,31 +936,30 @@ export const surveyLogic = kea<surveyLogicType>([
                 const survey: Survey = values.survey as Survey
 
                 // Use a WITH clause to ensure we're only counting each response once
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING MULTIPLE CHOICE RESPONSES
-                        SELECT
-                            count(),
-                            arrayJoin(
-                                getSurveyResponse(${questionIndex}, '${question?.id}', true)
-                            ) AS choice
-                        FROM events
-                        WHERE event == '${SurveyEventName.SENT}'
-                            AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
-                            ${values.timestampFilter}
-                            ${values.answerFilterHogQLExpression}
-                            AND {filters}
-                            ${values.partialResponsesFilter}
-                        GROUP BY choice
-                        ORDER BY count() DESC
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
+                const query = `
+                    -- QUERYING MULTIPLE CHOICE RESPONSES
+                    SELECT
+                        count(),
+                        arrayJoin(
+                            getSurveyResponse(${questionIndex}, '${question?.id ? question.id : ''}', true)
+                        ) AS choice
+                    FROM events
+                    WHERE event == '${SurveyEventName.SENT}'
+                        AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
+                        ${values.timestampFilter}
+                        ${values.answerFilterHogQLExpression}
+                        AND {filters}
+                        ${values.partialResponsesFilter}
+                    GROUP BY choice
+                    ORDER BY count() DESC` as HogQLQueryString
 
-                const responseJSON = await api.query(query)
+                const responseJSON = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
+                    },
+                })
                 let { results } = responseJSON
 
                 // Remove outside quotes
@@ -951,27 +1005,26 @@ export const surveyLogic = kea<surveyLogicType>([
                       )`
                     : `(JSONHas(properties, '${ids.indexBasedKey}') AND length(trim(JSONExtractString(properties, '${ids.indexBasedKey}'))) > 0)`
 
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING OPEN TEXT RESPONSES
-                        SELECT distinct_id, properties, person.properties
-                        FROM events
-                        WHERE event == '${SurveyEventName.SENT}'
-                            AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
-                            AND ${responseCondition}
-                            ${values.timestampFilter}
-                            ${values.answerFilterHogQLExpression}
-                            AND {filters}
-                            ${values.partialResponsesFilter}
-                        LIMIT 20
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
+                const query = `
+                    -- QUERYING OPEN TEXT RESPONSES
+                    SELECT distinct_id, properties, person.properties
+                    FROM events
+                    WHERE event == '${SurveyEventName.SENT}'
+                        AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
+                        AND ${responseCondition}
+                        ${values.timestampFilter}
+                        ${values.answerFilterHogQLExpression}
+                        AND {filters}
+                        ${values.partialResponsesFilter}
+                    LIMIT 20` as HogQLQueryString
 
-                const responseJSON = await api.query(query)
+                const responseJSON = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
+                    },
+                })
                 const { results } = responseJSON
 
                 const events =
@@ -996,11 +1049,9 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         consolidatedSurveyResults: {
-            loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
-                if (!values.isNewQuestionVizEnabled) {
-                    return { responsesByQuestion: {} }
-                }
-
+            loadConsolidatedSurveyResults: async (
+                limit = MAX_SELECT_RETURNED_ROWS
+            ): Promise<ConsolidatedSurveyResults> => {
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
@@ -1011,28 +1062,29 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 // Also get distinct_id and person properties for open text questions
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING ALL SURVEY RESPONSES IN ONE GO
-                        SELECT
-                            ${questionFields.join(',\n')},
-                            person.properties,
-                            events.distinct_id
-                        FROM events
-                        WHERE event = '${SurveyEventName.SENT}'
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            ${values.timestampFilter}
-                            ${values.answerFilterHogQLExpression}
-                            ${values.partialResponsesFilter}
-                            AND {filters}
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
+                const query = `
+                    -- QUERYING ALL SURVEY RESPONSES IN ONE GO
+                    SELECT
+                        ${questionFields.join(',\n')},
+                        person.properties,
+                        events.distinct_id
+                    FROM events
+                    WHERE event = '${SurveyEventName.SENT}'
+                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        ${values.timestampFilter}
+                        ${values.answerFilterHogQLExpression}
+                        ${values.partialResponsesFilter}
+                        AND {filters}
+                    ORDER BY events.timestamp DESC
+                    LIMIT ${limit}` as HogQLQueryString
 
-                const responseJSON = await api.query(query)
+                const responseJSON = await api.queryHogQL(query, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
+                        },
+                    },
+                })
                 const { results } = responseJSON
 
                 // Process the results into a format that can be used by each question type
@@ -1049,9 +1101,9 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveyDismissedAndSentCount()
 
             // No need to reload the other results if the new question viz is enabled, as they are not used
-            // So we early return here
+            // So we early return here, as the consolidated survey results are queried in the surveyBaseStats loader
             if (values.isNewQuestionVizEnabled) {
-                return actions.loadConsolidatedSurveyResults()
+                return
             }
 
             // Load results for each question
@@ -1112,7 +1164,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
-                    actions.loadConsolidatedSurveyResults()
                 }
 
                 if (values.survey.start_date) {
@@ -1251,31 +1302,21 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
-                    if (type === SurveyQuestionBranchingType.NextQuestion) {
-                        delete question.branching
-                    } else if (type === SurveyQuestionBranchingType.End) {
-                        question.branching = {
-                            type: SurveyQuestionBranchingType.End,
-                        }
-                    } else if (type === SurveyQuestionBranchingType.ResponseBased) {
-                        if (
-                            question.type !== SurveyQuestionType.Rating &&
-                            question.type !== SurveyQuestionType.SingleChoice
-                        ) {
-                            throw new Error(
-                                `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
-                            )
-                        }
-
-                        question.branching = {
-                            type: SurveyQuestionBranchingType.ResponseBased,
-                            responseValues: {},
-                        }
-                    } else if (type === SurveyQuestionBranchingType.SpecificQuestion) {
-                        question.branching = {
-                            type: SurveyQuestionBranchingType.SpecificQuestion,
-                            index: specificQuestionIndex,
-                        }
+                    // Validate response-based branching is only used with compatible question types
+                    if (
+                        type === SurveyQuestionBranchingType.ResponseBased &&
+                        !canQuestionHaveResponseBasedBranching(question)
+                    ) {
+                        question.branching = undefined
+                        lemonToast.error(
+                            <>
+                                Response-based branching is not supported for {question.type} questions. Removing
+                                branching logic from this question.
+                            </>
+                        )
+                    } else {
+                        // Use centralized branching config creation
+                        question.branching = createBranchingConfig(type, specificQuestionIndex)
                     }
 
                     newQuestions[questionIndex] = question
@@ -1291,12 +1332,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     const newQuestions = [...state.questions]
                     const question = newQuestions[questionIndex]
 
-                    if (
-                        question.type !== SurveyQuestionType.Rating &&
-                        question.type !== SurveyQuestionType.SingleChoice
-                    ) {
+                    // Use centralized validation for response-based branching compatibility
+                    if (!canQuestionHaveResponseBasedBranching(question)) {
                         throw new Error(
-                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice}`
+                            `Survey question type must be ${SurveyQuestionType.Rating} or ${SurveyQuestionType.SingleChoice} for response-based branching`
                         )
                     }
 
@@ -1308,10 +1347,13 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if ('responseValues' in question.branching) {
                         if (nextStep === SurveyQuestionBranchingType.NextQuestion) {
+                            // Remove the response mapping to default to next question
                             delete question.branching.responseValues[responseValue]
                         } else if (nextStep === SurveyQuestionBranchingType.End) {
+                            // Map response to end survey
                             question.branching.responseValues[responseValue] = SurveyQuestionBranchingType.End
                         } else if (nextStep === SurveyQuestionBranchingType.SpecificQuestion) {
+                            // Map response to specific question index
                             question.branching.responseValues[responseValue] = specificQuestionIndex
                         }
                     }
@@ -1701,10 +1743,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             '*',
                             ...survey.questions.map((q, i) => {
                                 if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    return `arrayStringConcat(getSurveyResponse(${i}, '${q.id}', true), ', ') -- ${q.question}`
+                                    return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${q.question}`
                                 }
                                 // Use the new condition that checks both formats
-                                return `getSurveyResponse(${i}, '${q.id}') -- ${q.question}`
+                                return `${getSurveyResponse(q, i)} -- ${q.question}`
                             }),
                             'timestamp',
                             'person',
@@ -1831,18 +1873,14 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if (type === SurveyQuestionBranchingType.SpecificQuestion) {
                         const nextQuestionIndex = question.branching.index
-                        return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
+                        return branchingConfigToDropdownValue(type, nextQuestionIndex)
                     }
 
                     return type
                 }
 
                 // No branching specified, default to Next question / Confirmation message
-                if (questionIndex < survey.questions.length - 1) {
-                    return SurveyQuestionBranchingType.NextQuestion
-                }
-
-                return SurveyQuestionBranchingType.End
+                return getDefaultBranchingType(questionIndex, survey.questions.length)
             },
         ],
         getResponseBasedBranchingDropdownValue: [
@@ -2166,32 +2204,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     targeting_flag_filters: values.flagPropertyErrors,
                     // controlled using a PureField in the form
                     urlMatchType: values.urlMatchTypeValidationError,
-                    appearance: sanitizedAppearance && {
-                        backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
-                        borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
-                        // Only validate rating button colors if there's a rating question
-                        ...(questions.some((q) => q.type === SurveyQuestionType.Rating) && {
-                            ratingButtonActiveColor: validateColor(
-                                sanitizedAppearance.ratingButtonActiveColor,
-                                'rating button active color'
-                            ),
-                            ratingButtonColor: validateColor(
-                                sanitizedAppearance.ratingButtonColor,
-                                'rating button color'
-                            ),
-                        }),
-                        submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
-                        submitButtonTextColor: validateColor(
-                            sanitizedAppearance.submitButtonTextColor,
-                            'button text color'
+                    appearance:
+                        sanitizedAppearance &&
+                        validateSurveyAppearance(
+                            sanitizedAppearance,
+                            questions.some((q) => q.type === SurveyQuestionType.Rating),
+                            type
                         ),
-                        widgetSelector:
-                            type === 'widget' &&
-                            appearance?.widgetType === 'selector' &&
-                            !sanitizedAppearance.widgetSelector
-                                ? 'Please enter a CSS selector.'
-                                : undefined,
-                    },
                 }
             },
             submit: (surveyPayload) => {
@@ -2203,14 +2222,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 }
 
-                const payload = {
-                    ...surveyPayload,
-                    conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
-                    appearance: sanitizeSurveyAppearance(
-                        surveyPayload.appearance,
-                        !!surveyPayload.enable_partial_responses
-                    ),
-                }
+                const payload = sanitizeSurvey(surveyPayload)
 
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
@@ -2281,37 +2293,3 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
 ])
-
-function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
-    if (!surveyPayload.questions) {
-        return surveyPayload
-    }
-
-    const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
-    const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
-
-    const appearance = {
-        ...surveyPayload.appearance,
-        ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
-        ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
-    }
-
-    // Remove widget-specific fields if survey type is not Widget
-    if (surveyPayload.type !== 'widget') {
-        delete appearance.widgetType
-        delete appearance.widgetLabel
-        delete appearance.widgetColor
-    }
-
-    return {
-        ...surveyPayload,
-        questions: surveyPayload.questions?.map((rawQuestion) => {
-            return {
-                ...rawQuestion,
-                description: sanitizeHTML(rawQuestion.description || ''),
-                question: sanitizeHTML(rawQuestion.question || ''),
-            }
-        }),
-        appearance,
-    }
-}

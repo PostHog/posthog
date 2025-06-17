@@ -30,15 +30,15 @@
     "results": [
         {
             "key": "revenue",
-            "value": 8702344.89
+            "value": 702344.89
         },
         {
             "key": "paying_customer_count",
-            "value": 10415
+            "value": 615
         },
         {
             "key": "avg_revenue_per_customer",
-            "value": 835.5587988
+            "value": 1142.02
         }
     ],
     "timezone": "UTC",

@@ -47,6 +47,7 @@ import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schem
 import { isHogQLQuery } from '~/queries/utils'
 import { ProductKey } from '~/types'
 
+import { ContextSummary } from './ContextTags'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -80,9 +81,9 @@ export function Thread(): JSX.Element | null {
             ) : threadGrouped.length > 0 ? (
                 threadGrouped.map((group, index) => (
                     <MessageGroup
-                        key={index}
+                        // Reset the components when the thread changes
+                        key={`${conversationId}-${index}`}
                         messages={group}
-                        index={index}
                         isFinal={index === threadGrouped.length - 1}
                     />
                 ))
@@ -95,7 +96,7 @@ export function Thread(): JSX.Element | null {
                             productKey={ProductKey.MAX}
                             thingName="message"
                             titleOverride="Start chatting with Max"
-                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
                             docsURL="https://posthog.com/docs/data/max-ai"
                         />
                     </div>
@@ -130,7 +131,6 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
-    index: number
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
@@ -169,6 +169,13 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
+                                {message.ui_context && Object.keys(message.ui_context).length > 0 && (
+                                    <ContextSummary
+                                        insights={message.ui_context.insights}
+                                        dashboards={message.ui_context.dashboards}
+                                        useCurrentPageContext={false}
+                                    />
+                                )}
                                 <MarkdownMessage
                                     content={message.content || '*No text.*'}
                                     id={message.id || 'no-text'}
@@ -201,8 +208,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <span>{message.content}…</span>
                                     <Spinner className="text-xl" />
+                                    <span>{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
@@ -260,7 +267,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
     return (
         <div
             className={twMerge(
-                'flex flex-col gap-px w-full break-words',
+                'flex flex-col gap-px w-full break-words scroll-mt-12',
                 type === 'human' ? 'items-end' : 'items-start',
                 className
             )}
@@ -360,7 +367,7 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
     )
 }
 
-function VisualizationAnswer({
+const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
@@ -458,7 +465,7 @@ function VisualizationAnswer({
                   </MessageTemplate>
               </>
           )
-}
+})
 
 function RetriableFailureActions(): JSX.Element {
     const { retryLastMessage } = useActions(maxThreadLogic)

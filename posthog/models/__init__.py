@@ -38,6 +38,8 @@ from .error_tracking import (
     ErrorTrackingSymbolSet,
     ErrorTrackingIssueAssignment,
     ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
+    ErrorTrackingSuppressionRule,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -57,6 +59,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
+from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
 from .insight import Insight, InsightViewed
@@ -67,6 +70,7 @@ from .integration import Integration
 from .link import Link
 from .message_template import MessageTemplate
 from .messaging import MessagingRecord
+from .message_preferences import MessageCategory, MessageRecipientPreference
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -91,7 +95,7 @@ from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
-from .team import Team, TeamRevenueAnalyticsConfig
+from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
@@ -134,6 +138,8 @@ __all__ = [
     "ErrorTrackingSymbolSet",
     "ErrorTrackingIssueAssignment",
     "ErrorTrackingAssignmentRule",
+    "ErrorTrackingGroupingRule",
+    "ErrorTrackingSuppressionRule",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -148,6 +154,7 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
+    "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
     "Link",
@@ -159,6 +166,8 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MessageCategory",
+    "MessageRecipientPreference",
     "MessageTemplate",
     "MessagingRecord",
     "Notebook",
@@ -200,6 +209,7 @@ __all__ = [
     "TaggedItem",
     "Team",
     "TeamRevenueAnalyticsConfig",
+    "TeamMarketingAnalyticsConfig",
     "Text",
     "EventIngestionRestrictionConfig",
     "UploadedMedia",

@@ -1,6 +1,7 @@
 import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
@@ -9,6 +10,7 @@ import { isObject } from 'lib/utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
+import { llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
 import { normalizeMessages } from '../utils'
 
@@ -104,7 +106,8 @@ export const ImageMessageDisplay = ({
 export const LLMMessageDisplay = React.memo(
     ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
+        const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
+        const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
         const [show, setShow] = React.useState(role !== 'system' && role !== 'tool')
 
         // Compute whether the content looks like Markdown.
@@ -165,12 +168,27 @@ export const LLMMessageDisplay = React.memo(
             }
 
             // If the content appears to be Markdown, render based on the toggle.
-            if (isMarkdownCandidate) {
-                return isRenderingMarkdown ? (
-                    <LemonMarkdown>{content as string}</LemonMarkdown>
-                ) : (
-                    <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
-                )
+            if (isMarkdownCandidate && typeof content === 'string') {
+                if (isRenderingMarkdown) {
+                    // Check if content has HTML-like tags that might break markdown rendering
+                    const hasHtmlLikeTags = /<[^>]+>/.test(content)
+
+                    if (hasHtmlLikeTags) {
+                        // Escape HTML-like content for safer markdown rendering
+                        const escapedContent = content.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+                        try {
+                            return <LemonMarkdown>{escapedContent}</LemonMarkdown>
+                        } catch {
+                            // If markdown still fails, fall back to plain text
+                            return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                        }
+                    } else {
+                        return <LemonMarkdown>{content}</LemonMarkdown>
+                    }
+                } else {
+                    return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                }
             }
 
             // Fallback: render as plain text.
@@ -207,7 +225,7 @@ export const LLMMessageDisplay = React.memo(
                                     noPadding
                                     icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                     tooltip="Toggle markdown rendering"
-                                    onClick={() => setIsRenderingMarkdown((prev) => !prev)}
+                                    onClick={toggleMarkdownRendering}
                                 />
                             )}
                             <CopyToClipboardInline

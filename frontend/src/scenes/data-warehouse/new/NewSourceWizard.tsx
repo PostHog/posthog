@@ -2,9 +2,12 @@ import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
 
@@ -15,6 +18,11 @@ import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
+
+export const scene: SceneExport = {
+    component: NewSourceWizardScene,
+    logic: sourceWizardLogic,
+}
 
 export function NewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
@@ -66,7 +74,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         }
 
         return (
-            <div className="mt-4 flex flex-row justify-end gap-2">
+            <div className="flex flex-row gap-2 justify-end mt-4">
                 {canGoBack && (
                     <LemonButton
                         type="secondary"
@@ -121,6 +129,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
         if (sourceConfig.name == 'Hubspot') {
@@ -136,16 +145,20 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         setManualLinkingProvider(manualLinkSource)
     }
 
+    const filteredConnectors = connectors.filter((n) => {
+        return !(n.name === 'GoogleAds' && !featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH])
+    })
+
     return (
         <>
-            <h2 className="mt-4">Managed by PostHog</h2>
+            <h2 className="mt-4">Managed data warehouse sources</h2>
 
             <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
-                dataSource={connectors}
+                dataSource={filteredConnectors}
                 loading={false}
                 disableTableWhileLoading={false}
                 columns={[
@@ -161,8 +174,14 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         key: 'name',
                         render: (_, sourceConfig) => (
                             <div className="flex flex-col">
-                                <span className="font-semibold text-sm gap-1">
+                                <span className="gap-1 text-sm font-semibold">
                                     {sourceConfig.label ?? sourceConfig.name}
+                                    {sourceConfig.betaSource && (
+                                        <span>
+                                            {' '}
+                                            <LemonTag type="warning">BETA</LemonTag>
+                                        </span>
+                                    )}
                                 </span>
                                 {sourceConfig.unreleasedSource && (
                                     <span>Get notified when {sourceConfig.label} is available to connect</span>
@@ -226,7 +245,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 ]}
             />
 
-            <h2 className="mt-4">Self-managed</h2>
+            <h2 className="mt-4">Self-managed data warehouse sources</h2>
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}
@@ -246,7 +265,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Name',
                         key: 'name',
                         render: (_, sourceConfig) => (
-                            <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                            <span className="gap-1 text-sm font-semibold">{sourceConfig.name}</span>
                         ),
                     },
                     {

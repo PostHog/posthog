@@ -49,7 +49,7 @@ const checkIsManagedView = (
     view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
 ): view is DatabaseSchemaManagedViewTable => 'type' in view && view.type === 'managed_view'
 
-const renderTableCount = (count: undefined | number): null | JSX.Element => {
+export const renderTableCount = (count: undefined | number): null | JSX.Element => {
     if (!count) {
         return null
     }
@@ -198,7 +198,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         return items.length < 2 && !databaseLoading && !searchTerm?.length
                     },
                     emptyComponent: (
-                        <div className="p-4 text-center flex flex-col justify-center items-center border-t">
+                        <div
+                            data-attr="sql-editor-source-empty-state"
+                            className="p-4 text-center flex flex-col justify-center items-center border-t"
+                        >
                             <div className="mb-4 flex justify-center gap-6">
                                 <DataWarehouseSourceIcon type="Postgres" size="small" />
                                 <DataWarehouseSourceIcon type="Stripe" size="small" />

@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -16,6 +17,8 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING],
+        testOptions: { waitForSelector: '.Settings__sections a' },
     },
     decorators: [
         mswDecorator({
@@ -45,9 +48,6 @@ export const SettingsProject: StoryFn = () => {
     }, [])
     return <App />
 }
-SettingsProject.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
 
 export const SettingsProjectWithReplayFeatures: StoryFn = () => {
     useAvailableFeatures([
@@ -60,9 +60,6 @@ export const SettingsProjectWithReplayFeatures: StoryFn = () => {
     }, [])
     return <App />
 }
-SettingsProjectWithReplayFeatures.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
 
 export const SettingsUser: StoryFn = () => {
     useEffect(() => {
@@ -70,28 +67,12 @@ export const SettingsUser: StoryFn = () => {
     }, [])
     return <App />
 }
-SettingsUser.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
 
 export const SettingsOrganization: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.settings('organization'))
     }, [])
     return <App />
-}
-SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsWebVitals: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.settings('project-autocapture', 'web-vitals-autocapture'))
-    }, [])
-    return <App />
-}
-SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 function TimeSensitiveSettings(props: {
@@ -104,6 +85,7 @@ function TimeSensitiveSettings(props: {
         sensitive_session_expires_at: '2023-05-25T00:00:00Z',
         has_password: props.has_password ?? false,
     }
+
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -132,41 +114,23 @@ function TimeSensitiveSettings(props: {
 export const SettingsSessionTimeoutAllOptions: StoryFn = () => {
     return <TimeSensitiveSettings has_password saml_available />
 }
-SettingsSessionTimeoutAllOptions.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
 
 export const SettingsSessionTimeoutPasswordOnly: StoryFn = () => {
     return <TimeSensitiveSettings has_password />
-}
-SettingsSessionTimeoutPasswordOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoOnly: StoryFn = () => {
     return <TimeSensitiveSettings />
 }
-SettingsSessionTimeoutSsoOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
 
 export const SettingsSessionTimeoutSsoEnforcedGithub: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="github" />
-}
-SettingsSessionTimeoutSsoEnforcedGithub.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedGoogle: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="google-oauth2" />
 }
-SettingsSessionTimeoutSsoEnforcedGoogle.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
 
 export const SettingsSessionTimeoutSsoEnforcedSaml: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="saml" />
-}
-SettingsSessionTimeoutSsoEnforcedSaml.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
 }

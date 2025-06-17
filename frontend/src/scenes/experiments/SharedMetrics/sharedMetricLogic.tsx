@@ -27,6 +27,7 @@ export interface SharedMetric {
     created_at: string | null
     updated_at: string | null
     tags: string[]
+    metadata?: Record<string, any>
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
@@ -78,7 +79,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (props.action === 'duplicate' && values.sharedMetric) {
                 actions.setSharedMetric({
                     ...values.sharedMetric,
-                    name: `${values.sharedMetric.name} (Duplicate)`,
+                    name: `${values.sharedMetric.name} (duplicate)`,
                     id: undefined,
                 })
             }

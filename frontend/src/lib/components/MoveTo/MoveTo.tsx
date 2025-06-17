@@ -7,11 +7,15 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+
 export function MoveToModal(): JSX.Element {
     const { isOpen, form, movingItems } = useValues(moveToLogic)
     const { closeMoveToModal, submitForm } = useActions(moveToLogic)
 
     const destinationFolder = form.folder || 'Project root'
+    const allFolders = splitPath(destinationFolder)
+    const lastFolder = allFolders[allFolders.length - 1]
 
     return (
         <LemonModal
@@ -31,8 +35,13 @@ export function MoveToModal(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton type="primary" onClick={submitForm}>
-                        Move to {destinationFolder}
+                    <LemonButton
+                        type="primary"
+                        onClick={submitForm}
+                        data-attr="move-to-modal-move-button"
+                        disabledReason={typeof lastFolder !== 'string' ? 'Please select a folder' : undefined}
+                    >
+                        Move to {lastFolder}
                     </LemonButton>
                 </>
             }

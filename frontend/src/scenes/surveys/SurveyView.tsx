@@ -306,25 +306,26 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <div>
                                         <p>Get notified whenever a survey result is submitted</p>
                                         <LinkedHogFunctions
-                                            logicKey="survey"
                                             type="destination"
                                             subTemplateIds={['survey-response']}
-                                            filters={{
-                                                events: [
-                                                    {
-                                                        id: SurveyEventName.SENT,
-                                                        type: 'events',
-                                                        properties: [
-                                                            {
-                                                                key: SurveyEventProperties.SURVEY_ID,
-                                                                type: PropertyFilterType.Event,
-                                                                value: id,
-                                                                operator: PropertyOperator.Exact,
-                                                            },
-                                                        ],
-                                                    },
-                                                ],
-                                            }}
+                                            forceFilterGroups={[
+                                                {
+                                                    events: [
+                                                        {
+                                                            id: SurveyEventName.SENT,
+                                                            type: 'events',
+                                                            properties: [
+                                                                {
+                                                                    key: SurveyEventProperties.SURVEY_ID,
+                                                                    type: PropertyFilterType.Event,
+                                                                    value: id,
+                                                                    operator: PropertyOperator.Exact,
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            ]}
                                         />
                                     </div>
                                 ),
@@ -465,7 +466,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
-    if (isAnyResultsLoading) {
+    if (isAnyResultsLoading && !isNewQuestionVizEnabled) {
         lemonToast.info('Loading survey results...', {
             toastId: LOADING_SURVEY_RESULTS_TOAST_ID,
             hideProgressBar: true,
@@ -568,7 +569,7 @@ function SurveyNPSResults({
                             placement="bottom"
                             title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can range from -100 to 100."
                         >
-                            <IconInfo className="text-muted mr-1" />
+                            <IconInfo className="mr-1 text-muted" />
                             Latest NPS Score
                         </Tooltip>
                     </div>

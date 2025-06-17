@@ -650,6 +650,7 @@ class Resolver(CloningVisitor):
                 #
                 # from rich.pretty import pprint
                 # pprint(self.context.database, max_depth=3)
+                # breakpoint()
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
@@ -682,6 +683,9 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
+            # TODO: This will never return None, it always raises an exception
+            # once it finds the unsupported field/type
+            # There's no reason to have the `if loop_type is None` check here
             loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
