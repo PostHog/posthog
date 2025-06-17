@@ -477,7 +477,7 @@ describe('the feature flag release conditions logic', () => {
                             key: 'current_organization_membership_level',
                             type: PropertyFilterType.Person,
                             value: ['15'],
-                            operator: 'exact',
+                            operator: PropertyOperator.Exact,
                         },
                         {
                             key: 'email',
