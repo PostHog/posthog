@@ -94,8 +94,7 @@ fn upload_chunks(
         let upload_response =
             request_presigned_url(&client, base_url, token, &upload.chunk_id, &release_id)?;
 
-        // TODO: Not sure if this is the cleanest or if I should just inline the hasher
-        let content_hash = content_hash(&vec![&upload.data]);
+        let content_hash = content_hash([&upload.data]);
 
         upload_to_s3(&client, upload_response.presigned_url, upload.data)?;
 
@@ -120,7 +119,7 @@ fn request_presigned_url(
 ) -> Result<StartUploadResponseData> {
     let start_upload_url: String = format!("{}{}", base_url, "/start_upload");
 
-    let mut params: Vec<(&'static str, &str)> = vec![("chunk_id", chunk_id)];
+    let mut params = vec![("chunk_id", chunk_id)];
     if let Some(id) = release_id {
         params.push(("release_id", id));
     }
