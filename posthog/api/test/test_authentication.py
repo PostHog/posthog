@@ -1259,11 +1259,11 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
             self.assertIsNotNone(result)
             self.assertIsInstance(self.user.pk, int)
-            self.assertIsInstance(self.user.current_team_id, int)  # type: ignore[attr-defined]
+            self.assertIsInstance(self.user.current_team_id, int)
 
             # Verify tag_queries was called with correct parameters
             mock_tag_queries.assert_called_once_with(
                 user_id=self.user.pk,
-                team_id=self.user.current_team_id,  # type: ignore[attr-defined]
+                team_id=self.user.current_team_id,
                 access_method="oauth",
             )

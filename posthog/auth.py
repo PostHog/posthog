@@ -368,8 +368,8 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             self.access_token = access_token
 
             tag_queries(
-                user_id=access_token.user.pk,  # type: ignore[attr-defined]
-                team_id=access_token.user.current_team_id,  # type: ignore[attr-defined]
+                user_id=access_token.user.pk,
+                team_id=access_token.user.current_team_id,
                 access_method="oauth",
             )
 
@@ -400,7 +400,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             if not access_token.user.is_active:
                 raise AuthenticationFailed(detail="User associated with access token is disabled.")
 
-            if not access_token.application_id:  # type: ignore[attr-defined]
+            if not access_token.application_id:
                 raise AuthenticationFailed(detail="Access token is not associated with a valid application.")
 
             return access_token
