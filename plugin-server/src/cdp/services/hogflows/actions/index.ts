@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { CyclotronJobInvocationHogFlow, HogFunctionFilterGlobals } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '~/cdp/utils'
+import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
 
@@ -23,6 +26,34 @@ export class HogFlowActionRunner {
         this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
     }
 
+    private findNextActionToRun(invocation: CyclotronJobInvocationHogFlow): string | undefined {
+        // Finds the next action to be run
+
+        // TODO: Implement this!
+
+        return undefined
+    }
+
+    private shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): boolean {
+        if (!action.filters) {
+            return false
+        }
+
+        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
+            event: invocation.state.event, // TODO: Fix typing
+            groups: {},
+        })
+
+        const filterResults = filterFunctionInstrumented({
+            fn: invocation.hogFlow,
+            filters: action.filters,
+            filterGlobals,
+            eventUuid: invocation.state.event.uuid,
+        })
+
+        return filterResults.match
+    }
+
     async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
         if (!invocation.state.currentAction) {
             const triggerAction = invocation.hogFlow.actions.find((action) => action.type === 'trigger')
@@ -42,6 +73,14 @@ export class HogFlowActionRunner {
         const action = invocation.hogFlow.actions.find((action) => action.id === currentActionId)
         if (!action) {
             throw new Error(`Action ${currentActionId} not found`)
+        }
+
+        if (this.shouldSkipAction(invocation, action)) {
+            // Before we do anything check for filter conditions on the user
+            return {
+                finished: true,
+                goToActionId: this.findNextActionToRun(invocation),
+            }
         }
 
         logger.debug('🦔', `[HogFlowActionRunner] Running action ${action.type}`, {
@@ -78,6 +117,7 @@ export class HogFlowActionRunner {
 
         if (result.finished && !result.goToActionId) {
             // TODO: Find the next action to run
+            result.goToActionId = this.findNextActionToRun(invocation)
         }
 
         return result
