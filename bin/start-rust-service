@@ -45,7 +45,7 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
-  capture-relay)
+  capture-replay)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
