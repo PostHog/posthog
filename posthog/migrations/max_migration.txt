@@ -1,1 +1,1 @@
-0767_batchimport_created_by_id
+0772_alter_externaldataschema_sync_type

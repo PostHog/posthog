@@ -1,7 +1,7 @@
 import merge from 'deepmerge'
 
-import { defaultConfig } from '~/src/config/config'
-import { GeoIp, GeoIPService } from '~/src/utils/geoip'
+import { defaultConfig } from '~/config/config'
+import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
@@ -156,6 +156,7 @@ export class TemplateTester {
             mappings: this.template.mappings || null,
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
+            is_addon_required: false,
             deleted: false,
         }
 
@@ -231,6 +232,7 @@ export class TemplateTester {
             deleted: false,
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
+            is_addon_required: false,
         })
 
         return this.executor.execute(invocation)

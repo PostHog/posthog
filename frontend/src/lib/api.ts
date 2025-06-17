@@ -52,6 +52,8 @@ import {
     CommentType,
     ConversationDetail,
     CoreMemory,
+    CyclotronJobFiltersType,
+    CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -82,12 +84,10 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
-    HogFunctionFiltersType,
     HogFunctionIconResponse,
     HogFunctionKind,
     HogFunctionStatus,
     HogFunctionTemplateType,
-    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
@@ -149,6 +149,7 @@ import {
     UserType,
 } from '~/types'
 
+import { MaxContextShape } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingStackFrame,
@@ -2323,7 +2324,7 @@ const api = {
             kinds,
             excludeKinds,
         }: {
-            filter_groups?: HogFunctionFiltersType[]
+            filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
             kinds?: HogFunctionKind[]
             excludeKinds?: HogFunctionKind[]
@@ -2398,7 +2399,7 @@ const api = {
                 clickhouse_event?: any
                 invocation_id?: string
             }
-        ): Promise<HogFunctionTestInvocationResult> {
+        ): Promise<CyclotronJobTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 
@@ -3509,6 +3510,7 @@ const api = {
             data: {
                 content: string
                 contextual_tools?: Record<string, any>
+                ui_context?: MaxContextShape
                 conversation?: string | null
                 trace_id: string
             },

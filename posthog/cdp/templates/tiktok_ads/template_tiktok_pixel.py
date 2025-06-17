@@ -52,7 +52,7 @@ def build_inputs(multiProductEvent=False):
 
 
 template_tiktok_pixel: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="alpha",
     free=False,
     type="site_destination",
     id="template-tiktok-pixel",

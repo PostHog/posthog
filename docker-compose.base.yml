@@ -100,6 +100,8 @@ services:
         #
         image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.3.2.39}
         restart: on-failure
+        environment:
+            CLICKHOUSE_SKIP_USER_SETUP: 1
 
     zookeeper:
         image: zookeeper:3.7.0

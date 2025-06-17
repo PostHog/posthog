@@ -3476,3 +3476,311 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_numeric_group_ids_work_correctly() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_with_numeric_group".to_string();
+    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+
+    let token = team.api_token;
+
+    // Create a group with a numeric group_key (as a string in DB, but represents a number)
+    create_group_in_pg(
+        pg_client.clone(),
+        team.id,
+        "organization",
+        "123",
+        json!({"name": "Organization 123", "size": "large"}),
+    )
+    .await?;
+
+    // Define a group-based flag with simple rollout (no property filters)
+    let flags_json = json!([
+        {
+            "id": 1,
+            "key": "numeric-group-flag",
+            "name": "Flag targeting numeric group ID",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "aggregation_group_type_index": 1,
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        redis_client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with numeric group ID (integer in JSON, not string)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": 123  // This is a JSON number, not a string
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
+
+    // Test with string group ID (should also work)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": "123"  // This is a JSON string
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
+
+    // Test with different numeric group ID (should still match since we have 100% rollout)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": 456  // Different number, but should still match due to 100% rollout
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
+
+    // Test with float number (should also work since we convert numbers to strings)
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "groups": {
+                "organization": 123.0  // Float that equals our integer group key
+            }
+        });
+
+        let res = server
+            .send_flags_request(payload.to_string(), None, None)
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json_data = res.json::<Value>().await?;
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "featureFlags": {
+                    "numeric-group-flag": true
+                }
+            })
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert flags that should be filtered out (deleted and inactive)
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "deleted_flag",
+            "name": "Deleted Flag",
+            "active": true,
+            "deleted": true,  // This flag should be filtered out
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 2,
+            "key": "inactive_flag",
+            "name": "Inactive Flag",
+            "active": false,  // This flag should be filtered out
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 3,
+            "key": "both_inactive_and_deleted",
+            "name": "Both Inactive and Deleted Flag",
+            "active": false,  // This flag should be filtered out
+            "deleted": true,  // This flag should be filtered out
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test legacy response (no version param)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {}
+        })
+    );
+
+    // Test v2 response (version=2)
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {}
+        })
+    );
+
+    // Test with config=true to ensure config is still returned
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {},
+            "supportedCompression": ["gzip", "gzip-js"],
+            "autocapture_opt_out": false,
+            "config": {
+                "enable_collect_everything": true
+            },
+            "toolbarParams": {},
+            "isAuthenticated": false,
+            "defaultIdentifiedOnly": true
+        })
+    );
+
+    Ok(())
+}

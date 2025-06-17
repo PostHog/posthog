@@ -63,7 +63,7 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Replay playlists",
+            base_folder=self._get_assigned_folder("Unfiled/Replay playlists"),
             type="session_recording_playlist",  # sync with APIScopeObject in scopes.py
             ref=str(self.short_id),
             name=self.name or self.derived_name or "Untitled",
