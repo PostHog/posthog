@@ -32,7 +32,7 @@ from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     PROPERTY_FILTERS_EXPLANATION_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
-    ITERATION_LIMIIT_PROMPT,
+    ITERATION_LIMIT_PROMPT,
 )
 from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
 from ee.hogai.utils.helpers import remove_line_breaks
@@ -396,7 +396,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
 
         # If we're still here, the final prompt hasn't helped.
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
-            return self._get_reset_state(state, ITERATION_LIMIIT_PROMPT)
+            return self._get_reset_state(state, ITERATION_LIMIT_PROMPT)
 
         if input and not output:
             output = self._handle_tool(input, toolkit)
