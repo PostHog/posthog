@@ -111,11 +111,6 @@ async def test_schedule_all_subscriptions_workflow(
     assert delivered_ids == {sub.id for sub in subs_due}
 
 
-# ---------------------------------------------------------------------------
-# HandleSubscriptionValueChangeWorkflow
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
