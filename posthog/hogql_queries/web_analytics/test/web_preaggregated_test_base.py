@@ -77,7 +77,11 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         properties = {
             "$session_id": session_id,
             "$current_url": url,
-            "$pathname": url.split(urlparse(url).hostname)[-1] if urlparse(url).hostname and urlparse(url).hostname.endswith(".example.com") else "/",
+            "$pathname": (
+                url.split(urlparse(url).hostname)[-1]
+                if urlparse(url).hostname and urlparse(url).hostname.endswith(".example.com")
+                else "/"
+            ),
             **self.STANDARD_EVENT_PROPERTIES,
             **(extra_properties or {}),
         }
