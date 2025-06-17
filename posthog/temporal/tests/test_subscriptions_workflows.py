@@ -3,7 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from unittest.mock import MagicMock, call, patch
 from django.conf import settings
-
+from asgiref.sync import sync_to_async
 
 import pytest
 from freezegun import freeze_time
@@ -23,14 +23,8 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     deliver_subscription_report_activity,
     ScheduleAllSubscriptionsWorkflowInputs,
 )
-from posthog.warehouse.util import database_sync_to_async
 
 pytestmark = [pytest.mark.django_db]
-
-
-# ---------------------------------------------------------------------------
-# Test utils / fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -45,11 +39,6 @@ async def subscriptions_worker(temporal_client: Client):
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         yield  # allow the test to run while the worker is active
-
-
-# ---------------------------------------------------------------------------
-# ScheduleAllSubscriptionsWorkflow tests
-# ---------------------------------------------------------------------------
 
 
 @patch("ee.tasks.subscriptions.send_slack_subscription_report")
@@ -68,34 +57,30 @@ async def test_subscription_delivery_scheduling(
 ):
     """Workflow should schedule delivery only for subscriptions within the buffer window."""
 
-    dashboard = await database_sync_to_async(Dashboard.objects.create)(
-        team=team, name="private dashboard", created_by=user
-    )
-    insight = await database_sync_to_async(Insight.objects.create)(
-        team=team, short_id="123456", name="My Test subscription"
-    )
-    asset = await database_sync_to_async(ExportedAsset.objects.create)(
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="private dashboard", created_by=user)
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="123456", name="My Test subscription")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
         team=team, insight_id=insight.id, export_format="image/png"
     )
 
     # Heavy dashboard – create extra tiles
     for i in range(10):
-        tile_insight = await database_sync_to_async(Insight.objects.create)(
+        tile_insight = await sync_to_async(Insight.objects.create)(
             team=team, short_id=f"{i}23456{i}", name=f"insight {i}"
         )
-        await database_sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=tile_insight)
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=tile_insight)
 
     mock_gen_assets.return_value = [insight], [asset]
 
-    await database_sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
-    await database_sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
+    await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
+    await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
 
     with freeze_time("2022-02-02T08:30:00.000Z"):
         subscriptions = [
-            await database_sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
-            await database_sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
-            await database_sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user),
-            await database_sync_to_async(create_subscription)(
+            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
+            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
+            await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user),
+            await sync_to_async(create_subscription)(
                 team=team,
                 dashboard=dashboard,
                 created_by=user,
@@ -105,7 +90,7 @@ async def test_subscription_delivery_scheduling(
 
     # Push one subscription outside buffer (+1h)
     subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC"))
-    await database_sync_to_async(subscriptions[2].save)()
+    await sync_to_async(subscriptions[2].save)()
 
     # Run workflow with default 15-minute buffer
     wf_handle = await temporal_client.start_workflow(
@@ -136,14 +121,10 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     team,
     user,
 ):
-    dashboard = await database_sync_to_async(Dashboard.objects.create)(
-        team=team, name="private dashboard", created_by=user
-    )
-    insight = await database_sync_to_async(Insight.objects.create)(
-        team=team, short_id="123456", name="My Test subscription"
-    )
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="private dashboard", created_by=user)
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="123456", name="My Test subscription")
 
-    await database_sync_to_async(create_subscription)(
+    await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
         created_by=user,
@@ -151,7 +132,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
         target_value="C12345|#test-channel",
     )
 
-    await database_sync_to_async(create_subscription)(
+    await sync_to_async(create_subscription)(
         team=team,
         dashboard=dashboard,
         created_by=user,
@@ -162,8 +143,8 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     # Mark source items deleted
     insight.deleted = True
     dashboard.deleted = True
-    await database_sync_to_async(insight.save)()
-    await database_sync_to_async(dashboard.save)()
+    await sync_to_async(insight.save)()
+    await sync_to_async(dashboard.save)()
 
     wf_handle = await temporal_client.start_workflow(
         ScheduleAllSubscriptionsWorkflow.run,
@@ -174,11 +155,6 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     await wf_handle.result()
 
     assert mock_send_email.call_count == 0 and mock_send_slack.call_count == 0
-
-
-# ---------------------------------------------------------------------------
-# HandleSubscriptionValueChangeWorkflow tests
-# ---------------------------------------------------------------------------
 
 
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
@@ -192,12 +168,12 @@ async def test_handle_subscription_value_change_email(
     team,
     user,
 ):
-    insight = await database_sync_to_async(Insight.objects.create)(team=team, short_id="xyz789", name="Insight")
-    asset = await database_sync_to_async(ExportedAsset.objects.create)(
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="xyz789", name="Insight")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
         team=team, insight_id=insight.id, export_format="image/png"
     )
 
-    subscription = await database_sync_to_async(create_subscription)(
+    subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
         created_by=user,
@@ -242,12 +218,12 @@ async def test_deliver_subscription_report_slack(
     team,
     user,
 ):
-    insight = await database_sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
-    asset = await database_sync_to_async(ExportedAsset.objects.create)(
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
         team=team, insight_id=insight.id, export_format="image/png"
     )
 
-    subscription = await database_sync_to_async(create_subscription)(
+    subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
         created_by=user,
