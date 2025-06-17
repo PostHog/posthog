@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Ok, Result};
 use reqwest::blocking::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tracing::{info, warn};
 
@@ -18,6 +18,11 @@ const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 struct StartUploadResponseData {
     presigned_url: String,
     symbol_set_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FinishUploadRequest {
+    pub content_hash: String,
 }
 
 pub fn upload(
@@ -164,12 +169,13 @@ fn finish_upload(
     content_hash: String,
 ) -> Result<()> {
     let finish_upload_url: String = format!("{}/{}/{}", base_url, symbol_set_id, "finish_upload");
-    let params = vec![("content_hash", &content_hash)];
+    let request = FinishUploadRequest { content_hash };
 
     let res = client
         .post(finish_upload_url)
         .header("Authorization", format!("Bearer {}", auth_token))
-        .form(&params)
+        .header("Content-Type", "application/json")
+        .json(&request)
         .send()
         .context(format!("While finishing upload to {}", base_url))?;
 

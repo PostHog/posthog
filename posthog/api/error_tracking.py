@@ -8,7 +8,7 @@ import hashlib
 from rest_framework import serializers, viewsets, status, request
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import MultiPartParser, FileUploadParser
+from rest_framework.parsers import MultiPartParser, FileUploadParser, JSONParser
 
 from django.http import JsonResponse
 from django.conf import settings
@@ -520,7 +520,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
         )
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, parser_classes=[JSONParser])
     def finish_upload(self, request, **kwargs):
         content_hash = request.data.get("content_hash")
 
