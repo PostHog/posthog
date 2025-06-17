@@ -39,6 +39,8 @@ export class HogFlowActionRunner {
             return false
         }
 
+        // TODO: Make filterGlobals, person and groups something we load lazily onto the main invocation object to be re-used anywhere
+        // this function isn't super cheap to run
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             // TODO: Add person and groups!
