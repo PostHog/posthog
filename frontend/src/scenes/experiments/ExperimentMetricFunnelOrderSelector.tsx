@@ -31,7 +31,7 @@ function StepOrderInfo(): JSX.Element {
     )
 }
 
-export function ExperimentMetricFunnelOrderFilter({
+export function ExperimentMetricFunnelOrderSelector({
     metric,
     handleSetMetric,
 }: {
@@ -51,7 +51,7 @@ export function ExperimentMetricFunnelOrderFilter({
                 Step order
             </LemonLabel>
             <LemonSelect
-                data-attr="experiment-funnel-order-filter"
+                data-attr="experiment-funnel-order-selector"
                 value={metric.funnel_order_type || StepOrderValue.ORDERED}
                 onChange={handleFunnelOrderTypeChange}
                 dropdownMatchSelectWidth={false}

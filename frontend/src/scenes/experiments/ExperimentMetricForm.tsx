@@ -14,7 +14,7 @@ import {
 import { FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
-import { ExperimentMetricFunnelOrderFilter } from './ExperimentMetricFunnelOrderFilter'
+import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
@@ -153,7 +153,7 @@ export function ExperimentMetricForm({
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
             {isExperimentFunnelMetric(metric) && (
-                <ExperimentMetricFunnelOrderFilter metric={metric} handleSetMetric={handleSetMetric} />
+                <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
             )}
             {isExperimentMeanMetric(metric) && (
                 <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
