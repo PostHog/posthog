@@ -21,7 +21,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
+import { EntityTypes, HogFunctionMappingType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -136,9 +136,15 @@ export function HogFunctionMapping({
                 />
                 <Group name={['mappings', index]}>
                     <CyclotronJobInputs
-                        configuration={mapping as HogFunctionConfigurationType}
-                        setConfigurationValue={(key, value) => {
-                            onChange({ ...mapping, [key]: value })
+                        configuration={{
+                            inputs_schema: mapping.inputs_schema ?? [],
+                            inputs: mapping.inputs ?? {},
+                        }}
+                        onInputSchemaChange={(schema) => {
+                            onChange({ ...mapping, inputs_schema: schema })
+                        }}
+                        onInputChange={(key, value) => {
+                            onChange({ ...mapping, inputs: { ...mapping.inputs, [key]: value } })
                         }}
                         showSource={showSource}
                     />

@@ -436,8 +436,16 @@ export function HogFunctionConfiguration({
                                     ) : null}
 
                                     <CyclotronJobInputs
-                                        configuration={configuration}
-                                        setConfigurationValue={setConfigurationValue}
+                                        configuration={{
+                                            inputs_schema: configuration.inputs_schema ?? [],
+                                            inputs: configuration.inputs ?? {},
+                                        }}
+                                        onInputSchemaChange={(schema) => {
+                                            setConfigurationValue('inputs_schema', schema)
+                                        }}
+                                        onInputChange={(key, input) => {
+                                            setConfigurationValue(`inputs.${key}`, input)
+                                        }}
                                         showSource={showSource}
                                     />
                                     {showSource && canEditSource ? (
