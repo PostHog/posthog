@@ -9282,6 +9282,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -9316,6 +9319,9 @@
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
                 "metric_type": {
                     "const": "funnel",
                     "type": "string"
