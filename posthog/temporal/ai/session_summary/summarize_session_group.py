@@ -95,10 +95,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     extra_summary_context=inputs.extra_summary_context,
                     local_reads_prod=inputs.local_reads_prod,
                 )
-                tasks[session_id] = tg.create_task(self._fetch_session_data(single_session_input))
+                tasks[session_id] = tg.create_task(self._fetch_session_data(single_session_input)), single_session_input
         session_inputs: list[SingleSessionSummaryInputs] = []
         # Check fetch results
-        for session_id, task in tasks.items():
+        for session_id, (task, single_session_input) in tasks.items():
             res = task.result()
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
@@ -113,10 +113,17 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 session_inputs.append(single_session_input)
         # Fail the workflow if >50% of sessions failed to fetch
         if len(session_inputs) < len(inputs.session_ids) / 2:
-            raise ApplicationError(
+            exception_message = (
                 f"Too many sessions failed to fetch data from DB, when summarizing {len(inputs.session_ids)} "
-                f"sessions ({inputs.session_ids}) for user {inputs.user_pk} in team {inputs.team_id}."
+                f"sessions ({inputs.session_ids}) for user {inputs.user_pk} in team {inputs.team_id}"
             )
+            temporalio.workflow.logger.error(
+                exception_message,
+                session_ids=inputs.session_ids,
+                team_id=inputs.team_id,
+                user_pk=inputs.user_pk,
+            )
+            raise ApplicationError(exception_message)
         return session_inputs
 
     @staticmethod
@@ -162,11 +169,19 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 summaries[session_id] = res
         # Fail the workflow if >50% of sessions failed to summarize
         if len(summaries) < len(inputs) / 2:
-            raise ApplicationError(
+            session_ids = [s.session_id for s in inputs]
+            exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
-                f"({[s.session_id for s in inputs]}) "
-                f"for user {inputs[0].user_pk} in team {inputs[0].team_id}."
+                f"({session_ids}) "
+                f"for user {inputs[0].user_pk} in team {inputs[0].team_id}"
             )
+            temporalio.workflow.logger.error(
+                exception_message,
+                session_ids=session_ids,
+                team_id=inputs[0].team_id,
+                user_pk=inputs[0].user_pk,
+            )
+            raise ApplicationError(exception_message)
         return summaries
 
     @temporalio.workflow.run
