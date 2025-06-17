@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { FunnelLayout } from 'lib/constants'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { match, P } from 'ts-pattern'
 

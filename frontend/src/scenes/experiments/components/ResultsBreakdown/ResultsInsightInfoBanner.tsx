@@ -1,6 +1,16 @@
 import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
 
-export const ResultsInsightInfoBanner = (): JSX.Element => {
+import type { ResultBreakdownRenderProps } from './types'
+
+type SafeResultsInsightInfoBanner = {
+    [K in keyof Pick<ResultBreakdownRenderProps, 'exposureDifference'>]: NonNullable<ResultBreakdownRenderProps[K]>
+}
+
+export const ResultsInsightInfoBanner = ({ exposureDifference }: SafeResultsInsightInfoBanner): JSX.Element | null => {
+    if (exposureDifference === 0) {
+        return null
+    }
+
     return (
         <LemonBanner type="info" className="mb-4">
             <div className="items-center inline-flex flex-wrap">

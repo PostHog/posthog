@@ -70,7 +70,7 @@ export function ChartModal({
                 </>
             ) : (
                 <ResultsBreakdown result={result} experiment={experiment}>
-                    {({ query, breakdownResults, breakdownResultsLoading }) => (
+                    {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
                         <>
                             {query && (
                                 <div className="flex justify-end">
@@ -87,7 +87,7 @@ export function ChartModal({
                             {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
                                 <>
-                                    <ResultsInsightInfoBanner />
+                                    <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
                                     <ResultsQuery query={query} breakdownResults={breakdownResults} />
                                 </>
                             )}

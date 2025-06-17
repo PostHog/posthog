@@ -120,7 +120,7 @@ const ResultsTab = (): JSX.Element => {
                                         result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                         experiment={experiment}
                                     >
-                                        {({ query, breakdownResults, breakdownResultsLoading }) => (
+                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
                                             <div>
                                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                                 {query && breakdownResults && (
@@ -128,7 +128,9 @@ const ResultsTab = (): JSX.Element => {
                                                         <div className="flex justify-end">
                                                             <ExploreAsInsightButton query={query} />
                                                         </div>
-                                                        <ResultsInsightInfoBanner />
+                                                        <ResultsInsightInfoBanner
+                                                            exposureDifference={exposureDifference}
+                                                        />
                                                         <div className="pb-4">
                                                             <ResultsQuery
                                                                 query={query}
