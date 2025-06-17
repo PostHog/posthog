@@ -31,6 +31,12 @@ export class HogFlowActionRunner {
 
         // TODO: Implement this!
 
+        // Hack for now returns the exit action if it exists
+        const exitAction = _invocation.hogFlow.actions.find((action) => action.type === 'exit')
+        if (exitAction) {
+            return exitAction.id
+        }
+
         return undefined
     }
 
@@ -64,13 +70,22 @@ export class HogFlowActionRunner {
             if (!triggerAction) {
                 throw new Error('No trigger action found')
             }
+
             // Se the current action to the trigger action
             invocation.state.currentAction = {
                 id: triggerAction.id,
                 startedAtTimestamp: DateTime.now().toMillis(),
             }
 
-            // TODO: For the trigger action we need to assume that we have already been "started" this way and move on...
+            const nextAction = this.findNextActionToRun(invocation)
+            if (!nextAction) {
+                throw new Error('No next action found')
+            }
+
+            invocation.state.currentAction = {
+                id: nextAction,
+                startedAtTimestamp: DateTime.now().toMillis(),
+            }
         }
 
         const currentActionId = invocation.state.currentAction?.id
@@ -139,7 +154,7 @@ export class HogFlowActionRunner {
 
         // TODO: If the result is finished and no goToActionId is provided, we need to automatically find the next action to run
 
-        if (result.finished && !result.goToActionId) {
+        if (result.finished && !result.goToActionId && result.action.type !== 'exit') {
             // TODO: Find the next action to run
             result.goToActionId = this.findNextActionToRun(invocation)
         }

@@ -125,6 +125,25 @@ export class HogFlowExecutorService {
             while (!result.finished && result.invocation.state.actionStepCount < MAX_ACTION_STEPS_HARD_LIMIT) {
                 const actionResult = await this.hogFlowActionRunner.runCurrentAction(result.invocation)
 
+                // Track a metric for the outcome of the action result
+                if (actionResult.error) {
+                    result.logs.push({
+                        level: 'error',
+                        timestamp: DateTime.now(),
+                        message: `Action ${actionResult.action.id} errored: ${String(actionResult.error)}`, // TODO: Is this enough detail?
+                    })
+                    // Special metric dedicated for the individual action for the generic workflow - used to show per-path metrics
+                }
+
+                result.metrics.push({
+                    team_id: invocation.hogFlow.team_id,
+                    app_source_id: invocation.hogFlow.id,
+                    instance_id: actionResult.action.id,
+                    metric_kind: actionResult.error ? 'failure' : 'success',
+                    metric_name: actionResult.error ? 'failed' : 'succeeded',
+                    count: 1,
+                })
+
                 if (!actionResult.finished) {
                     // If the result isn't finished we _require_ that there is a `scheduledAt` param in order to delay the result
                     if (!actionResult.scheduledAt) {
@@ -147,11 +166,9 @@ export class HogFlowExecutorService {
                     }
                     result.finished = false // Nothing new here but just to be sure
                     // TODO: Add a log here to indicate the outcome
-                    break
+                    continue
                 }
 
-                // The action is finished so we move on
-                // TODO: Add a log here to indicate the action lead to the end of the flow
                 result.finished = true
                 break
             }

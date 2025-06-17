@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '~/schema/hogflow'
 
 import { Hub } from '../../../src/types'
@@ -12,8 +14,8 @@ describe('Hogflow Executor', () => {
     let hub: Hub
 
     beforeEach(async () => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
         hub = await createHub()
         executor = new HogFlowExecutorService(hub)
     })
@@ -31,6 +33,11 @@ describe('Hogflow Executor', () => {
                             filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
                         },
                     }),
+                    createHogFlowAction({
+                        id: '2',
+                        type: 'exit',
+                        config: {},
+                    }),
                 ],
             })
         })
@@ -45,7 +52,7 @@ describe('Hogflow Executor', () => {
                     state: {
                         actionStepCount: 0,
                         currentAction: {
-                            id: '1',
+                            id: '2', // exit action
                             startedAtTimestamp: expect.any(Number),
                         },
                         event: {
@@ -55,7 +62,7 @@ describe('Hogflow Executor', () => {
                             properties: {
                                 $lib_version: '1.2.3',
                             },
-                            timestamp: '2024-06-07T12:00:00.000Z',
+                            timestamp: expect.any(String),
                             url: 'http://localhost:8000/events/1',
                             uuid: 'uuid',
                         },
@@ -71,10 +78,18 @@ describe('Hogflow Executor', () => {
                     queueParameters: undefined,
                     queuePriority: 0,
                 },
-                error: 'Action type trigger not supported',
                 finished: true,
-                logs: expect.any(Array),
-                metrics: [],
+                logs: [],
+                metrics: [
+                    {
+                        team_id: hogFlow.team_id,
+                        app_source_id: hogFlow.id,
+                        instance_id: '2',
+                        metric_kind: 'success',
+                        metric_name: 'succeeded',
+                        count: 1,
+                    },
+                ],
             })
         })
     })
