@@ -134,7 +134,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 )
                             } else {
                                 await promiseRetry(
-                                    () => this.updatePersonWithTransaction(update, 'direct'),
+                                    () => this.updatePersonWithTransaction(update, 'batch'),
                                     'updatePersonWithTransaction',
                                     this.options.maxOptimisticUpdateRetries,
                                     this.options.optimisticUpdateRetryInterval,
@@ -591,7 +591,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     }
 
     private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<void> {
-        const operation = 'updatePersonDirect' + (source ? `-${source}` : '')
+        const operation = 'updatePersonTransaction' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
 
         // Convert PersonUpdate back to InternalPerson for database call
@@ -609,17 +609,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 throw new Error('Person not found during direct update')
             }
 
-            const start = performance.now()
-            // Update the person with the latest version
-            await this.db.updatePersonDeprecated(latestPerson, internalPerson, tx, 'forUpdate')
-            this.recordUpdateLatency(
-                'updatePersonWithTransaction',
-                (performance.now() - start) / 1000,
-                personUpdate.distinct_id
-            )
-            observeLatencyByVersion(internalPerson, start, operation)
+            // Create update object without version field (updatePersonDeprecated handles version internally)
+            const { version, ...updateFields } = internalPerson
+            await this.db.updatePersonDeprecated(latestPerson, updateFields, tx, 'forUpdate')
         })
-
+        this.recordUpdateLatency(
+            'updatePersonWithTransaction',
+            (performance.now() - start) / 1000,
+            personUpdate.distinct_id
+        )
         observeLatencyByVersion(internalPerson, start, operation)
     }
 
