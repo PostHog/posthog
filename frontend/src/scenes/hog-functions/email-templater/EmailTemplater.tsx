@@ -6,6 +6,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { capitalizeFirstLetter } from 'lib/utils'
+import posthog from 'posthog-js'
 import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
@@ -16,6 +17,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
+    const unlayerEditorProjectId = posthog.getFeatureFlagPayload(FEATURE_FLAGS.UNLAYER_EDITOR_PROJECT_ID)
 
     return (
         <>
@@ -82,6 +84,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                                 imageEditor: true,
                                 stockImages: false,
                             },
+                            projectId: Number(unlayerEditorProjectId),
                         }}
                     />
                 ) : (
