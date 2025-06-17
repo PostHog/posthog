@@ -8,6 +8,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -33,30 +35,37 @@ import { SavedFilters } from './SavedFilters'
 export function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const items = [
+        {
+            label: hideRecordingsMenuLabelFor(false),
+            onClick: () => setHideViewedRecordings(false),
+            active: !hideViewedRecordings,
+            'data-attr': 'hide-viewed-recordings-show-all',
+        },
+        {
+            label: hideRecordingsMenuLabelFor('current-user'),
+            onClick: () => setHideViewedRecordings('current-user'),
+            active: hideViewedRecordings === 'current-user',
+            'data-attr': 'hide-viewed-recordings-hide-current-user',
+        },
+    ]
+
+    // If the person wished to be excluded from the hide recordings menu, we don't show the option to hide recordings that other people have watched
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]) {
+        items.push({
+            label: hideRecordingsMenuLabelFor('any-user'),
+            onClick: () => setHideViewedRecordings('any-user'),
+            active: hideViewedRecordings === 'any-user',
+            'data-attr': 'hide-viewed-recordings-hide-any-user',
+        })
+    }
 
     return (
         <SettingsMenu
             highlightWhenActive={false}
-            items={[
-                {
-                    label: hideRecordingsMenuLabelFor(false),
-                    onClick: () => setHideViewedRecordings(false),
-                    active: !hideViewedRecordings,
-                    'data-attr': 'hide-viewed-recordings-show-all',
-                },
-                {
-                    label: hideRecordingsMenuLabelFor('current-user'),
-                    onClick: () => setHideViewedRecordings('current-user'),
-                    active: hideViewedRecordings === 'current-user',
-                    'data-attr': 'hide-viewed-recordings-hide-current-user',
-                },
-                {
-                    label: hideRecordingsMenuLabelFor('any-user'),
-                    onClick: () => setHideViewedRecordings('any-user'),
-                    active: hideViewedRecordings === 'any-user',
-                    'data-attr': 'hide-viewed-recordings-hide-any-user',
-                },
-            ]}
+            items={items}
             icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
             rounded={true}
             label={hideRecordingsMenuLabelFor(hideViewedRecordings)}
