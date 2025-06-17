@@ -219,7 +219,7 @@ where
 
             if current_stage.is_empty() {
                 // This indicates a cycle — should not occur if graph is properly validated during build (which we do!)
-                return Err(FlagError::DependencyCycle(T::dependency_type(), 0).into());
+                return Err(FlagError::DependencyCycle(T::dependency_type(), -1).into());
             }
 
             // Collect references to items in this stage
