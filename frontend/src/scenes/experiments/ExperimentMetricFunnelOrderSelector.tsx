@@ -35,7 +35,7 @@ export function ExperimentMetricFunnelOrderSelector({
 }: {
     metric: ExperimentFunnelMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
-}): JSX.Element | null {
+}): JSX.Element {
     const handleFunnelOrderTypeChange = (funnelOrderType: StepOrderValue): void => {
         handleSetMetric({
             ...metric,
