@@ -244,10 +244,6 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
 
 ListBoxItem.displayName = 'ListBox.Item'
 
-/** Compound typing for ListBox.Item subcomponent */
-type ListBoxType = React.ForwardRefExoticComponent<ListBoxProps & React.RefAttributes<ListBoxHandle>> & {
-    Item: typeof ListBoxItem
-}
-;(InnerListBox as ListBoxType).Item = ListBoxItem
-
-export const ListBox = InnerListBox as ListBoxType
+export const ListBox = Object.assign(InnerListBox, {
+    Item: ListBoxItem,
+})

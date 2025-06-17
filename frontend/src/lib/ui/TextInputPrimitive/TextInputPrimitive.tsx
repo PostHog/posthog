@@ -68,8 +68,8 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                 textInputVariants({
                     variant,
                     size,
-                    className,
-                })
+                }),
+                className
             )}
             {...rest}
         />
