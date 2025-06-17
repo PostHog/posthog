@@ -15,6 +15,7 @@ export class HogFlowActionRunner {
     private hogFlowActionRunnerDelay: HogFlowActionRunnerDelay
     private hogFlowActionRunnerWaitForCondition: HogFlowActionRunnerWaitForCondition
     private hogFlowActionRunnerWaitUntilTimeWindow: HogFlowActionRunnerWaitUntilTimeWindow
+
     constructor(private hub: Hub) {
         this.hogFlowActionRunnerConditionalBranch = new HogFlowActionRunnerConditionalBranch()
         this.hogFlowActionRunnerDelay = new HogFlowActionRunnerDelay()
@@ -54,11 +55,11 @@ export class HogFlowActionRunner {
             case 'conditional_branch':
                 result = await this.hogFlowActionRunnerConditionalBranch.run(invocation, action)
                 break
-            case 'wait_until_condition':
-                result = await this.hogFlowActionRunnerWaitForCondition.run(invocation, action)
-                break
             case 'delay':
                 result = await this.hogFlowActionRunnerDelay.run(invocation, action)
+                break
+            case 'wait_until_condition':
+                result = await this.hogFlowActionRunnerWaitForCondition.run(invocation, action)
                 break
             case 'wait_until_time_window':
                 result = await this.hogFlowActionRunnerWaitUntilTimeWindow.run(invocation, action)

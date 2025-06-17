@@ -34,8 +34,6 @@ export class HogFlowActionRunnerConditionalBranch {
             }
         }
 
-        // TODO: Add support for some sort of wait condition? Like if we are waiting for a period of time then we can go async
-
         if (action.config.delay_duration) {
             // Calculate the scheduledAt based on the delay duration - max we will wait for is 10 minutes which means we check every 10 minutes until the condition is met
             const scheduledAt = calculatedScheduledAt(
