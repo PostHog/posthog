@@ -646,6 +646,9 @@ export interface RawOrganization {
     available_product_features: ProductFeature[]
 }
 
+// NOTE: We don't need to list all options here - only the ones we use
+export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
+
 /** Usable Team model. */
 export interface Team {
     id: number
@@ -667,7 +670,7 @@ export interface Team {
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
     // This is parsed as a join from the org table
-    available_features: string[]
+    available_features: OrganizationAvailableFeature[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
