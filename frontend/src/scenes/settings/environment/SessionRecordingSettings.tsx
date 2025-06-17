@@ -252,11 +252,11 @@ function ZenModeSettings(): JSX.Element | null {
         <div>
             <h3>Zen mode</h3>
             <p>
-                This setting controls if the Zen mode is enabled. Zen mode hide all the UI elements and only show the
+                This setting controls if the Zen mode is enabled. Zen mode hides all the UI elements and only shows the
                 bare minimum.
             </p>
             <LemonSwitch
-                data-attr="opt-in-capture-canvas-switch"
+                data-attr="opt-in-zen-mode-switch"
                 onChange={setIsZenMode}
                 label="Enable Zen mode"
                 bordered
