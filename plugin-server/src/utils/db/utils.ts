@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '~/src/kafka/producer'
+import { TopicMessage } from '~/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'

@@ -34,7 +34,7 @@ export function RevenueAnalyticsInsightsNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
-    const { baseCurrency, revenueGoals, grossRevenueGroupBy, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, revenueGoals, groupBy, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
@@ -79,7 +79,7 @@ export function RevenueAnalyticsInsightsNode(props: {
                             labels={labels}
                             isArea={insightsDisplayMode !== 'line'}
                             legend={{
-                                display: grossRevenueGroupBy !== 'all' && datasets.length > 1,
+                                display: groupBy.length > 0 && datasets.length > 1,
                                 position: 'right',
                                 // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
                                 reverse: true,
