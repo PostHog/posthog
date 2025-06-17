@@ -78,7 +78,9 @@ describe('BatchWritingPersonStore', () => {
             }),
         } as unknown as DB
 
-        personStore = new BatchWritingPersonsStore(db)
+        personStore = new BatchWritingPersonsStore(db, {
+            optimisticUpdatesEnabled: true,
+        })
     })
 
     afterEach(() => {
@@ -323,7 +325,7 @@ describe('BatchWritingPersonStore', () => {
                 },
                 version: 3,
             }),
-            undefined,
+            expect.anything(),
             'forUpdate'
         )
     })
@@ -417,6 +419,14 @@ describe('BatchWritingPersonStore', () => {
         const cachedUpdate = cache.get('1:test')
         expect(cachedUpdate.properties.null_prop).toBeNull()
         expect(cachedUpdate.properties.undefined_prop).toBeUndefined()
+
+        await personStoreForBatch.flush()
+
+        expect(db.updatePersonOptimistically).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: { null_prop: null, undefined_prop: undefined, test: 'test' },
+            })
+        )
     })
 
     it('should handle MessageSizeTooLarge errors and capture warning', async () => {

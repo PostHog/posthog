@@ -42,15 +42,17 @@ type MethodName =
     | 'updatePersonWithPropertiesDiffForUpdate'
     | 'addPersonUpdateToBatch'
 
-type UpdateType = 'forUpdate' | 'forMerge'
+type UpdateType = 'updatePersonOptimistically' | 'updatePersonWithTransaction'
 
 export interface BatchWritingPersonsStoreOptions {
     maxConcurrentUpdates: number
+    optimisticUpdatesEnabled: boolean
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
+    optimisticUpdatesEnabled: false,
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
@@ -121,14 +123,25 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 .map(([cacheKey, update]) =>
                     limit(async () => {
                         try {
-                            await promiseRetry(
-                                () => this.updatePersonOptimistically(update),
-                                'updatePersonOptimistically',
-                                this.options.maxOptimisticUpdateRetries,
-                                this.options.optimisticUpdateRetryInterval,
-                                undefined,
-                                [MessageSizeTooLarge]
-                            )
+                            if (this.options.optimisticUpdatesEnabled) {
+                                await promiseRetry(
+                                    () => this.updatePersonOptimistically(update),
+                                    'updatePersonOptimistically',
+                                    this.options.maxOptimisticUpdateRetries,
+                                    this.options.optimisticUpdateRetryInterval,
+                                    undefined,
+                                    [MessageSizeTooLarge]
+                                )
+                            } else {
+                                await promiseRetry(
+                                    () => this.updatePersonWithTransaction(update, 'direct'),
+                                    'updatePersonWithTransaction',
+                                    this.options.maxOptimisticUpdateRetries,
+                                    this.options.optimisticUpdateRetryInterval,
+                                    undefined,
+                                    [MessageSizeTooLarge]
+                                )
+                            }
                         } catch (error) {
                             // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
                             if (error instanceof MessageSizeTooLarge) {
@@ -538,7 +551,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     private async updatePersonOptimistically(personUpdate: PersonUpdate): Promise<void> {
         this.incrementDatabaseOperation('updatePersonOptimistically', personUpdate.distinct_id)
 
+        const start = performance.now()
         const actualVersion = await this.db.updatePersonOptimistically(personUpdate)
+        this.recordUpdateLatency(
+            'updatePersonOptimistically',
+            (performance.now() - start) / 1000,
+            personUpdate.distinct_id
+        )
+        observeLatencyByVersion(personUpdate, start, 'updatePersonOptimistically')
 
         if (actualVersion !== undefined) {
             // Success - optimistic update worked, update version in cache
@@ -589,8 +609,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 throw new Error('Person not found during direct update')
             }
 
+            const start = performance.now()
             // Update the person with the latest version
             await this.db.updatePersonDeprecated(latestPerson, internalPerson, tx, 'forUpdate')
+            this.recordUpdateLatency(
+                'updatePersonWithTransaction',
+                (performance.now() - start) / 1000,
+                personUpdate.distinct_id
+            )
+            observeLatencyByVersion(internalPerson, start, operation)
         })
 
         observeLatencyByVersion(internalPerson, start, operation)

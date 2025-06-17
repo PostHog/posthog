@@ -142,9 +142,10 @@ export class IngestionConsumer {
 
         if (this.hub.PERSON_BATCH_WRITING_ENABLED) {
             this.personStore = new BatchWritingPersonsStore(this.hub.db, {
+                optimisticUpdatesEnabled: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED,
                 maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
                 maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-                optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL,
+                optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             })
         } else {
             this.personStore = new MeasuringPersonsStore(this.hub.db, {
@@ -157,7 +158,7 @@ export class IngestionConsumer {
             batchWritingEnabled: this.hub.GROUP_BATCH_WRITING_ENABLED,
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL,
+            optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
