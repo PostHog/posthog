@@ -42,6 +42,8 @@ FIELDS: dict[str, FieldOrTable] = {
     "invoice_id": StringDatabaseField(name="invoice_id"),
     "session_id": StringDatabaseField(name="session_id"),
     "event_name": StringDatabaseField(name="event_name"),
+    "coupon": StringDatabaseField(name="coupon"),
+    "coupon_id": StringDatabaseField(name="coupon_id"),
     **BASE_CURRENCY_FIELDS,
 }
 
@@ -107,6 +109,8 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
                     ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
+                    ast.Alias(alias="coupon", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="coupon_id", expr=ast.Constant(value=None)),
                     ast.Alias(alias="original_currency", expr=currency_expression_for_events(revenue_config, event)),
                     ast.Alias(alias="original_amount", expr=value_expr),
                     # Being zero-decimal implies we will NOT divide the original amount by 100
@@ -177,6 +181,8 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["id"])),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
+                ast.Alias(alias="coupon", expr=extract_json_string("discount", "coupon", "name")),
+                ast.Alias(alias="coupon_id", expr=extract_json_string("discount", "coupon", "id")),
                 # Compute the original currency, converting to uppercase to match the currency code in the `exchange_rate` table
                 ast.Alias(
                     alias="original_currency",
@@ -239,6 +245,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         ast.Field(chain=["id"]),
                         ast.Field(chain=["created_at"]),
                         ast.Field(chain=["customer_id"]),
+                        ast.Field(chain=["discount"]),
                         # Explode the `lines.data` field into an individual row per item
                         ast.Alias(
                             alias="data",

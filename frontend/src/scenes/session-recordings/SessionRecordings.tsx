@@ -229,7 +229,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-home-tab',
     },
     {
-        label: 'Playlists → Collections',
+        label: 'Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',
