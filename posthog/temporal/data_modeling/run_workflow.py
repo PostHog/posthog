@@ -513,6 +513,7 @@ def _get_credentials():
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
@@ -521,6 +522,7 @@ def _get_credentials():
         "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
         "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
         "region_name": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
