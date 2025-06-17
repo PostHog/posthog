@@ -51,7 +51,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: true,
-                scheduledAt: DateTime.utc().set({ hour: 15, minute: 0, second: 0, millisecond: 0 }),
+                scheduledAt: undefined,
             })
         })
 
@@ -98,7 +98,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: true,
-                scheduledAt: DateTime.utc().set({ hour: 15, minute: 0, second: 0, millisecond: 0 }),
+                scheduledAt: undefined,
             })
         })
     })

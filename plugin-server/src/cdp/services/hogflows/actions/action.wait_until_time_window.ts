@@ -16,11 +16,11 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
 
         return {
             finished: true,
-            scheduledAt: nextTime,
+            scheduledAt: nextTime ?? undefined,
         }
     }
 
-    private getNextValidTime(now: DateTime, config: Action['config']): DateTime {
+    private getNextValidTime(now: DateTime, config: Action['config']): DateTime | null {
         // If time is 'any', just find next valid day
         if (config.time === 'any') {
             return this.getNextValidDay(now, config.date)
@@ -36,7 +36,7 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
 
         // If we're within the time window today, schedule for end of window
         if (now >= nextTime && now <= endTimeToday && this.isValidDay(now, config.date)) {
-            return DateTime.now().setZone(config.timezone)
+            return null
         }
 
         // If time has passed or day doesn't match, find next valid day
