@@ -7,6 +7,7 @@ import React, {
     useContext,
     useEffect,
     useImperativeHandle,
+    useReducer,
     useRef,
     useState,
 } from 'react'
@@ -31,8 +32,42 @@ interface ComboboxProps extends React.HTMLAttributes<HTMLDivElement> {
 const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, className, ...props }, ref) => {
     const listboxRef = useRef<ListBoxHandle>(null)
     const [searchValue, setSearchValue] = useState('')
-    const groupVisibility = useRef<Map<string, boolean>>(new Map())
-    const [, forceUpdate] = useState(0)
+
+    // Pure-react group visibility state
+    type Action = { type: 'register'; id: string; visible: boolean } | { type: 'unregister'; id: string }
+
+    type State = Map<string, boolean>
+
+    const groupReducer = (state: State, action: Action): State => {
+        const newState = new Map(state)
+
+        switch (action.type) {
+            case 'register': {
+                newState.set(action.id, action.visible)
+                return newState
+            }
+            case 'unregister': {
+                newState.delete(action.id)
+                return newState
+            }
+            default:
+                return state
+        }
+    }
+
+    const [groupVisibility, dispatch] = useReducer(groupReducer, new Map())
+
+    const registerGroup = (id: string, visible: boolean): void => {
+        dispatch({ type: 'register', id, visible })
+    }
+
+    const unregisterGroup = (id: string): void => {
+        dispatch({ type: 'unregister', id })
+    }
+
+    const getVisibleGroupCount = (): number => {
+        return Array.from(groupVisibility.values()).filter(Boolean).length
+    }
 
     useImperativeHandle(ref, () => ({
         recalculateFocusableElements: () => listboxRef.current?.recalculateFocusableElements(),
@@ -45,25 +80,24 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
         listboxRef.current?.focusFirstItem()
     }, [searchValue])
 
-    const registerGroup = (id: string, visible: boolean): void => {
-        groupVisibility.current.set(id, visible)
-        forceUpdate((n) => n + 1)
-    }
-
-    const unregisterGroup = (id: string): void => {
-        groupVisibility.current.delete(id)
-        forceUpdate((n) => n + 1)
-    }
-
-    const getVisibleGroupCount = (): number => {
-        return Array.from(groupVisibility.current.values()).filter(Boolean).length
-    }
-
     return (
         <ComboboxContext.Provider
-            value={{ searchValue, setSearchValue, registerGroup, unregisterGroup, getVisibleGroupCount }}
+            value={{
+                searchValue,
+                setSearchValue,
+                registerGroup,
+                unregisterGroup,
+                getVisibleGroupCount,
+            }}
         >
-            <ListBox ref={listboxRef} className={className} {...props} virtualFocus>
+            <ListBox
+                ref={listboxRef}
+                className={className}
+                {...props}
+                virtualFocus
+                role="listbox"
+                id="combobox-listbox"
+            >
                 {children}
             </ListBox>
         </ComboboxContext.Provider>
@@ -120,9 +154,10 @@ const Group = ({ value, children }: GroupProps): JSX.Element | null => {
     const match = value.some((v) => v.toLowerCase().includes(lowerSearch))
 
     useEffect(() => {
-        context.registerGroup(idRef.current, match)
+        const id = idRef.current
+        context.registerGroup(id, match)
         return () => {
-            context.unregisterGroup(idRef.current)
+            context.unregisterGroup(id)
         }
     }, [match, context])
 
