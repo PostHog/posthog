@@ -1,8 +1,12 @@
 import json
+from datetime import UTC, datetime, timedelta
+from typing import Optional, cast
 from zoneinfo import ZoneInfo
-import posthoganalytics
-from posthog.constants import ExperimentNoResultsErrorKeys
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -13,33 +17,6 @@ from posthog.hogql_queries.experiments import (
     CONTROL_VARIANT_KEY,
     MULTIPLE_VARIANT_KEY,
 )
-from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
-    are_results_significant_v2_count,
-    calculate_credible_intervals_v2_count,
-    calculate_probabilities_v2_count,
-)
-from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
-    are_results_significant_v2_continuous,
-    calculate_credible_intervals_v2_continuous,
-    calculate_probabilities_v2_continuous,
-)
-from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
-    calculate_probabilities_v2 as calculate_probabilities_v2_funnel,
-    are_results_significant_v2 as are_results_significant_v2_funnel,
-    calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
-)
-
-from posthog.hogql_queries.experiments.utils import (
-    get_frequentist_experiment_result_new_format,
-    get_bayesian_experiment_result_new_format,
-    get_legacy_funnels_variant_results,
-    get_legacy_trends_variant_results,
-    get_new_variant_results,
-    split_baseline_and_test_variants,
-)
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 from posthog.hogql_queries.experiments.base_query_utils import (
     conversion_window_to_seconds,
     event_or_action_to_filter,
@@ -51,26 +28,53 @@ from posthog.hogql_queries.experiments.funnel_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
 )
-from rest_framework.exceptions import ValidationError
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    are_results_significant_v2 as are_results_significant_v2_funnel,
+)
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
+)
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    calculate_probabilities_v2 as calculate_probabilities_v2_funnel,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
+    are_results_significant_v2_continuous,
+    calculate_credible_intervals_v2_continuous,
+    calculate_probabilities_v2_continuous,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
+    calculate_probabilities_v2_count,
+)
+from posthog.hogql_queries.experiments.utils import (
+    get_bayesian_experiment_result_new_format,
+    get_frequentist_experiment_result_new_format,
+    get_legacy_funnels_variant_results,
+    get_legacy_trends_variant_results,
+    get_new_variant_results,
+    split_baseline_and_test_variants,
+)
+from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.experiment import Experiment
 from posthog.schema import (
     ActionsNode,
     CachedExperimentQueryResponse,
+    DateRange,
     EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
-    ExperimentQueryResponse,
-    ExperimentStatsBase,
-    ExperimentSignificanceCode,
     ExperimentQuery,
+    ExperimentQueryResponse,
+    ExperimentSignificanceCode,
+    ExperimentStatsBase,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
-    DateRange,
     IntervalType,
 )
-from typing import Optional, cast
-from datetime import datetime, timedelta, UTC
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -648,7 +652,7 @@ class ExperimentQueryRunner(QueryRunner):
         sorted_results = self._evaluate_experiment_query()
 
         # Check if we should use the new Bayesian method
-        if self._should_use_new_bayesian_method():
+        if self.stats_method == "bayesian" and self.stats_version >= 3:
             bayesian_variants = get_new_variant_results(sorted_results)
 
             self._validate_event_variants(bayesian_variants)
@@ -674,6 +678,7 @@ class ExperimentQueryRunner(QueryRunner):
                 test_variants=test_variants,
             )
 
+        # Legacy stats methods
         else:
             variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
             match self.metric:
@@ -806,35 +811,3 @@ class ExperimentQueryRunner(QueryRunner):
         if not last_refresh:
             return True
         return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)
-
-    def _should_use_new_bayesian_method(self) -> bool:
-        """
-        Check if we should use the new Bayesian method based on:
-        1. Feature flag "new-bayesian-method" is enabled
-        2. stats_version is 3 or higher
-        3. stats_method is "bayesian"
-        """
-        if self.stats_method != "bayesian":
-            return False
-
-        if self.stats_version < 3:
-            return False
-
-        return posthoganalytics.feature_enabled(
-            "new-bayesian-method",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
