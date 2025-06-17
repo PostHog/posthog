@@ -29,7 +29,7 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
     connect(() => ({
         values: [
             organizationLogic,
-            ['currentOrganization', 'currentOrganizationLoading'],
+            ['currentOrganization', 'currentOrganizationLoading', 'isAdminOrOwner'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -61,9 +61,17 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
     }),
     selectors(() => ({
         hasEnvironmentsRollbackFeature: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.ENVIRONMENTS_ROLLBACK]
+            (s) => [s.featureFlags, s.projectsWithEnvironments, organizationLogic.selectors.isAdminOrOwner],
+            (
+                featureFlags: FeatureFlagsSet,
+                projectsWithEnvironments: ProjectWithEnvironments[],
+                isAdminOrOwner: boolean | null
+            ): boolean => {
+                const hasFeatureFlags =
+                    !!featureFlags[FEATURE_FLAGS.ENVIRONMENTS_ROLLBACK] && !!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
+                const hasMultiEnvProjects = projectsWithEnvironments.length > 0
+
+                return hasFeatureFlags && hasMultiEnvProjects && !!isAdminOrOwner
             },
         ],
         // Get all projects with their environments
