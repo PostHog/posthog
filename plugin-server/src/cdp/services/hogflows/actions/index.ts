@@ -4,13 +4,16 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { Hub } from '~/types'
 
 import { HogFlowActionRunnerCondition } from './condition.action'
+import { HogFlowActionRunnerDelay } from './delay.action'
 import { HogFlowActionRunnerResult } from './types'
 
 export class HogFlowActionRunner {
     private hogFlowActionRunnerCondition: HogFlowActionRunnerCondition
+    private hogFlowActionRunnerDelay: HogFlowActionRunnerDelay
 
     constructor(private hub: Hub) {
         this.hogFlowActionRunnerCondition = new HogFlowActionRunnerCondition()
+        this.hogFlowActionRunnerDelay = new HogFlowActionRunnerDelay()
     }
 
     runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
@@ -37,6 +40,8 @@ export class HogFlowActionRunner {
         switch (action.type) {
             case 'conditional_branch':
                 return this.hogFlowActionRunnerCondition.run(invocation, action)
+            case 'delay':
+                return this.hogFlowActionRunnerDelay.run(invocation, action)
             default:
                 throw new Error(`Action type ${action.type} not supported`)
         }
