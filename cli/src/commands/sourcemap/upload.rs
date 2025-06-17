@@ -1,7 +1,7 @@
 use core::str;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Ok, Result};
+use anyhow::{bail, Context, Ok, Result};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -97,7 +97,7 @@ fn upload_chunks(
         }
 
         let upload_response =
-            request_presigned_url(&client, base_url, token, &upload.chunk_id, &release_id)?;
+            start_upload(&client, base_url, token, &upload.chunk_id, &release_id)?;
 
         let content_hash = content_hash([&upload.data]);
 
@@ -115,7 +115,7 @@ fn upload_chunks(
     Ok(())
 }
 
-fn request_presigned_url(
+fn start_upload(
     client: &Client,
     base_url: &str,
     auth_token: &str,
@@ -130,14 +130,14 @@ fn request_presigned_url(
     }
 
     let res = client
-        .get(&start_upload_url)
+        .post(&start_upload_url)
         .header("Authorization", format!("Bearer {}", auth_token))
         .query(&params)
         .send()
         .context(format!("While starting upload to {}", start_upload_url))?;
 
     if !res.status().is_success() {
-        return Err(anyhow!("Failed to start upload: {:?}", res));
+        bail!("Failed to start upload: {:?}", res);
     }
 
     let data: StartUploadResponseData = res.json()?;
@@ -152,7 +152,7 @@ fn upload_to_s3(client: &Client, presigned_url: String, data: Vec<u8>) -> Result
         .context(format!("While uploading chunk to {}", presigned_url))?;
 
     if !res.status().is_success() {
-        return Err(anyhow!("Failed to upload chunk: {:?}", res));
+        bail!("Failed to upload chunk: {:?}", res);
     }
 
     Ok(())
@@ -169,7 +169,7 @@ fn finish_upload(
     let request = FinishUploadRequest { content_hash };
 
     let res = client
-        .post(finish_upload_url)
+        .put(finish_upload_url)
         .header("Authorization", format!("Bearer {}", auth_token))
         .header("Content-Type", "application/json")
         .json(&request)
@@ -177,7 +177,7 @@ fn finish_upload(
         .context(format!("While finishing upload to {}", base_url))?;
 
     if !res.status().is_success() {
-        return Err(anyhow!("Failed to finish upload: {:?}", res));
+        bail!("Failed to finish upload: {:?}", res);
     }
 
     Ok(())

@@ -167,7 +167,7 @@ class TestErrorTracking(APIBaseTest):
 
     def test_can_start_symbol_set_upload(self) -> None:
         chunk_id = uuid7()
-        response = self.client.get(
+        response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/start_upload?chunk_id={chunk_id}"
         )
         response_json = response.json()
@@ -182,7 +182,7 @@ class TestErrorTracking(APIBaseTest):
             team=self.team, ref=uuid7(), storage_ptr=f"symbolsets/{uuid7()}"
         )
 
-        response = self.client.post(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.pk}/finish_upload",
             data={"content_hash": "this_is_a_content_hash"},
         )
@@ -197,7 +197,7 @@ class TestErrorTracking(APIBaseTest):
             team=self.team, ref=uuid7(), storage_ptr=f"symbolsets/{uuid7()}"
         )
 
-        response = self.client.post(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.pk}/finish_upload",
             data={"content_hash": "this_is_a_content_hash"},
         )
@@ -212,7 +212,7 @@ class TestErrorTracking(APIBaseTest):
             team=self.team, ref=uuid7(), storage_ptr=f"symbolsets/{uuid7()}"
         )
 
-        response = self.client.post(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.pk}/finish_upload",
             data={"content_hash": "this_is_a_content_hash"},
         )

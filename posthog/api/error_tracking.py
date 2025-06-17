@@ -494,7 +494,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["POST"], detail=False)
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)
@@ -520,7 +520,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
         )
 
-    @action(methods=["POST"], detail=True, parser_classes=[JSONParser])
+    @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
     def finish_upload(self, request, **kwargs):
         content_hash = request.data.get("content_hash")
 
