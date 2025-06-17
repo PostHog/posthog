@@ -1,35 +1,35 @@
-from __future__ import annotations
-
-import pytest
-
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
+import pytest
 from freezegun import freeze_time
-from asgiref.sync import sync_to_async
 from temporalio.client import Client
-from temporalio.common import RetryPolicy
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.insight import Insight
 from posthog.models.exported_asset import ExportedAsset
+from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     ScheduleAllSubscriptionsWorkflow,
     HandleSubscriptionValueChangeWorkflow,
-    deliver_subscription_report_activity,
-    fetch_due_subscriptions_activity,
     DeliverSubscriptionReportActivityInputs,
+    deliver_subscription_report_activity,
 )
+from posthog.warehouse.util import database_sync_to_async
 
 TASK_QUEUE = "TEST-SUBSCRIPTIONS-TQ"
 
 pytestmark = [pytest.mark.django_db]
+
+
+# ---------------------------------------------------------------------------
+# Test utils / fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -40,114 +40,234 @@ async def subscriptions_worker(temporal_client: Client):
         temporal_client,
         task_queue=TASK_QUEUE,
         workflows=[ScheduleAllSubscriptionsWorkflow, HandleSubscriptionValueChangeWorkflow],
-        activities=[deliver_subscription_report_activity, fetch_due_subscriptions_activity],
+        activities=[deliver_subscription_report_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         yield  # allow the test to run while the worker is active
 
 
-@pytest.mark.asyncio
-@freeze_time("2022-02-02T08:55:00.000Z")
+# ---------------------------------------------------------------------------
+# ScheduleAllSubscriptionsWorkflow tests
+# ---------------------------------------------------------------------------
+
+
+@patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
-async def test_schedule_all_subscriptions_workflow(
-    mock_generate_assets: MagicMock,
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_subscription_delivery_scheduling(
+    mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
+    mock_send_slack: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
     user,
 ):
-    """Workflow should deliver reports only for subscriptions due within buffer."""
+    """Workflow should schedule delivery only for subscriptions within the buffer window."""
 
-    # Basic dashboard/insight setup
-    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Dashboard", created_by=user)
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc123", name="Base insight")
-
-    # Create extra tiles to simulate heavy dashboards
-    for idx in range(3):
-        await sync_to_async(DashboardTile.objects.create)(
-            dashboard=dashboard,
-            insight=await sync_to_async(Insight.objects.create)(team=team, short_id=f"tile{idx}", name=f"tile {idx}"),
-        )
-
-    # Pretend asset generator returns 1 asset
-    asset = await sync_to_async(ExportedAsset.objects.create)(
+    dashboard = await database_sync_to_async(Dashboard.objects.create)(
+        team=team, name="private dashboard", created_by=user
+    )
+    insight = await database_sync_to_async(Insight.objects.create)(
+        team=team, short_id="123456", name="My Test subscription"
+    )
+    asset = await database_sync_to_async(ExportedAsset.objects.create)(
         team=team, insight_id=insight.id, export_format="image/png"
     )
-    mock_generate_assets.return_value = [insight], [asset]
 
-    await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake")
-    await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
+    # Heavy dashboard – create extra tiles
+    for i in range(10):
+        tile_insight = await database_sync_to_async(Insight.objects.create)(
+            team=team, short_id=f"{i}23456{i}", name=f"insight {i}"
+        )
+        await database_sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=tile_insight)
+
+    mock_gen_assets.return_value = [insight], [asset]
+
+    await database_sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
+    await database_sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
 
     with freeze_time("2022-02-02T08:30:00.000Z"):
-        subs_due = [
-            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
-            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
+        subscriptions = [
+            await database_sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
+            await database_sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
+            await database_sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user),
+            await database_sync_to_async(create_subscription)(
+                team=team,
+                dashboard=dashboard,
+                created_by=user,
+                deleted=True,
+            ),
         ]
-        # Not-due subscription scheduled 1h later
-        future_sub = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
-    # Push future_sub next delivery to 10:00 UTC so it's outside 15-min buffer
-    future_sub.start_date = datetime(2022, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC"))
-    await sync_to_async(future_sub.save)()
+    # Push one subscription outside buffer (+1h)
+    subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC"))
+    await database_sync_to_async(subscriptions[2].save)()
 
-    # Run workflow
+    # Run workflow with default 15-minute buffer
     wf_handle = await temporal_client.start_workflow(
         ScheduleAllSubscriptionsWorkflow.run,
-        # buffer 15 minutes
         ScheduleAllSubscriptionsWorkflow.inputs_cls()(buffer_minutes=15)
         if hasattr(ScheduleAllSubscriptionsWorkflow, "inputs_cls")
-        else ScheduleAllSubscriptionsWorkflow.__annotations__["inputs"](buffer_minutes=15),
+        else {"buffer_minutes": 15},
         id=str(uuid.uuid4()),
         task_queue=TASK_QUEUE,
-        retry_policy=RetryPolicy(maximum_attempts=1),
     )
     await wf_handle.result()
 
-    # Each subscription -> 2 recipients => 4 email calls expected
+    # Each subscription has 2 recipients -> 4 emails expected (only first two subs)
     assert mock_send_email.call_count == 4
-    delivered_ids = {args[0][1].id for args in mock_send_email.call_args_list[::2]}  # every other call same sub
-    assert delivered_ids == {sub.id for sub in subs_due}
+    delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list[::2]}
+    assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
-@pytest.mark.asyncio
+@patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
-async def test_handle_subscription_value_change_workflow(
-    mock_generate_assets: MagicMock,
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_does_not_schedule_subscription_if_item_is_deleted(
+    mock_gen_assets: MagicMock,
+    mock_send_email: MagicMock,
+    mock_send_slack: MagicMock,
+    temporal_client: Client,
+    subscriptions_worker,
+    team,
+    user,
+):
+    dashboard = await database_sync_to_async(Dashboard.objects.create)(
+        team=team, name="private dashboard", created_by=user
+    )
+    insight = await database_sync_to_async(Insight.objects.create)(
+        team=team, short_id="123456", name="My Test subscription"
+    )
+
+    await database_sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+
+    await database_sync_to_async(create_subscription)(
+        team=team,
+        dashboard=dashboard,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+
+    # Mark source items deleted
+    insight.deleted = True
+    dashboard.deleted = True
+    await database_sync_to_async(insight.save)()
+    await database_sync_to_async(dashboard.save)()
+
+    wf_handle = await temporal_client.start_workflow(
+        ScheduleAllSubscriptionsWorkflow.run,
+        {"buffer_minutes": 15},
+        id=str(uuid.uuid4()),
+        task_queue=TASK_QUEUE,
+    )
+    await wf_handle.result()
+
+    assert mock_send_email.call_count == 0 and mock_send_slack.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# HandleSubscriptionValueChangeWorkflow tests
+# ---------------------------------------------------------------------------
+
+
+@patch("ee.tasks.subscriptions.send_email_subscription_report")
+@patch("ee.tasks.subscriptions.generate_assets")
+@pytest.mark.asyncio
+async def test_handle_subscription_value_change_email(
+    mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
     user,
 ):
-    """Workflow should notify only new addresses when subscription target value changes."""
+    insight = await database_sync_to_async(Insight.objects.create)(team=team, short_id="xyz789", name="Insight")
+    asset = await database_sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
 
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="xyz789", name="Insight")
-    subscription = await sync_to_async(create_subscription)(
+    subscription = await database_sync_to_async(create_subscription)(
         team=team,
         insight=insight,
         created_by=user,
-        target_value="old@org.com,new@org.com",
+        target_value="test_existing@posthog.com,test_new@posthog.com",
     )
 
-    asset = await sync_to_async(ExportedAsset.objects.create)(
-        team=team, insight_id=insight.id, export_format="image/png"
-    )
-    mock_generate_assets.return_value = [insight], [asset]
+    mock_gen_assets.return_value = [insight], [asset]
 
     wf_handle = await temporal_client.start_workflow(
         HandleSubscriptionValueChangeWorkflow.run,
         DeliverSubscriptionReportActivityInputs(
             subscription_id=subscription.id,
-            previous_value="old@org.com",
-            invite_message="Hello",
+            previous_value="test_existing@posthog.com",
+            invite_message="My invite message",
         ),
         id=str(uuid.uuid4()),
         task_queue=TASK_QUEUE,
     )
     await wf_handle.result()
 
-    mock_send_email.assert_called_once()
-    assert mock_send_email.call_args[0][0] == "new@org.com"
+    # Only new address should be emailed
+    assert mock_send_email.call_count == 1
+    assert mock_send_email.call_args_list == [
+        call(
+            "test_new@posthog.com",
+            subscription,
+            [asset],
+            invite_message="My invite message",
+            total_asset_count=1,
+        )
+    ]
+
+
+@patch("ee.tasks.subscriptions.send_slack_subscription_report")
+@patch("ee.tasks.subscriptions.generate_assets")
+@pytest.mark.asyncio
+async def test_deliver_subscription_report_slack(
+    mock_gen_assets: MagicMock,
+    mock_send_slack: MagicMock,
+    temporal_client: Client,
+    subscriptions_worker,
+    team,
+    user,
+):
+    insight = await database_sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
+    asset = await database_sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
+
+    subscription = await database_sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+
+    mock_gen_assets.return_value = [insight], [asset]
+
+    # Easiest way to trigger delivery is via HandleSubscriptionValueChangeWorkflow with no previous_value
+    wf_handle = await temporal_client.start_workflow(
+        HandleSubscriptionValueChangeWorkflow.run,
+        DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
+        id=str(uuid.uuid4()),
+        task_queue=TASK_QUEUE,
+    )
+    await wf_handle.result()
+
+    assert mock_send_slack.call_count == 1
+    assert mock_send_slack.call_args_list == [
+        call(subscription, [asset], total_asset_count=1, is_new_subscription=False)
+    ]
