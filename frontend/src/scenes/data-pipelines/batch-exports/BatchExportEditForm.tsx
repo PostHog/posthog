@@ -29,7 +29,7 @@ export function BatchExportGeneralEditFields({
                         <LemonInput placeholder="Name your workflow for future reference" />
                     </LemonField>
                 )}
-                <div className="flex gap-2 items-start flex-wrap">
+                <div className="flex flex-wrap gap-2 items-start">
                     {(!isPipeline || batchExportConfigForm.end_at) && ( // Not present in the new UI unless grandfathered in
                         <LemonField
                             name="end_at"
@@ -59,14 +59,14 @@ export function BatchExportGeneralEditFields({
                         <LemonCheckbox
                             bordered
                             label={
-                                <span className="flex items-center gap-2">
+                                <span className="flex gap-2 items-center">
                                     Create in paused state
                                     <Tooltip
                                         title={
                                             "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
                                         }
                                     >
-                                        <IconInfo className=" text-lg text-secondary" />
+                                        <IconInfo className="text-lg text-secondary" />
                                     </Tooltip>
                                 </span>
                             }
@@ -87,7 +87,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="deprecated-space-y-4 max-w-200 mt-4">
+            <div className="mt-4 deprecated-space-y-4 max-w-200">
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">
@@ -233,7 +233,7 @@ export function BatchExportsEditFields({
                         >
                             <LemonCheckbox
                                 bordered
-                                label={<span className="flex items-center gap-2">Use virtual style addressing</span>}
+                                label={<span className="flex gap-2 items-center">Use virtual style addressing</span>}
                             />
                         </LemonField>
                     </>
@@ -333,10 +333,10 @@ export function BatchExportsEditFields({
                                 <LemonCheckbox
                                     bordered
                                     label={
-                                        <span className="flex items-center gap-2">
+                                        <span className="flex gap-2 items-center">
                                             Does your Postgres instance have a self-signed SSL certificate?
                                             <Tooltip title="In most cases, Heroku and RDS users should check this.">
-                                                <IconInfo className=" text-lg text-secondary" />
+                                                <IconInfo className="text-lg text-secondary" />
                                             </Tooltip>
                                         </span>
                                     }
@@ -404,10 +404,10 @@ export function BatchExportsEditFields({
                                 <LemonCheckbox
                                     bordered
                                     label={
-                                        <span className="flex items-center gap-2">
+                                        <span className="flex gap-2 items-center">
                                             Export 'properties', 'set', and 'set_once' fields as BigQuery JSON type
                                             <Tooltip title="If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.">
-                                                <IconInfo className=" text-lg text-secondary" />
+                                                <IconInfo className="text-lg text-secondary" />
                                             </Tooltip>
                                         </span>
                                     }

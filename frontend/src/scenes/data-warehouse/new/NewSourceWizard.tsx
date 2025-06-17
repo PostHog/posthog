@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
 
@@ -17,6 +18,11 @@ import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
+
+export const scene: SceneExport = {
+    component: NewSourceWizardScene,
+    logic: sourceWizardLogic,
+}
 
 export function NewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
