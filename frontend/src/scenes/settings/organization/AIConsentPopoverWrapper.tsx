@@ -1,5 +1,5 @@
 import { IconLock } from '@posthog/icons'
-import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Popover, PopoverProps, Tooltip, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -36,14 +36,12 @@ export function AIConsentPopoverWrapper({
                             )}: OpenAI for core analysis, Perplexity for fetching product information`}
                         >
                             <dfn>external AI services</dfn>
-                        </Tooltip>{' '}
-                        for data analysis,
-                        <br />
-                        so that you can focus on building. This <em>can</em> include
-                        <br />
-                        identifying data of your users, if you're capturing it.
-                        <br />
-                        <em>Your data won't be used for training models.</em>
+                        </Tooltip>
+                        , which can mean identifying data is shared with these services. We recommend{' '}
+                        <Link to="https://posthog.com/dpa" target="_blank" targetBlankIcon>
+                            signing a DPA
+                        </Link>{' '}
+                        if needed, but data is never used for training models.
                     </p>
                     <LemonButton
                         type="secondary"
