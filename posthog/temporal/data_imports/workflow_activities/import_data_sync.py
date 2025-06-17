@@ -465,10 +465,12 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
             salesforce_access_token = integration.access_token
 
-            if not salesforce_access_token:
-                salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token)
-
             salesforce_instance_url = integration.config.get("instance_url")
+
+            if not salesforce_access_token:
+                salesforce_access_token = salesforce_refresh_access_token(
+                    salesforce_refresh_token, salesforce_instance_url
+                )
 
             source = salesforce_source(
                 instance_url=salesforce_instance_url,
