@@ -228,8 +228,11 @@ jobs:
             - name: Archive queries with old versions
               shell: bash
               run: |
-                  pip install clickhouse_driver
-                  python bin/validate-query-versions.py | tee validation_output.txt
+                  echo ">>> installing clickhouse_driver"
+                  pip install --quiet clickhouse_driver
+                  echo ">>> running validator"
+                  python -u bin/validate-query-versions.py | tee validation_output.txt
+                  echo ">>> validator exit code: $?
 
     capture-run-time:
         name: Capture run time
