@@ -3645,195 +3645,6 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_person_property_overrides_bug_fix() -> Result<()> {
-    // This test verifies the bug fix where person property overrides
-    // were ignored if the flag didn't explicitly check for those properties.
-
-    let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "user_with_overrides".to_string();
-
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
-    let pg_client = setup_pg_reader_client(None).await;
-    let team = insert_new_team_in_redis(redis_client.clone())
-        .await
-        .unwrap();
-    let token = team.api_token;
-
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-
-    // Insert person with specific email property in the database
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "email": "user@example.com",
-            "plan": "free"
-        })),
-    )
-    .await
-    .unwrap();
-
-    // Create two flags: one that checks email property, one that doesn't
-    let flag_json = json!([
-        {
-            "id": 1,
-            "key": "email-flag",
-            "name": "Flag that checks email",
-            "active": true,
-            "deleted": false,
-            "team_id": team.id,
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "email",
-                                "value": "user@example.com",
-                                "operator": "exact",
-                                "type": "person"
-                            }
-                        ],
-                        "rollout_percentage": 100
-                    }
-                ],
-            },
-        },
-        {
-            "id": 2,
-            "key": "simple-flag",
-            "name": "Simple Flag",
-            "active": true,
-            "deleted": false,
-            "team_id": team.id,
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100
-                    }
-                ],
-            },
-        }
-    ]);
-
-    insert_flags_for_team_in_redis(
-        redis_client.clone(),
-        team.id,
-        team.project_id,
-        Some(flag_json.to_string()),
-    )
-    .await?;
-
-    let server = ServerHandle::for_config(config).await;
-
-    // Test the main bug fix: Override a property that the flag doesn't check
-    // Previously this would be ignored, now it should be available in the response
-    let payload = json!({
-        "token": token,
-        "distinct_id": distinct_id,
-        "person_properties": {
-            "$feature_enrollment/discussions": false,  // This was the specific example from the bug report
-            "age": 35                                   // Another override that flags don't check
-        }
-    });
-
-    let res = server
-        .send_flags_request(payload.to_string(), Some("2"), None)
-        .await;
-
-    if res.status() != StatusCode::OK {
-        let status = res.status();
-        let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
-    }
-
-    let json_data = res.json::<Value>().await?;
-
-    // Both flags should evaluate correctly
-    // The email-flag should match because the person has the correct email from the database
-    // The simple-flag should match because it has no conditions
-    assert_json_include!(
-        actual: json_data,
-        expected: json!({
-            "errorsWhileComputingFlags": false,
-            "flags": {
-                "email-flag": {
-                    "key": "email-flag",
-                    "enabled": true,
-                    "reason": {
-                        "code": "condition_match",
-                        "condition_index": 0
-                    }
-                },
-                "simple-flag": {
-                    "key": "simple-flag",
-                    "enabled": true,
-                    "reason": {
-                        "code": "condition_match",
-                        "condition_index": 0
-                    }
-                }
-            }
-        })
-    );
-
-    // Now test the core bug fix: send overrides that DON'T match what the flags check for
-    // With our fix, the system should still work correctly by merging overrides with cached properties
-    let payload_with_overrides = json!({
-        "token": token,
-        "distinct_id": distinct_id,
-        "person_properties": {
-            "email": "different@example.com",  // Override email to something that doesn't match the flag condition
-            "$feature_enrollment/discussions": false,  // Override a property that no flag checks for (this was the original bug)
-            "age": 25
-        }
-    });
-
-    let res_override = server
-        .send_flags_request(payload_with_overrides.to_string(), Some("2"), None)
-        .await;
-
-    if res_override.status() != StatusCode::OK {
-        let status = res_override.status();
-        let text = res_override.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
-    }
-
-    let json_override = res_override.json::<Value>().await?;
-
-    // With email override, email-flag should now be false (doesn't match condition)
-    // simple-flag should still be true (no conditions)
-    assert_json_include!(
-        actual: json_override,
-        expected: json!({
-            "errorsWhileComputingFlags": false,
-            "flags": {
-                "email-flag": {
-                    "key": "email-flag",
-                    "enabled": false
-                },
-                "simple-flag": {
-                    "key": "simple-flag",
-                    "enabled": true,
-                    "reason": {
-                        "code": "condition_match",
-                        "condition_index": 0
-                    }
-                }
-            }
-        })
-    );
-
-    // This verifies the bug fix: overrides like $feature_enrollment/discussions are properly
-    // merged with cached properties during evaluation, and don't break the system.
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     // This test specifically addresses the bug where super condition property overrides
     // were ignored when evaluating flags. The bug was that if you sent:
@@ -4315,6 +4126,197 @@ async fn test_property_override_bug_complex_scenario() -> Result<()> {
 
     // This test demonstrates the core bug: when you override SOME but not ALL properties
     // that a flag checks, the current logic ignores ALL overrides and falls back to DB only.
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_super_condition_with_cohort_filters() -> Result<()> {
+    // This test specifically addresses the scenario you described:
+    // A flag that has BOTH super condition properties AND cohort filters.
+    // The bug was that super condition evaluation would fail because it looked at ALL flag properties
+    // (including cohort filters) when deciding if it could use overrides, instead of just
+    // checking the super condition properties.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "super_condition_cohort_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with the super condition property
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "$feature_enrollment/discussions": false,  // Super condition property in DB
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create a flag that matches your production example:
+    // - Has a super condition that checks "$feature_enrollment/discussions"
+    // - Has a regular condition with a cohort filter
+    let flag_json = json!([{
+        "id": 1,
+        "key": "discussions-with-cohort",
+        "name": "Discussions with Cohort Filter",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "variant": null,
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": 98  // Cohort filter that requires DB lookup
+                }],
+                "rollout_percentage": 100
+            }],
+            "payloads": {},
+            "multivariate": null,
+            "super_groups": [{
+                "properties": [{
+                    "key": "$feature_enrollment/discussions",
+                    "type": "person",
+                    "value": ["true"],
+                    "operator": "exact"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test WITHOUT overrides first - should evaluate super condition using DB value (false)
+    let payload_no_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload_no_override.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    // Should be disabled because DB has $feature_enrollment/discussions = false
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-with-cohort": {
+                    "key": "discussions-with-cohort",
+                    "enabled": false
+                }
+            }
+        })
+    );
+
+    // Now test WITH override - this is the key scenario that was broken
+    // We override the super condition property to true, but the flag also has cohort filters
+    // Before the fix: super condition evaluation would see the cohort filter and fall back to DB
+    // After the fix: super condition evaluation only looks at super condition properties
+    let payload_with_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": true  // Override super condition property to true
+        }
+    });
+
+    let res_override = server
+        .send_flags_request(payload_with_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_override.status() != StatusCode::OK {
+        let status = res_override.status();
+        let text = res_override.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_override = res_override.json::<Value>().await?;
+
+    // This is the key test: the flag should now be enabled because:
+    // 1. Super condition can be evaluated from override (discussions = true)
+    // 2. Super condition matches, so we return early with super_condition_value
+    // 3. We don't even need to evaluate the cohort filter in the regular condition
+    assert_json_include!(
+        actual: json_override,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-with-cohort": {
+                    "key": "discussions-with-cohort",
+                    "enabled": true,
+                    "reason": {
+                        "code": "super_condition_value"
+                    }
+                }
+            }
+        })
+    );
+
+    // Test the reverse: override to false
+    let payload_false_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": false  // Override to false
+        }
+    });
+
+    let res_false = server
+        .send_flags_request(payload_false_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_false.status() != StatusCode::OK {
+        let status = res_false.status();
+        let text = res_false.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_false = res_false.json::<Value>().await?;
+
+    // Should be disabled because super condition doesn't match
+    assert_json_include!(
+        actual: json_false,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-with-cohort": {
+                    "key": "discussions-with-cohort",
+                    "enabled": false
+                }
+            }
+        })
+    );
 
     Ok(())
 }

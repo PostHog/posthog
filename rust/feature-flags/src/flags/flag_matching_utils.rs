@@ -229,19 +229,57 @@ pub fn locally_computable_property_overrides(
     property_overrides: &Option<HashMap<String, Value>>,
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
-    property_overrides.as_ref().and_then(|overrides| {
-        // Check if any property filters involve cohorts - if so, we can't compute those locally
-        let has_cohort_filters = property_filters
-            .iter()
-            .any(|prop| prop.prop_type == PropertyType::Cohort);
+    let overrides = property_overrides.as_ref()?;
 
-        if has_cohort_filters {
-            None // Can't compute cohort properties locally, need DB lookup
-        } else {
-            // Return all non-cohort overrides - the caller will merge with cached properties
-            Some(overrides.clone())
-        }
-    })
+    // Early return if flag has cohort filters - these require DB lookup
+    if has_cohort_filters(property_filters) {
+        return None;
+    }
+
+    // Filter out metadata that isn't a real property override
+    let real_overrides = extract_real_property_overrides(overrides);
+    if real_overrides.is_empty() {
+        return None;
+    }
+
+    // Only return overrides if they're useful for this flag
+    if are_overrides_useful_for_flag(&real_overrides, property_filters) {
+        Some(real_overrides)
+    } else {
+        None
+    }
+}
+
+/// Checks if any property filters involve cohorts that require database lookup
+fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
+    property_filters
+        .iter()
+        .any(|prop| prop.prop_type == PropertyType::Cohort)
+}
+
+/// Extracts real property overrides, filtering out metadata like $group_key
+fn extract_real_property_overrides(overrides: &HashMap<String, Value>) -> HashMap<String, Value> {
+    overrides
+        .iter()
+        .filter(|(key, _)| *key != "$group_key")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
+/// Determines if the provided overrides contain properties that the flag actually needs
+fn are_overrides_useful_for_flag(
+    overrides: &HashMap<String, Value>,
+    property_filters: &[PropertyFilter],
+) -> bool {
+    // If flag doesn't need any properties, overrides aren't useful
+    if property_filters.is_empty() {
+        return false;
+    }
+
+    // Check if overrides contain at least one property the flag needs
+    property_filters
+        .iter()
+        .any(|filter| overrides.contains_key(&filter.key))
 }
 
 /// Check if all properties match the given filters
@@ -691,12 +729,12 @@ mod tests {
             locally_computable_property_overrides(&overrides, &property_filters_with_cohort);
         assert!(result.is_none());
 
-        // Test case 3: Empty property filters - should return overrides
+        // Test case 3: Empty property filters - should return None (no properties needed)
         let empty_filters = vec![];
         let result = locally_computable_property_overrides(&overrides, &empty_filters);
-        assert!(result.is_some());
+        assert!(result.is_none());
 
-        // Test case 4: Overrides contain some but not all properties from filters - should return all overrides
+        // Test case 4: Overrides contain some but not all properties from filters - should return None (no complete overlap)
         let property_filters_extra = vec![
             PropertyFilter {
                 key: "email".to_string(),
@@ -717,7 +755,7 @@ mod tests {
         ];
 
         let result = locally_computable_property_overrides(&overrides, &property_filters_extra);
-        assert!(result.is_some()); // Should return all overrides
+        assert!(result.is_some()); // Should return overrides because there's partial overlap (email)
         let returned_overrides = result.unwrap();
         assert!(returned_overrides.contains_key("email")); // email should be included
         assert!(returned_overrides.contains_key("age")); // age should also be included (all overrides returned)
@@ -782,22 +820,21 @@ mod tests {
         // Person property overrides contain only age, not email
         let person_property_overrides = Some(HashMap::from([("age".to_string(), json!(35))]));
 
-        // This should return the overrides even though they don't contain all required properties (email)
-        // The new behavior returns all non-cohort overrides and lets merging happen in get_person_properties
+        // With the new targeted behavior, this should return None because overrides
+        // don't contain any properties that the flag needs (flag needs email, overrides have age)
         let result = locally_computable_property_overrides(
             &person_property_overrides,
             &flag_property_filters,
         );
         assert!(
-            result.is_some(),
-            "Should return overrides and let merging happen in get_person_properties"
+            result.is_none(),
+            "Should return None because overrides don't contain properties the flag needs"
         );
 
         // Since we returned None, the system will fall back to DB evaluation
-        // where it will fetch the person's email from the database and merge it with overrides
-
-        // Note: The merging with cached properties happens in get_person_properties,
-        // not in locally_computable_property_overrides
+        // where it will fetch the person's email from the database. The age override
+        // will not be considered for this flag since it doesn't need the age property.
+        // This is the new targeted behavior that ensures flags only use relevant overrides.
     }
 
     #[rstest]
