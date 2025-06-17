@@ -82,6 +82,7 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
+    HogFunctionFiltersType,
     HogFunctionIconResponse,
     HogFunctionKind,
     HogFunctionStatus,
@@ -148,6 +149,7 @@ import {
     UserType,
 } from '~/types'
 
+import { MaxContextShape } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingStackFrame,
@@ -1010,8 +1012,15 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id)
     }
 
-    public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
+    public integrationSlackChannels(
+        id: IntegrationType['id'],
+        forceRefresh: boolean,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('channels')
+            .withQueryString({ force_refresh: forceRefresh })
     }
 
     public integrationSlackChannelsById(
@@ -2310,12 +2319,12 @@ const api = {
     },
     hogFunctions: {
         async list({
-            filters,
+            filter_groups,
             types,
             kinds,
             excludeKinds,
         }: {
-            filters?: any
+            filter_groups?: HogFunctionFiltersType[]
             types?: HogFunctionTypeType[]
             kinds?: HogFunctionKind[]
             excludeKinds?: HogFunctionKind[]
@@ -2323,7 +2332,7 @@ const api = {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters,
+                    filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
                     ...(kinds ? { kind: kinds.join(',') } : {}),
@@ -3280,8 +3289,11 @@ const api = {
         authorizeUrl(params: { kind: string; next?: string }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
-        async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
-            return await new ApiRequest().integrationSlackChannels(id).get()
+        async slackChannels(
+            id: IntegrationType['id'],
+            forceRefresh: boolean
+        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string }> {
+            return await new ApiRequest().integrationSlackChannels(id, forceRefresh).get()
         },
         async slackChannelsById(
             id: IntegrationType['id'],
@@ -3498,6 +3510,7 @@ const api = {
             data: {
                 content: string
                 contextual_tools?: Record<string, any>
+                ui_context?: MaxContextShape
                 conversation?: string | null
                 trace_id: string
             },

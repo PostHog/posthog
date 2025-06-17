@@ -523,7 +523,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 if isinstance(breakdown_alias.get("histogram_bin_count"), int)
             ]
 
-            query.select.extend(
+            assert query.select_from is not None and isinstance(query.select_from.table, ast.SelectQuery)
+            query.select_from.table.select.extend(
                 [
                     # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
                     # If cardinality is high it'd blow up memory

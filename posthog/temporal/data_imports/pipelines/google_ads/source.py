@@ -198,14 +198,14 @@ def get_incremental_fields():
     return d
 
 
-class BigQueryTable(Table[GoogleAdsColumn]):
+class GoogleAdsTable(Table[GoogleAdsColumn]):
     def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
         self.requires_filter = requires_filter
         self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
         super().__init__(*args, **kwargs)
 
 
-TableSchemas = dict[str, BigQueryTable]
+TableSchemas = dict[str, GoogleAdsTable]
 
 
 def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
@@ -255,7 +255,7 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
                 )
             )
 
-        table = BigQueryTable(
+        table = GoogleAdsTable(
             name=resource_name,
             alias=table_alias,
             requires_filter=requires_filter,
@@ -322,6 +322,11 @@ def google_ads_source(
         name=name,
         items=get_rows(),
         primary_keys=table.primary_key,
+        partition_count=1 if table.requires_filter else None,  # this enables partitioning
+        partition_size=1 if table.requires_filter else None,  # this enables partitioning
+        partition_mode="datetime" if table.requires_filter else None,
+        partition_format="day" if table.requires_filter else None,
+        partition_keys=["segments_date"] if table.requires_filter else None,
     )
 
 

@@ -3,6 +3,7 @@ use thiserror::Error;
 
 // TBH this is probably need to be broken up somehow
 #[derive(Debug, Error, Clone)]
+#[non_exhaustive]
 pub enum VmError {
     #[error("Expected operation, got {0:?}")]
     NotAnOperation(Value),
