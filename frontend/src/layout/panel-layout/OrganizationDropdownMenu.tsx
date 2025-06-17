@@ -88,6 +88,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                             tooltip={`Current organization: ${currentOrganization.name}`}
                                             tooltipPlacement="right"
                                             data-attr="tree-navbar-organization-dropdown-current-organization-button"
+                                            disabled
                                         >
                                             <UploadedLogo
                                                 size="xsmall"

@@ -72,7 +72,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                             <Combobox.Empty>No projects found</Combobox.Empty>
 
                             <Combobox.Group value={[currentTeam.name]}>
-                                <ButtonGroupPrimitive fullWidth disabled>
+                                <ButtonGroupPrimitive fullWidth>
                                     <Combobox.Item asChild>
                                         <ButtonPrimitive
                                             menuItem
