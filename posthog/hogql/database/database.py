@@ -405,6 +405,7 @@ def create_hogql_database(
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
         database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+        poe = cast(VirtualTable, database.events.fields["poe"])
 
         if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
             # no change
@@ -418,7 +419,7 @@ def create_hogql_database(
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             _use_person_id_from_person_overrides(database)
             _use_person_properties_from_events(database)
-            cast(VirtualTable, database.events.fields["poe"]).fields["id"] = database.events.fields["person_id"]
+            poe.fields["id"] = database.events.fields["person_id"]
 
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
             _use_person_id_from_person_overrides(database)
@@ -462,11 +463,22 @@ def create_hogql_database(
 
     with timings.measure("initial_domain_type"):
         database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            "$virt_initial_referring_domain_type", timings=timings
+            name="$virt_initial_referring_domain_type", timings=timings
+        )
+        poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
+            name="$virt_initial_referring_domain_type",
+            timings=timings,
+            properties_path=["poe", "properties"],
         )
     with timings.measure("initial_channel_type"):
         database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            "$virt_initial_channel_type", modifiers.customChannelTypeRules, timings=timings
+            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
+        )
+        poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
+            name="$virt_initial_channel_type",
+            custom_rules=modifiers.customChannelTypeRules,
+            timings=timings,
+            properties_path=["poe", "properties"],
         )
 
     with timings.measure("group_type_mapping"):

@@ -1,11 +1,19 @@
 from dataclasses import dataclass
 from typing import Any, Optional
+from enum import Enum
 
-from .statistics import AnyStatistic, StatisticError, DifferenceType, TestType
+from ..shared.statistics import AnyStatistic, StatisticError
+from ..shared.enums import DifferenceType
 from .tests import (
     TestResult,
     TwoSidedTTest,
 )
+
+
+class TestType(Enum):
+    """Available test types."""
+
+    TWO_SIDED = "two_sided"
 
 
 @dataclass

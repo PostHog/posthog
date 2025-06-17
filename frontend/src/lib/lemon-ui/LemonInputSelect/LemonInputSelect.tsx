@@ -33,12 +33,13 @@ export type LemonInputSelectProps = Pick<
 > & {
     options?: LemonInputSelectOption[]
     value?: string[] | null
+    limit?: number // Limit the number of options to show
     disabled?: boolean
     loading?: boolean
     placeholder?: string
-    /** Title shown at the top of the list. Looks the same as section titles in LemonMenu. */
-    title?: string
+    title?: string // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
     disableFiltering?: boolean
+    disablePrompting?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
     emptyStateComponent?: React.ReactNode
@@ -61,6 +62,7 @@ export function LemonInputSelect({
     title,
     options = [],
     value,
+    limit = Number.POSITIVE_INFINITY,
     loading,
     emptyStateComponent,
     onChange,
@@ -70,6 +72,7 @@ export function LemonInputSelect({
     mode,
     disabled,
     disableFiltering = false,
+    disablePrompting = false,
     allowCustomValues = false,
     autoFocus = false,
     className,
@@ -386,6 +389,8 @@ export function LemonInputSelect({
         )
     }, [displayMode, mode, inputValue, loading, values.length, options.length])
 
+    const wasLimitReached = values.length >= limit
+
     return (
         <LemonDropdown
             matchWidth
@@ -468,6 +473,7 @@ export function LemonInputSelect({
                         visibleOptions.map((option, index) => {
                             const isFocused = index === selectedIndex
                             const isSelected = values.includes(option.key)
+                            const isDisabled = wasLimitReached && !isSelected
                             return (
                                 <LemonButton
                                     key={option.key}
@@ -475,8 +481,9 @@ export function LemonInputSelect({
                                     size="small"
                                     fullWidth
                                     active={isFocused}
-                                    onClick={(e) => _onActionItem(option.key, e)}
+                                    onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
                                     onMouseEnter={() => setSelectedIndex(index)}
+                                    disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
                                     icon={
                                         mode === 'multiple' && !option.__isInput ? (
                                             // No pointer events, since it's only for visual feedback
@@ -550,6 +557,8 @@ export function LemonInputSelect({
                         ? allOptionsMap.get(values[0])?.label ?? values[0]
                         : allowCustomValues
                         ? 'Add value'
+                        : disablePrompting
+                        ? undefined
                         : 'Pick value'
                 }
                 autoWidth={autoWidth}
@@ -608,9 +617,15 @@ function ValueSnacks({
                         key={value}
                         title={
                             <>
-                                Click on the text to edit.
-                                <br />
-                                Click on the X to remove.
+                                <span>
+                                    {onInitiateEdit && (
+                                        <>
+                                            Click on the text to edit.
+                                            <br />
+                                        </>
+                                    )}
+                                </span>
+                                <span>Click on the X to remove.</span>
                             </>
                         }
                     >
