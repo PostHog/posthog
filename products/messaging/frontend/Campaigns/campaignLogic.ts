@@ -17,8 +17,36 @@ export interface CampaignLogicProps {
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
     name: '',
-    edges: [],
-    actions: [],
+    edges: [
+        {
+            type: 'continue',
+            from: 'trigger_node',
+            to: 'exit_node',
+            index: 0,
+        },
+    ],
+    actions: [
+        {
+            id: 'trigger_node',
+            type: 'trigger',
+            description: '',
+            config: {
+                inputs: {},
+            },
+            created_at: 0,
+            updated_at: 0,
+        },
+        {
+            id: 'exit_node',
+            type: 'exit',
+            description: '',
+            config: {
+                inputs: {},
+            },
+            created_at: 0,
+            updated_at: 0,
+        },
+    ],
     trigger: { type: 'event' },
     trigger_masking: { ttl: 0, hash: '', threshold: 0 },
     conversion: { window_minutes: 0, filters: [] },
