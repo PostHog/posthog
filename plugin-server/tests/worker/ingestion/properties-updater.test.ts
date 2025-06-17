@@ -45,7 +45,7 @@ describe('properties-updater', () => {
 
     describe('upsertGroup()', () => {
         async function upsert(properties: Properties, timestamp: DateTime) {
-            await groupStore.upsertGroup(team.id, team.project_id, 0, 'group_key', properties, timestamp, true)
+            await groupStore.upsertGroup(team.id, team.project_id, 0, 'group_key', properties, timestamp)
         }
 
         async function fetchGroup(): Promise<Group> {

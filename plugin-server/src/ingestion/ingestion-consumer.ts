@@ -154,7 +154,6 @@ export class IngestionConsumer {
         this.personStoreManager = new PersonStoreManager(this.hub, measuringPersonStore, batchWritingPersonStore)
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
-            batchWritingEnabled: this.hub.GROUP_BATCH_WRITING_ENABLED,
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
