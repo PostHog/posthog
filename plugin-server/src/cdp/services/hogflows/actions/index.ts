@@ -26,15 +26,14 @@ export class HogFlowActionRunner {
         this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
     }
 
-    private findNextActionToRun(_invocation: CyclotronJobInvocationHogFlow): string | undefined {
+    private findNextActionToRun(_invocation: CyclotronJobInvocationHogFlow): HogFlowAction | undefined {
         // Finds the next action to be run
-
         // TODO: Implement this!
 
         // Hack for now returns the exit action if it exists
         const exitAction = _invocation.hogFlow.actions.find((action) => action.type === 'exit')
         if (exitAction) {
-            return exitAction.id
+            return exitAction
         }
 
         return undefined
@@ -83,7 +82,7 @@ export class HogFlowActionRunner {
             }
 
             invocation.state.currentAction = {
-                id: nextAction,
+                id: nextAction.id,
                 startedAtTimestamp: DateTime.now().toMillis(),
             }
         }
@@ -154,9 +153,9 @@ export class HogFlowActionRunner {
 
         // TODO: If the result is finished and no goToActionId is provided, we need to automatically find the next action to run
 
-        if (result.finished && !result.goToActionId && result.action.type !== 'exit') {
+        if (result.finished && !result.goToAction && result.action.type !== 'exit') {
             // TODO: Find the next action to run
-            result.goToActionId = this.findNextActionToRun(invocation)
+            result.goToAction = this.findNextActionToRun(invocation)
         }
 
         return Promise.resolve(result)

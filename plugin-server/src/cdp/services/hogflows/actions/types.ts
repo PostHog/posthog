@@ -8,5 +8,5 @@ export type HogFlowActionRunnerResult = {
     error?: unknown
     finished: boolean
     scheduledAt?: DateTime
-    goToActionId?: string
+    goToAction?: HogFlowAction
 }

@@ -79,7 +79,13 @@ describe('Hogflow Executor', () => {
                     queuePriority: 0,
                 },
                 finished: true,
-                logs: [],
+                logs: [
+                    {
+                        level: 'info',
+                        timestamp: expect.any(DateTime),
+                        message: `Workflow completed`,
+                    },
+                ],
                 metrics: [
                     {
                         team_id: hogFlow.team_id,
