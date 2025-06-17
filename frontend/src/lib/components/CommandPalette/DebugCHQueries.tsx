@@ -468,7 +468,7 @@ function ProfilingStats({ item }: { item: Query }): JSX.Element | null {
     const [areAllStatsShown, setAreAllStatsShown] = useState(false)
     const event = item['profile_events']
     if (!event) {
-        return
+        return null
     }
     return (
         <div>
