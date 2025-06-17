@@ -19,6 +19,7 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     HandleSubscriptionValueChangeWorkflow,
     DeliverSubscriptionReportActivityInputs,
     deliver_subscription_report_activity,
+    ScheduleAllSubscriptionsWorkflowInputs,
 )
 from posthog.warehouse.util import database_sync_to_async
 
@@ -109,9 +110,7 @@ async def test_subscription_delivery_scheduling(
     # Run workflow with default 15-minute buffer
     wf_handle = await temporal_client.start_workflow(
         ScheduleAllSubscriptionsWorkflow.run,
-        ScheduleAllSubscriptionsWorkflow.inputs_cls()(buffer_minutes=15)
-        if hasattr(ScheduleAllSubscriptionsWorkflow, "inputs_cls")
-        else {"buffer_minutes": 15},
+        ScheduleAllSubscriptionsWorkflowInputs(),
         id=str(uuid.uuid4()),
         task_queue=TASK_QUEUE,
     )
@@ -168,7 +167,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 
     wf_handle = await temporal_client.start_workflow(
         ScheduleAllSubscriptionsWorkflow.run,
-        {"buffer_minutes": 15},
+        ScheduleAllSubscriptionsWorkflowInputs(),
         id=str(uuid.uuid4()),
         task_queue=TASK_QUEUE,
     )
