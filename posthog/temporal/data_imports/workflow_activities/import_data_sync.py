@@ -125,14 +125,14 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
-            from posthog.temporal.data_imports.pipelines.stripe import stripe_source_v2
+            from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 
             stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
             account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
             if not stripe_secret_key:
                 raise ValueError(f"Stripe secret key not found for job {model.id}")
 
-            source = stripe_source_v2(
+            source = stripe_source(
                 api_key=stripe_secret_key,
                 account_id=account_id,
                 endpoint=schema.name,
