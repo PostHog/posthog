@@ -259,8 +259,8 @@ class Command(BaseCommand):
             )
 
             should_stop = False
-            for action in experiment_config.variants[variant].actions:
-                for _ in range(action.count):
+            for i, action in enumerate(experiment_config.variants[variant].actions):
+                for j in range(action.count):
                     if random.random() < action.probability:
                         # Prepare properties dictionary
                         properties: dict[str, Any] = {
@@ -281,7 +281,7 @@ class Command(BaseCommand):
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event=action.event,
-                            timestamp=random_timestamp + timedelta(minutes=1),
+                            timestamp=random_timestamp + timedelta(minutes=1 + i + j),
                             properties=properties,
                         )
                     else:
