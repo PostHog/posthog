@@ -86,7 +86,7 @@ export class BatchWritingPersonsStore implements PersonsStore {
 export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, BatchWritingStore {
     private personCheckCache: Map<string, InternalPerson | null>
     private personUpdateCache: Map<string, PersonUpdate | null>
-    private fetchPromisesForUpdate: Map<string, Promise<PersonUpdate | null>>
+    private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
     private fetchPromisesForChecking: Map<string, Promise<InternalPerson | null>>
     private methodCountsPerDistinctId: Map<string, Map<MethodName, number>>
     private databaseOperationCountsPerDistinctId: Map<string, Map<MethodName, number>>
@@ -251,7 +251,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                     if (person !== undefined) {
                         const personUpdate = fromInternalPerson(person, distinctId)
                         this.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
-                        return personUpdate
+                        return person
                     } else {
                         this.setCachedPersonForUpdate(teamId, distinctId, null)
                         return null
