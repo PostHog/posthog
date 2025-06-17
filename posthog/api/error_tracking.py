@@ -752,7 +752,9 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-def create_symbol_set(chunk_id: str, team: Team, release_id: str, storage_ptr: str, content_hash: Optional[str] = None):
+def create_symbol_set(
+    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: Optional[str] = None
+):
     if release_id:
         objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
         if len(objects) < 1:
