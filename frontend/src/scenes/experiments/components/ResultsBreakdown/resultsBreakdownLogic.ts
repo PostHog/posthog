@@ -105,9 +105,9 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         funnelsFilter: {
                             layout: FunnelLayout.vertical,
                             breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                            funnelOrderType: isExperimentFunnelMetric(metric)
-                                ? metric.funnel_order_type || StepOrderValue.ORDERED
-                                : StepOrderValue.ORDERED,
+                            funnelOrderType:
+                                (isExperimentFunnelMetric(metric) && metric.funnel_order_type) ||
+                                StepOrderValue.ORDERED,
                             funnelStepReference: FunnelStepReference.total,
                             funnelVizType: FunnelVizType.Steps,
                             funnelWindowInterval: 14,
