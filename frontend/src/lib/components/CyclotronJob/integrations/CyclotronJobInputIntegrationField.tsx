@@ -12,22 +12,23 @@ import {
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
-import { HogFunctionInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+import { CyclotronJobInputConfiguration } from '../types'
 
-export type HogFunctionInputIntegrationFieldProps = {
-    schema: HogFunctionInputSchemaType
+export type CyclotronJobInputIntegrationFieldProps = {
+    schema: CyclotronJobInputSchemaType
     value?: any
     onChange?: (value: any) => void
+    configuration: CyclotronJobInputConfiguration
 }
 
-export function HogFunctionInputIntegrationField({
+export function CyclotronJobInputIntegrationField({
     schema,
     value,
     onChange,
-}: HogFunctionInputIntegrationFieldProps): JSX.Element {
-    const { configuration } = useValues(hogFunctionConfigurationLogic)
+    configuration,
+}: CyclotronJobInputIntegrationFieldProps): JSX.Element {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
 
     if (integrationsLoading) {
@@ -63,7 +64,7 @@ export function HogFunctionInputIntegrationField({
         requiresFieldValue = requiresField?.value
         if (!requiresFieldValue) {
             return (
-                <div className="border border-dashed h-10 rounded p-2 text-secondary italic">
+                <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
                     Configure {requiresFieldSchema.label} to continue
                 </div>
             )
@@ -71,7 +72,7 @@ export function HogFunctionInputIntegrationField({
     }
     if (!integration) {
         return (
-            <div className="border border-dashed h-10 rounded p-2 text-secondary italic">
+            <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
                 Configure {relatedSchemaIntegration.label} to continue
             </div>
         )
