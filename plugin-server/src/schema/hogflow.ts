@@ -11,6 +11,7 @@ const _commonActionFields = {
 }
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
+    // Trigger
     z.object({
         ..._commonActionFields,
         type: z.literal('trigger'),
@@ -18,6 +19,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             filters: z.any(),
         }),
     }),
+    // Branching
     z.object({
         ..._commonActionFields,
         type: z.literal('conditional_branch'),
@@ -31,6 +33,20 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             delay_duration: z.string().optional(),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('random_cohort_branch'),
+        config: z.object({
+            cohorts: z.array(
+                z.object({
+                    percentage: z.number(),
+                    on_match: z.string(), // TODO: Can we type this more directly to an edge?
+                })
+            ),
+        }),
+    }),
+
+    // Time based
     z.object({
         ..._commonActionFields,
         type: z.literal('delay'),
