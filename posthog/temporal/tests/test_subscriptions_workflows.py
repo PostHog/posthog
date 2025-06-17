@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
+from asgiref.sync import sync_to_async
 from temporalio.client import Client
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
@@ -60,34 +61,36 @@ async def test_schedule_all_subscriptions_workflow(
     """Workflow should deliver reports only for subscriptions due within buffer."""
 
     # Basic dashboard/insight setup
-    dashboard = Dashboard.objects.create(team=team, name="Dashboard", created_by=user)
-    insight = Insight.objects.create(team=team, short_id="abc123", name="Base insight")
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Dashboard", created_by=user)
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc123", name="Base insight")
 
     # Create extra tiles to simulate heavy dashboards
     for idx in range(3):
-        DashboardTile.objects.create(
+        await sync_to_async(DashboardTile.objects.create)(
             dashboard=dashboard,
-            insight=Insight.objects.create(team=team, short_id=f"tile{idx}", name=f"tile {idx}"),
+            insight=await sync_to_async(Insight.objects.create)(team=team, short_id=f"tile{idx}", name=f"tile {idx}"),
         )
 
     # Pretend asset generator returns 1 asset
-    asset = ExportedAsset.objects.create(team=team, insight_id=insight.id, export_format="image/png")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
     mock_generate_assets.return_value = [insight], [asset]
 
-    set_instance_setting("EMAIL_HOST", "fake")
-    set_instance_setting("EMAIL_ENABLED", True)
+    await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake")
+    await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
 
     with freeze_time("2022-02-02T08:30:00.000Z"):
         subs_due = [
-            create_subscription(team=team, insight=insight, created_by=user),
-            create_subscription(team=team, insight=insight, created_by=user),
+            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
+            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
         ]
         # Not-due subscription scheduled 1h later
-        future_sub = create_subscription(team=team, dashboard=dashboard, created_by=user)
+        future_sub = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
     # Push future_sub next delivery to 10:00 UTC so it's outside 15-min buffer
     future_sub.start_date = datetime(2022, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC"))
-    future_sub.save()
+    await sync_to_async(future_sub.save)()
 
     # Run workflow
     wf_handle = await temporal_client.start_workflow(
@@ -126,15 +129,17 @@ async def test_handle_subscription_value_change_workflow(
 ):
     """Workflow should notify only new addresses when subscription target value changes."""
 
-    insight = Insight.objects.create(team=team, short_id="xyz789", name="Insight")
-    subscription = create_subscription(
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="xyz789", name="Insight")
+    subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
         created_by=user,
         target_value="old@org.com,new@org.com",
     )
 
-    asset = ExportedAsset.objects.create(team=team, insight_id=insight.id, export_format="image/png")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
     mock_generate_assets.return_value = [insight], [asset]
 
     wf_handle = await temporal_client.start_workflow(
