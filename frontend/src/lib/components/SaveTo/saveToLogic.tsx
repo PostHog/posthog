@@ -106,7 +106,7 @@ export const saveToLogic = kea<saveToLogicType>([
                 folder: null as string | null,
             },
             errors: ({ folder }) => ({
-                folder: !folder ? 'You need to specify a folder.' : null,
+                folder: typeof folder !== 'string' ? 'You need to specify a folder.' : null,
             }),
             submit: (formValues) => {
                 actions.setLastNewFolder(formValues.folder)

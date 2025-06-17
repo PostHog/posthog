@@ -4,7 +4,6 @@ from rest_framework import serializers
 import yaml
 import structlog
 from ee.session_recordings.session_summary import SummaryValidationError
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
 from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime
 
 logger = structlog.get_logger(__name__)
@@ -278,11 +277,11 @@ def _calculate_segment_events_count(
 
 def _calculate_segment_meta(
     raw_segment: dict[str, Any],
-    session_metadata: SessionSummaryMetadata,
     timestamp_index: int,
     event_index_index: int,
     simplified_events_mapping: dict[str, list[Any]],
     raw_key_actions: list[dict[str, Any]] | None,
+    session_duration: int,
     session_id: str,
 ) -> SegmentMetaSerializer:
     # Find first and the last event in the segment
@@ -302,7 +301,7 @@ def _calculate_segment_meta(
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate duration of the segment
-    if not session_metadata.duration:
+    if not session_duration:
         raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
     # If both events aren't hallucinated - calculate the meta
     if start_event_id in simplified_events_mapping and end_event_id in simplified_events_mapping:
@@ -312,7 +311,7 @@ def _calculate_segment_meta(
             timestamp_index=timestamp_index,
             event_index_index=event_index_index,
             simplified_events_mapping=simplified_events_mapping,
-            session_total_duration=session_metadata.duration,
+            session_total_duration=session_duration,
         )
     # If hallucinated - avoid calculating it now and hope for the fallback from the key actions
     else:
@@ -411,7 +410,7 @@ def _calculate_segment_meta(
         timestamp_index=timestamp_index,
         event_index_index=event_index_index,
         simplified_events_mapping=simplified_events_mapping,
-        session_total_duration=session_metadata.duration,
+        session_total_duration=session_duration,
     )
     fallback_events_count, fallback_events_percentage = _calculate_segment_events_count(
         start_event_id=fallback_start_event_id,
@@ -448,8 +447,9 @@ def enrich_raw_session_summary_with_meta(
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
-    session_metadata: SessionSummaryMetadata,
     session_id: str,
+    session_start_time_str: str,
+    session_duration: int,
 ) -> SessionSummarySerializer:
     timestamp_index = get_column_index(simplified_events_columns, "timestamp")
     window_id_index = get_column_index(simplified_events_columns, "$window_id")
@@ -460,6 +460,7 @@ def enrich_raw_session_summary_with_meta(
     raw_segments = raw_session_summary.data.get("segments")
     raw_key_actions = raw_session_summary.data.get("key_actions")
     summary_to_enrich = dict(raw_session_summary.data)
+    session_start_time = prepare_datetime(session_start_time_str)
     # Enrich LLM segments with metadata
     enriched_segments = []
     if not raw_segments:
@@ -471,7 +472,7 @@ def enrich_raw_session_summary_with_meta(
         # Calculate segment meta
         segment_meta = _calculate_segment_meta(
             raw_segment=raw_segment,
-            session_metadata=session_metadata,
+            session_duration=session_duration,
             timestamp_index=timestamp_index,
             event_index_index=event_index_index,
             simplified_events_mapping=simplified_events_mapping,
@@ -520,7 +521,7 @@ def enrich_raw_session_summary_with_meta(
             # Calculate time to jump to the right place in the player
             timestamp = event_mapping_data[timestamp_index]
             enriched_event["timestamp"] = timestamp
-            ms_since_start = calculate_time_since_start(timestamp, session_metadata.start_time)
+            ms_since_start = calculate_time_since_start(timestamp, session_start_time)
             if ms_since_start is not None:
                 enriched_event["milliseconds_since_start"] = ms_since_start
             # Add full URL of the event page

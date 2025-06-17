@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 
 import { HogFunctionType } from '~/types'
 
-import { hogFunctionListLogic } from './hogFunctionListLogic'
+import { hogFunctionsListLogic } from './hogFunctionsListLogic'
 
 const MinimalTransformationView = ({
     hogFunction,
@@ -44,8 +44,8 @@ const MinimalTransformationView = ({
 }
 
 export function HogFunctionOrderModal(): JSX.Element {
-    const { reorderModalOpen, enabledHogFunctions, loading } = useValues(hogFunctionListLogic)
-    const { setReorderModalOpen, saveHogFunctionOrder } = useActions(hogFunctionListLogic)
+    const { reorderModalOpen, enabledHogFunctions, loading } = useValues(hogFunctionsListLogic)
+    const { setReorderModalOpen, saveHogFunctionOrder } = useActions(hogFunctionsListLogic)
 
     const [initialOrders, setInitialOrders] = useState<Record<string, number>>({})
     const [newOrders, setNewOrders] = useState<Record<string, number>>({})
