@@ -53,6 +53,17 @@ export const personPropertyKeyUpdateCounter = new Counter({
     labelNames: ['key'],
 })
 
+export const personCacheSizeHistogram = new Histogram({
+    name: 'person_cache_size',
+    help: 'Size of the person cache',
+    buckets: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, Infinity],
+})
+
+export const personOptimisticUpdateConflictsPerBatchCounter = new Counter({
+    name: 'person_optimistic_update_conflicts_per_batch_total',
+    help: 'Number of optimistic update conflicts per batch',
+})
+
 export function getVersionBucketLabel(version: number): string {
     if (version === 0) {
         return 'v0'

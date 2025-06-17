@@ -43,6 +43,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
+import { PersonUpdate } from '../../worker/ingestion/persons/person-update-batch'
 import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
@@ -766,6 +767,38 @@ export class DB {
         )
 
         return [updatedPerson, [kafkaMessage]]
+    }
+
+    public async updatePersonOptimistically(personUpdate: PersonUpdate): Promise<number | undefined> {
+        const result = await this.postgres.query<{ version: string }>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_person SET
+                properties = $1,
+                properties_last_updated_at = $2,
+                properties_last_operation = $3,
+                is_identified = $4,
+                version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $5 AND uuid = $6 AND version = $7
+            RETURNING version
+            `,
+            [
+                JSON.stringify(personUpdate.properties),
+                JSON.stringify(personUpdate.properties_last_updated_at),
+                JSON.stringify(personUpdate.properties_last_operation),
+                personUpdate.is_identified,
+                personUpdate.team_id,
+                personUpdate.uuid,
+                personUpdate.version,
+            ],
+            'updatePersonOptimistically'
+        )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
     }
 
     // Currently in use, but there are various problems with this function

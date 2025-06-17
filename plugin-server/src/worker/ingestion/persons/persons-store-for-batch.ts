@@ -4,8 +4,9 @@ import { DateTime } from 'luxon'
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
+import { BatchWritingStore } from '../stores/batch-writing-store'
 
-export interface PersonsStoreForBatch {
+export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Executes a function within a transaction
      * @param description - Description of the transaction for logging
@@ -128,4 +129,9 @@ export interface PersonsStoreForBatch {
      * Reports metrics about person operations in batch
      */
     reportBatch(): void
+
+    /**
+     * Flushes the batch
+     */
+    flush(): Promise<void>
 }

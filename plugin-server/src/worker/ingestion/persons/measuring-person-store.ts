@@ -99,6 +99,10 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         }
     }
 
+    flush(): Promise<void> {
+        return Promise.resolve()
+    }
+
     reportBatch(): void {
         for (const [_, methodCounts] of this.methodCountsPerDistinctId.entries()) {
             for (const [method, count] of methodCounts.entries()) {

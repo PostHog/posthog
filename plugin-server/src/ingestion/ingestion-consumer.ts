@@ -33,7 +33,9 @@ import { populateTeamDataStep } from '../worker/ingestion/event-pipeline/populat
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
+import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
+import { PersonsStore } from '../worker/ingestion/persons/persons-store'
 import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -92,7 +94,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private personStore: MeasuringPersonsStore
+    private personStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
@@ -138,10 +140,18 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new MeasuringPersonsStore(this.hub.db, {
-            personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
-            personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
-        })
+        if (this.hub.PERSON_BATCH_WRITING_ENABLED) {
+            this.personStore = new BatchWritingPersonsStore(this.hub.db, {
+                maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+                maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+                optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL,
+            })
+        } else {
+            this.personStore = new MeasuringPersonsStore(this.hub.db, {
+                personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
+                personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
+            })
+        }
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
             batchWritingEnabled: this.hub.GROUP_BATCH_WRITING_ENABLED,
@@ -290,6 +300,7 @@ export class IngestionConsumer {
         personsStoreForBatch.reportBatch()
         groupStoreForBatch.reportBatch()
         await groupStoreForBatch.flush()
+        await personsStoreForBatch.flush()
 
         for (const message of messages) {
             if (message.timestamp) {
