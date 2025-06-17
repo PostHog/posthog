@@ -166,7 +166,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     if (!state) {
                         return state
                     }
-                    const groups = state.groups.concat([state.groups[index]])
+                    const groups = state.groups.concat([
+                        {
+                            ...state.groups[index],
+                            sort_key: generateUUID(),
+                        },
+                    ])
                     return { ...state, groups }
                 },
                 moveConditionSetDown: (state, { index }) => {
