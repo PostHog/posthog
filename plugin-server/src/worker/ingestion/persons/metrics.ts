@@ -1,6 +1,6 @@
 import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
 
-import { InternalPerson } from '~/src/types'
+import { InternalPerson } from '~/types'
 
 export const personMethodCallsPerBatchHistogram = new Histogram({
     name: 'person_method_calls_per_batch',
