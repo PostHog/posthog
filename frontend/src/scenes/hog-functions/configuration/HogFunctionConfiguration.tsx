@@ -16,6 +16,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl } from 'kea-router'
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -41,7 +42,6 @@ import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
-import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
 
 export interface HogFunctionConfigurationProps {
@@ -454,9 +454,18 @@ export function HogFunctionConfiguration({
                                         </LemonBanner>
                                     ) : null}
 
-                                    <HogFunctionInputs
-                                        configuration={configuration}
-                                        setConfigurationValue={setConfigurationValue}
+                                    <CyclotronJobInputs
+                                        configuration={{
+                                            inputs_schema: configuration.inputs_schema ?? [],
+                                            inputs: configuration.inputs ?? {},
+                                        }}
+                                        onInputSchemaChange={(schema) => {
+                                            setConfigurationValue('inputs_schema', schema)
+                                        }}
+                                        onInputChange={(key, input) => {
+                                            setConfigurationValue(`inputs.${key}`, input)
+                                        }}
+                                        showSource={showSource}
                                     />
                                     {showSource && canEditSource ? (
                                         <LemonButton
