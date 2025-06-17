@@ -92,7 +92,7 @@ impl Cli {
                         directory,
                         project.clone(),
                         version.clone(),
-                        delete_after,
+                        *delete_after,
                     )?;
                 }
             },
