@@ -400,35 +400,35 @@ describe('the feature flag release conditions logic', () => {
     describe('moving condition sets', () => {
         it('moves simple condition set up', () => {
             const filters = generateFeatureFlagFilters([
-                { properties: [], rollout_percentage: 50, variant: null },
-                { properties: [], rollout_percentage: 75, variant: null },
-                { properties: [], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
             ])
             logic.actions.setFilters(filters)
 
             logic.actions.moveConditionSetUp(1)
 
             expect(logic.values.filters.groups).toEqual([
-                { properties: [], rollout_percentage: 75, variant: null },
-                { properties: [], rollout_percentage: 50, variant: null },
-                { properties: [], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
             ])
         })
 
         it('moves simple condition set down', () => {
             const filters = generateFeatureFlagFilters([
-                { properties: [], rollout_percentage: 50, variant: null },
-                { properties: [], rollout_percentage: 75, variant: null },
-                { properties: [], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
             ])
             logic.actions.setFilters(filters)
 
             logic.actions.moveConditionSetDown(0)
 
             expect(logic.values.filters.groups).toEqual([
-                { properties: [], rollout_percentage: 75, variant: null },
-                { properties: [], rollout_percentage: 50, variant: null },
-                { properties: [], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
             ])
         })
 
@@ -445,6 +445,7 @@ describe('the feature flag release conditions logic', () => {
                     ],
                     rollout_percentage: 50,
                     variant: null,
+                    sort_key: 'A',
                 },
                 {
                     properties: [
@@ -463,6 +464,7 @@ describe('the feature flag release conditions logic', () => {
                     ],
                     rollout_percentage: 75,
                     variant: null,
+                    sort_key: 'B',
                 },
             ])
 
@@ -488,6 +490,7 @@ describe('the feature flag release conditions logic', () => {
                     ],
                     rollout_percentage: 75,
                     variant: null,
+                    sort_key: 'B',
                 },
                 {
                     properties: [
@@ -500,6 +503,7 @@ describe('the feature flag release conditions logic', () => {
                     ],
                     rollout_percentage: 50,
                     variant: null,
+                    sort_key: 'A',
                 },
             ])
         })
