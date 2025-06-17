@@ -249,13 +249,6 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
-                ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
-                    <div>
-                        <LemonBanner type="warning">
-                            The receiving destination imposes a rate limit of 10 events per second. Exceeding this limit
-                            may result in some events failing to be delivered.
-                        </LemonBanner>
-                    </div>
                 ) : [
                       'template-google-ads',
                       'template-meta-ads',
@@ -265,10 +258,21 @@ export function HogFunctionConfiguration({
                       'template-reddit-pixel',
                       'template-tiktok-pixel',
                       'template-snapchat-pixel',
-                  ].includes(templateId ?? '') ? (
+                      'template-reddit-conversions-api',
+                  ].includes(templateId ?? '') || template?.status === 'alpha' ? (
                     <div>
                         <LemonBanner type="warning">
-                            This is an experimental destination that we do not provide official support for.
+                            <p>
+                                This destination is currently in an experimental state. For many cases this will work
+                                just fine but for others there may be unexpected issues and we do not offer official
+                                customer support for it in these cases.
+                            </p>
+                            {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                                <span className="mt-2">
+                                    The receiving destination imposes a rate limit of 10 events per second. Exceeding
+                                    this limit may result in some events failing to be delivered.
+                                </span>
+                            ) : null}
                         </LemonBanner>
                     </div>
                 ) : null}
