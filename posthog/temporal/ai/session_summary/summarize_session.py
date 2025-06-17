@@ -96,7 +96,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-        sse_summary = await temporalio.workflow.execute_activity(
+        summary = await temporalio.workflow.execute_activity(
             stream_llm_single_session_summary_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=5),
@@ -106,15 +106,15 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         temporalio.workflow.logger.info(
             f"Successfully executed summarize-session workflow with id {temporalio.workflow.info().workflow_id}"
         )
-        return sse_summary
+        return summary
 
 
-async def _start_workflow(session_input: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
+async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     handle = await client.start_workflow(
         "summarize-session",
-        session_input,
+        inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
@@ -156,10 +156,12 @@ def execute_summarize_session_stream(
     """
     Start the workflow and yield summary state from the stream as it becomes available.
     """
+    # Use shared identifier to be able to construct all the ids to check/debug
+    shared_id = uuid.uuid4()
     # Prepare the input data
     redis_client = get_client()
-    redis_input_key = f"session_summary:single:stream-input:{session_id}:{user_pk}:{uuid.uuid4()}"
-    redis_output_key = f"session_summary:single:stream-output:{session_id}:{user_pk}:{uuid.uuid4()}"
+    redis_input_key = f"session-summary:single:stream-input:{session_id}:{user_pk}-{team.id}:{shared_id}"
+    redis_output_key = f"session-summary:single:stream-output:{session_id}:{user_pk}-{team.id}:{shared_id}"
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
         user_pk=user_pk,
@@ -171,8 +173,8 @@ def execute_summarize_session_stream(
         redis_output_key=redis_output_key,
     )
     # Connect to Temporal and start streaming the workflow
-    workflow_id = f"session-summary:single:stream:{session_id}:{user_pk}:{uuid.uuid4()}"
-    handle = asyncio.run(_start_workflow(session_input=session_input, workflow_id=workflow_id))
+    workflow_id = f"session-summary:single:stream:{session_id}:{user_pk}:{shared_id}"
+    handle = asyncio.run(_start_workflow(inputs=session_input, workflow_id=workflow_id))
     last_summary_state = ""
     while True:
         try:
