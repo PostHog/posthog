@@ -149,7 +149,12 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at").all()
+    queryset = (
+        WebExperiment.objects.select_related("feature_flag", "created_by")
+        .exclude(deleted=True)
+        .order_by("-created_at")
+        .all()
+    )
 
 
 @csrf_exempt
@@ -187,6 +192,7 @@ def web_experiments(request: Request):
         result = WebExperimentsAPISerializer(
             WebExperiment.objects.filter(team_id=team.id)
             .exclude(archived=True)
+            .exclude(deleted=True)
             .exclude(end_date__isnull=False)
             .select_related("feature_flag", "created_by")
             .order_by("-created_at"),

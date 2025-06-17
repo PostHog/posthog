@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useMemo, useState } from 'react'
 
-import { HogFunctionFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
+import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES } from '../sub-templates/sub-templates'
 import { HogFunctionList } from './HogFunctionsList'
@@ -9,14 +9,14 @@ import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
     type: HogFunctionTypeType
-    forceFilterGroups?: HogFunctionFiltersType[]
+    forceFilterGroups?: CyclotronJobFiltersType[]
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean
 }
 
-const getFiltersFromSubTemplateIds = (subTemplateIds: HogFunctionSubTemplateIdType[]): HogFunctionFiltersType[] => {
-    const filterGroups: HogFunctionFiltersType[] = []
+const getFiltersFromSubTemplateIds = (subTemplateIds: HogFunctionSubTemplateIdType[]): CyclotronJobFiltersType[] => {
+    const filterGroups: CyclotronJobFiltersType[] = []
 
     for (const subTemplateId of subTemplateIds) {
         const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]

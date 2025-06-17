@@ -160,6 +160,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             session_input,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=1),
+            # Avoid heartbeat timeout for short one-shot activity
         )
         sse_summary = await temporalio.workflow.execute_activity(
             stream_llm_single_session_summary_activity,

@@ -1,12 +1,38 @@
+"""
+Shared statistical utilities for A/B testing.
+
+This module provides fundamental statistical utilities that are used
+by both frequentist and Bayesian methods.
+"""
+
 import numpy as np
 
 from .statistics import (
-    AnyStatistic,
     SampleMeanStatistic,
     ProportionStatistic,
+    AnyStatistic,
     StatisticError,
 )
-from .utils import get_mean, get_variance, get_sample_size
+
+
+def get_mean(statistic: AnyStatistic) -> float:
+    """Extract the mean/central value from any statistic type."""
+    if isinstance(statistic, SampleMeanStatistic):
+        return statistic.mean
+    elif isinstance(statistic, ProportionStatistic):
+        return statistic.proportion
+    else:
+        raise StatisticError(f"Unknown statistic type: {type(statistic)}")
+
+
+def get_variance(statistic: AnyStatistic) -> float:
+    """Extract the variance from any statistic type."""
+    return statistic.variance
+
+
+def get_sample_size(statistic: AnyStatistic) -> int:
+    """Extract the sample size from any statistic type."""
+    return statistic.n
 
 
 def validate_statistic_inputs(statistic: AnyStatistic) -> list[str]:
@@ -109,13 +135,16 @@ def check_sample_size_adequacy(treatment_stat: AnyStatistic, control_stat: AnySt
         raise StatisticError(f"Control sample size ({control_n}) below minimum ({min_size})")
 
 
-def validate_test_inputs(treatment_stat: AnyStatistic, control_stat: AnyStatistic) -> None:
+def validate_test_inputs(
+    treatment_stat: AnyStatistic, control_stat: AnyStatistic, check_sample_size: bool = False
+) -> None:
     """
     Comprehensive validation of test inputs.
 
     Args:
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
+        check_sample_size: Whether to enforce minimum sample size requirements
 
     Raises:
         StatisticError: If validation fails
@@ -133,5 +162,6 @@ def validate_test_inputs(treatment_stat: AnyStatistic, control_stat: AnyStatisti
     if type(treatment_stat) is not type(control_stat):
         raise StatisticError("Treatment and control statistics must be the same type")
 
-    # Additional checks
-    check_sample_size_adequacy(treatment_stat, control_stat)
+    # Additional checks (optional for different methods)
+    if check_sample_size:
+        check_sample_size_adequacy(treatment_stat, control_stat)
