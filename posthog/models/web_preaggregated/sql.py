@@ -22,7 +22,7 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
         updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
-    PARTITION BY toYYYYMM(period_bucket)
+    PARTITION BY toYYYYMMDD(period_bucket)
     ORDER BY {order_by}
     """
 
@@ -44,6 +44,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
         {columns}
     ) ENGINE = {engine}
     ORDER BY {order_by}
+    PARTITION BY toYYYYMMDDhh(period_bucket)
     {ttl_clause}
     """
 
@@ -127,6 +128,68 @@ def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
 
 def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
+
+
+def DROP_PARTITION_SQL(table_name, date_start, on_cluster=True, granularity="daily"):
+    """
+    Generate SQL to drop a partition for a specific date.
+    This enables idempotent operations by ensuring clean state before insertion.
+    
+    Args:
+        table_name: Name of the table
+        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
+        on_cluster: Whether to run on cluster
+        granularity: "daily" or "hourly" - determines partition format
+    """
+    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    
+    if granularity == "hourly":
+        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
+        if " " in date_start:
+            date_part, hour_part = date_start.split(" ")
+            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
+        else:
+            # If only date provided for hourly, format as "YYYYMMDD00"
+            partition_id = date_start.replace("-", "") + "00"
+    else:
+        # For daily: format date as YYYYMMDD
+        partition_id = date_start.replace("-", "")
+    
+    return f"""
+    ALTER TABLE {table_name} {on_cluster_clause}
+    DROP PARTITION '{partition_id}'
+    """
+
+
+def DROP_PARTITION_IF_EXISTS_SQL(table_name, date_start, on_cluster=True, granularity="daily"):
+    """
+    Generate SQL to drop a partition if it exists for a specific date.
+    This is safer as it won't fail if the partition doesn't exist.
+    
+    Args:
+        table_name: Name of the table
+        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
+        on_cluster: Whether to run on cluster
+        granularity: "daily" or "hourly" - determines partition format
+    """
+    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    
+    if granularity == "hourly":
+        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
+        if " " in date_start:
+            date_part, hour_part = date_start.split(" ")
+            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
+        else:
+            # If only date provided for hourly, format as "YYYYMMDD00"
+            partition_id = date_start.replace("-", "") + "00"
+    else:
+        # For daily: format date as YYYYMMDD
+        partition_id = date_start.replace("-", "")
+    
+    return f"""
+    ALTER TABLE {table_name} {on_cluster_clause}
+    DROP PARTITION IF EXISTS '{partition_id}'
+    """
 
 
 def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
