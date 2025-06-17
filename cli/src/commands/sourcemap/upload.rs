@@ -55,9 +55,7 @@ pub fn upload(
         &host,
         &token,
         Some(directory.clone()),
-        Some(content_hash(
-            &uploads.iter().map(|upload| &upload.data).collect(),
-        )),
+        Some(content_hash(uploads.iter().map(|upload| &upload.data))),
         project,
         version,
     )
@@ -101,8 +99,7 @@ fn upload_chunks(
         let upload_response =
             request_presigned_url(&client, base_url, token, &upload.chunk_id, &release_id)?;
 
-        // TODO: Not sure if this is the cleanest or if I should just inline the hasher
-        let content_hash = content_hash(&vec![&upload.data]);
+        let content_hash = content_hash([&upload.data]);
 
         upload_to_s3(&client, upload_response.presigned_url, upload.data)?;
 
@@ -127,7 +124,7 @@ fn request_presigned_url(
 ) -> Result<StartUploadResponseData> {
     let start_upload_url: String = format!("{}{}", base_url, "/start_upload");
 
-    let mut params: Vec<(&'static str, &str)> = vec![("chunk_id", chunk_id)];
+    let mut params = vec![("chunk_id", chunk_id)];
     if let Some(id) = release_id {
         params.push(("release_id", id));
     }
@@ -186,10 +183,14 @@ fn finish_upload(
     Ok(())
 }
 
-fn content_hash(upload_data: &Vec<&Vec<u8>>) -> String {
+fn content_hash<Iter, Item>(upload_data: Iter) -> String
+where
+    Iter: IntoIterator<Item = Item>,
+    Item: AsRef<[u8]>,
+{
     let mut hasher = sha2::Sha512::new();
     for data in upload_data {
-        hasher.update(data);
+        hasher.update(data.as_ref());
     }
     format!("{:x}", hasher.finalize())
 }
