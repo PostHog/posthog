@@ -26,7 +26,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
         Notebook,
     )
     from posthog.event_usage import groups
-    from django.db import transaction
+    from django.db import transaction, IntegrityError
     import posthoganalytics
 
     try:
@@ -82,16 +82,20 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
 
                 # Create a new project for the source team
                 source_team = teams.get(id=source_id)
-                if source_team.id != source_team.project_id:
-                    original_project_name = source_team.project.name
-                    environment_name = source_team.name
-                    new_project_name = f"{original_project_name} - {environment_name}"
+                original_project_name = source_team.project.name
+                environment_name = source_team.name
+                new_project_name = f"{original_project_name} - {environment_name}"
 
+                try:
                     new_project = Project.objects.create(
                         id=source_team.id, name=new_project_name, organization=organization
                     )
-                    source_team.project = new_project
-                    source_team.save()
+                except IntegrityError:
+                    # If the project ID already exists, create with auto-incremented ID
+                    new_project = Project.objects.create(name=new_project_name, organization=organization)
+
+                source_team.project = new_project
+                source_team.save()
 
         posthoganalytics.capture(
             str(user.distinct_id),
