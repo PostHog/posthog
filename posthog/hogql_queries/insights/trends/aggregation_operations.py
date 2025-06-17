@@ -190,22 +190,22 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 timestamp_expr = ast.Field(chain=["timestamp"])
 
             # Apply math_multiplier to the field before currency conversion
-            field_expr: ast.Expr = ast.Field(chain=chain)
+            currency_field_expr: ast.Expr = ast.Field(chain=chain)
             if hasattr(self.series, "math_multiplier") and self.series.math_multiplier is not None:
-                field_expr = ast.ArithmeticOperation(
-                    left=field_expr,
+                currency_field_expr = ast.ArithmeticOperation(
+                    left=currency_field_expr,
                     right=ast.Constant(value=self.series.math_multiplier),
                     op=ast.ArithmeticOperationOp.Mult,
                 )
 
-            field_expr = convert_currency_call(
-                field_expr,
+            currency_field_expr = convert_currency_call(
+                currency_field_expr,
                 event_currency,
                 base_currency,
                 ast.Call(name="_toDate", args=[timestamp_expr]),
             )
 
-            return ast.Call(name=method, args=[field_expr])
+            return ast.Call(name=method, args=[currency_field_expr])
 
         # Apply math_multiplier if present
         field_expr: ast.Expr = ast.Field(chain=chain)
