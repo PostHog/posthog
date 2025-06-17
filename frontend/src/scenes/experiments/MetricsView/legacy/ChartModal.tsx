@@ -1,5 +1,4 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
 
 import {
     ExperimentFunnelsQuery,
@@ -10,6 +9,8 @@ import {
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
 import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
@@ -85,7 +86,10 @@ export function ChartModal({
                             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
                             {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
-                                <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                <>
+                                    <ResultsInsightInfoBanner />
+                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                </>
                             )}
                         </>
                     )}
