@@ -29,16 +29,17 @@ logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
-async def stream_llm_single_session_summary_activity(session_input: SingleSessionSummaryInputs) -> str:
-    if not session_input.redis_output_key:
+async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
+    """Summarize a single session and stream the summary state as it becomes available"""
+    if not inputs.redis_output_key:
         raise ApplicationError(
-            f"Redis output key was not provided when summarizing session {session_input.session_id}: {session_input}",
+            f"Redis output key was not provided when summarizing session {inputs.session_id}: {inputs}",
             non_retryable=True,
         )
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
     redis_client = get_client()
     llm_input = get_single_session_summary_llm_input_from_redis(
-        redis_client=redis_client, redis_input_key=session_input.redis_input_key
+        redis_client=redis_client, redis_input_key=inputs.redis_input_key
     )
     last_summary_state = ""
     temporalio.activity.heartbeat()
@@ -68,7 +69,7 @@ async def stream_llm_single_session_summary_activity(session_input: SingleSessio
         # Store the last summary state in Redis
         # The size of the output is limited to <20kb, so compressing is excessive
         redis_client.setex(
-            session_input.redis_output_key,
+            inputs.redis_output_key,
             900,  # 15 minutes TTL to keep alive for retries
             json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
         )
@@ -88,16 +89,16 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         return SingleSessionSummaryInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self, session_input: SingleSessionSummaryInputs) -> str:
+    async def run(self, inputs: SingleSessionSummaryInputs) -> str:
         await temporalio.workflow.execute_activity(
             fetch_session_data_activity,
-            session_input,
+            inputs,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         sse_summary = await temporalio.workflow.execute_activity(
             stream_llm_single_session_summary_activity,
-            session_input,
+            inputs,
             start_to_close_timeout=timedelta(minutes=5),
             heartbeat_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),

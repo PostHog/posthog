@@ -28,34 +28,46 @@ class SingleSessionSummaryInputs:
     local_reads_prod: bool = False
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SessionGroupSummaryInputs:
+    """Workflow input to get summary for a group of sessions"""
+
+    session_ids: list[str]
+    user_pk: int
+    team_id: int
+    redis_input_key_base: str
+    extra_summary_context: ExtraSummaryContext | None = None
+    local_reads_prod: bool = False
+
+
 @temporalio.activity.defn
-async def fetch_session_data_activity(session_input: SingleSessionSummaryInputs) -> str | None:
+async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
     """Fetch data from DB for a single session and store in Redis (to avoid hitting Temporal memory limits), return Redis key"""
     summary_data = await prepare_data_for_single_session_summary(
-        session_id=session_input.session_id,
-        user_pk=session_input.user_pk,
-        team_id=session_input.team_id,
-        extra_summary_context=session_input.extra_summary_context,
-        local_reads_prod=session_input.local_reads_prod,
+        session_id=inputs.session_id,
+        user_pk=inputs.user_pk,
+        team_id=inputs.team_id,
+        extra_summary_context=inputs.extra_summary_context,
+        local_reads_prod=inputs.local_reads_prod,
     )
     if summary_data.error_msg is not None:
         # If we weren't able to collect the required data - retry
         logger.exception(
-            f"Not able to fetch data from the DB for session {session_input.session_id} (by user {session_input.user_pk}): {summary_data.error_msg}",
-            session_id=session_input.session_id,
-            user_pk=session_input.user_pk,
+            f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_pk}): {summary_data.error_msg}",
+            session_id=inputs.session_id,
+            user_pk=inputs.user_pk,
         )
         raise ExceptionToRetry()
     input_data = prepare_single_session_summary_input(
-        session_id=session_input.session_id,
-        user_pk=session_input.user_pk,
+        session_id=inputs.session_id,
+        user_pk=inputs.user_pk,
         summary_data=summary_data,
     )
     # Connect to Redis and prepare the input
     redis_client = get_client()
     compressed_llm_input_data = compress_llm_input_data(input_data)
     redis_client.setex(
-        session_input.redis_input_key,
+        inputs.redis_input_key,
         900,  # 15 minutes TTL to keep alive for retries
         compressed_llm_input_data,
     )
