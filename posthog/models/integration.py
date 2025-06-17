@@ -324,8 +324,6 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-        # test.salesforce.com
-        # https://test.salesforce.com/services/oauth2/token
         res = requests.post(
             oauth_config.token_url,
             data={
