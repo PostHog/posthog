@@ -32,6 +32,7 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
     list_display_links = ("domain",)
     ordering = ("domain",)
 
+    @admin.display(description="Organization", ordering="organization__name")
     def organization_link(self, obj):
         """Link to the organization admin page"""
         if obj.organization:
@@ -39,13 +40,9 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
             return format_html('<a href="{}">{}</a>', url, obj.organization.name)
         return "-"
 
-    organization_link.short_description = "Organization"
-    organization_link.admin_order_field = "organization__name"
-
+    @admin.display(description="SAML Status")
     def saml_status(self, obj):
         """Display SAML configuration status"""
         if obj.has_saml:
             return format_html('<span style="color: green;">✓ Configured</span>')
         return format_html('<span style="color: gray;">Not Configured</span>')
-
-    saml_status.short_description = "SAML Status"
