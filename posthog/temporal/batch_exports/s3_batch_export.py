@@ -1164,9 +1164,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             response: UploadPartOutputTypeDef | None = None
             attempt = 0
 
-            upload_start = time.time()
-
             while response is None:
+                upload_start = time.time()
                 try:
                     response = await client.upload_part(
                         Bucket=self.s3_inputs.bucket_name,
