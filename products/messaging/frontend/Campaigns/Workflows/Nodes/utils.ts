@@ -8,8 +8,6 @@ import {
     getDefaultEdgeOptions,
     getDefaultNodeOptions,
     LEFT_HANDLE_POSITION,
-    NODE_HEIGHT,
-    NODE_WIDTH,
     RIGHT_HANDLE_POSITION,
     TOP_HANDLE_POSITION,
 } from '../constants'
@@ -41,7 +39,7 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
             newNodes.push({
                 id: dropzoneId,
                 type: 'dropzone',
-                position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                position: { x: labelX, y: labelY },
                 data: {
                     id: dropzoneId,
                     description: '',
