@@ -2,6 +2,7 @@ import { DestinationDefinition, destinations } from '@segment/action-destination
 
 import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/cdp/types'
 
+import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
 import { HogFunctionTemplate } from '../templates/types'
 
 export type SegmentDestination = {
@@ -315,10 +316,12 @@ const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> 
         return defaultVal
     }
 
-    if (
-        field.type === 'object' &&
-        (typeof field.default === 'undefined' || !('@path' in field.default || '@arrayPath' in field.default))
-    ) {
+    if (field.type === 'object' && (typeof field.default === 'undefined' || !('@arrayPath' in field.default))) {
+        if (field.default && '@path' in field.default) {
+            return {
+                [EXTEND_OBJECT_KEY]: translateInputs(checkOverride(field.default, key), field.multiple),
+            }
+        }
         return Object.fromEntries(
             Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
                 const defaultVal = (field.default as Record<string, object>) ?? {}
