@@ -139,6 +139,8 @@ function getDatumTitle(
             </>
         )
     }
+
+    // Technically should never reach this point because series data should have at least breakdown or compare values
     return 'Baseline'
 }
 
@@ -146,6 +148,7 @@ export function invertDataSource(
     seriesData: SeriesDatum[],
     breakdownFilter: BreakdownFilter | null | undefined
 ): InvertedSeriesDatum[] {
+    // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
     const cohorts = cohortsModel.findMounted()?.values?.allCohorts
     const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
