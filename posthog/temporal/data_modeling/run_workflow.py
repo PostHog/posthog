@@ -387,15 +387,17 @@ async def materialize_model(
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team)):
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
+            schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
             if index == 0:
                 mode = "overwrite"
+                schema_mode = "overwrite"
 
             await logger.adebug(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
             )
 
             deltalake.write_deltalake(
-                table_or_uri=table_uri, storage_options=storage_options, data=batch, mode=mode, schema_mode="overwrite"
+                table_or_uri=table_uri, storage_options=storage_options, data=batch, mode=mode, schema_mode=schema_mode
             )
 
             row_count = row_count + batch.num_rows
