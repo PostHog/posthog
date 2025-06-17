@@ -5,6 +5,7 @@ import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -39,42 +40,90 @@ export function ManagedMigration(): JSX.Element {
             <LemonField name="source_type" label="Source">
                 <LemonSelect
                     value={managedMigration.source_type}
-                    onChange={(value) => setManagedMigrationValue('source_type', value)}
+                    onChange={(value) => {
+                        setManagedMigrationValue('source_type', value)
+                        if (value === 'mixpanel' || value === 'amplitude') {
+                            setManagedMigrationValue('content_type', value)
+                        }
+                    }}
                     options={[
                         {
                             value: 's3',
                             label: 'S3',
                             icon: <img src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico" />,
                         },
+                        {
+                            value: 'mixpanel',
+                            label: 'Mixpanel',
+                            icon: <img src="https://mixpanel.com/favicon.ico" />,
+                        },
+                        {
+                            value: 'amplitude',
+                            label: 'Amplitude',
+                            icon: <img src="https://amplitude.com/favicon.ico" />,
+                        },
                     ]}
                 />
             </LemonField>
 
-            <LemonField name="content_type" label="Content Type">
-                <LemonSelect
-                    value={managedMigration.content_type}
-                    onChange={(value) => setManagedMigrationValue('content_type', value)}
-                    options={[
-                        { value: 'captured', label: 'PostHog Events' },
-                        { value: 'mixpanel', label: 'Mixpanel Events' },
-                        { value: 'amplitude', label: 'Amplitude Events' },
-                    ]}
-                />
-            </LemonField>
+            {managedMigration.source_type === 's3' && (
+                <>
+                    <LemonField name="content_type" label="Content Type">
+                        <LemonSelect
+                            value={managedMigration.content_type}
+                            onChange={(value) => setManagedMigrationValue('content_type', value)}
+                            options={[
+                                { value: 'captured', label: 'PostHog Events' },
+                                { value: 'mixpanel', label: 'Mixpanel Events' },
+                                { value: 'amplitude', label: 'Amplitude Events' },
+                            ]}
+                        />
+                    </LemonField>
+                </>
+            )}
 
-            <div className="flex gap-4">
-                <LemonField name="s3_region" label="S3 Region" className="flex-1">
-                    <LemonInput placeholder="us-east-1" />
-                </LemonField>
+            {managedMigration.source_type === 's3' && (
+                <>
+                    <div className="flex gap-4">
+                        <LemonField name="s3_region" label="S3 Region" className="flex-1">
+                            <LemonInput placeholder="us-east-1" />
+                        </LemonField>
 
-                <LemonField name="s3_bucket" label="S3 Bucket" className="flex-1">
-                    <LemonInput placeholder="my-bucket" />
-                </LemonField>
-            </div>
+                        <LemonField name="s3_bucket" label="S3 Bucket" className="flex-1">
+                            <LemonInput placeholder="my-bucket" />
+                        </LemonField>
+                    </div>
 
-            <LemonField name="s3_prefix" label="S3 Prefix (optional)">
-                <LemonInput placeholder="path/to/files/" />
-            </LemonField>
+                    <LemonField name="s3_prefix" label="S3 Prefix (optional)">
+                        <LemonInput placeholder="path/to/files/" />
+                    </LemonField>
+                </>
+            )}
+            {(managedMigration.source_type === 'mixpanel' || managedMigration.source_type === 'amplitude') && (
+                <>
+                    <div className="flex gap-4">
+                        <LemonField name="start_date" label="Start Date" className="flex-1">
+                            <LemonCalendarSelectInput
+                                granularity="minute"
+                                value={managedMigration.start_date ? dayjs(managedMigration.start_date) : null}
+                                onChange={(date) =>
+                                    setManagedMigrationValue('start_date', date?.format('YYYY-MM-DD HH:mm:ss'))
+                                }
+                            />
+                        </LemonField>
+
+                        <LemonField name="end_date" label="End Date" className="flex-1">
+                            <LemonCalendarSelectInput
+                                granularity="minute"
+                                value={managedMigration.end_date ? dayjs(managedMigration.end_date) : null}
+                                onChange={(date) =>
+                                    setManagedMigrationValue('end_date', date?.format('YYYY-MM-DD HH:mm:ss'))
+                                }
+                            />
+                        </LemonField>
+                    </div>
+                </>
+            )}
 
             <div className="flex gap-4">
                 <LemonField name="access_key" label="Access Key ID" className="flex-1">
@@ -119,7 +168,6 @@ export function ManagedMigrations(): JSX.Element {
     ) : (
         <>
             <PageHeader
-                caption="Import data from S3"
                 buttons={
                     <LemonButton data-attr="new-managed-migration" to={urls.managedMigrationNew()} type="primary">
                         New migration
@@ -137,16 +185,42 @@ export function ManagedMigrations(): JSX.Element {
                     {
                         title: 'Source',
                         dataIndex: 'source_type',
-                        render: () => (
-                            <div className="flex items-center gap-2">
-                                <img
-                                    src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico"
-                                    alt="S3"
-                                    className="w-4 h-4"
-                                />
-                                AWS S3
-                            </div>
-                        ),
+                        render: (_, migration) => {
+                            let sourceType = migration.source_type
+                            if (migration.source_type === 'date_range_export') {
+                                sourceType = migration.content_type
+                            }
+                            const sourceTypeMap = {
+                                s3: {
+                                    icon: 'https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico',
+                                    label: 'AWS S3',
+                                    alt: 'S3',
+                                },
+                                mixpanel: {
+                                    icon: 'https://mixpanel.com/favicon.ico',
+                                    label: 'Mixpanel',
+                                    alt: 'Mixpanel',
+                                },
+                                amplitude: {
+                                    icon: 'https://amplitude.com/favicon.ico',
+                                    label: 'Amplitude',
+                                    alt: 'Amplitude',
+                                },
+                            }
+
+                            const config = sourceTypeMap[sourceType as keyof typeof sourceTypeMap]
+
+                            if (!config) {
+                                return sourceType
+                            }
+
+                            return (
+                                <div className="flex items-center gap-2">
+                                    <img src={config.icon} alt={config.alt} className="w-4 h-4" />
+                                    {config.label}
+                                </div>
+                            )
+                        },
                     },
                     {
                         title: 'Content Type',

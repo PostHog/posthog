@@ -6,7 +6,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.batch_imports import BatchImport, ContentType
+from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.user import User
 
 
@@ -25,7 +25,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "state",
             "created_by",
             "status",
-            "status_message",
+            "display_status_message",
             "import_config",
         ]
         read_only_fields = [
@@ -34,6 +34,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "state",
+            "display_status_message",
         ]
 
     def create(self, validated_data: dict) -> BatchImport:
@@ -82,7 +83,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "updated_at",
             "state",
             "status",
-            "status_message",
+            "display_status_message",
             "import_config",
             "content_type",
             "source_type",
@@ -99,7 +100,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "updated_at",
             "state",
             "status",
-            "status_message",
+            "display_status_message",
             "import_config",
         ]
 
@@ -134,6 +135,82 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
         return batch_import
 
 
+class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
+    """Serializer for creating BatchImports with date range source (mixpanel, amplitude, etc.)"""
+
+    start_date = serializers.DateTimeField(write_only=True, required=True)
+    end_date = serializers.DateTimeField(write_only=True, required=True)
+    source_type = serializers.ChoiceField(
+        choices=["mixpanel", "amplitude"],
+        write_only=True,
+        required=True,
+    )
+    content_type = serializers.ChoiceField(
+        choices=["mixpanel", "amplitude"],
+        write_only=True,
+        required=True,
+    )
+    access_key = serializers.CharField(write_only=True, required=True)
+    secret_key = serializers.CharField(write_only=True, required=True)
+
+    class Meta:
+        model = BatchImport
+        fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "updated_at",
+            "state",
+            "status",
+            "display_status_message",
+            "import_config",
+            "start_date",
+            "end_date",
+            "source_type",
+            "content_type",
+            "access_key",
+            "secret_key",
+        ]
+        read_only_fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "updated_at",
+            "state",
+            "status",
+            "display_status_message",
+            "import_config",
+        ]
+
+    def create(self, validated_data: dict, **kwargs) -> BatchImport:
+        """Create a new BatchImport from Date Range Source"""
+        validated_data["team_id"] = self.context["team_id"]
+        source_type = validated_data["source_type"]
+
+        if source_type in ["amplitude", "mixpanel"]:
+            batch_import = BatchImport(
+                team_id=self.context["team_id"],
+                created_by_id=self.context["request"].user.id,
+            )
+
+            batch_import.config.json_lines(ContentType(validated_data["content_type"])).from_date_range(
+                start_date=validated_data["start_date"].isoformat(),
+                end_date=validated_data["end_date"].isoformat(),
+                access_key=validated_data["access_key"],
+                secret_key=validated_data["secret_key"],
+                export_source=DateRangeExportSource(source_type),
+            ).to_kafka(
+                topic=f"events_plugin_ingestion_historical",
+                send_rate=1000,
+                transaction_timeout_seconds=60,
+            )
+
+            batch_import.save()
+            return batch_import
+        else:
+            raise serializers.ValidationError("Invalid source type")
+
+
 class BatchImportResponseSerializer(serializers.ModelSerializer):
     """Serializer for BatchImport responses that matches frontend expectations"""
 
@@ -142,7 +219,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
     start_date = serializers.SerializerMethodField()
     end_date = serializers.SerializerMethodField()
     content_type = serializers.SerializerMethodField()
-    error = serializers.CharField(source="status_message", allow_null=True)
+    error = serializers.CharField(source="display_status_message", allow_null=True)
 
     class Meta:
         model = BatchImport
@@ -205,7 +282,13 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_class(self):
         """Use the correct serializer based on the source type"""
         if self.action == "create":
-            return BatchImportS3SourceCreateSerializer
+            source_type = self.request.data.get("source_type")
+            if source_type == "s3":
+                return BatchImportS3SourceCreateSerializer
+            elif source_type in ["mixpanel", "amplitude"]:
+                return BatchImportDateRangeSourceCreateSerializer
+            else:
+                raise serializers.ValidationError("Invalid source type")
         return BatchImportSerializer
 
     def safely_get_queryset(self, queryset=None):
