@@ -268,9 +268,6 @@ export const createNewNode = (
             on_error: 'continue',
             created_at: 0,
             updated_at: 0,
-            // inputs implemented in https://github.com/PostHog/posthog/pull/33678
-            inputs: {},
-            inputs_schema: [],
         },
         handles: getNodeHandles(id, toolbarNode.type),
         position: {
@@ -327,8 +324,6 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
             },
             created_at: 0,
             updated_at: 0,
-            inputs: {},
-            inputs_schema: [],
         },
         handles: getNodeHandles('trigger_node', 'trigger'),
         position: { x: 0, y: 0 },
@@ -346,8 +341,6 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
             },
             created_at: 0,
             updated_at: 0,
-            inputs: {},
-            inputs_schema: [],
         },
         handles: getNodeHandles('exit_node', 'exit'),
         position: { x: 0, y: 100 },
