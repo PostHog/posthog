@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 from datetime import timedelta
 import json
 import uuid
@@ -6,13 +7,16 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
+from ee.session_recordings.session_summary.llm.consume import (
+    get_llm_session_group_summary,
+    get_llm_single_session_summary,
+)
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.session_recordings.session_summary.summarize_session_group import generate_session_group_summary_prompt
 from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.shared import (
-    SessionGroupSummaryInputs,
     SingleSessionSummaryInputs,
     get_single_session_summary_llm_input_from_redis,
     fetch_session_data_activity,
@@ -22,6 +26,26 @@ from posthog.temporal.common.client import async_connect
 from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SessionGroupSummaryInputs:
+    """Workflow input to get summary for a group of sessions"""
+
+    session_ids: list[str]
+    user_pk: int
+    team_id: int
+    redis_input_key_base: str
+    extra_summary_context: ExtraSummaryContext | None = None
+    local_reads_prod: bool = False
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SessionGroupSummaryOfSummariesInputs:
+    session_ids: list[str]
+    session_summaries: list[str]
+    user_pk: int
+    extra_summary_context: ExtraSummaryContext | None = None
 
 
 @temporalio.activity.defn
@@ -54,6 +78,17 @@ async def get_llm_single_session_summary_activity(inputs: SingleSessionSummaryIn
     return session_summary_str
 
 
+@temporalio.activity.defn
+async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
+    """Summarize a group of sessions in one call"""
+    prompt = generate_session_group_summary_prompt(inputs.session_summaries, inputs.extra_summary_context)
+    # Get summary from LLM
+    summary_of_summaries = await get_llm_session_group_summary(
+        prompt=prompt, user_pk=inputs.user_pk, session_ids=inputs.session_ids
+    )
+    return summary_of_summaries
+
+
 @temporalio.workflow.defn(name="summarize-session-group")
 class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     @staticmethod
@@ -68,6 +103,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         Fetch and handle the session data for a single session to avoid one activity failing the whole group.
         """
         try:
+            # TODO: Instead of getting session data from DB one by one, we can optimize it by getting multiple sessions in one call
             await temporalio.workflow.execute_activity(
                 fetch_session_data_activity,
                 inputs,
@@ -185,14 +221,24 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return summaries
 
     @temporalio.workflow.run
-    async def run(self, inputs: SessionGroupSummaryInputs) -> dict[str, str]:
+    async def run(self, inputs: SessionGroupSummaryInputs) -> str:
         session_inputs = await self._fetch_session_group_data(inputs)
         summaries = await self._run_summaries(session_inputs)
+        summary_of_summaries = await temporalio.workflow.execute_activity(
+            get_llm_session_group_summary_activity,
+            SessionGroupSummaryOfSummariesInputs(
+                session_ids=inputs.session_ids,
+                session_summaries=list(summaries.values()),
+                user_pk=inputs.user_pk,
+                extra_summary_context=inputs.extra_summary_context,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
         temporalio.workflow.logger.info(
             f"Successfully executed summarize-session-group workflow with id {temporalio.workflow.info().workflow_id}"
         )
-        # TODO: Return summary of summaries instead
-        return summaries
+        return summary_of_summaries
 
 
 async def _execute_workflow(inputs: SessionGroupSummaryInputs, workflow_id: str) -> str:

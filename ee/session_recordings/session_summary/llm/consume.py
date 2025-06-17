@@ -100,7 +100,7 @@ def _convert_llm_content_to_session_summary_json(
     return json.dumps(session_summary.data)
 
 
-async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_pk: int, session_ids: list[int]) -> str:
+async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_pk: int, session_ids: list[str]) -> str:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
         input_prompt=prompt.summary_prompt,

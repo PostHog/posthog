@@ -28,18 +28,6 @@ class SingleSessionSummaryInputs:
     local_reads_prod: bool = False
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class SessionGroupSummaryInputs:
-    """Workflow input to get summary for a group of sessions"""
-
-    session_ids: list[str]
-    user_pk: int
-    team_id: int
-    redis_input_key_base: str
-    extra_summary_context: ExtraSummaryContext | None = None
-    local_reads_prod: bool = False
-
-
 @temporalio.activity.defn
 async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
     """Fetch data from DB for a single session and store in Redis (to avoid hitting Temporal memory limits), return Redis key"""
