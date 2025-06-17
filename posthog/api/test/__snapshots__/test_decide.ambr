@@ -826,6 +826,7 @@
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."base_currency",
+         "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
          "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
          "posthog_teamrevenueanalyticsconfig"."events",
          "posthog_teamrevenueanalyticsconfig"."goals"
@@ -5072,6 +5073,7 @@
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."base_currency",
+         "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
          "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
          "posthog_teamrevenueanalyticsconfig"."events",
          "posthog_teamrevenueanalyticsconfig"."goals"

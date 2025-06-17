@@ -17,13 +17,16 @@ describe('HogFlowActionRunnerCondition', () => {
         jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
 
         runner = new HogFlowActionRunnerCondition()
-        action = createHogFlowAction('conditional_branch', {
-            conditions: [
-                {
-                    filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-                    on_match: 'next-action',
-                },
-            ],
+        action = createHogFlowAction({
+            type: 'conditional_branch',
+            config: {
+                conditions: [
+                    {
+                        filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                        on_match: 'next-action',
+                    },
+                ],
+            },
         })
         invocation = createExampleHogFlowInvocation(
             {
