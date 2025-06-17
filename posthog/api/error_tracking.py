@@ -509,10 +509,10 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         file_key = generate_symbol_set_file_key()
-        presigned_url = object_storage.get_presigned_upload_url(
+        presigned_url = object_storage.get_presigned_post(
             file_key=file_key,
-            expiration=60,
             conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+            expiration=60,
         )
 
         symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)

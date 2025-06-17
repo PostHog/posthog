@@ -1,7 +1,9 @@
 use core::str;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Ok, Result};
+use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -16,8 +18,14 @@ const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 
 #[derive(Debug, Deserialize)]
 struct StartUploadResponseData {
-    presigned_url: String,
+    presigned_url: PresignedUrl,
     symbol_set_id: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct PresignedUrl {
+    pub url: String,
+    pub fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,12 +152,21 @@ fn start_upload(
     Ok(data)
 }
 
-fn upload_to_s3(client: &Client, presigned_url: String, data: Vec<u8>) -> Result<()> {
+fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> Result<()> {
+    let mut form = Form::new();
+
+    for (key, value) in presigned_url.fields {
+        form = form.text(key.clone(), value.clone());
+    }
+
+    let part = Part::bytes(data);
+    form = form.part("file", part);
+
     let res = client
-        .put(&presigned_url)
-        .body(data)
+        .post(&presigned_url.url)
+        .multipart(form)
         .send()
-        .context(format!("While uploading chunk to {}", presigned_url))?;
+        .context(format!("While uploading chunk to {}", presigned_url.url))?;
 
     if !res.status().is_success() {
         bail!("Failed to upload chunk: {:?}", res);
