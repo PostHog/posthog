@@ -183,7 +183,8 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
-        for field in delta_schema.to_pyarrow():
+        for arro3_field in delta_schema.to_arrow():
+            field = pa.field(arro3_field)
             if field.name not in py_table_field_names:
                 if field.nullable:
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
