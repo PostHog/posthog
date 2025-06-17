@@ -3,7 +3,6 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch
 from dlt.sources import DltSource
@@ -126,35 +125,24 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
-            from posthog.temporal.data_imports.pipelines.stripe import stripe_source, stripe_source_v2
+            from posthog.temporal.data_imports.pipelines.stripe import stripe_source_v2
 
             stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
             account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
             if not stripe_secret_key:
                 raise ValueError(f"Stripe secret key not found for job {model.id}")
 
-            if str(inputs.team_id) in settings.STRIPE_V2_TEAM_IDS:
-                source = stripe_source_v2(
-                    api_key=stripe_secret_key,
-                    account_id=account_id,
-                    endpoint=schema.name,
-                    is_incremental=schema.is_incremental,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                    db_incremental_field_earliest_value=processed_incremental_earliest_value
-                    if schema.is_incremental
-                    else None,
-                    logger=logger,
-                )
-            else:
-                source = stripe_source(
-                    api_key=stripe_secret_key,
-                    account_id=account_id,
-                    endpoint=schema.name,
-                    team_id=inputs.team_id,
-                    job_id=inputs.run_id,
-                    is_incremental=schema.is_incremental,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                )
+            source = stripe_source_v2(
+                api_key=stripe_secret_key,
+                account_id=account_id,
+                endpoint=schema.name,
+                is_incremental=schema.is_incremental,
+                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                db_incremental_field_earliest_value=processed_incremental_earliest_value
+                if schema.is_incremental
+                else None,
+                logger=logger,
+            )
 
             return _run(
                 job_inputs=job_inputs,

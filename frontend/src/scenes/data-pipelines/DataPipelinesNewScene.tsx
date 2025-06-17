@@ -1,8 +1,6 @@
 import { kea, path, props, selectors, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -10,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
+import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
 export type DataPipelinesNewSceneProps = {
     kind: 'transformation' | 'destination' | 'source' | 'site_app'
@@ -30,9 +29,9 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
                         path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: Scene.DataPipelines,
+                        key: [Scene.DataPipelines, kind],
                         name: capitalizeFirstLetter(kind) + 's',
-                        path: urls.dataPipelines(kind + 's'),
+                        path: urls.dataPipelines(kind),
                     },
                     {
                         key: Scene.DataPipelinesNew,
@@ -56,19 +55,22 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { logicProps } = useValues(dataPipelinesNewSceneLogic)
     const { kind } = logicProps
 
-    if (['transformation', 'destination', 'site_app'].includes(kind)) {
-        return <HogFunctionTemplateList type={kind} />
+    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } =
+        useValues(nonHogFunctionTemplatesLogic)
+
+    if (kind === 'transformation') {
+        return <HogFunctionTemplateList type="transformation" />
+    }
+    if (kind === 'destination') {
+        return <HogFunctionTemplateList type="destination" manualTemplates={hogFunctionTemplatesBatchExports} />
+    }
+    if (kind === 'site_app') {
+        return <HogFunctionTemplateList type="site_app" />
     }
 
     if (kind === 'source') {
         return (
-            <>
-                <FlaggedFeature flag="cdp-hog-sources">
-                    <h2>Event sources</h2>
-                    <HogFunctionTemplateList type="source_webhook" />
-                </FlaggedFeature>
-                <NewSourceWizardScene />
-            </>
+            <HogFunctionTemplateList type="source_webhook" manualTemplates={hogFunctionTemplatesDataWarehouseSources} />
         )
     }
 

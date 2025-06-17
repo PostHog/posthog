@@ -23,7 +23,6 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { HogFlowAction } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -45,23 +44,32 @@ export type CyclotronJobInputProps = {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
 }
 
 export interface CyclotronJobInputsProps {
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
     setConfigurationValue: (key: string, value: any) => void
     showSource: boolean
 }
 
 export type CyclotronJobInputWithSchemaProps = {
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
     setConfigurationValue: (key: string, value: any) => void
     schema: CyclotronJobInputSchemaType
     showSource: boolean
 }
 
-const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+const typeList = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 function JsonConfigField(props: {
     input: CyclotronJobInputType
@@ -291,6 +299,8 @@ export function CyclotronJobInputRenderer({
                     templating={templating}
                 />
             )
+        case 'number':
+            return <LemonInput type="number" value={input.value} onChange={onValueChange} className="ph-no-capture" />
         case 'json':
             return (
                 <JsonConfigField input={input} onChange={onChange} className="ph-no-capture" templating={templating} />
@@ -339,7 +349,10 @@ type CyclotronJobInputSchemaControlsProps = {
     onChange: (value: CyclotronJobInputSchemaType | null) => void
     onDone: () => void
     supportsSecrets: boolean
-    configuration: HogFunctionConfigurationType | HogFunctionMappingType | HogFlowAction
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
 }
 
 function CyclotronJobInputSchemaControls({

@@ -262,7 +262,6 @@ function WorkflowEditorContent({
 
                 {selectedNode && (
                     <NodeDetailsPanel
-                        workflowId="new"
                         node={selectedNode}
                         onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
                         onDelete={(node) => {

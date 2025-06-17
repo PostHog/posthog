@@ -115,10 +115,9 @@ pub struct PropertyDefinition {
     pub property_type: Option<PropertyValueType>,
     pub event_type: PropertyParentType,
     pub group_type_index: Option<GroupType>,
-    pub last_seen_at: DateTime<Utc>, // Not a DB attribute; for local cache expiry only
     pub property_type_format: Option<String>, // Deprecated
-    pub volume_30_day: Option<i64>,  // Deprecated
-    pub query_usage_30_day: Option<i64>, // Deprecated
+    pub volume_30_day: Option<i64>,           // Deprecated
+    pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -126,19 +125,16 @@ pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
     pub project_id: i64,
-    // Not a DB attribute; for local cache expiry only
-    // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
-    pub last_seen_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
 // Derived hash since these are keyed on all fields in the DB
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventProperty {
     pub team_id: i32,
     pub project_id: i64,
     pub event: String,
     pub property: String,
-    pub last_seen_at: DateTime<Utc>, // Not a DB attribute; for local cache expiry only
 }
 
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
@@ -294,7 +290,6 @@ impl Event {
                 project_id: self.project_id,
                 event: sanitize_string(&self.event),
                 property: key.clone(),
-                last_seen_at: get_floored_last_seen(),
             }));
 
             let property_type = detect_property_type(key, value);
@@ -308,7 +303,6 @@ impl Event {
                 property_type,
                 event_type: parent_type,
                 group_type_index: group_type.clone(),
-                last_seen_at: get_floored_last_seen(),
                 property_type_format: None,
                 volume_30_day: None,
                 query_usage_30_day: None,
@@ -422,30 +416,17 @@ fn is_likely_unix_timestamp(n: &serde_json::Number) -> bool {
 impl Hash for PropertyDefinition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.team_id.hash(state);
-        // project_id is not consistently populated in posthog_propertydefinition
         self.name.hash(state);
         self.event_type.hash(state);
         self.group_type_index.hash(state);
-        self.last_seen_at.hash(state) // ensure the cache entry expires in 1 hour
     }
 }
 
 impl Hash for EventDefinition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // project_id is not consistently populated in posthog_eventdefinition
         self.team_id.hash(state);
         self.name.hash(state);
-        self.last_seen_at.hash(state) // ensure the cache entry expires in 1 hour
-    }
-}
-
-impl Hash for EventProperty {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.team_id.hash(state);
-        // project_id is not consistently populated in posthog_eventproperty
-        self.event.hash(state);
-        self.property.hash(state);
-        self.last_seen_at.hash(state); // ensure the cache expires these fairly quickly
+        self.last_seen_at.hash(state)
     }
 }
 

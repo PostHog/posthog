@@ -25,6 +25,7 @@ from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
+from temporalio.testing._activity import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from types_aiobotocore_s3.client import S3Client
 
@@ -39,6 +40,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.pre_export_stage import (
+    BatchExportInsertIntoS3StageInputs,
     insert_into_s3_stage_activity,
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
@@ -430,416 +432,348 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 ]
 
 
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
-async def test_insert_into_s3_activity_puts_data_into_s3(
-    clickhouse_client,
-    bucket_name,
-    minio_client,
-    activity_environment,
-    compression,
-    exclude_events,
-    file_format,
-    data_interval_start,
-    data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
-    generate_test_data,
-    ateam,
-):
-    """Test that the insert_into_s3_activity function ends up with data into S3.
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
+class TestInsertIntoS3Activity:
+    """Tests for the insert_into_s3_activity.
 
-    We use the generate_test_events_in_clickhouse function to generate several sets
-    of events. Some of these sets are expected to be exported, and others not. Expected
-    events are those that:
-    * Are created for the team_id of the batch export.
-    * Are created in the date range of the batch export.
-    * Are not duplicates of other events that are in the same batch.
-    * Do not have an event name contained in the batch export's exclude_events.
-
-    Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
-    that they appear in the expected S3 bucket and key.
-    """
-    if (
-        isinstance(model, BatchExportModel)
-        and (model.name == "persons" or model.name == "sessions")
-        and exclude_events is not None
-    ):
-        pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
-
-    prefix = str(uuid.uuid4())
-
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        compression=compression,
-        exclude_events=exclude_events,
-        file_format=file_format,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
-    )
-
-    with override_settings(
-        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
-    ):  # 5MB, the minimum for Multipart uploads
-        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
-
-    events_to_export_created, persons_to_export_created = generate_test_data
-    assert (
-        records_exported == len(events_to_export_created)
-        or records_exported == len(persons_to_export_created)
-        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        # NOTE: Sometimes a random extra session will pop up and I haven't figured out why.
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
-    )
-
-    sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
-        sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
-        sort_key = "session_id"
-
-    await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
-        clickhouse_client=clickhouse_client,
-        bucket_name=bucket_name,
-        key_prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        batch_export_model=model,
-        exclude_events=exclude_events,
-        include_events=None,
-        compression=compression,
-        file_format=file_format,
-        backfill_details=None,
-        sort_key=sort_key,
-    )
-
-
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
-# Use 0 to test that the file is not split up and 6MB since this is slightly
-# larger than the default 5MB chunk size for multipart uploads.
-@pytest.mark.parametrize("max_file_size_mb", [None, 6])
-async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
-    clickhouse_client,
-    bucket_name,
-    minio_client,
-    activity_environment,
-    compression,
-    max_file_size_mb,
-    exclude_events,
-    file_format,
-    data_interval_start,
-    data_interval_end,
-    model: BatchExportModel,
-    ateam,
-):
-    """Test that the insert_into_s3_activity function splits up large files into
-    multiple parts based on the max file size configuration.
-
-    If max file size is set to 0 then the file should not be split up.
-
-    This test needs to generate a lot of data to ensure that the file is large enough to be split up.
+    We are trying out a new version of this activity: insert_into_s3_activity_from_stage, so we parametrize
+    the tests to run both versions to ensure functionality is the same.
     """
 
-    if file_format == "JSONLines" and compression is not None:
-        pytest.skip("Compressing large JSONLines files takes too long to run; skipping for now")
-
-    prefix = str(uuid.uuid4())
-
-    events_1, _, _ = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100000,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        properties={"$prop1": 123},
-    )
-
-    events_2, _, _ = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100000,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        properties={"$prop1": 123},
-    )
-
-    events_to_export_created = events_1 + events_2
-
-    heartbeat_details: list[S3HeartbeatDetails] = []
-
-    def track_hearbeat_details(*details):
-        """Record heartbeat details received."""
-        nonlocal heartbeat_details
-
-        s3_details = S3HeartbeatDetails.from_activity_details(details)
-        heartbeat_details.append(s3_details)
-
-    activity_environment.on_heartbeat = track_hearbeat_details
-
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        compression=compression,
-        exclude_events=exclude_events,
-        file_format=file_format,
-        max_file_size_mb=max_file_size_mb,
-        batch_export_schema=None,
-        batch_export_model=model,
-    )
-
-    with override_settings(
-        # 5MB, the minimum for Multipart uploads
-        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
+    async def _run_activity(
+        self, use_internal_s3_stage: bool, activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs
     ):
-        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        with override_settings(
+            BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
+        ):  # 5MB, the minimum for Multipart uploads
+            if use_internal_s3_stage:
+                assert insert_inputs.batch_export_id is not None
+                records_exported = await activity_environment.run(
+                    insert_into_s3_stage_activity,
+                    BatchExportInsertIntoS3StageInputs(
+                        team_id=insert_inputs.team_id,
+                        batch_export_id=insert_inputs.batch_export_id,
+                        data_interval_start=insert_inputs.data_interval_start,
+                        data_interval_end=insert_inputs.data_interval_end,
+                        exclude_events=insert_inputs.exclude_events,
+                        include_events=None,
+                        run_id=None,
+                        backfill_details=None,
+                        batch_export_model=insert_inputs.batch_export_model,
+                        batch_export_schema=insert_inputs.batch_export_schema,
+                        destination_default_fields=s3_default_fields(),
+                    ),
+                )
 
-    assert records_exported == len(events_to_export_created)
+                records_exported = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
+            else:
+                records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    # Takes a long time to re-read this data from ClickHouse, so we just make sure that:
-    # 1. The file exists in S3.
-    # 2. We can read it (so, it's a valid file).
-    # 3. It has the same length as the events we have created.
-    s3_data, s3_keys = await assert_files_in_s3(
-        s3_compatible_client=minio_client,
-        bucket_name=bucket_name,
-        key_prefix=prefix,
-        file_format=file_format,
-        compression=compression,
-        json_columns=("properties", "person_properties", "set", "set_once"),
-    )
+        return records_exported
 
-    assert len(s3_data) == len(events_to_export_created)
-    num_files = len(s3_keys)
-
-    def expected_s3_key(
-        file_number: int,
-        data_interval_start: dt.datetime,
-        data_interval_end: dt.datetime,
-        file_format: str,
-        compression: str,
-        max_file_size_mb: int | None,
+    @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+    @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+    @pytest.mark.parametrize("model", TEST_S3_MODELS)
+    @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
+    async def test_insert_into_s3_activity_puts_data_into_s3(
+        self,
+        clickhouse_client,
+        bucket_name,
+        minio_client,
+        activity_environment: ActivityEnvironment,
+        compression,
+        exclude_events,
+        file_format,
+        data_interval_start,
+        data_interval_end,
+        model: BatchExportModel | BatchExportSchema | None,
+        generate_test_data,
+        ateam,
+        use_internal_s3_stage,
     ):
-        file_extension = FILE_FORMAT_EXTENSIONS[file_format]
-        base_key_name = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}"
-        # for backwards compatibility with the old file naming scheme
-        if max_file_size_mb is None:
-            key_name = base_key_name
-        else:
-            key_name = f"{base_key_name}-{file_number}"
-        key_name = f"{key_name}.{file_extension}"
-        if compression:
-            compression_extension = COMPRESSION_EXTENSIONS[compression]
-            key_name = f"{key_name}.{compression_extension}"
-        return key_name
+        """Test that the insert_into_s3_activity function ends up with data into S3.
 
-    if max_file_size_mb is None:
-        # we only expect 1 file
-        assert num_files == 1
-    else:
-        assert num_files > 1
+        We use the generate_test_events_in_clickhouse function to generate several sets
+        of events. Some of these sets are expected to be exported, and others not. Expected
+        events are those that:
+        * Are created for the team_id of the batch export.
+        * Are created in the date range of the batch export.
+        * Are not duplicates of other events that are in the same batch.
+        * Do not have an event name contained in the batch export's exclude_events.
 
-    expected_keys = [
-        expected_s3_key(
-            file_number=i,
+        Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
+        that they appear in the expected S3 bucket and key.
+        """
+        if (
+            isinstance(model, BatchExportModel)
+            and (model.name == "persons" or model.name == "sessions")
+            and exclude_events is not None
+        ):
+            pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
+
+        if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
+            pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
+
+        prefix = str(uuid.uuid4())
+
+        batch_export_schema: BatchExportSchema | None = None
+        batch_export_model: BatchExportModel | None = None
+        if isinstance(model, BatchExportModel):
+            batch_export_model = model
+        elif model is not None:
+            batch_export_schema = model
+
+        batch_export_id = str(uuid.uuid4())
+
+        insert_inputs = S3InsertInputs(
+            bucket_name=bucket_name,
+            region="us-east-1",
+            prefix=prefix,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
+            aws_access_key_id="object_storage_root_user",
+            aws_secret_access_key="object_storage_root_password",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            compression=compression,
+            exclude_events=exclude_events,
+            file_format=file_format,
+            batch_export_schema=batch_export_schema,
+            batch_export_model=batch_export_model,
+            batch_export_id=batch_export_id,
+            destination_default_fields=s3_default_fields(),
+        )
+
+        records_exported = await self._run_activity(use_internal_s3_stage, activity_environment, insert_inputs)
+        events_to_export_created, persons_to_export_created = generate_test_data
+        assert (
+            records_exported == len(events_to_export_created)
+            or records_exported == len(persons_to_export_created)
+            or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+            # NOTE: Sometimes a random extra session will pop up and I haven't figured out why.
+            or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
+        )
+
+        sort_key = "uuid"
+        if isinstance(model, BatchExportModel) and model.name == "persons":
+            sort_key = "person_id"
+        elif isinstance(model, BatchExportModel) and model.name == "sessions":
+            sort_key = "session_id"
+
+        await assert_clickhouse_records_in_s3(
+            s3_compatible_client=minio_client,
+            clickhouse_client=clickhouse_client,
+            bucket_name=bucket_name,
+            key_prefix=prefix,
+            team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            batch_export_model=model,
+            exclude_events=exclude_events,
+            include_events=None,
+            compression=compression,
+            file_format=file_format,
+            backfill_details=None,
+            sort_key=sort_key,
+        )
+
+    @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+    @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+    @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
+    # Use 0 to test that the file is not split up and 6MB since this is slightly
+    # larger than the default 5MB chunk size for multipart uploads.
+    @pytest.mark.parametrize("max_file_size_mb", [None, 6])
+    async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
+        self,
+        clickhouse_client,
+        bucket_name,
+        minio_client,
+        activity_environment,
+        compression,
+        max_file_size_mb,
+        exclude_events,
+        file_format,
+        data_interval_start,
+        data_interval_end,
+        model: BatchExportModel,
+        ateam,
+        use_internal_s3_stage,
+    ):
+        """Test that the insert_into_s3_activity function splits up large files into
+        multiple parts based on the max file size configuration.
+
+        If max file size is set to 0 then the file should not be split up.
+
+        This test needs to generate a lot of data to ensure that the file is large enough to be split up.
+        """
+
+        if file_format == "JSONLines" and compression is not None:
+            pytest.skip("Compressing large JSONLines files takes too long to run; skipping for now")
+
+        prefix = str(uuid.uuid4())
+
+        events_1, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=100000,
+            count_outside_range=0,
+            count_other_team=0,
+            duplicate=False,
+            properties={"$prop1": 123},
+        )
+
+        events_2, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=100000,
+            count_outside_range=0,
+            count_other_team=0,
+            duplicate=False,
+            properties={"$prop1": 123},
+        )
+
+        events_to_export_created = events_1 + events_2
+
+        insert_inputs = S3InsertInputs(
+            bucket_name=bucket_name,
+            region="us-east-1",
+            prefix=prefix,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
+            aws_access_key_id="object_storage_root_user",
+            aws_secret_access_key="object_storage_root_password",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            compression=compression,
+            exclude_events=exclude_events,
+            file_format=file_format,
+            max_file_size_mb=max_file_size_mb,
+            batch_export_schema=None,
+            batch_export_model=model,
+            batch_export_id=str(uuid.uuid4()),
+            destination_default_fields=s3_default_fields(),
+        )
+
+        records_exported = await self._run_activity(use_internal_s3_stage, activity_environment, insert_inputs)
+
+        assert records_exported == len(events_to_export_created)
+
+        # Takes a long time to re-read this data from ClickHouse, so we just make sure that:
+        # 1. The file exists in S3.
+        # 2. We can read it (so, it's a valid file).
+        # 3. It has the same length as the events we have created.
+        s3_data, s3_keys = await assert_files_in_s3(
+            s3_compatible_client=minio_client,
+            bucket_name=bucket_name,
+            key_prefix=prefix,
             file_format=file_format,
             compression=compression,
-            max_file_size_mb=max_file_size_mb,
+            json_columns=("properties", "person_properties", "set", "set_once"),
         )
-        for i in range(num_files)
-    ]
-    assert set(expected_keys) == set(s3_keys)
 
-    manifest_key = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}_manifest.json"
-    # we only expect a manifest file if we have set a max file size
-    if max_file_size_mb is None:
-        with pytest.raises(minio_client.exceptions.NoSuchKey):
-            await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
-    else:
-        manifest_data: dict | list = await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
-        assert isinstance(manifest_data, dict)
-        assert manifest_data["files"] == expected_keys
+        assert len(s3_data) == len(events_to_export_created)
+        num_files = len(s3_keys)
 
-    # check heartbeat details
-    assert len(heartbeat_details) > 0
-    detail = heartbeat_details[-1]
-    assert detail.files_uploaded == num_files
-    assert detail.upload_state is None
+        def expected_s3_key(
+            file_number: int,
+            data_interval_start: dt.datetime,
+            data_interval_end: dt.datetime,
+            file_format: str,
+            compression: str,
+            max_file_size_mb: int | None,
+        ):
+            file_extension = FILE_FORMAT_EXTENSIONS[file_format]
+            base_key_name = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}"
+            # for backwards compatibility with the old file naming scheme
+            if max_file_size_mb is None:
+                key_name = base_key_name
+            else:
+                key_name = f"{base_key_name}-{file_number}"
+            key_name = f"{key_name}.{file_extension}"
+            if compression:
+                compression_extension = COMPRESSION_EXTENSIONS[compression]
+                key_name = f"{key_name}.{compression_extension}"
+            return key_name
 
+        if max_file_size_mb is None:
+            # we only expect 1 file
+            assert num_files == 1
+        else:
+            assert num_files > 1
 
-@pytest.mark.parametrize("compression", [None, "gzip"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("file_format", ["Parquet"])
-async def test_insert_into_s3_activity_puts_splitted_parquet_data_into_s3(
-    clickhouse_client,
-    bucket_name,
-    minio_client,
-    activity_environment,
-    compression,
-    exclude_events,
-    file_format,
-    data_interval_start,
-    data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
-    ateam,
-):
-    """Test that the insert_into_s3_activity function exports uncorrupted parquet data.
+        expected_keys = [
+            expected_s3_key(
+                file_number=i,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+                file_format=file_format,
+                compression=compression,
+                max_file_size_mb=max_file_size_mb,
+            )
+            for i in range(num_files)
+        ]
+        assert set(expected_keys) == set(s3_keys)
 
-    More specifically, we are interested in what happens when there is the need to split
-    up a parquet file into multiple parts, so we generate a lot of data for this test.
-    """
-    prefix = str(uuid.uuid4())
+        manifest_key = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}_manifest.json"
+        # we only expect a manifest file if we have set a max file size
+        if max_file_size_mb is None:
+            with pytest.raises(minio_client.exceptions.NoSuchKey):
+                await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+        else:
+            manifest_data: dict | list = await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+            assert isinstance(manifest_data, dict)
+            assert manifest_data["files"] == expected_keys
 
-    events_1, _, _ = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100000,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        properties={"$prop1": 123},
-    )
+    @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+    @pytest.mark.parametrize("file_format", ["invalid"])
+    async def test_insert_into_s3_activity_fails_on_invalid_file_format(
+        self,
+        clickhouse_client,
+        bucket_name,
+        minio_client,
+        activity_environment,
+        compression,
+        exclude_events,
+        file_format,
+        data_interval_start,
+        data_interval_end,
+        model: BatchExportModel | BatchExportSchema | None,
+        ateam,
+        use_internal_s3_stage,
+    ):
+        """Test the insert_into_s3_activity function fails with an invalid file format."""
+        batch_export_schema: BatchExportSchema | None = None
+        batch_export_model: BatchExportModel | None = None
+        if isinstance(model, BatchExportModel):
+            batch_export_model = model
+        elif model is not None:
+            batch_export_schema = model
 
-    events_2, _, _ = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=ateam.pk,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=100000,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        properties={"$prop1": 123},
-    )
+        insert_inputs = S3InsertInputs(
+            bucket_name=bucket_name,
+            region="us-east-1",
+            prefix="any",
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
+            aws_access_key_id="object_storage_root_user",
+            aws_secret_access_key="object_storage_root_password",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            compression=compression,
+            exclude_events=exclude_events,
+            file_format=file_format,
+            batch_export_schema=batch_export_schema,
+            batch_export_model=batch_export_model,
+            batch_export_id=str(uuid.uuid4()),
+            destination_default_fields=s3_default_fields(),
+        )
 
-    events_to_export_created = events_1 + events_2
-
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        compression=compression,
-        exclude_events=exclude_events,
-        file_format=file_format,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
-    )
-
-    with override_settings(
-        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
-    ):  # 5MB, the minimum for Multipart uploads
-        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
-
-    assert records_exported == len(events_to_export_created)
-
-    # Takes a long time to re-read this data from ClickHouse, so we just make sure that:
-    # 1. The file exists in S3.
-    # 2. We can read it (so, it's a valid parquet).
-    # 3. It has the same length as the events we have created.
-    s3_data = await assert_file_in_s3(
-        s3_compatible_client=minio_client,
-        bucket_name=bucket_name,
-        key_prefix=prefix,
-        file_format=file_format,
-        compression=compression,
-        json_columns=("properties", "person_properties", "set", "set_once"),
-    )
-
-    assert len(s3_data) == len(events_to_export_created)
-
-
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("file_format", ["invalid"])
-async def test_insert_into_s3_activity_fails_on_invalid_file_format(
-    clickhouse_client,
-    bucket_name,
-    minio_client,
-    activity_environment,
-    compression,
-    exclude_events,
-    file_format,
-    data_interval_start,
-    data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
-    ateam,
-):
-    """Test the insert_into_s3_activity function fails with an invalid file format."""
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix="any",
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        compression=compression,
-        exclude_events=exclude_events,
-        file_format=file_format,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
-    )
-
-    with pytest.raises(UnsupportedFileFormatError):
-        with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-            await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        with pytest.raises(UnsupportedFileFormatError):
+            await self._run_activity(use_internal_s3_stage, activity_environment, insert_inputs)
 
 
 @pytest_asyncio.fixture
@@ -894,12 +828,7 @@ async def _run_s3_batch_export_workflow(
     ateam,
     batch_export_id,
     s3_destination_config,
-    bucket_name,
     interval,
-    compression,
-    exclude_events,
-    s3_key_prefix,
-    file_format,
     data_interval_start,
     data_interval_end,
     clickhouse_client,
@@ -913,6 +842,12 @@ async def _run_s3_batch_export_workflow(
         batch_export_model = model
     elif model is not None:
         batch_export_schema = model
+
+    exclude_events = s3_destination_config.get("exclude_events", None)
+    file_format = s3_destination_config.get("file_format", "JSONLines")
+    compression = s3_destination_config.get("compression", None)
+    s3_key_prefix = s3_destination_config.get("prefix", None)
+    bucket_name = s3_destination_config.get("bucket_name", None)
 
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
@@ -1034,12 +969,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1052,6 +982,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and_file_formats(
     clickhouse_client,
     minio_client,
@@ -1067,25 +998,24 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
     data_interval_end,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage: bool,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and various compression and file formats."""
 
-    await _run_s3_batch_export_workflow(
-        model=model,
-        ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
-        bucket_name=bucket_name,
-        interval=interval,
-        compression=compression,
-        exclude_events=exclude_events,
-        s3_key_prefix=s3_key_prefix,
-        file_format=file_format,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        clickhouse_client=clickhouse_client,
-        s3_client=minio_client,
-    )
+    with override_settings(
+        BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+    ):
+        await _run_s3_batch_export_workflow(
+            model=model,
+            ateam=ateam,
+            batch_export_id=str(s3_batch_export.id),
+            s3_destination_config=s3_batch_export.destination.config,
+            interval=interval,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            clickhouse_client=clickhouse_client,
+            s3_client=minio_client,
+        )
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1093,6 +1023,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
     clickhouse_client,
     minio_client,
@@ -1108,28 +1039,27 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
     data_interval_end,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage: bool,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and excluding events."""
     if isinstance(model, BatchExportModel) and model.name in ["persons", "sessions"]:
         # Eventually, this setting should be part of the model via some "filters" attribute.
         pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
-    await _run_s3_batch_export_workflow(
-        model=model,
-        ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
-        bucket_name=bucket_name,
-        interval=interval,
-        compression=compression,
-        exclude_events=exclude_events,
-        s3_key_prefix=s3_key_prefix,
-        file_format=file_format,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        clickhouse_client=clickhouse_client,
-        s3_client=minio_client,
-    )
+    with override_settings(
+        BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+    ):
+        await _run_s3_batch_export_workflow(
+            model=model,
+            ateam=ateam,
+            batch_export_id=str(s3_batch_export.id),
+            s3_destination_config=s3_batch_export.destination.config,
+            interval=interval,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            clickhouse_client=clickhouse_client,
+            s3_client=minio_client,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1185,12 +1115,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1233,12 +1158,7 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=s3_batch_export.destination.config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1309,6 +1229,9 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
+    if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
+        pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
+
     destination_config = s3_batch_export.destination.config | {
         "endpoint_url": None,
         "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
@@ -1323,12 +1246,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
             ateam=ateam,
             batch_export_id=str(s3_batch_export.id),
             s3_destination_config=destination_config,
-            bucket_name=bucket_name,
             interval=interval,
-            compression=compression,
-            exclude_events=exclude_events,
-            s3_key_prefix=s3_key_prefix,
-            file_format=file_format,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
@@ -1340,6 +1258,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
     "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials(),
     reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
 )
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
@@ -1363,6 +1282,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
     data_interval_end,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage,
 ):
     """Test S3 Export Workflow end-to-end by using an S3 bucket with various file formats, compression, and
     encryption.
@@ -1374,22 +1294,20 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
         "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
     }
 
-    await _run_s3_batch_export_workflow(
-        model=model,
-        ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=destination_config,
-        bucket_name=bucket_name,
-        interval=interval,
-        compression=compression,
-        exclude_events=exclude_events,
-        s3_key_prefix=s3_key_prefix,
-        file_format=file_format,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        clickhouse_client=clickhouse_client,
-        s3_client=s3_client,
-    )
+    with override_settings(
+        BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+    ):
+        await _run_s3_batch_export_workflow(
+            model=model,
+            ateam=ateam,
+            batch_export_id=str(s3_batch_export.id),
+            s3_destination_config=destination_config,
+            interval=interval,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            clickhouse_client=clickhouse_client,
+            s3_client=s3_client,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1516,7 +1434,10 @@ class RetryableTestException(Exception):
     pass
 
 
-async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch_export, interval):
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
+async def test_s3_export_workflow_handles_insert_activity_errors(
+    ateam, s3_batch_export, interval, use_internal_s3_stage
+):
     """Test S3BatchExport Workflow can handle errors from executing the insert into S3 activity.
 
     Currently, this only means we do the right updates to the BatchExportRun model.
@@ -1536,6 +1457,10 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     async def insert_into_s3_activity_mocked(_: S3InsertInputs) -> str:
         raise RetryableTestException("A useful error message")
 
+    @activity.defn(name="insert_into_s3_activity_from_stage")
+    async def insert_into_s3_activity_from_stage_mocked(_: S3InsertInputs) -> str:
+        raise RetryableTestException("A useful error message")
+
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -1544,18 +1469,23 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
             activities=[
                 mocked_start_batch_export_run,
                 insert_into_s3_activity_mocked,
+                insert_into_s3_stage_activity,
+                insert_into_s3_activity_from_stage_mocked,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
-                await activity_environment.client.execute_workflow(
-                    S3BatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+            with override_settings(
+                BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+            ):
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        S3BatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 1
@@ -1566,7 +1496,10 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     assert run.records_completed is None
 
 
-async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(ateam, s3_batch_export, interval):
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
+async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
+    ateam, s3_batch_export, interval, use_internal_s3_stage
+):
     """Test S3BatchExport Workflow can handle non-retryable errors from executing the insert into S3 activity.
 
     Currently, this only means we do the right updates to the BatchExportRun model.
@@ -1582,11 +1515,15 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
         **s3_batch_export.destination.config,
     )
 
+    class ParamValidationError(Exception):
+        pass
+
     @activity.defn(name="insert_into_s3_activity")
     async def insert_into_s3_activity_mocked(_: S3InsertInputs) -> str:
-        class ParamValidationError(Exception):
-            pass
+        raise ParamValidationError("A useful error message")
 
+    @activity.defn(name="insert_into_s3_activity_from_stage")
+    async def insert_into_s3_activity_from_stage_mocked(_: S3InsertInputs) -> str:
         raise ParamValidationError("A useful error message")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -1597,18 +1534,23 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
             activities=[
                 mocked_start_batch_export_run,
                 insert_into_s3_activity_mocked,
+                insert_into_s3_stage_activity,
+                insert_into_s3_activity_from_stage_mocked,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
-                await activity_environment.client.execute_workflow(
-                    S3BatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+            with override_settings(
+                BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+            ):
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        S3BatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 1
@@ -1619,7 +1561,8 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
 
 
 @pytest.mark.asyncio
-async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, interval):
+@pytest.mark.parametrize("use_internal_s3_stage", [True, False])
+async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, interval, use_internal_s3_stage):
     """Test that S3 Export Workflow can gracefully handle cancellations when inserting S3 data.
 
     Currently, this only means we do the right updates to the BatchExportRun model.
@@ -1641,6 +1584,16 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
             activity.heartbeat()
             await asyncio.sleep(1)
 
+    @activity.defn(name="insert_into_s3_stage_activity")
+    async def insert_into_s3_stage_activity_mocked(_: BatchExportInsertIntoS3StageInputs):
+        return
+
+    @activity.defn(name="insert_into_s3_activity_from_stage")
+    async def never_finish_activity_from_stage(_: S3InsertInputs) -> str:
+        while True:
+            activity.heartbeat()
+            await asyncio.sleep(1)
+
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -1649,22 +1602,27 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
             activities=[
                 mocked_start_batch_export_run,
                 never_finish_activity,
+                insert_into_s3_stage_activity_mocked,
+                never_finish_activity_from_stage,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            handle = await activity_environment.client.start_workflow(
-                S3BatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-            await asyncio.sleep(5)
-            await handle.cancel()
+            with override_settings(
+                BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+            ):
+                handle = await activity_environment.client.start_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                await asyncio.sleep(5)
+                await handle.cancel()
 
-            with pytest.raises(WorkflowFailureError):
-                await handle.result()
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
 
         runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
         assert len(runs) == 1
@@ -2087,6 +2045,7 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
     )
 
 
+# TODO - run this using stage
 async def test_s3_multi_part_upload_raises_retryable_exception(bucket_name, s3_key_prefix):
     """Test a retryable exception is raised instead of a `RequestTimeout`.
 
@@ -2127,6 +2086,7 @@ async def test_s3_multi_part_upload_raises_retryable_exception(bucket_name, s3_k
         await s3_upload.upload_part(io.BytesIO(b"1010"), rewind=False)  # type: ignore
 
 
+# TODO - run this using stage
 async def test_s3_multi_part_upload_raises_exception_if_invalid_endpoint(bucket_name, s3_key_prefix):
     """Test a InvalidS3EndpointError is raised if the endpoint is invalid."""
     s3_upload = S3MultiPartUpload(
@@ -2144,7 +2104,8 @@ async def test_s3_multi_part_upload_raises_exception_if_invalid_endpoint(bucket_
         await s3_upload.start()
 
 
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("use_internal_s3_stage", [False, True])
 async def test_s3_export_workflow_with_request_timeouts(
     clickhouse_client,
     ateam,
@@ -2157,6 +2118,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     data_interval_start,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
+    use_internal_s3_stage,
 ):
     """Test the S3BatchExport Workflow end-to-end when a `RequestTimeout` occurs.
 
@@ -2224,6 +2186,8 @@ async def test_s3_export_workflow_with_request_timeouts(
                 start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
+                insert_into_s3_stage_activity,
+                insert_into_s3_activity_from_stage,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ),
@@ -2231,6 +2195,9 @@ async def test_s3_export_workflow_with_request_timeouts(
         with (
             mock.patch("posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session", FakeSession),
             mock.patch("posthog.temporal.batch_exports.batch_exports.RetryPolicy", DoNotRetryPolicy),
+            override_settings(
+                BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
+            ),
         ):
             await activity_environment.client.execute_workflow(
                 S3BatchExportWorkflow.run,
@@ -2300,6 +2267,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     )
 
 
+# TODO - run this using stage?
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",

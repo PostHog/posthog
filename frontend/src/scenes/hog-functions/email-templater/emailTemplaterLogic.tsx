@@ -132,12 +132,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (!editor || !values.isEmailEditorReady) {
                     return
                 }
-                const data = await new Promise<any>((res) => editor.exportHtml(res))
+                const [htmlData, textData] = await Promise.all([
+                    new Promise<any>((res) => editor.exportHtml(res)),
+                    new Promise<any>((res) => editor.exportPlainText(res)),
+                ])
 
                 const finalValues = {
                     ...value,
-                    html: escapeHTMLStringCurlies(data.html),
-                    design: data.design,
+                    html: escapeHTMLStringCurlies(htmlData.html),
+                    text: textData.text,
+                    design: htmlData.design,
                 }
 
                 props.onChange(finalValues)
