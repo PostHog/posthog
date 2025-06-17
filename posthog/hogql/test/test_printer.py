@@ -2334,3 +2334,41 @@ class TestPrinter(BaseTest):
             printed
             == "SELECT concat(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s) AS `concat('', 'word', '')` LIMIT 1"
         )
+
+    def test_print_hogql_output_format(self):
+        query = parse_select("select 1 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="hogql",
+        )
+        assert printed == "SELECT 1 LIMIT 1"
+
+    def test_print_clickhouse_output_format(self):
+        query = parse_select("select 1 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert printed == "SELECT 1 LIMIT 1 FORMAT ArrowStream"
+
+    def test_print_clickhouse_output_format_union(self):
+        query = parse_select("select 1 limit 1 union all select 2 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert printed == "SELECT 1 LIMIT 1 UNION ALL SELECT 2 LIMIT 1 FORMAT ArrowStream"
+
+    def test_print_clickhouse_output_format_union_with_nested_union_subquery(self):
+        query = parse_select("select * from (select 1 as num union all select 2 as num) limit 2")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert (
+            printed == "SELECT num AS num FROM (SELECT 1 AS num UNION ALL SELECT 2 AS num) LIMIT 2 FORMAT ArrowStream"
+        )
