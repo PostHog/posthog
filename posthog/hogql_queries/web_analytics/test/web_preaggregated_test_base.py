@@ -2,6 +2,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Optional
 from freezegun import freeze_time
+from urllib.parse import urlparse
 
 from posthog.test.base import (
     APIBaseTest,
@@ -76,7 +77,7 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         properties = {
             "$session_id": session_id,
             "$current_url": url,
-            "$pathname": url.split("example.com")[-1] if "example.com" in url else "/",
+            "$pathname": url.split(urlparse(url).hostname)[-1] if urlparse(url).hostname and urlparse(url).hostname.endswith(".example.com") else "/",
             **self.STANDARD_EVENT_PROPERTIES,
             **(extra_properties or {}),
         }
