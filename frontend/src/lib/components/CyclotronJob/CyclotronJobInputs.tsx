@@ -39,33 +39,13 @@ import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSug
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 
-export type CyclotronJobInputProps = {
-    schema: CyclotronJobInputSchemaType
-    input: CyclotronJobInputType
-    onChange?: (value: CyclotronJobInputType) => void
-    disabled?: boolean
+export type CyclotronJobInputsProps = {
     configuration:
         | HogFunctionConfigurationType
         | HogFunctionMappingType
         | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
-}
-
-export interface CyclotronJobInputsProps {
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
-    setConfigurationValue: (key: string, value: any) => void
-    showSource: boolean
-}
-
-export type CyclotronJobInputWithSchemaProps = {
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
-    setConfigurationValue: (key: string, value: any) => void
-    schema: CyclotronJobInputSchemaType
+    onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
+    onInputChange: (key: string, input: CyclotronJobInputType) => void
     showSource: boolean
 }
 
@@ -279,6 +259,17 @@ function DictionaryField({
     )
 }
 
+type CyclotronJobInputProps = {
+    schema: CyclotronJobInputSchemaType
+    input: CyclotronJobInputType
+    onChange?: (value: CyclotronJobInputType) => void
+    disabled?: boolean
+    configuration:
+        | HogFunctionConfigurationType
+        | HogFunctionMappingType
+        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
+}
+
 export function CyclotronJobInputRenderer({
     onChange,
     schema,
@@ -348,7 +339,6 @@ type CyclotronJobInputSchemaControlsProps = {
     value: CyclotronJobInputSchemaType
     onChange: (value: CyclotronJobInputSchemaType | null) => void
     onDone: () => void
-    supportsSecrets: boolean
     configuration:
         | HogFunctionConfigurationType
         | HogFunctionMappingType
@@ -359,7 +349,6 @@ function CyclotronJobInputSchemaControls({
     value,
     onChange,
     onDone,
-    supportsSecrets,
     configuration,
 }: CyclotronJobInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<CyclotronJobInputSchemaType> | null): void => {
@@ -393,15 +382,13 @@ function CyclotronJobInputSchemaControls({
                     label="Required"
                     bordered
                 />
-                {supportsSecrets ? (
-                    <LemonCheckbox
-                        size="small"
-                        checked={value.secret}
-                        onChange={(secret) => _onChange({ secret })}
-                        label="Secret"
-                        bordered
-                    />
-                ) : null}
+                <LemonCheckbox
+                    size="small"
+                    checked={value.secret}
+                    onChange={(secret) => _onChange({ secret })}
+                    label="Secret"
+                    bordered
+                />
                 <div className="flex-1" />
                 <LemonButton status="danger" icon={<IconTrash />} size="small" onClick={() => onChange(null)} />
                 <LemonButton type="secondary" size="small" onClick={() => onDone()}>
@@ -480,10 +467,15 @@ function CyclotronJobInputSchemaControls({
     )
 }
 
+type CyclotronJobInputWithSchemaProps = CyclotronJobInputsProps & {
+    schema: CyclotronJobInputSchemaType
+}
+
 export function CyclotronJobInputWithSchema({
     schema,
     configuration,
-    setConfigurationValue,
+    onInputSchemaChange,
+    onInputChange,
     showSource,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
@@ -503,13 +495,13 @@ export function CyclotronJobInputWithSchema({
         }
 
         if (newSchema?.key) {
-            setConfigurationValue(`inputs.${newSchema.key}`, value)
+            onInputChange?.(newSchema.key, value)
         }
 
         if (newSchema?.type && newSchema.type !== schema.type) {
-            setConfigurationValue(`inputs.${schema.key}`, null)
+            onInputChange?.(schema.key, { value: null })
         }
-        setConfigurationValue('inputs_schema', inputsSchema)
+        onInputSchemaChange?.(inputsSchema)
     }
 
     useEffect(() => {
@@ -517,8 +509,6 @@ export function CyclotronJobInputWithSchema({
             setEditing(false)
         }
     }, [showSource])
-
-    const supportsSecrets = 'type' in configuration // no secrets for mapping inputs
 
     return (
         <div
@@ -611,7 +601,6 @@ export function CyclotronJobInputWithSchema({
                         value={schema}
                         onChange={onSchemaChange}
                         onDone={() => setEditing(false)}
-                        supportsSecrets={supportsSecrets}
                         configuration={configuration}
                     />
                 </div>
@@ -622,7 +611,8 @@ export function CyclotronJobInputWithSchema({
 
 export function CyclotronJobInputs({
     configuration,
-    setConfigurationValue,
+    onInputSchemaChange,
+    onInputChange,
     showSource,
 }: CyclotronJobInputsProps): JSX.Element | null {
     const config = configuration
@@ -647,7 +637,7 @@ export function CyclotronJobInputs({
                         const oldIndex = inputSchemaIds.indexOf(active.id as string)
                         const newIndex = inputSchemaIds.indexOf(over.id as string)
 
-                        setConfigurationValue('inputs_schema', arrayMove(inputSchemas, oldIndex, newIndex))
+                        onInputSchemaChange?.(arrayMove(inputSchemas, oldIndex, newIndex))
                     }
                 }}
             >
@@ -659,8 +649,9 @@ export function CyclotronJobInputs({
                                 <CyclotronJobInputWithSchema
                                     key={schema.key}
                                     schema={schema}
-                                    configuration={config}
-                                    setConfigurationValue={setConfigurationValue}
+                                    configuration={configuration}
+                                    onInputSchemaChange={onInputSchemaChange}
+                                    onInputChange={onInputChange}
                                     showSource={showSource}
                                 />
                             )

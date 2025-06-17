@@ -30,7 +30,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
 
-function HideRecordingsMenu(): JSX.Element {
+export function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
 
@@ -94,6 +94,8 @@ export const RecordingsUniversalFilters = ({
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const { isZenMode } = useValues(playerSettingsLogic)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -349,32 +351,34 @@ export const RecordingsUniversalFilters = ({
                     </LemonModal>
                 </>
             </MaxTool>
-            <div className="flex gap-2 mt-2 justify-between">
-                <HideRecordingsMenu />
-                <SettingsMenu
-                    highlightWhenActive={false}
-                    items={[
-                        {
-                            label: 'UTC',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
-                            active: playlistTimestampFormat === TimestampFormat.UTC,
-                        },
-                        {
-                            label: 'Device',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
-                            active: playlistTimestampFormat === TimestampFormat.Device,
-                        },
-                        {
-                            label: 'Relative',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
-                            active: playlistTimestampFormat === TimestampFormat.Relative,
-                        },
-                    ]}
-                    icon={<IconClock />}
-                    label={TimestampFormatToLabel[playlistTimestampFormat]}
-                    rounded={true}
-                />
-            </div>
+            {!isZenMode && (
+                <div className="flex gap-2 mt-2 justify-between">
+                    <HideRecordingsMenu />
+                    <SettingsMenu
+                        highlightWhenActive={false}
+                        items={[
+                            {
+                                label: 'UTC',
+                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                                active: playlistTimestampFormat === TimestampFormat.UTC,
+                            },
+                            {
+                                label: 'Device',
+                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                                active: playlistTimestampFormat === TimestampFormat.Device,
+                            },
+                            {
+                                label: 'Relative',
+                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                                active: playlistTimestampFormat === TimestampFormat.Relative,
+                            },
+                        ]}
+                        icon={<IconClock />}
+                        label={TimestampFormatToLabel[playlistTimestampFormat]}
+                        rounded={true}
+                    />
+                </div>
+            )}
         </>
     )
 }

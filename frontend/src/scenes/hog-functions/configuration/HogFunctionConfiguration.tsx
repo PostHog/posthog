@@ -249,11 +249,30 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
-                ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                ) : [
+                      'template-google-ads',
+                      'template-meta-ads',
+                      'template-tiktok-ads',
+                      'template-snapchat-ads',
+                      'template-linkedin-ads',
+                      'template-reddit-pixel',
+                      'template-tiktok-pixel',
+                      'template-snapchat-pixel',
+                      'template-reddit-conversions-api',
+                  ].includes(templateId ?? '') || template?.status === 'alpha' ? (
                     <div>
                         <LemonBanner type="warning">
-                            The receiving destination imposes a rate limit of 10 events per second. Exceeding this limit
-                            may result in some events failing to be delivered.
+                            <p>
+                                This destination is currently in an experimental state. For many cases this will work
+                                just fine but for others there may be unexpected issues and we do not offer official
+                                customer support for it in these cases.
+                            </p>
+                            {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                                <span className="mt-2">
+                                    The receiving destination imposes a rate limit of 10 events per second. Exceeding
+                                    this limit may result in some events failing to be delivered.
+                                </span>
+                            ) : null}
                         </LemonBanner>
                     </div>
                 ) : null}
@@ -436,8 +455,16 @@ export function HogFunctionConfiguration({
                                     ) : null}
 
                                     <CyclotronJobInputs
-                                        configuration={configuration}
-                                        setConfigurationValue={setConfigurationValue}
+                                        configuration={{
+                                            inputs_schema: configuration.inputs_schema ?? [],
+                                            inputs: configuration.inputs ?? {},
+                                        }}
+                                        onInputSchemaChange={(schema) => {
+                                            setConfigurationValue('inputs_schema', schema)
+                                        }}
+                                        onInputChange={(key, input) => {
+                                            setConfigurationValue(`inputs.${key}`, input)
+                                        }}
                                         showSource={showSource}
                                     />
                                     {showSource && canEditSource ? (

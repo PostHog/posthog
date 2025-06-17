@@ -18150,7 +18150,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["cohort", "country", "product"],
+            "enum": ["cohort", "country", "coupon", "coupon_id", "initial_coupon", "initial_coupon_id", "product"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {

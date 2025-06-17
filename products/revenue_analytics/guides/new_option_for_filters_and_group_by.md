@@ -135,14 +135,12 @@ def joins_set_for_properties(self) -> set[str]:
 
 **File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_insights_query_runner.py`
 
-Add the new case inside `append_group_by()`
+Add the new case inside `_join_to_and_field_name_for_group_by()`
 
 ```python
-def _get_subquery(self) -> ast.SelectQuery | None:
+def _join_to_and_field_name_for_group_by(self, group_by: RevenueAnalyticsInsightsQueryGroupBy) -> tuple[type[RevenueAnalyticsBaseView], str]:
     if group_by == RevenueAnalyticsInsightsQueryGroupBy.COUNTRY:
-        subquery = customer_subquery
-        join_to = RevenueAnalyticsCustomerView
-        field_name = "country"
+        return RevenueAnalyticsCustomerView, "country"
     elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COHORT:
         # ... other properties
 ```
