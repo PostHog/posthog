@@ -168,11 +168,12 @@ export function InsightTooltip({
                     },
                 })
             })
-            dataColumns.sort(
-                (a, b) =>
-                    (truncatedCols[parseInt(a.key as string)]?.action?.order || 0) -
-                    (truncatedCols[parseInt(b.key as string)]?.action?.order || 0)
-            )
+            dataColumns.sort((a, b) => {
+                const itemA = truncatedCols?.find((s) => s.order === parseInt(a.key as string))
+                const itemB = truncatedCols?.find((s) => s.order === parseInt(b.key as string))
+
+                return (itemA?.order || 0) - (itemB?.order || 0)
+            })
             columns.push(...dataColumns)
         }
 
