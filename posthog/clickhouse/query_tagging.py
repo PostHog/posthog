@@ -5,14 +5,25 @@ from typing import Any, Optional
 from collections.abc import Generator
 from contextlib import contextmanager
 
+from posthog.git import get_git_commit_short
+from posthog.settings import CONTAINER_HOSTNAME
+
 thread_local_storage = threading.local()
+
+
+def get_constant_tags():
+    return {
+        "git_commit": get_git_commit_short(),
+        "container_hostname": CONTAINER_HOSTNAME,
+    }
 
 
 def get_query_tags():
     try:
-        return thread_local_storage.query_tags
+        tags = thread_local_storage.query_tags
     except AttributeError:
-        return {}
+        tags = {}
+    return {**tags, **get_constant_tags()}
 
 
 def get_query_tag_value(key: str) -> Optional[Any]:
