@@ -2153,11 +2153,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           the day and day of the week.
                                                       </p>
                                                       <p>
-                                                          Note: It is expected that selecting a time range longer than 7
+                                                          Each cell represents the number of unique users during a
+                                                          specific hour of a specific day. The "All" column aggregates
+                                                          totals for each day, and the bottom row aggregates totals for
+                                                          each hour. The bottom-right cell shows the grand total. The
+                                                          displayed time is based on your project's date and time
+                                                          settings (UTC by default, configurable in{' '}
+                                                          <Link to={urls.settings('project', 'date-and-time')}>
+                                                              project settings
+                                                          </Link>
+                                                          ).
+                                                      </p>
+                                                      <p>
+                                                          <strong>Note:</strong> Selecting a time range longer than 7
                                                           days will include additional occurrences of weekdays and
                                                           hours, potentially increasing the user counts in those
-                                                          buckets. The recommendation is to select 7 closed days or
-                                                          multiple of 7 closed day ranges.
+                                                          buckets. For best results, select 7 closed days or multiple of
+                                                          7 closed day ranges.
                                                       </p>
                                                   </div>
                                               </>
@@ -2195,11 +2207,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           pageviews, broken down by hour of the day and day of the week.
                                                       </p>
                                                       <p>
-                                                          Note: It is expected that selecting a time range longer than 7
+                                                          Each cell represents the number of total pageviews during a
+                                                          specific hour of a specific day. The "All" column aggregates
+                                                          totals for each day, and the bottom row aggregates totals for
+                                                          each hour. The bottom-right cell shows the grand total. The
+                                                          displayed time is based on your project's date and time
+                                                          settings (UTC by default, configurable in{' '}
+                                                          <Link to={urls.settings('project', 'date-and-time')}>
+                                                              project settings
+                                                          </Link>
+                                                          ).
+                                                      </p>
+                                                      <p>
+                                                          <strong>Note:</strong> Selecting a time range longer than 7
                                                           days will include additional occurrences of weekdays and
                                                           hours, potentially increasing the user counts in those
-                                                          buckets. The recommendation is to select 7 closed days or
-                                                          multiple of 7 closed day ranges.
+                                                          buckets. For best results, select 7 closed days or multiple of
+                                                          7 closed day ranges.
                                                       </p>
                                                   </div>
                                               </>
