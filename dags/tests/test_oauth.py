@@ -215,31 +215,35 @@ class TestBatchDeleteFunctionality(TestCase):
 
     def test_token_cleanup_comprehensive_scenario(self):
         now = timezone.now()
-        old_time = now - timedelta(days=95)  # Beyond default retention
-        recent_time = now - timedelta(days=30)  # Within default retention
-        future_time = now + timedelta(hours=1)
+        ninety_five_days_ago = now - timedelta(days=95)  # Beyond default retention
+        one_day_ago = now - timedelta(days=1)  # Within default retention
+        in_one_hour = now + timedelta(hours=1)
 
         tokens_to_delete = []
         tokens_to_keep = []
 
         # Old expired access token (should be deleted)
         old_access = OAuthAccessToken.objects.create(
-            user=self.user, application=self.oauth_application, token="old_access", expires=old_time, scope="read"
+            user=self.user,
+            application=self.oauth_application,
+            token="old_access",
+            expires=ninety_five_days_ago,
+            scope="read",
         )
         tokens_to_delete.append(("OAuthAccessToken", old_access.id))
 
         # Recent expired access token (should be kept due to retention)
         recent_access = OAuthAccessToken.objects.create(
-            user=self.user, application=self.oauth_application, token="recent_access", expires=recent_time, scope="read"
+            user=self.user, application=self.oauth_application, token="recent_access", expires=one_day_ago, scope="read"
         )
-        tokens_to_delete.append(("OAuthAccessToken", recent_access.id))
+        tokens_to_keep.append(("OAuthAccessToken", recent_access.id))
 
         # Valid access token (should be kept)
         valid_access = OAuthAccessToken.objects.create(
             user=self.user,
             application=self.oauth_application,
             token="valid_access",
-            expires=future_time,
+            expires=in_one_hour,
             scope="read write",
         )
         tokens_to_keep.append(("OAuthAccessToken", valid_access.id))
@@ -249,7 +253,7 @@ class TestBatchDeleteFunctionality(TestCase):
             user=self.user,
             application=self.oauth_application,
             code="old_grant",
-            expires=old_time,
+            expires=ninety_five_days_ago,
             redirect_uri="https://example.com/callback",
             code_challenge="old_challenge",
             code_challenge_method="S256",
@@ -261,7 +265,7 @@ class TestBatchDeleteFunctionality(TestCase):
             user=self.user,
             application=self.oauth_application,
             code="valid_grant",
-            expires=future_time,
+            expires=in_one_hour,
             redirect_uri="https://example.com/callback",
             code_challenge="valid_challenge",
             code_challenge_method="S256",
@@ -270,7 +274,7 @@ class TestBatchDeleteFunctionality(TestCase):
 
         # Old revoked refresh token (should be deleted)
         old_refresh = OAuthRefreshToken.objects.create(
-            user=self.user, application=self.oauth_application, token="old_refresh", revoked=old_time
+            user=self.user, application=self.oauth_application, token="old_refresh", revoked=ninety_five_days_ago
         )
         tokens_to_delete.append(("OAuthRefreshToken", old_refresh.id))
 
