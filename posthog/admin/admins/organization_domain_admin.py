@@ -23,18 +23,19 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
         "verification_challenge",
         "last_verification_retry",
     )
-    fields = (
-        "id",
-        "organization",
-        "domain",
-        "verification_challenge",
-        "verified_at",
-        "last_verification_retry",
-        "jit_provisioning_enabled",
-        "sso_enforcement",
-        "saml_entity_id",
-        "saml_acs_url",
-        "saml_x509_cert",
+    fieldsets = (
+        (None, {
+            'fields': ('id', 'organization', 'domain')
+        }),
+        ('Verification', {
+            'fields': ('verification_challenge', 'verified_at', 'last_verification_retry')
+        }),
+        ('Access Control', {
+            'fields': ('jit_provisioning_enabled', 'sso_enforcement')
+        }),
+        ('SAML Configuration', {
+            'fields': ('saml_entity_id', 'saml_acs_url', 'saml_x509_cert')
+        }),
     )
     list_display_links = ("domain",)
     ordering = ("domain",)
