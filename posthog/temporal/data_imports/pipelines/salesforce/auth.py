@@ -4,7 +4,7 @@ from dlt.common.pendulum import pendulum
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 
 
-class SalseforceAuth(BearerTokenAuth):
+class SalesforceAuth(BearerTokenAuth):
     def __init__(self, refresh_token, access_token, instance_url):
         self.parse_native_representation(access_token)
         self.refresh_token = refresh_token

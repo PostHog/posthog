@@ -355,9 +355,11 @@ class OauthIntegration:
                 config = res.json()
 
                 if res.status_code != 200 or not config.get("access_token"):
-                    raise Exception("Oauth error")
+                    logger.error(f"Oauth error for {kind}", response=res.text)
+                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
             else:
-                raise Exception("Oauth error")
+                logger.error(f"Oauth error for {kind}", response=res.text)
+                raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
