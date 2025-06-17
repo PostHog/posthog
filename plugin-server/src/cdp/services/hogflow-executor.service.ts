@@ -132,9 +132,10 @@ export class HogFlowExecutorService {
                         timestamp: DateTime.now(),
                         message: `Action ${actionResult.action.id} errored: ${String(actionResult.error)}`, // TODO: Is this enough detail?
                     })
-                    // Special metric dedicated for the individual action for the generic workflow - used to show per-path metrics
                 }
 
+                // Special metric dedicated for the individual action for the generic workflow - used to show per-path metrics
+                // The rest is done by the parent
                 result.metrics.push({
                     team_id: invocation.hogFlow.team_id,
                     app_source_id: invocation.hogFlow.id,
