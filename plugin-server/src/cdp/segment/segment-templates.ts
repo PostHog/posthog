@@ -421,6 +421,7 @@ const APPROVED_DESTINATIONS: string[] = [
 ]
 
 const HIDDEN_DESTINATIONS = [
+    // broken or duplicate destinations
     'segment-snap-conversions',
     'segment-google-sheets-dev',
     'segment-google-analytics-4',
@@ -448,6 +449,8 @@ const HIDDEN_DESTINATIONS = [
     'segment-tiktok-offline-conversions',
     'segment-tiktok-offline-conversions-sandbox',
     'segment-toplyne-cloud',
+
+    // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
     'segment-equals',
     'segment-gainsight-px-cloud',
     'segment-iqm',
