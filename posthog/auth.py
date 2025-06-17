@@ -353,26 +353,27 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
     access_token: OAuthAccessToken
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
-        access_token = self._extract_token(request)
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        authorization_token = self._extract_token(request)
 
-        if not access_token:
+        if not authorization_token:
             return None
 
         try:
-            access_token = self._validate_token(access_token)
+            access_token = self._validate_token(authorization_token)
+
             if not access_token:
-                return None
+                return None  # We return None here because we want to let the next authentication method have a go
 
             self.access_token = access_token
 
             tag_queries(
-                user_id=access_token.user.pk,
-                team_id=access_token.user.current_team_id,
+                user_id=access_token.user.pk,  # type: ignore[attr-defined]
+                team_id=access_token.user.current_team_id,  # type: ignore[attr-defined]
                 access_method="oauth",
             )
 
-            return access_token.user, access_token
+            return access_token.user, None
 
         except AuthenticationFailed:
             raise
@@ -386,7 +387,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 return authorization_match.group(1).strip()
         return None
 
-    def _validate_token(self, token: str) -> Optional[OAuthAccessToken]:
+    def _validate_token(self, token: str):
         try:
             access_token = OAuthAccessToken.objects.select_related("user").get(token=token)
 
@@ -399,13 +400,17 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             if not access_token.user.is_active:
                 raise AuthenticationFailed(detail="User associated with access token is disabled.")
 
-            if not access_token.application_id:
+            if not access_token.application_id:  # type: ignore[attr-defined]
                 raise AuthenticationFailed(detail="Access token is not associated with a valid application.")
 
             return access_token
 
         except OAuthAccessToken.DoesNotExist:
-            raise AuthenticationFailed(detail="Access token is invalid.")
+            return None
+        except AuthenticationFailed:
+            raise
+        except Exception:
+            raise AuthenticationFailed(detail="Failed to validate access token.")
 
     def authenticate_header(self, request):
         return self.keyword
