@@ -543,7 +543,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if s3_upload:
             content_length = s3_upload.get("ContentLength")
 
-            if content_length > ONE_HUNDRED_MEGABYTES:
+            if not content_length or content_length > ONE_HUNDRED_MEGABYTES:
                 # TODO: remove from s3 (reuse dagster job)
                 symbol_set.delete()
 
