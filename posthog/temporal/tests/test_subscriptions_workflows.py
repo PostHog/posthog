@@ -22,9 +22,10 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     DeliverSubscriptionReportActivityInputs,
     deliver_subscription_report_activity,
     ScheduleAllSubscriptionsWorkflowInputs,
+    fetch_due_subscriptions_activity,
 )
 
-pytestmark = pytest.mark.django_db(transaction=True, reset_sequences=True)
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ async def subscriptions_worker(temporal_client: Client):
         temporal_client,
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[ScheduleAllSubscriptionsWorkflow, HandleSubscriptionValueChangeWorkflow],
-        activities=[deliver_subscription_report_activity],
+        activities=[deliver_subscription_report_activity, fetch_due_subscriptions_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         yield  # allow the test to run while the worker is active
