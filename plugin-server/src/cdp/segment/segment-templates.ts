@@ -421,26 +421,18 @@ const APPROVED_DESTINATIONS: string[] = [
 ]
 
 const HIDDEN_DESTINATIONS = [
-    // broken or duplicate destinations
+    // duplicate destinations
     'segment-snap-conversions',
-    'segment-google-sheets-dev',
-    'segment-google-analytics-4',
-    'segment-google-campaign-manager-360',
     'segment-hubspot-cloud',
-    'segment-facebook-conversions-api',
     'segment-june-actions',
     'segment-intercom-cloud',
     'segment-avo',
     'segment-loops',
-    'segment-google-enhanced-conversions',
     'segment-reddit-conversions-api',
     'segment-customerio',
     'segment-slack',
     'segment-webhook',
     'segment-webhook-extensible',
-    'segment-gleap-cloud-actions',
-    'segment-adjust',
-    'segment-apolloio',
     'segment-attio',
     'segment-braze-cloud',
     'segment-klaviyo',
@@ -448,6 +440,12 @@ const HIDDEN_DESTINATIONS = [
     'segment-tiktok-conversions-sandbox',
     'segment-tiktok-offline-conversions',
     'segment-tiktok-offline-conversions-sandbox',
+    'segment-facebook-conversions-api',
+    'segment-google-enhanced-conversions',
+    'segment-gleap-cloud-actions',
+
+    // broken destinations
+    'segment-apolloio',
     'segment-toplyne-cloud',
 
     // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
