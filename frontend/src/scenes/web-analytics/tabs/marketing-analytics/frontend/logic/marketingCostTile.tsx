@@ -5,7 +5,7 @@ import { ExternalTable, NativeSource } from './marketingAnalyticsLogic'
 import { COST_MICROS_MULTIPLIER, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME } from './utils'
 
 export const googleAdsCostTile = (source: NativeSource): DataWarehouseNode | null => {
-    const table = source.tables.find((t) => t.name === GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME)
+    const table = source.tables.find((t) => t.name.split('.').pop() === GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME)
     if (!table) {
         return null
     }

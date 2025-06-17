@@ -29,9 +29,11 @@ function unionNativeQueries(validNativeSources: NativeSource[]): string[] {
     const googleAdsUnionNativeQueries = validNativeSources
         .filter((source) => source.source.source_type === 'GoogleAds')
         .map((nativeSource) => {
-            const campaignTableData = nativeSource.tables.find((table) => table.name === GOOGLE_ADS_CAMPAIGN_TABLE_NAME)
+            const campaignTableData = nativeSource.tables.find(
+                (table) => table.name.split('.').pop() === GOOGLE_ADS_CAMPAIGN_TABLE_NAME
+            )
             const campaignStatsTableData = nativeSource.tables.find(
-                (table) => table.name === GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME
+                (table) => table.name.split('.').pop() === GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME
             )
 
             if (!campaignTableData || !campaignStatsTableData) {
