@@ -15,6 +15,8 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
+from ee.session_recordings.session_summary.summarize_session import SessionSummaryPrompt
+
 logger = structlog.get_logger(__name__)
 
 TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
@@ -96,6 +98,23 @@ def _convert_llm_content_to_session_summary_json(
             results_base_dir_path=os.environ["LOCAL_SESSION_SUMMARY_RESULTS_DIR"],
         )
     return json.dumps(session_summary.data)
+
+
+async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_pk: int, session_ids: list[int]) -> str:
+    sessions_identifier = ",".join(session_ids)
+    result = await call_llm(
+        input_prompt=prompt.summary_prompt,
+        user_key=user_pk,
+        session_id=sessions_identifier,
+        system_prompt=prompt.system_prompt,
+    )
+    raw_content = _get_raw_content(result, sessions_identifier)
+    if not raw_content:
+        raise ValueError(
+            f"No content consumed when calling LLM for session group summary, session_ids {sessions_identifier}"
+        )
+    # TODO: Force LLM to return event ids and use them to enrich group summary with metadata
+    return raw_content
 
 
 async def get_llm_single_session_summary(

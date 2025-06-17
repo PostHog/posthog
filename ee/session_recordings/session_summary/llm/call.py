@@ -22,8 +22,6 @@ def _prepare_messages(
         )
     if assistant_start_text:
         # Force LLM to start with the assistant text
-        # TODO Check why the pre-defining the response with assistant text doesn't work properly
-        # (for example, LLM still starts with ```yaml, while it should continue the assistant text)
         messages.append({"role": "assistant", "content": assistant_start_text})
     if not messages:
         raise ValueError(f"No messages to send to LLM for session_id {session_id}")
