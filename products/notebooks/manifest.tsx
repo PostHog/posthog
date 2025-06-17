@@ -25,4 +25,12 @@ export const manifest: ProductManifest = {
             href: urls.notebook('new'),
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Notebooks',
+            category: 'Analytics tools',
+            type: 'notebook',
+            href: urls.notebooks(),
+        },
+    ],
 }

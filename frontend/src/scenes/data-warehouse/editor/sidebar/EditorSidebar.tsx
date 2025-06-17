@@ -1,10 +1,12 @@
 import { IconBolt, IconBrackets, IconServer } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
+import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
@@ -98,7 +100,7 @@ export const EditorSidebar = ({
                 width: `${sidebarWidth}px`,
             }}
         >
-            <div className="w-full">
+            <div className="w-full flex items-center justify-between pl-2 pr-2">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => {
@@ -109,6 +111,15 @@ export const EditorSidebar = ({
                     size="small"
                     barClassName="flex justify-center items-center"
                 />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => {
+                        router.actions.push(urls.sqlEditor())
+                    }}
+                >
+                    + New Query
+                </LemonButton>
             </div>
             {renderTabContent()}
             <Resizer {...editorSizingLogicProps.sidebarResizerProps} offset={0} />

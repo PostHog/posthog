@@ -132,8 +132,14 @@ export const manifest: ProductManifest = {
     ],
     treeItemsProducts: [
         {
+            path: 'Insights',
+            category: 'Analytics tools',
+            type: 'insight',
+            href: urls.insights(),
+        },
+        {
             path: 'Product analytics',
-            category: 'Analytics',
+            category: 'Curated experiences',
             type: 'insight',
             href: urls.insights(),
         },

@@ -29,7 +29,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Feature flags`,
-            category: 'Features',
+            category: 'Feature management',
             type: 'feature_flag',
             href: urls.featureFlags(),
         },

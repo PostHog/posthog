@@ -88,7 +88,7 @@ export const manifest: ProductManifest = {
             href: urls.messagingCampaigns(),
             type: 'messaging',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
-            category: 'Tools',
+            category: 'Various tools',
             tags: ['alpha'],
             /**
              * We'll keep early-access flag (FEATURE_FLAGS.MESSAGING) enabled but use this

@@ -35,4 +35,12 @@ export const manifest: ProductManifest = {
             href: urls.dashboards() + '#newDashboard=modal',
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Dashboards',
+            category: 'Analytics tools',
+            type: 'dashboard',
+            href: urls.dashboards(),
+        },
+    ],
 }

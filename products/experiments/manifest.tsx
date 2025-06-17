@@ -44,7 +44,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Experiments`,
-            category: 'Features',
+            category: 'Feature management',
             type: 'experiment',
             href: urls.experiments(),
         },

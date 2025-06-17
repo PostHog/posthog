@@ -51,7 +51,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Early access features',
-            category: 'Features',
+            category: 'Feature management',
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
         },

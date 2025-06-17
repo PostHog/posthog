@@ -1,5 +1,13 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import {
+    IconBolt,
+    IconBook,
+    IconBrackets,
+    IconDownload,
+    IconPlayFilled,
+    IconSidebarClose,
+    IconSidebarOpen,
+} from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -127,6 +135,15 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         size="small"
                     />
                 )}
+                <LemonButton
+                    onClick={() => resetDefaultSidebarWidth()}
+                    className="rounded-none"
+                    icon={<IconSidebarOpen />}
+                    type="secondary"
+                    size="small"
+                >
+                    Show database
+                </LemonButton>
                 <QueryTabs
                     models={allTabs}
                     onClick={selectTab}

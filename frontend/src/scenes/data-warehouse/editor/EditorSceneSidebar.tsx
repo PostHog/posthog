@@ -18,14 +18,13 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { ItemMode } from '~/types'
 
-import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
-import { QueryWindow } from './QueryWindow'
+import { EditorSidebar } from './sidebar/EditorSidebar'
 import { editorSidebarLogic } from './sidebar/editorSidebarLogic'
 
-export function EditorScene(): JSX.Element {
+export function EditorSceneSidebar(): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
@@ -52,9 +51,7 @@ export function EditorScene(): JSX.Element {
         },
     }
 
-    const [monacoAndEditor, setMonacoAndEditor] = useState(
-        null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
-    )
+    const [monacoAndEditor] = useState(null as [Monaco, importedEditor.IStandaloneCodeEditor] | null)
     const [monaco, editor] = monacoAndEditor ?? []
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
@@ -123,16 +120,11 @@ export function EditorScene(): JSX.Element {
                                         >
                                             <div
                                                 data-attr="editor-scene"
-                                                className="EditorScene w-full h-full flex flex-row overflow-hidden"
+                                                className="EditorScene w-full h-full flex flex-row overflow-hidden bg-surface-secondary"
                                                 ref={ref}
                                             >
-                                                <QueryWindow
-                                                    onSetMonacoAndEditor={(monaco, editor) =>
-                                                        setMonacoAndEditor([monaco, editor])
-                                                    }
-                                                />
+                                                <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
                                             </div>
-                                            <ViewLinkModal />
                                         </BindLogic>
                                     </BindLogic>
                                 </BindLogic>

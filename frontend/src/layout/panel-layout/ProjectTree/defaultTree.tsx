@@ -279,33 +279,21 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: 'Dashboards',
-            category: 'Analytics',
-            type: 'dashboard',
-            href: urls.dashboards(),
-        },
-        {
-            path: 'Notebooks',
-            category: 'Tools',
-            type: 'notebook',
-            href: urls.notebooks(),
-        },
-        {
             path: `Data pipelines`,
-            category: 'Tools',
+            category: 'Various tools',
             type: 'hog_function',
             iconType: 'plug',
             href: urls.pipeline(),
         } as FileSystemImport,
         {
             path: `SQL editor`,
-            category: 'Analytics',
+            category: 'Analytics tools',
             type: 'sql',
             href: urls.sqlEditor(),
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            category: 'Behavior',
+            category: 'Users & sessions',
             iconType: 'heatmap',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,

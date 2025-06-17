@@ -53,7 +53,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Links',
-            category: 'Tools',
+            category: 'Various tools',
             type: 'link',
             href: urls.links(),
             flag: FEATURE_FLAGS.LINKS,

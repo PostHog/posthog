@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Revenue analytics',
-            category: 'Analytics',
+            category: 'Curated experiences',
             iconType: 'piggyBank',
             href: urls.revenueAnalytics(),
             tags: ['beta'],

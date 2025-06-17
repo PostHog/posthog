@@ -2,6 +2,7 @@ import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
+import { EditorSceneSidebar } from 'scenes/data-warehouse/editor/EditorSceneSidebar'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
@@ -165,6 +166,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Data' && (
                         <ProjectTree root="data://" searchPlaceholder="Search data tools" />
                     )}
+                    {activePanelIdentifier === 'Database' && <EditorSceneSidebar />}
                     {activePanelIdentifier === 'People' && (
                         <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
                     )}

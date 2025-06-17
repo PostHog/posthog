@@ -14,7 +14,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Web analytics',
-            category: 'Analytics',
+            category: 'Curated experiences',
             iconType: 'pieChart',
             href: urls.webAnalytics(),
         },
