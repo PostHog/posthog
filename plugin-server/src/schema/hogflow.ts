@@ -48,22 +48,22 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             delay_duration: z.string(),
         }),
     }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('message'),
-        config: z.object({
-            message: z.string(),
-            channel: z.string(),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('hog_function'),
-        function_id: z.string(),
-        config: z.object({
-            args: z.record(z.any()),
-        }),
-    }),
+    // z.object({
+    //     ..._commonActionFields,
+    //     type: z.literal('message'),
+    //     config: z.object({
+    //         message: z.string(),
+    //         channel: z.string(),
+    //     }),
+    // }),
+    // z.object({
+    //     ..._commonActionFields,
+    //     type: z.literal('hog_function'),
+    //     function_id: z.string(),
+    //     config: z.object({
+    //         args: z.record(z.any()),
+    //     }),
+    // }),
     z.object({
         ..._commonActionFields,
         type: z.literal('exit'),
