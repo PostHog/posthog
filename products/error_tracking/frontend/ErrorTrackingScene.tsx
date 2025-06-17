@@ -35,7 +35,6 @@ import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
     logic: errorTrackingSceneLogic,
-    settingSectionId: 'environment-error-tracking',
 }
 
 export function ErrorTrackingScene(): JSX.Element {
@@ -219,18 +218,27 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
 const Header = (): JSX.Element => {
     const { user } = useValues(userLogic)
 
+    const onClick = (): void => {
+        setInterval(() => {
+            throw new Error('Kaboom !')
+        }, 100)
+    }
+
     return (
         <PageHeader
             buttons={
                 <>
                     {user?.is_staff ? (
-                        <LemonButton
-                            onClick={() => {
-                                posthog.captureException(new Error('Kaboom !'))
-                            }}
-                        >
-                            Send an exception
-                        </LemonButton>
+                        <>
+                            <LemonButton
+                                onClick={() => {
+                                    posthog.captureException(new Error('Kaboom !'))
+                                }}
+                            >
+                                Send an exception
+                            </LemonButton>
+                            <LemonButton onClick={onClick}>Start exception loop</LemonButton>
+                        </>
                     ) : null}
                     <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
                         Documentation

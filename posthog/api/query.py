@@ -5,6 +5,7 @@ import json
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
+from posthog.schema_migrations.upgrade import upgrade
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
@@ -128,7 +129,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        data = self.get_model(request.data, QueryRequest)
+        upgraded_query = upgrade(request.data)
+        data = self.get_model(upgraded_query, QueryRequest)
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user

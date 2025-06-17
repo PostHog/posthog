@@ -1,4 +1,5 @@
 from .async_deletion_admin import AsyncDeletionAdmin
+from .batch_imports import BatchImportAdmin
 from .cohort_admin import CohortAdmin
 from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
@@ -11,6 +12,7 @@ from .group_type_mapping_admin import GroupTypeMappingAdmin
 from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
 from .organization_admin import OrganizationAdmin
+from .organization_domain_admin import OrganizationDomainAdmin
 from .person_admin import PersonAdmin
 from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .plugin_admin import PluginAdmin

@@ -23,7 +23,7 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     currency_aware_amount,
     is_zero_decimal_in_stripe,
 )
-from .revenue_analytics_base_view import RevenueAnalyticsBaseView
+from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_exprs_for_team
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
@@ -58,6 +58,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             return []
 
         revenue_config = team.revenue_analytics_config
+        generic_team_exprs = events_exprs_for_team(team)
 
         queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
@@ -71,6 +72,16 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 event,
                 amount_expr=ast.Field(chain=["currency_aware_amount"]),
             )
+
+            filter_exprs = [
+                comparison_expr,
+                *generic_team_exprs,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["amount"]),  # refers to the Alias above
+                    right=ast.Constant(value=None),
+                ),
+            ]
 
             query = ast.SelectQuery(
                 select=[
@@ -102,16 +113,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="amount", expr=currency_aware_amount_expr),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.And(
-                    exprs=[
-                        comparison_expr,
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.NotEq,
-                            left=ast.Field(chain=["amount"]),  # refers to the Alias above
-                            right=ast.Constant(value=None),
-                        ),
-                    ]
-                ),
+                where=ast.And(exprs=filter_exprs),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             )
 

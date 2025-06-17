@@ -2,8 +2,10 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::{PropertyFilter, PropertyType};
+use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -23,6 +25,28 @@ impl PropertyFilter {
             .as_ref()
             .and_then(|value| value.as_i64())
             .map(|id| id as CohortId)
+    }
+
+    /// Checks if the filter is a feature flag filter
+    pub fn is_feature_flag(&self) -> bool {
+        self.prop_type == PropertyType::Flag
+    }
+
+    /// Returns the feature flag id if the filter is a feature flag filter, or None if it's not a feature flag filter
+    /// or if the value cannot be parsed as a feature flag id
+    pub fn get_feature_flag_id(&self) -> Option<FeatureFlagId> {
+        if !self.is_feature_flag() {
+            return None;
+        }
+        self.key.parse::<FeatureFlagId>().ok()
+    }
+}
+
+fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
+    if filter.is_feature_flag() {
+        filter.get_feature_flag_id()
+    } else {
+        None
     }
 }
 
@@ -49,6 +73,42 @@ impl FeatureFlag {
                 .and_then(|obj| obj.get(match_val).cloned())
         })
     }
+
+    /// Extracts dependent FeatureFlagIds from the feature flag's filters
+    ///
+    /// # Returns
+    /// * `HashSet<FeatureFlagId>` - A set of dependent feature flag IDs
+    /// * `FlagError` - If there is an error parsing the filters
+    pub fn extract_dependencies(&self) -> Result<HashSet<FeatureFlagId>, FlagError> {
+        let mut dependencies = HashSet::new();
+        for group in &self.filters.groups {
+            if let Some(properties) = &group.properties {
+                for filter in properties {
+                    if let Some(feature_flag_id) = extract_feature_flag_dependency(filter) {
+                        dependencies.insert(feature_flag_id);
+                    }
+                }
+            }
+        }
+        Ok(dependencies)
+    }
+}
+
+impl DependencyProvider for FeatureFlag {
+    type Id = FeatureFlagId;
+    type Error = FlagError;
+
+    fn get_id(&self) -> Self::Id {
+        self.id
+    }
+
+    fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
+        self.extract_dependencies()
+    }
+
+    fn dependency_type() -> DependencyType {
+        DependencyType::Flag
+    }
 }
 
 impl FeatureFlagList {
@@ -70,7 +130,11 @@ impl FeatureFlagList {
 
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
-                tracing::error!("failed to parse data to flags list: {}", e);
+                tracing::error!(
+                    "failed to parse data to flags list for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::RedisDataParsingError
             })?;
 
@@ -91,7 +155,11 @@ impl FeatureFlagList {
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!("Failed to get database connection: {}", e);
+            tracing::error!(
+                "Failed to get database connection for project {}: {}",
+                project_id,
+                e
+            );
             FlagError::DatabaseUnavailable
         })?;
 
@@ -116,7 +184,11 @@ impl FeatureFlagList {
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch feature flags from database: {}", e);
+                tracing::error!(
+                    "Failed to fetch feature flags from database for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::Internal(format!("Database query error: {}", e))
             })?;
 
@@ -124,7 +196,13 @@ impl FeatureFlagList {
             .into_iter()
             .map(|row| {
                 let filters = serde_json::from_value(row.filters).map_err(|e| {
-                    tracing::error!("Failed to deserialize filters for flag {}: {}", row.key, e);
+                    tracing::error!(
+                        "Failed to deserialize filters for flag {} in project {} (team {}): {}",
+                        row.key,
+                        project_id,
+                        row.team_id,
+                        e
+                    );
                     FlagError::DeserializeFiltersError
                 })?;
 
@@ -151,7 +229,12 @@ impl FeatureFlagList {
         flags: &FeatureFlagList,
     ) -> Result<(), FlagError> {
         let payload = serde_json::to_string(&flags.flags).map_err(|e| {
-            tracing::error!("Failed to serialize flags: {}", e);
+            tracing::error!(
+                "Failed to serialize {} flags for project {}: {}",
+                flags.flags.len(),
+                project_id,
+                e
+            );
             FlagError::RedisDataParsingError
         })?;
 
@@ -166,7 +249,11 @@ impl FeatureFlagList {
             .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id), payload)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update Redis cache: {}", e);
+                tracing::error!(
+                    "Failed to update Redis cache for project {}: {}",
+                    project_id,
+                    e
+                );
                 FlagError::CacheUpdateError
             })?;
 
@@ -1211,8 +1298,8 @@ mod tests {
             .expect("Failed to fetch flags from Postgres");
         let pg_duration = start.elapsed();
 
-        println!("Redis fetch time: {:?}", redis_duration);
-        println!("Postgres fetch time: {:?}", pg_duration);
+        tracing::info!("Redis fetch time: {:?}", redis_duration);
+        tracing::info!("Postgres fetch time: {:?}", pg_duration);
 
         assert_eq!(redis_flags.flags.len(), num_flags);
         assert_eq!(pg_flags.flags.len(), num_flags);

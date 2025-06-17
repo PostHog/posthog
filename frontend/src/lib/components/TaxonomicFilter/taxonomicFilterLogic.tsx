@@ -25,6 +25,7 @@ import {
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { MaxContextOption } from 'scenes/max/maxTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
@@ -173,6 +174,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
+        maxContextOptions: [
+            () => [(_, props) => props.maxContextOptions],
+            (maxContextOptions) => maxContextOptions ?? [],
+        ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? {},
@@ -190,6 +195,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
         ],
+        propertyFilters: [
+            (s) => [s.excludedProperties, s.propertyAllowList],
+            (
+                excludedProperties: Record<string, any>,
+                propertyAllowList: TaxonomicFilterLogicProps['propertyAllowList']
+            ) => ({ excludedProperties, propertyAllowList }),
+        ],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
@@ -203,24 +215,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventNames,
                 s.schemaColumns,
                 s.metadataSource,
-                s.excludedProperties,
-                s.propertyAllowList,
+                s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
+                s.maxContextOptions,
             ],
             (
-                teamId,
-                projectId,
-                groupAnalyticsTaxonomicGroups,
-                groupAnalyticsTaxonomicGroupNames,
-                eventNames,
-                schemaColumns,
-                metadataSource,
-                excludedProperties,
-                propertyAllowList,
-                eventMetadataPropertyDefinitions,
-                eventOrdering
+                teamId: number | null,
+                projectId: number | null,
+                groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
+                groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
+                eventNames: string[],
+                schemaColumns: DatabaseSchemaField[],
+                metadataSource: AnyDataNode,
+                propertyFilters: { excludedProperties: any; propertyAllowList: any },
+                eventMetadataPropertyDefinitions: PropertyDefinition[],
+                eventOrdering: string | null,
+                maxContextOptions: MaxContextOption[]
             ): TaxonomicFilterGroup[] => {
+                const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -450,7 +463,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Log attributes',
                         searchPlaceholder: 'logs',
-                        type: TaxonomicFilterGroupType.Logs,
+                        type: TaxonomicFilterGroupType.LogAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
                             is_feature_flag: false,
                             ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
@@ -625,7 +638,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...(propertyAllowList
                             ? {
                                   options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
-                                      (property) => ({
+                                      (property: string) => ({
                                           name: property,
                                           value: property,
                                       })
@@ -664,6 +677,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             }
                         },
                         getPopoverHeader: () => 'Replay',
+                    },
+                    {
+                        name: 'In this page',
+                        searchPlaceholder: 'elements from this page',
+                        type: TaxonomicFilterGroupType.MaxAIContext,
+                        options: maxContextOptions,
+                        getName: (option: MaxContextOption) => option.name,
+                        getValue: (option: MaxContextOption) => option.value,
+                        getIcon: (option: MaxContextOption) => {
+                            const Icon = option.icon as React.ComponentType
+                            if (Icon) {
+                                return <Icon />
+                            }
+                            return <></>
+                        },
+                        getPopoverHeader: () => 'In this page',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

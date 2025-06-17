@@ -2,6 +2,7 @@ import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
+import enum
 import json
 import ssl
 import typing
@@ -165,6 +166,12 @@ def clickhouse_types_to_arrow_schema(types: dict[str, str]) -> pa.Schema:
     return pa.schema(fields)
 
 
+class ClickHouseQueryStatus(enum.StrEnum):
+    FINISHED = "Finished"
+    RUNNING = "Running"
+    ERROR = "Error"
+
+
 class ChunkBytesAsyncStreamIterator:
     """Async iterator of HTTP chunk bytes.
 
@@ -208,6 +215,25 @@ class ClickHouseAllReplicasAreStaleError(ClickHouseError):
 
     def __init__(self, query, error_message):
         super().__init__(query, error_message)
+
+
+class ClickHouseClientTimeoutError(ClickHouseError):
+    """Exception raised when `ClickHouseClient` timed-out waiting for a response.
+
+    This does not indicate the query failed as the timeout is local.
+    """
+
+    def __init__(self, query, query_id: str):
+        self.query_id = query_id
+        super().__init__(query, f"Timed-out waiting for response running query '{query_id}'")
+
+
+class ClickHouseQueryNotFound(ClickHouseError):
+    """Exception raised when a query with a given ID is not found."""
+
+    def __init__(self, query, query_id: str):
+        self.query_id = query_id
+        super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
 
 
 class ClickHouseClient:
@@ -385,7 +411,7 @@ class ClickHouseClient:
 
     @contextlib.asynccontextmanager
     async def apost_query(
-        self, query, *data, query_parameters, query_id
+        self, query, *data, query_parameters, query_id, timeout: float | None = None
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -426,9 +452,19 @@ class ClickHouseClient:
         else:
             request_data = query.encode("utf-8")
 
-        async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
-            await self.acheck_response(response, query)
-            yield response
+        if timeout:
+            client_timeout = aiohttp.ClientTimeout(total=timeout)
+        else:
+            client_timeout = None
+
+        try:
+            async with self.session.post(
+                url=self.url, params=params, headers=self.headers, data=request_data, timeout=client_timeout
+            ) as response:
+                await self.acheck_response(response, query)
+                yield response
+        except TimeoutError:
+            raise ClickHouseClientTimeoutError(query, query_id)
 
     @contextlib.contextmanager
     def post_query(self, query, *data, query_parameters, query_id) -> collections.abc.Iterator:
@@ -478,12 +514,16 @@ class ClickHouseClient:
             self.check_response(response, query)
             yield response
 
-    async def execute_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> None:
+    async def execute_query(
+        self, query, *data, query_parameters=None, query_id: str | None = None, timeout: float | None = None
+    ) -> None:
         """Execute the given query in ClickHouse.
 
         This method doesn't return any response.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id):
+        async with self.apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, timeout=timeout
+        ):
             return None
 
     async def read_query(self, query, query_parameters=None, query_id: str | None = None) -> bytes:
@@ -494,6 +534,65 @@ class ClickHouseClient:
         """
         async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
+
+    async def acheck_query(
+        self,
+        query_id: str,
+        raise_on_error: bool = True,
+    ) -> ClickHouseQueryStatus:
+        """Check the status of a query in ClickHouse.
+
+        Arguments:
+            query_id: The ID of the query to check.
+            raise_on_error: Whether to raise an exception if the query has
+                failed.
+        """
+        query = """
+        SELECT type, exception
+        FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
+        WHERE query_id = {{query_id:String}}
+        FORMAT JSONEachRow
+        """
+
+        resp = await self.read_query(
+            query,
+            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+            query_id=f"{query_id}-CHECK",
+        )
+
+        if not resp:
+            raise ClickHouseQueryNotFound(query, query_id)
+
+        lines = resp.split(b"\n")
+
+        events = set()
+        error = None
+        for line in lines:
+            if not line:
+                continue
+
+            loaded = json.loads(line)
+            events.add(loaded["type"])
+
+            error_value = loaded.get("exception", None)
+            if error_value:
+                error = error_value
+
+        if "QueryFinish" in events:
+            return ClickHouseQueryStatus.FINISHED
+        elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
+            if raise_on_error:
+                if error is not None:
+                    error_message = error
+                else:
+                    error_message = f"Unknown query error in query with ID: {query_id}"
+                raise ClickHouseError(query, error_message=error_message)
+
+            return ClickHouseQueryStatus.ERROR
+        elif "QueryStart" in events:
+            return ClickHouseQueryStatus.RUNNING
+        else:
+            raise ClickHouseQueryNotFound(query, query_id)
 
     async def stream_query_as_jsonl(
         self,
