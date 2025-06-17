@@ -77,7 +77,7 @@ def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
     ).exclude(is_static=True)
 
 
-def calculate_stuck_cohorts() -> None:
+def calculate_stuck_cohorts() -> int:
     cohort_ids = []
     for cohort in (
         get_stuck_cohort_calculation_candidates_queryset()
@@ -90,7 +90,9 @@ def calculate_stuck_cohorts() -> None:
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         cohort_ids.append(cohort.pk)
         increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
-    logger.warning("enqueued_stuck_cohorts", cohort_ids=cohort_ids)
+
+    logger.warning("enqueued_stuck_cohorts", cohort_ids=cohort_ids, count=len(cohort_ids))
+    return len(cohort_ids)
 
 
 def update_stale_cohort_metrics() -> None:
@@ -115,16 +117,29 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     """
     Calculates maximum N cohorts in parallel.
 
+    First processes stuck cohorts (priority), then fills remaining capacity with regular cohorts.
+
     Args:
         parallel_count: Maximum number of cohorts to calculate in parallel.
     """
+
+    # First, handle stuck cohorts
+    stuck_cohorts_processed = 0
+    try:
+        stuck_cohorts_processed = calculate_stuck_cohorts()
+    except Exception as e:
+        logger.exception("Failed to calculate stuck cohorts", error=str(e))
+
+    remaining_capacity = max(0, parallel_count - stuck_cohorts_processed)
+
+    # Process regular cohorts with remaining capacity
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
             Q(last_error_at__lte=timezone.now() - BACKOFF_DURATION)  # type: ignore
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
-        .order_by(F("last_calculation").asc(nulls_first=True))[0 : parallel_count - MAX_STUCK_COHORTS_TO_RESET]
+        .order_by(F("last_calculation").asc(nulls_first=True))[0:remaining_capacity]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         logger.info("Enqueuing cohort calculation", cohort_id=cohort.pk, last_calculation=cohort.last_calculation)
@@ -132,11 +147,6 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
-
-    try:
-        calculate_stuck_cohorts()
-    except Exception as e:
-        logger.exception("Failed to calculate stuck cohorts", error=str(e))
 
     try:
         update_stale_cohort_metrics()
