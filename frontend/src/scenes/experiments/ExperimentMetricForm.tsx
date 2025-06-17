@@ -55,6 +55,22 @@ const funnelOrderOptions = [
     },
 ]
 
+function StepOrderInfo(): JSX.Element {
+    return (
+        <ul className="list-disc pl-4">
+            <li>
+                <b>Sequential</b> - Step B must happen after Step A, but any number events can happen between A and B.
+            </li>
+            <li>
+                <b>Strict order</b> - Step B must happen directly after Step A without any events in between.
+            </li>
+            <li>
+                <b>Any order</b> - Steps can be completed in any sequence.
+            </li>
+        </ul>
+    )
+}
+
 export function ExperimentMetricForm({
     metric,
     handleSetMetric,
@@ -172,7 +188,9 @@ export function ExperimentMetricForm({
             </div>
             {isExperimentFunnelMetric(metric) && (
                 <div>
-                    <LemonLabel className="mb-1">Step order</LemonLabel>
+                    <LemonLabel className="mb-1" info={<StepOrderInfo />}>
+                        Step order
+                    </LemonLabel>
                     <LemonSelect
                         data-attr="experiment-funnel-order-filter"
                         value={metric.funnel_order_type || StepOrderValue.ORDERED}
