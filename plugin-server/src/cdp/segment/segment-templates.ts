@@ -448,6 +448,10 @@ const HIDDEN_DESTINATIONS = [
     'segment-tiktok-offline-conversions',
     'segment-tiktok-offline-conversions-sandbox',
     'segment-toplyne-cloud',
+    'segment-equals',
+    'segment-gainsight-px-cloud',
+    'segment-iqm',
+    'segment-movable-ink',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
