@@ -57,7 +57,8 @@
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
+         "posthog_organization"."is_platform",
+         "posthog_organization"."is_env_rollback_triggered"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -132,7 +133,8 @@
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
+         "posthog_organization"."is_platform",
+         "posthog_organization"."is_env_rollback_triggered"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -240,7 +242,8 @@
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
+         "posthog_organization"."is_platform",
+         "posthog_organization"."is_env_rollback_triggered"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -271,7 +274,8 @@
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
+         "posthog_organization"."is_platform",
+         "posthog_organization"."is_env_rollback_triggered"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
