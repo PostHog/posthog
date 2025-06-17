@@ -29,7 +29,8 @@ const calculateExposureDifference = (
     if (result.variants && breakdownResults) {
         const totalExposureCount = result.variants.reduce(
             (acc, variant) =>
-                acc + (isExperimentVariantFunnels(variant) ? variant.success_count + variant.failure_count : 0),
+                acc +
+                (isExperimentVariantFunnels(variant) ? variant.success_count + variant.failure_count : variant.count),
             0
         )
 
