@@ -24,6 +24,7 @@ import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
@@ -310,19 +311,19 @@ function DictionaryField({
                                 placeholder="Key"
                             />
 
-                    <CyclotronJobTemplateInput
-                        className="overflow-hidden flex-2"
-                        input={{ ...input, value: val }}
-                        onChange={(val) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val.value ?? '']
-                            if (val.templating) {
-                                onChange?.({ ...input, templating: val.templating })
-                            }
-                            setEntries(newEntries)
-                        }}
-                        templating={templating}
-                    />
+                            <CyclotronJobTemplateInput
+                                className="overflow-hidden flex-2"
+                                input={{ ...input, value: val }}
+                                onChange={(val) => {
+                                    const newEntries = [...entries]
+                                    newEntries[index] = [newEntries[index][0], val.value ?? '']
+                                    if (val.templating) {
+                                        onChange?.({ ...input, templating: val.templating })
+                                    }
+                                    setEntries(newEntries)
+                                }}
+                                templating={templating}
+                            />
 
                             <LemonButton
                                 icon={<IconX />}
