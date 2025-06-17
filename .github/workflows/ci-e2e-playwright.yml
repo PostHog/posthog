@@ -231,7 +231,7 @@ jobs:
                   echo ">>> installing clickhouse_driver"
                   pip install --quiet clickhouse_driver
                   echo ">>> running validator"
-                  python -u bin/validate-query-versions.py | tee validation_output.txt
+                  python -u bin/validate-query-versions.py 2>&1 | tee validation_output.txt
                   echo ">>> validator exit code: $?"
 
     capture-run-time:

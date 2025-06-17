@@ -15,6 +15,7 @@ except ImportError:
 
 # Configure logging to stdout
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.info("loading")
 
 
 CLICKHOUSE_QUERY = """
@@ -36,6 +37,7 @@ def run_clickhouse_query(query):
 
 
 def validate_versions():
+    logging.info("starting")
     output = run_clickhouse_query(CLICKHOUSE_QUERY)
     for row in output:
         try:
@@ -58,6 +60,8 @@ def validate_versions():
                 logging.error(
                     f"ERROR: Version mismatch for kind '{kind}' in log_comment: {log_comment}\n  Expected: {expected_version}, Found: {actual_version}"
                 )
+
+    logging.info("terminating")
 
 
 if __name__ == "__main__":
