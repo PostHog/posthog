@@ -8,6 +8,7 @@ from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
 
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -313,12 +314,28 @@ class AIBurstRateThrottle(UserRateThrottle):
     scope = "ai_burst"
     rate = "10/minute"
 
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, "ai burst rate limited")
+
+        return request_allowed
+
 
 class AISustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
     rate = "100/day"
+
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, "ai sustained rate limited")
+
+        return request_allowed
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):

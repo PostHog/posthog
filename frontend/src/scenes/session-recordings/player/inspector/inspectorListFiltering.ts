@@ -66,7 +66,7 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
 }
 
 function isContextItem(item: InspectorListItem): boolean {
-    return ['browser-visibility', 'offline-status', 'comment', 'inspector-summary', 'inactivity'].includes(item.type)
+    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity'].includes(item.type)
 }
 
 const eventsMatch = (
@@ -154,6 +154,8 @@ export function itemToMiniFilter(
             return consoleMatch(item, miniFiltersByKey)
         case 'network':
             return networkMatch(item, miniFiltersByKey)
+        case 'comment':
+            return item.type === 'comment' ? miniFiltersByKey['comment'] : null
         case 'doctor':
             if (isDoctorEvent(item)) {
                 return miniFiltersByKey['doctor']

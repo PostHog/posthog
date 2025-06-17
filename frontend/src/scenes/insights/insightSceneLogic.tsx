@@ -3,6 +3,7 @@ import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
 import { AlertType } from 'lib/components/Alerts/types'
+import { isEmptyObject } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
@@ -34,6 +35,16 @@ import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
+
+export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
+    return (
+        !filter ||
+        (filter.date_from === null &&
+            filter.date_to === null &&
+            (filter.properties === null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
+            filter.breakdown_filter === null)
+    )
+}
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -305,13 +316,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
             const filtersOverride = dashboardLogic.findMounted({ id: dashboard })?.values.temporaryFilters
+            const variablesOverride = searchParams['variables_override']
 
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
                 alert_id !== values.alertId ||
-                !objectsEqual(searchParams['variables_override'], values.variablesOverride) ||
+                !objectsEqual(variablesOverride, values.variablesOverride) ||
                 !objectsEqual(filtersOverride, values.filtersOverride) ||
                 dashboard !== values.dashboardId ||
                 dashboardName !== values.dashboardName
@@ -321,8 +333,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     insightMode,
                     itemId,
                     alert_id,
-                    filtersOverride,
-                    searchParams['variables_override'],
+                    // Only pass filters/variables if overrides exist
+                    filtersOverride && isDashboardFilterEmpty(filtersOverride) ? undefined : filtersOverride,
+                    variablesOverride && !isEmptyObject(variablesOverride) ? variablesOverride : undefined,
                     dashboard,
                     dashboardName
                 )

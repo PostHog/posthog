@@ -195,7 +195,7 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/usage_reports|^posthog/temporal/quota_limiting|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/ai|^posthog/temporal/usage_reports|^posthog/temporal/quota_limiting|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
               if: steps.check_changes_general_purpose_temporal_worker.outputs.changed == 'true'

@@ -32,6 +32,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
             orderBy=query_data.get("orderBy"),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=query_data.get("filterGroup", None),
@@ -53,6 +54,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=query_data.get("filterGroup", None),
         )
@@ -73,13 +75,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         results = sync_execute(
             """
 SELECT
-    arraySort(groupArrayDistinct(attribute_key)) as keys
-FROM log_attributes
-WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
-AND team_id = %(team_id)s
-AND attribute_key LIKE %(search)s
-GROUP BY team_id
-LIMIT 1
+    groupArray(attribute_key) as keys
+FROM (
+    SELECT
+        attribute_key,
+        sum(attribute_count)
+    FROM log_attributes
+    WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
+    AND team_id = %(team_id)s
+    AND attribute_key LIKE %(search)s
+    GROUP BY team_id, attribute_key
+    ORDER BY sum(attribute_count) desc, attribute_key asc
+)
 """,
             args={"search": f"%{search}%", "team_id": self.team.id},
             workload=Workload.LOGS,
@@ -106,14 +113,19 @@ LIMIT 1
         results = sync_execute(
             """
 SELECT
-    arraySort(groupArrayDistinct(attribute_value)) as values
-FROM log_attributes
-WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
-AND team_id = %(team_id)s
-AND attribute_key = %(key)s
-AND attribute_value LIKE %(search)s
-GROUP BY team_id
-LIMIT 1
+    groupArray(attribute_value) as keys
+FROM (
+    SELECT
+        attribute_value,
+        sum(attribute_count)
+    FROM log_attributes
+    WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
+    AND team_id = %(team_id)s
+    AND attribute_key = %(key)s
+    AND attribute_value LIKE %(search)s
+    GROUP BY team_id, attribute_value
+    ORDER BY sum(attribute_count) desc, attribute_value asc
+)
 """,
             args={"key": key, "search": f"%{search}%", "team_id": self.team.id},
             workload=Workload.LOGS,

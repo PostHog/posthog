@@ -191,10 +191,8 @@ export const FEATURE_FLAGS = {
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
-    BILLING_PAYMENT_ENTRY_IN_APP: 'billing-payment-entry-in-app', // owner: @zach
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
-    ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
     MESSAGING: 'messaging-product', // owner @haven #team-messaging
     MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
     MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging
@@ -234,6 +232,7 @@ export const FEATURE_FLAGS = {
     REVENUE_ANALYTICS: 'revenue-analytics-beta', // owner: @rafaeelaudibert #team-revenue-analytics
     REVENUE_ANALYTICS_PRODUCT_GROUPING: 'revenue-analytics-product-grouping', // owner: @rafaeelaudibert #team-revenue-analytics
     REVENUE_ANALYTICS_COHORT_GROUPING: 'revenue-analytics-cohort-grouping', // owner: @rafaeelaudibert #team-revenue-analytics
+    REVENUE_ANALYTICS_COUNTRY_GROUPING: 'revenue-analytics-country-grouping', // owner: @rafaeelaudibert #team-revenue-analytics
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
     AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
     CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
@@ -270,6 +269,7 @@ export const FEATURE_FLAGS = {
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     LOGS: 'logs', // owner: @david @frank @olly @ross
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
+    USER_GROUPS_ENABLED: 'user-groups-enabled', // owner: #team-error-tracking
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-observability @peter-k
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
@@ -284,9 +284,12 @@ export const FEATURE_FLAGS = {
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     EXPERIMENTS_FREQUENTIST: 'experiments-frequentist', // owner: @jurajmajerik #team-experiments
     TAXONOMIC_EVENT_SORTING: 'taxonomic-event-sorting', // owner: @pauldambra #team-replay
+    SQL_EDITOR_TREE_VIEW: 'sql-editor-tree-view', // owner: @EDsCODE #team-data-warehouse
     AI_HOG_FUNCTION_CREATION: 'ai-hog-function-creation', // owner: @meikel #team-cdp
     REPLAY_FILTERS_IN_PLAYLIST: 'replay-filters-in-playlist', // owner: @veryayskiy #team-replay
     REPLAY_FILTERS_IN_PLAYLIST_MAX_AI: 'replay-filters-in-playlist-max-ai', // owner: @veryayskiy #team-replay
+    ANNOTATIONS_RECORDING_SCOPE: 'annotations-recording-scope', // owner: @pauldambra #team-replay,
+    EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN: 'experiments-new-runner-results-breakdown', // owner: @rodrigoi #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -139,7 +139,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             type = "campaign"
 
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or folder,
+            base_folder=self._get_assigned_folder(folder),
             type=f"hog_function/{type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",

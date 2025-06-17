@@ -1,8 +1,8 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { TopicMessage } from '~/src/kafka/producer'
-import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { TopicMessage } from '~/kafka/producer'
+import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 
 import {
     Database,
@@ -17,8 +17,8 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
+import { PersonState } from '../../../src/worker/ingestion/persons/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, insertRow } from '../../helpers/sql'
 

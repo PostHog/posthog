@@ -82,7 +82,17 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
 
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
+        choices=[
+            "string",
+            "number",
+            "boolean",
+            "dictionary",
+            "choice",
+            "json",
+            "integration",
+            "integration_field",
+            "email",
+        ]
     )
     key = serializers.CharField()
     label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
@@ -138,6 +148,9 @@ class InputsItemSerializer(serializers.Serializer):
         if item_type == "string":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": f"Value must be a string."})
+        elif item_type == "number":
+            if not isinstance(value, int | float):
+                raise serializers.ValidationError({"input": f"Value must be a number."})
         elif item_type == "boolean":
             if not isinstance(value, bool):
                 raise serializers.ValidationError({"input": f"Value must be a boolean."})

@@ -2,7 +2,6 @@ import { defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { PersonType } from '~/types'
 
@@ -37,10 +36,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                         limit 5
                 `
 
-                const qResponse = await api.query<HogQLQuery>({
-                    kind: NodeKind.HogQLQuery,
-                    query: q,
-                })
+                const qResponse = await api.queryHogQL(q)
 
                 breakpoint()
 
