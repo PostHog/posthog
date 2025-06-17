@@ -1,7 +1,8 @@
-import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
@@ -76,9 +77,9 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                         hasSideActionRight
                                         tooltip={`Current project: ${currentTeam.name}`}
                                         tooltipPlacement="right"
-                                        disabled
                                         data-attr="tree-navbar-project-dropdown-current-project-button"
                                     >
+                                        <IconCheck className="text-tertiary" />
                                         <ProjectName team={currentTeam} />
                                     </ButtonPrimitive>
                                 </Combobox.Item>
@@ -86,7 +87,6 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 <Combobox.Item asChild>
                                     <Link
                                         buttonProps={{
-                                            active: true,
                                             iconOnly: true,
                                             isSideActionRight: true,
                                         }}
@@ -127,6 +127,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                                         to={relativeOtherProjectPath}
                                                         data-attr="tree-navbar-project-dropdown-other-project-button"
                                                     >
+                                                        <IconBlank />
                                                         <ProjectName team={team} />
                                                     </Link>
                                                 </Combobox.Item>

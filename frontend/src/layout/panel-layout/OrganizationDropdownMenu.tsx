@@ -1,6 +1,7 @@
-import { IconChevronRight, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
@@ -88,8 +89,8 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                             tooltip={`Current organization: ${currentOrganization.name}`}
                                             tooltipPlacement="right"
                                             data-attr="tree-navbar-organization-dropdown-current-organization-button"
-                                            disabled
                                         >
+                                            <IconCheck className="text-tertiary" />
                                             <UploadedLogo
                                                 size="xsmall"
                                                 name={currentOrganization.name}
@@ -115,6 +116,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                             tooltipPlacement="right"
                                             data-attr="tree-navbar-organization-dropdown-other-organization-button"
                                         >
+                                            <IconBlank />
                                             <UploadedLogo
                                                 size="xsmall"
                                                 name={otherOrganization.name}
