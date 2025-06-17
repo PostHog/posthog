@@ -1,11 +1,11 @@
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { HogFlowActionRunnerResult } from './types'
+import { HogFlowActionResult } from './types'
 
 type Action = Extract<HogFlowAction, { type: 'random_cohort_branch' }>
 
 export class HogFlowActionRunnerRandomCohortBranch {
-    run(action: Action): Omit<HogFlowActionRunnerResult, 'action'> {
+    run(action: Action): HogFlowActionResult {
         const random = Math.random() * 100 // 0-100
         let cumulativePercentage = 0
 

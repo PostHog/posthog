@@ -13,3 +13,12 @@ export type HogFlowActionRunnerResult = {
 
 // TODO: Improve the type above so it is super clear what the outcome is
 export type HogFlowActionRunnerResultOutcome = 'exited' | 'continued' | 'scheduled' | 'errored'
+
+export type HogFlowActionResult = {
+    // Indicates there is nothing more for the action to do
+    finished: boolean
+    // Indicates the flow should be scheduled for later
+    scheduledAt?: DateTime
+    // Indicates the next action to go to (and assumes it is finished)
+    goToActionId?: string
+}

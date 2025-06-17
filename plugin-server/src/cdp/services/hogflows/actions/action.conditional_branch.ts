@@ -4,7 +4,7 @@ import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { calculatedScheduledAt } from './common/delay'
-import { HogFlowActionRunnerResult } from './types'
+import { HogFlowActionResult } from './types'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
@@ -12,7 +12,7 @@ export class HogFlowActionRunnerConditionalBranch {
     run(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
-    ): Omit<HogFlowActionRunnerResult, 'action'> {
+    ): HogFlowActionResult {
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             groups: {},

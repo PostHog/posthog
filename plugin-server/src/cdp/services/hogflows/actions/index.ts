@@ -11,7 +11,7 @@ import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branc
 import { HogFlowActionRunnerDelay } from './action.delay'
 import { HogFlowActionRunnerWaitForCondition } from './action.wait_for_condition'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
-import { HogFlowActionRunnerResult } from './types'
+import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
 
 export class HogFlowActionRunner {
     private hogFlowActionRunnerConditionalBranch: HogFlowActionRunnerConditionalBranch
@@ -113,35 +113,48 @@ export class HogFlowActionRunner {
         }
 
         try {
+            let actionResult: HogFlowActionResult
             switch (action.type) {
                 case 'conditional_branch':
-                    result = {
-                        ...result,
-                        ...this.hogFlowActionRunnerConditionalBranch.run(invocation, action),
-                    }
+                    actionResult = this.hogFlowActionRunnerConditionalBranch.run(invocation, action)
                     break
                 case 'delay':
-                    result = {
-                        ...result,
-                        ...this.hogFlowActionRunnerDelay.run(invocation, action),
-                    }
+                    actionResult = this.hogFlowActionRunnerDelay.run(invocation, action)
                     break
                 case 'wait_until_condition':
-                    result = {
-                        ...result,
-                        ...this.hogFlowActionRunnerWaitForCondition.run(invocation, action),
-                    }
+                    actionResult = this.hogFlowActionRunnerWaitForCondition.run(invocation, action)
                     break
                 case 'wait_until_time_window':
-                    result = {
-                        ...result,
-                        ...this.hogFlowActionRunnerWaitUntilTimeWindow.run(invocation, action),
-                    }
+                    actionResult = this.hogFlowActionRunnerWaitUntilTimeWindow.run(action)
                     break
                 case 'exit':
+                    actionResult = {
+                        finished: true,
+                    }
                     break
                 default:
                     throw new Error(`Action type ${action.type} not supported`)
+            }
+
+            if (actionResult.scheduledAt) {
+                // All scheduled actions outcomes are set on the main result
+                result.scheduledAt = actionResult.scheduledAt
+            }
+
+            if (actionResult.goToActionId) {
+                // If the action is going to a specific action we need to find it and set it
+                result.goToAction = this.findNextActionToRun(invocation)
+            }
+
+            if (!actionResult.finished) {
+                // if the action result is _not_ finished then we set that to be the case on the main result
+                // this indicates we shouldn't move forward to the next action
+                result.finished = false
+            }
+
+            if (result.finished && !result.goToAction && result.action.type !== 'exit') {
+                // Finally if the action  finished but didn't go to a specific action then we need to find the default next action to run to
+                result.goToAction = this.findNextActionToRun(invocation)
             }
         } catch (error) {
             result = {
@@ -149,13 +162,6 @@ export class HogFlowActionRunner {
                 error,
                 finished: true,
             }
-        }
-
-        // TODO: If the result is finished and no goToActionId is provided, we need to automatically find the next action to run
-
-        if (result.finished && !result.goToAction && result.action.type !== 'exit') {
-            // TODO: Find the next action to run
-            result.goToAction = this.findNextActionToRun(invocation)
         }
 
         return Promise.resolve(result)

@@ -2,13 +2,13 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { calculatedScheduledAt } from './common/delay'
-import { HogFlowActionRunnerResult } from './types'
+import { HogFlowActionResult } from './types'
 
 export class HogFlowActionRunnerDelay {
     run(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'delay' }>
-    ): Omit<HogFlowActionRunnerResult, 'action'> {
+    ): HogFlowActionResult {
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp
