@@ -1158,15 +1158,17 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             )
             current_key = self._get_current_key()
             client = self._s3_client
+            assert client is not None, "No S3 client, is multi-part initialized?"
 
             # Retry logic for upload_part
             response: UploadPartOutputTypeDef | None = None
             attempt = 0
 
+            upload_start = time.time()
+
             while response is None:
-                upload_start = time.time()
                 try:
-                    response = await client.upload_part(  # type: ignore
+                    response = await client.upload_part(
                         Bucket=self.s3_inputs.bucket_name,
                         Key=current_key,
                         PartNumber=part_number,
