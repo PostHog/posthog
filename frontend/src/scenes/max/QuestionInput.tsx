@@ -19,9 +19,10 @@ import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlac
 
 interface QuestionInputProps {
     isFloating?: boolean
+    placeholder?: string
 }
 
-export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
+export function QuestionInput({ isFloating, placeholder }: QuestionInputProps): JSX.Element {
     const { tools } = useValues(maxGlobalLogic)
 
     const { question, focusCounter } = useValues(maxLogic)
@@ -77,7 +78,9 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                             ref={textAreaRef}
                             value={question}
                             onChange={(value) => setQuestion(value)}
-                            placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
+                            placeholder={
+                                threadLoading ? 'Thinking…' : isFloating ? placeholder || 'Ask follow-up' : 'Ask away'
+                            }
                             onPressEnter={() => {
                                 if (question && !submissionDisabledReason && !threadLoading) {
                                     askMax(question)
