@@ -41,6 +41,7 @@ export class HogFlowActionRunner {
 
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
+            // TODO: Add person and groups!
             groups: {},
         })
 
