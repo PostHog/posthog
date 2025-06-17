@@ -198,7 +198,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         // First check the main cache
         const cachedPerson = this.getCachedPersonForUpdate(teamId, distinctId)
         if (cachedPerson !== undefined) {
-            return cachedPerson
+            return cachedPerson === null ? null : toInternalPerson(cachedPerson)
         }
 
         // Then check the checking-specific cache
@@ -235,7 +235,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         const cachedPerson = this.getCachedPersonForUpdate(teamId, distinctId)
         if (cachedPerson !== undefined) {
-            return cachedPerson
+            return cachedPerson === null ? null : toInternalPerson(cachedPerson)
         }
 
         const cacheKey = this.getCacheKey(teamId, distinctId)
