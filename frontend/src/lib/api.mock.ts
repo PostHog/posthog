@@ -144,6 +144,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 currencyAwareDecimal: true,
             },
         ],
+        filter_test_accounts: false,
         goals: [
             {
                 due_date: '2020-12-31',
@@ -158,7 +159,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ],
     },
     flags_persistence_default: false,
-    access_control_version: 'v1',
     has_completed_onboarding_for: {
         product_analytics: true,
     },

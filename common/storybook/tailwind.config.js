@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-undef
-const config = require('../../frontend/tailwind.config.js') 
+const config = require('../tailwind/tailwind.config.js')
 // eslint-disable-next-line no-undef
-module.exports = { 
+module.exports = {
     ...config,
-    content: config.content.map((path) => path.replace('../', '../../'))
+    content: config.content.map((path) => path.replace(/\.\.\//g, '../../')),
 }

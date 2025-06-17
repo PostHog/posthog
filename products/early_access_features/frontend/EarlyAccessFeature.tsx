@@ -31,11 +31,11 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
+    CyclotronJobFiltersType,
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     FilterLogicalOperator,
-    HogFunctionFiltersType,
     PersonPropertyFilter,
     ProductKey,
     PropertyFilterType,
@@ -84,7 +84,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         return <LemonSkeleton active />
     }
 
-    const destinationFilters: HogFunctionFiltersType | null =
+    const destinationFilters: CyclotronJobFiltersType | null =
         !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature
             ? {
                   events: [
