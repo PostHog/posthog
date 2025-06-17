@@ -1,6 +1,3 @@
-import asyncio
-from typing import Any
-
 import jwt
 import uuid
 from django.db.models import QuerySet
@@ -102,17 +99,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         temporal = sync_connect()
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                HandleSubscriptionValueChangeActivityInputs(
-                    subscription_id=instance.id,
-                    previous_value=previous_value,
-                    invite_message=invite_message,
-                ),
-                id=workflow_id,
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
-            )
+        temporal.start_workflow(
+            "handle-subscription-value-change",
+            HandleSubscriptionValueChangeActivityInputs(
+                subscription_id=instance.id,
+                previous_value=previous_value,
+                invite_message=invite_message,
+            ),
+            id=workflow_id,
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         )
 
         return instance

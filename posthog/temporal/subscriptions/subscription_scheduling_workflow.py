@@ -39,22 +39,21 @@ class FetchDueSubscriptionsActivityInputs:
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[int]:
     """Return a list of subscription IDs that are due for delivery."""
 
-    async with Heartbeater():
-        logger = get_internal_logger()
-        now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
+    logger = get_internal_logger()
+    now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
 
-        @sync_to_async
-        def get_subscription_ids() -> list[int]:
-            return list(
-                Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
-                .exclude(dashboard__deleted=True)
-                .exclude(insight__deleted=True)
-                .values_list("id", flat=True)
-            )
+    @sync_to_async
+    def get_subscription_ids() -> list[int]:
+        return list(
+            Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
+            .exclude(dashboard__deleted=True)
+            .exclude(insight__deleted=True)
+            .values_list("id", flat=True)
+        )
 
-        sub_ids = await get_subscription_ids()
-        await logger.ainfo("Fetched subscriptions", subscription_count=len(sub_ids))
-        return sub_ids
+    sub_ids = await get_subscription_ids()
+    await logger.ainfo("Fetched subscriptions", subscription_count=len(sub_ids))
+    return sub_ids
 
 
 @dataclasses.dataclass
@@ -87,7 +86,6 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
             subscription_id=inputs.subscription_id,
         )
 
-        # Call the original implementation
         await deliver_subscription(
             subscription_id=inputs.subscription_id,
             previous_value=inputs.previous_value,
@@ -113,23 +111,21 @@ class HandleSubscriptionValueChangeActivityInputs:
 
 @temporalio.activity.defn
 async def handle_subscription_value_change_activity(inputs: HandleSubscriptionValueChangeActivityInputs) -> None:
-    """Handle a change in subscription value."""
-    async with Heartbeater():
-        logger = get_internal_logger()
+    """Handle a change in subscription value. Runs quickly, so no heartbeat needed."""
+    logger = get_internal_logger()
 
-        deliver_subscription = sync_to_async(_deliver_subscription_report)
+    deliver_subscription = sync_to_async(_deliver_subscription_report)
 
-        await logger.ainfo(
-            "Handling subscription value change",
-            subscription_id=inputs.subscription_id,
-        )
+    await logger.ainfo(
+        "Handling subscription value change",
+        subscription_id=inputs.subscription_id,
+    )
 
-        # Call the original implementation
-        await deliver_subscription(
-            subscription_id=inputs.subscription_id,
-            previous_value=inputs.previous_value,
-            invite_message=inputs.invite_message,
-        )
+    await deliver_subscription(
+        subscription_id=inputs.subscription_id,
+        previous_value=inputs.previous_value,
+        invite_message=inputs.invite_message,
+    )
 
 
 @dataclasses.dataclass
@@ -195,3 +191,19 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
         if tasks:
             await asyncio.gather(*tasks)
+
+
+@temporalio.workflow.defn(name="handle-subscription-value-change")
+class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
+    @temporalio.workflow.run
+    async def run(self, inputs: HandleSubscriptionValueChangeActivityInputs) -> None:
+        await temporalio.workflow.execute_activity(
+            handle_subscription_value_change_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=5),
+                maximum_interval=dt.timedelta(minutes=2),
+                maximum_attempts=3,
+            ),
+        )
