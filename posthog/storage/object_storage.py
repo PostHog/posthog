@@ -32,7 +32,7 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
-    ) -> Optional[str]:
+    ) -> Optional[dict]:
         pass
 
     @abc.abstractmethod
@@ -79,7 +79,7 @@ class UnavailableStorage(ObjectStorageClient):
 
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
-    ) -> Optional[str]:
+    ) -> Optional[dict]:
         pass
 
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
@@ -137,7 +137,7 @@ class ObjectStorage(ObjectStorageClient):
 
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
-    ) -> Optional[str]:
+    ) -> Optional[dict]:
         try:
             return self.aws_client.generate_presigned_post(
                 bucket, file_key, Conditions=conditions, ExpiresIn=expiration
@@ -318,7 +318,7 @@ def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
     )
 
 
-def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[str]:
+def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[dict]:
     return object_storage_client().get_presigned_post(
         bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, conditions=conditions, expiration=expiration
     )

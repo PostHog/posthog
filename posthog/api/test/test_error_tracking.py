@@ -179,7 +179,7 @@ class TestErrorTracking(APIBaseTest):
 
     def test_finish_upload_fails_if_file_not_found(self):
         symbol_set = ErrorTrackingSymbolSet.objects.create(
-            team=self.team, ref=uuid7(), storage_ptr=f"symbolsets/{uuid7()}"
+            team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
         )
 
         response = self.client.put(
@@ -194,7 +194,7 @@ class TestErrorTracking(APIBaseTest):
     def test_finish_upload_fails_if_uploaded_file_is_too_large(self, patched_s3_client):
         patched_s3_client.head_object.return_value = {"ContentLength": 1073741824}  # 1GB
         symbol_set = ErrorTrackingSymbolSet.objects.create(
-            team=self.team, ref=uuid7(), storage_ptr=f"symbolsets/{uuid7()}"
+            team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
         )
 
         response = self.client.put(
@@ -209,7 +209,7 @@ class TestErrorTracking(APIBaseTest):
     def test_finish_upload_updates_the_content_hash(self, patched_s3_client):
         patched_s3_client.head_object.return_value = {"ContentLength": 1048576}  # 1MB
         symbol_set = ErrorTrackingSymbolSet.objects.create(
-            team=self.team, ref=uuid7(), storage_ptr=f"symbolsets/{uuid7()}"
+            team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
         )
 
         response = self.client.put(
