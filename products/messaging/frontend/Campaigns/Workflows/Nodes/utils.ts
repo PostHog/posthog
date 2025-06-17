@@ -52,8 +52,6 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
                     on_error: 'continue',
                     created_at: 0,
                     updated_at: 0,
-                    inputs: {},
-                    inputs_schema: [],
                 },
                 draggable: false,
                 selectable: false,
