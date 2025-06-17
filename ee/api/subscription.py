@@ -1,3 +1,5 @@
+from typing import Any
+
 import jwt
 import uuid
 from django.db.models import QuerySet
@@ -13,7 +15,7 @@ from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
-    HandleSubscriptionValueChangeActivityInputs,
+    DeliverSubscriptionReportActivityInputs,
 )
 from posthog.utils import str_to_bool
 
@@ -81,7 +83,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
         temporal.start_workflow(
             "handle-subscription-value-change",
-            HandleSubscriptionValueChangeActivityInputs(
+            DeliverSubscriptionReportActivityInputs(
                 subscription_id=instance.id,
                 previous_value="",
                 invite_message=invite_message,
@@ -92,7 +94,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         return instance
 
-    def update(self, instance: Subscription, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
+    def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         previous_value = instance.target_value
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
@@ -101,7 +103,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
         temporal.start_workflow(
             "handle-subscription-value-change",
-            HandleSubscriptionValueChangeActivityInputs(
+            DeliverSubscriptionReportActivityInputs(
                 subscription_id=instance.id,
                 previous_value=previous_value,
                 invite_message=invite_message,

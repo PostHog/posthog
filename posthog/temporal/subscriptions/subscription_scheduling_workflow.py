@@ -94,41 +94,6 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
 
 
 @dataclasses.dataclass
-class HandleSubscriptionValueChangeActivityInputs:
-    """Inputs for the `handle_subscription_value_change_activity`."""
-
-    subscription_id: int
-    previous_value: str
-    invite_message: typing.Optional[str] = None
-
-    @property
-    def properties_to_log(self) -> dict[str, typing.Any]:
-        return {
-            "subscription_id": self.subscription_id,
-            "has_invite_message": self.invite_message is not None,
-        }
-
-
-@temporalio.activity.defn
-async def handle_subscription_value_change_activity(inputs: HandleSubscriptionValueChangeActivityInputs) -> None:
-    """Handle a change in subscription value. Runs quickly, so no heartbeat needed."""
-    logger = get_internal_logger()
-
-    deliver_subscription = sync_to_async(_deliver_subscription_report)
-
-    await logger.ainfo(
-        "Handling subscription value change",
-        subscription_id=inputs.subscription_id,
-    )
-
-    await deliver_subscription(
-        subscription_id=inputs.subscription_id,
-        previous_value=inputs.previous_value,
-        invite_message=inputs.invite_message,
-    )
-
-
-@dataclasses.dataclass
 class ScheduleAllSubscriptionsWorkflowInputs:
     """Inputs for the `ScheduleAllSubscriptionsWorkflow`."""
 
@@ -196,10 +161,14 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 @temporalio.workflow.defn(name="handle-subscription-value-change")
 class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
-    async def run(self, inputs: HandleSubscriptionValueChangeActivityInputs) -> None:
+    async def run(self, inputs: DeliverSubscriptionReportActivityInputs) -> None:
         await temporalio.workflow.execute_activity(
-            handle_subscription_value_change_activity,
-            inputs,
+            deliver_subscription_report_activity,
+            DeliverSubscriptionReportActivityInputs(
+                subscription_id=inputs.subscription_id,
+                previous_value=inputs.previous_value,
+                invite_message=inputs.invite_message,
+            ),
             start_to_close_timeout=dt.timedelta(minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),
