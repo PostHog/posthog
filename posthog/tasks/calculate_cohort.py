@@ -117,7 +117,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     """
     Calculates maximum N cohorts in parallel.
 
-    First processes stuck cohorts (priority), then fills remaining capacity with regular cohorts.
+    First processes stuck cohorts, then fills remaining capacity with regular cohorts.
 
     Args:
         parallel_count: Maximum number of cohorts to calculate in parallel.
