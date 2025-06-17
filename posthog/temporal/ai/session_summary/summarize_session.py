@@ -167,7 +167,6 @@ def execute_summarize_session_stream(
         user_pk=user_pk,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
-        stream=True,
         local_reads_prod=local_reads_prod,
         redis_input_key=redis_input_key,
         redis_output_key=redis_output_key,
