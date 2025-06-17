@@ -24,8 +24,12 @@ describe('Hogflow Executor', () => {
         beforeEach(() => {
             hogFlow = createHogFlow({
                 actions: [
-                    createHogFlowAction('trigger', {
-                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    createHogFlowAction({
+                        id: '1',
+                        type: 'trigger',
+                        config: {
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                        },
                     }),
                 ],
             })
@@ -35,102 +39,43 @@ describe('Hogflow Executor', () => {
             const invocation = createExampleHogFlowInvocation(hogFlow)
 
             const result = await executor.execute(invocation)
-            expect(result).toMatchInlineSnapshot(
-                {
-                    capturedPostHogEvents: [],
-                    invocation: {
-                        state: {
-                            actionStepCount: 0,
+            expect(result).toEqual({
+                capturedPostHogEvents: [],
+                invocation: {
+                    state: {
+                        actionStepCount: 0,
+                        currentAction: {
+                            id: '1',
+                            startedAtTimestamp: expect.any(Number),
                         },
-                        id: expect.any(String),
-                        teamId: 1,
-                        hogFlow: invocation.hogFlow,
-                        functionId: invocation.hogFlow.id,
-                        queue: 'hogflow',
-                        queueMetadata: undefined,
-                        queueScheduledAt: undefined,
-                        queueSource: undefined,
-                        queueParameters: undefined,
-                        queuePriority: 0,
-                    },
-                    error: 'Action type trigger not supported',
-                    finished: true,
-                    logs: expect.any(Array),
-                    metrics: [],
-                },
-                `
-                {
-                  "capturedPostHogEvents": [],
-                  "error": "Action type trigger not supported",
-                  "finished": true,
-                  "invocation": {
-                    "functionId": "2fbf1589-178d-418a-a1f1-c158109d0da6",
-                    "hogFlow": {
-                      "actions": [
-                        {
-                          "config": {
-                            "filters": {
-                              "actions": [],
-                              "bytecode": [
-                                "_h",
-                                29,
-                              ],
-                              "events": [],
+                        event: {
+                            distinct_id: 'distinct_id',
+                            elements_chain: '',
+                            event: 'test',
+                            properties: {
+                                $lib_version: '1.2.3',
                             },
-                          },
-                          "created_at": 1717761600000,
-                          "description": "Test action",
-                          "id": "9d8a629f-8346-440f-9cbb-150bad173766",
-                          "name": "Action",
-                          "on_error": "continue",
-                          "type": "trigger",
-                          "updated_at": 1717761600000,
+                            timestamp: '2024-06-07T12:00:00.000Z',
+                            url: 'http://localhost:8000/events/1',
+                            uuid: 'uuid',
                         },
-                      ],
-                      "edges": [],
-                      "exit_condition": "exit_on_conversion",
-                      "id": "2fbf1589-178d-418a-a1f1-c158109d0da6",
-                      "name": "Hog Flow",
-                      "status": "active",
-                      "team_id": 1,
-                      "trigger": {
-                        "filters": {},
-                        "type": "event",
-                      },
-                      "version": 1,
                     },
-                    "id": Any<String>,
-                    "queue": "hogflow",
-                    "queueMetadata": undefined,
-                    "queueParameters": undefined,
-                    "queuePriority": 0,
-                    "queueScheduledAt": undefined,
-                    "queueSource": undefined,
-                    "state": {
-                      "actionStepCount": 0,
-                      "currentAction": {
-                        "id": "9d8a629f-8346-440f-9cbb-150bad173766",
-                        "startedAtTimestamp": 1717761600000,
-                      },
-                      "event": {
-                        "distinct_id": "distinct_id",
-                        "elements_chain": "",
-                        "event": "test",
-                        "properties": {
-                          "$lib_version": "1.2.3",
-                        },
-                        "timestamp": "2024-06-07T12:00:00.000Z",
-                        "url": "http://localhost:8000/events/1",
-                        "uuid": "uuid",
-                      },
-                    },
-                    "teamId": 1,
-                  },
-                  "logs": Any<Array>,
-                  "metrics": [],
-                }
-            `
-            )
+                    id: expect.any(String),
+                    teamId: 1,
+                    hogFlow: invocation.hogFlow,
+                    functionId: invocation.hogFlow.id,
+                    queue: 'hogflow',
+                    queueMetadata: undefined,
+                    queueScheduledAt: undefined,
+                    queueSource: undefined,
+                    queueParameters: undefined,
+                    queuePriority: 0,
+                },
+                error: 'Action type trigger not supported',
+                finished: true,
+                logs: expect.any(Array),
+                metrics: [],
+            })
         })
 
         // it('can handle null input values', () => {

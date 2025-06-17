@@ -30,19 +30,21 @@ export const createHogFlow = (hogFlow: Partial<HogFlow>) => {
 }
 
 export const createHogFlowAction = <T extends HogFlowAction['type']>(
-    type: T,
-    config: Extract<HogFlowAction, { type: T }>['config']
+    overrides: Pick<Extract<HogFlowAction, { type: T }>, 'type' | 'config'> &
+        Partial<Omit<Extract<HogFlowAction, { type: T }>, 'type' | 'config'>>
 ): Extract<HogFlowAction, { type: T }> => {
-    return {
+    const action = {
         id: randomUUID(),
         name: 'Action',
         description: 'Test action',
         on_error: 'continue',
         created_at: new Date().getTime(),
         updated_at: new Date().getTime(),
-        type,
-        config,
-    } as Extract<HogFlowAction, { type: T }>
+        ...overrides,
+    } as unknown as Extract<HogFlowAction, { type: T }>
+    // NOTE(bw): The type cast here is nasty but the getting the type inference correct is beyond me right now!
+
+    return action
 }
 
 export const insertHogFlow = async (
