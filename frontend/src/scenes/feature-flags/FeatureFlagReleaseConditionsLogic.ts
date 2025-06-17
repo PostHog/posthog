@@ -1,4 +1,17 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    defaults,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
@@ -49,6 +62,13 @@ function generateUUID(): string {
     })
 }
 
+function ensureSortKeys(filters: FeatureFlagFilters): FeatureFlagFilters {
+    return {
+        ...filters,
+        groups: filters.groups.map((group) => ({ ...group, sort_key: group.sort_key ?? generateUUID() })),
+    }
+}
+
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
@@ -79,115 +99,109 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setTotalUsers: (count: number) => ({ count }),
         calculateBlastRadius: true,
     }),
-    reducers(({ props }) => ({
-        filters: [
-            {
-                ...props.filters,
-                groups: props.filters.groups.map((group) => ({
-                    ...group,
-                    sort_key: group.sort_key ?? generateUUID(),
-                })),
-            },
-            {
-                setFilters: (_, { filters }) => {
-                    // Only assign sort_keys to groups that don't have one
-                    const groupsWithKeys = filters.groups.map((group) => {
-                        if (group.sort_key) {
-                            return group
-                        }
-                        return {
-                            ...group,
-                            sort_key: generateUUID(),
-                        }
-                    })
-
-                    return { ...filters, groups: groupsWithKeys }
-                },
-                setAggregationGroupTypeIndex: (state, { value }) => {
-                    if (!state || state.aggregation_group_type_index == value) {
-                        return state
+    defaults(({ props }) => ({
+        filters: ensureSortKeys(props.filters),
+    })),
+    reducers(() => ({
+        filters: {
+            setFilters: (_, { filters }) => {
+                // Only assign sort_keys to groups that don't have one
+                const groupsWithKeys = filters.groups.map((group) => {
+                    if (group.sort_key) {
+                        return group
                     }
-
-                    const originalRolloutPercentage = state.groups[0].rollout_percentage
-
                     return {
-                        ...state,
-                        aggregation_group_type_index: value,
-                        // :TRICKY: We reset property filters after changing what you're aggregating by.
-                        groups: [
-                            {
-                                properties: [],
-                                rollout_percentage: originalRolloutPercentage,
-                                variant: null,
-                                sort_key: generateUUID(),
-                            },
-                        ],
+                        ...group,
+                        sort_key: generateUUID(),
                     }
-                },
-                addConditionSet: (state) => {
-                    if (!state) {
-                        return state
-                    }
-                    const groups = [
-                        ...(state?.groups || []),
-                        { properties: [], rollout_percentage: undefined, variant: null, sort_key: generateUUID() },
-                    ]
-                    return { ...state, groups }
-                },
-                updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
-                    if (!state) {
-                        return state
-                    }
+                })
 
-                    const groups = [...(state?.groups || [])]
-                    if (newRolloutPercentage !== undefined) {
-                        groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
-                    }
+                return { ...filters, groups: groupsWithKeys }
+            },
+            setAggregationGroupTypeIndex: (state, { value }) => {
+                if (!state || state.aggregation_group_type_index == value) {
+                    return state
+                }
 
-                    if (newProperties !== undefined) {
-                        groups[index] = { ...groups[index], properties: newProperties }
-                    }
+                const originalRolloutPercentage = state.groups[0].rollout_percentage
 
-                    if (newVariant !== undefined) {
-                        groups[index] = { ...groups[index], variant: newVariant }
-                    }
-
-                    return { ...state, groups }
-                },
-                removeConditionSet: (state, { index }) => {
-                    if (!state) {
-                        return state
-                    }
-                    const groups = [...state.groups]
-                    groups.splice(index, 1)
-                    return { ...state, groups }
-                },
-                duplicateConditionSet: (state, { index }) => {
-                    if (!state) {
-                        return state
-                    }
-                    const groups = state.groups.concat([
+                return {
+                    ...state,
+                    aggregation_group_type_index: value,
+                    // :TRICKY: We reset property filters after changing what you're aggregating by.
+                    groups: [
                         {
-                            ...state.groups[index],
+                            properties: [],
+                            rollout_percentage: originalRolloutPercentage,
+                            variant: null,
                             sort_key: generateUUID(),
                         },
-                    ])
-                    return { ...state, groups }
-                },
-                moveConditionSetDown: (state, { index }) => {
-                    if (!state || index >= state.groups.length - 1) {
-                        return state
-                    }
-                    return { ...state, groups: moveConditionSet(state.groups, index, index + 1) }
-                },
-                moveConditionSetUp: (state, { index }) => {
-                    if (!state || index <= 0) {
-                        return state
-                    }
-                    return { ...state, groups: moveConditionSet(state.groups, index, index - 1) }
-                },
+                    ],
+                }
             },
-        ],
+            addConditionSet: (state) => {
+                if (!state) {
+                    return state
+                }
+                const groups = [
+                    ...(state?.groups || []),
+                    { properties: [], rollout_percentage: undefined, variant: null, sort_key: generateUUID() },
+                ]
+                return { ...state, groups }
+            },
+            updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
+                if (!state) {
+                    return state
+                }
+
+                const groups = [...(state?.groups || [])]
+                if (newRolloutPercentage !== undefined) {
+                    groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
+                }
+
+                if (newProperties !== undefined) {
+                    groups[index] = { ...groups[index], properties: newProperties }
+                }
+
+                if (newVariant !== undefined) {
+                    groups[index] = { ...groups[index], variant: newVariant }
+                }
+
+                return { ...state, groups }
+            },
+            removeConditionSet: (state, { index }) => {
+                if (!state) {
+                    return state
+                }
+                const groups = [...state.groups]
+                groups.splice(index, 1)
+                return { ...state, groups }
+            },
+            duplicateConditionSet: (state, { index }) => {
+                if (!state) {
+                    return state
+                }
+                const groups = state.groups.concat([
+                    {
+                        ...state.groups[index],
+                        sort_key: generateUUID(),
+                    },
+                ])
+                return { ...state, groups }
+            },
+            moveConditionSetDown: (state, { index }) => {
+                if (!state || index >= state.groups.length - 1) {
+                    return state
+                }
+                return { ...state, groups: moveConditionSet(state.groups, index, index + 1) }
+            },
+            moveConditionSetUp: (state, { index }) => {
+                if (!state || index <= 0) {
+                    return state
+                }
+                return { ...state, groups: moveConditionSet(state.groups, index, index - 1) }
+            },
+        },
         affectedUsers: [
             { 0: undefined } as Record<number, number | undefined>,
             {
