@@ -1893,6 +1893,10 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
 export enum RevenueAnalyticsInsightsQueryGroupBy {
     COHORT = 'cohort',
     COUNTRY = 'country',
+    COUPON = 'coupon',
+    COUPON_ID = 'coupon_id',
+    INITIAL_COUPON = 'initial_coupon',
+    INITIAL_COUPON_ID = 'initial_coupon_id',
     PRODUCT = 'product',
 }
 
