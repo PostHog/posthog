@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import jwt
@@ -81,15 +82,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         temporal = sync_connect()
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        temporal.start_workflow(
-            "handle-subscription-value-change",
-            DeliverSubscriptionReportActivityInputs(
-                subscription_id=instance.id,
-                previous_value="",
-                invite_message=invite_message,
-            ),
-            id=workflow_id,
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        asyncio.run(
+            temporal.start_workflow(
+                "handle-subscription-value-change",
+                DeliverSubscriptionReportActivityInputs(
+                    subscription_id=instance.id,
+                    previous_value="",
+                    invite_message=invite_message,
+                ),
+                id=workflow_id,
+                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            )
         )
 
         return instance
@@ -101,15 +104,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         temporal = sync_connect()
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        temporal.start_workflow(
-            "handle-subscription-value-change",
-            DeliverSubscriptionReportActivityInputs(
-                subscription_id=instance.id,
-                previous_value=previous_value,
-                invite_message=invite_message,
-            ),
-            id=workflow_id,
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        asyncio.run(
+            temporal.start_workflow(
+                "handle-subscription-value-change",
+                DeliverSubscriptionReportActivityInputs(
+                    subscription_id=instance.id,
+                    previous_value=previous_value,
+                    invite_message=invite_message,
+                ),
+                id=workflow_id,
+                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            )
         )
 
         return instance
