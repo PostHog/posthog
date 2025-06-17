@@ -2,12 +2,6 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../src/kafka/producer'
-import { MeasuringPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/measuring-person-store'
-import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
-import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
-import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
-import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-
 import {
     Database,
     Hub,
@@ -22,6 +16,11 @@ import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
+import { MeasuringPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/measuring-person-store'
+import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
+import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
+import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
+import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, insertRow } from '../../helpers/sql'
 
