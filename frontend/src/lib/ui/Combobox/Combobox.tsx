@@ -28,31 +28,7 @@ interface ComboboxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
 }
 
-interface SearchProps {
-    placeholder?: string
-    className?: string
-    autoFocus?: boolean
-}
-
-interface GroupProps {
-    value: string[]
-    children: ReactNode
-}
-
-interface EmptyProps {
-    children: ReactNode
-}
-
-interface ContentProps {
-    children: ReactNode
-    className?: string
-}
-
-/** Main Combobox implementation */
-const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(function Combobox(
-    { children, className, ...props },
-    ref
-) {
+const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, className, ...props }, ref) => {
     const listboxRef = useRef<ListBoxHandle>(null)
     const [searchValue, setSearchValue] = useState('')
     const groupVisibility = useRef<Map<string, boolean>>(new Map())
@@ -96,8 +72,13 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(function Combobox
 
 InnerCombobox.displayName = 'Combobox'
 
-/** Compound subcomponents */
-const Search: React.FC<SearchProps> = ({ placeholder = 'Search...', className, autoFocus = true }) => {
+interface SearchProps {
+    placeholder?: string
+    className?: string
+    autoFocus?: boolean
+}
+
+const Search = ({ placeholder = 'Search...', className, autoFocus = true }: SearchProps): JSX.Element => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Search must be used inside Combobox')
@@ -122,7 +103,12 @@ const Search: React.FC<SearchProps> = ({ placeholder = 'Search...', className, a
 
 let groupIdCounter = 0
 
-const Group: React.FC<GroupProps> = ({ value, children }) => {
+interface GroupProps {
+    value: string[]
+    children: ReactNode
+}
+
+const Group = ({ value, children }: GroupProps): JSX.Element | null => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Group must be used inside Combobox')
@@ -147,7 +133,11 @@ const Group: React.FC<GroupProps> = ({ value, children }) => {
     return <div>{children}</div>
 }
 
-const Empty: React.FC<EmptyProps> = ({ children }) => {
+interface EmptyProps {
+    children: ReactNode
+}
+
+const Empty = ({ children }: EmptyProps): JSX.Element | null => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Empty must be used inside Combobox')
@@ -158,7 +148,12 @@ const Empty: React.FC<EmptyProps> = ({ children }) => {
     ) : null
 }
 
-const Content: React.FC<ContentProps> = ({ className, children }) => {
+interface ContentProps {
+    children: ReactNode
+    className?: string
+}
+
+const Content = ({ className, children }: ContentProps): JSX.Element => {
     return <div className={cn('flex flex-col gap-px px-1 pb-1 overflow-y-auto', className)}>{children}</div>
 }
 
