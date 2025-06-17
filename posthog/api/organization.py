@@ -123,6 +123,7 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
+            "is_env_rollback_triggered",
         ]
         read_only_fields = [
             "id",
@@ -137,6 +138,7 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "member_count",
+            "is_env_rollback_triggered",
         ]
         extra_kwargs = {
             "slug": {
@@ -343,6 +345,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.tasks.tasks import environments_rollback_migration
 
         organization = self.get_object()
+
+        if organization.is_env_rollback_triggered:
+            raise exceptions.ValidationError("Environments rollback has already been requested for this organization.")
+
         environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
         user = cast(User, request.user)
         membership = user.organization_memberships.get(organization=organization)
@@ -365,6 +371,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             environment_mappings=environment_mappings,
             user_id=user.id,
         )
+
+        organization.is_env_rollback_triggered = True
+        organization.save(update_fields=["is_env_rollback_triggered"])
 
         posthoganalytics.capture(
             str(user.distinct_id),
