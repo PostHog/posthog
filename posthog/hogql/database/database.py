@@ -463,19 +463,20 @@ def create_hogql_database(
 
     with timings.measure("initial_domain_type"):
         database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            "$virt_initial_referring_domain_type", timings=timings
+            name="$virt_initial_referring_domain_type", timings=timings
         )
         poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            "$virt_initial_referring_domain_type",
+            name="$virt_initial_referring_domain_type",
             timings=timings,
             properties_path=["poe", "properties"],
         )
     with timings.measure("initial_channel_type"):
         database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            "$virt_initial_channel_type", modifiers.customChannelTypeRules, timings=timings
+            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
         )
         poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            "$virt_initial_channel_type",
+            name="$virt_initial_channel_type",
+            custom_rules=modifiers.customChannelTypeRules,
             timings=timings,
             properties_path=["poe", "properties"],
         )

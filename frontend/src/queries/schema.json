@@ -17992,6 +17992,10 @@
                     },
                     "type": "array"
                 },
+                "filter_test_accounts": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "goals": {
                     "default": [],
                     "items": {
@@ -18000,7 +18004,7 @@
                     "type": "array"
                 }
             },
-            "required": ["events", "goals"],
+            "required": ["events", "goals", "filter_test_accounts"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -18115,7 +18119,10 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "groupBy": {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    },
+                    "type": "array"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType"
@@ -18143,7 +18150,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort", "country"],
+            "enum": ["cohort", "country", "product"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {

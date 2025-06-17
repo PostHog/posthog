@@ -5,6 +5,7 @@ import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
+import { HOG_FUNCTION_TEMPLATES } from '../templates'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 
 const HOG_FUNCTION_FIELDS = [
@@ -58,6 +59,23 @@ const sortHogFunctions = (functions: HogFunctionType[]): HogFunctionType[] => {
         // If execution orders are the same, sort by creation date
         return a.created_at.localeCompare(b.created_at)
     })
+}
+
+const isAddonRequired = (hogFunction: HogFunctionType): boolean => {
+    if (typeof hogFunction.is_addon_required === 'boolean') {
+        // Don't double check
+        return hogFunction.is_addon_required
+    }
+
+    if (hogFunction.type !== 'destination') {
+        // Only destinations are part of the paid plan
+        return false
+    }
+
+    // TODO: ensure all free-templates are moved to the templates here
+    // FUTURE: When we move templates fully to the DB we should be loading it from there
+    const template = HOG_FUNCTION_TEMPLATES.find((t) => t.id === hogFunction.template_id)
+    return template?.free !== true
 }
 
 export class HogFunctionManagerService {
@@ -260,6 +278,9 @@ export class HogFunctionManagerService {
 
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
+            item.is_addon_required = isAddonRequired(item)
+
+            // Decrypt inputs
             const encryptedInputs = item.encrypted_inputs
 
             if (!Array.isArray(item.inputs_schema)) {
