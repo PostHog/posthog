@@ -5,13 +5,17 @@ from typing import Any, Optional
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from posthog.git import get_git_commit_short
-from posthog.settings import CONTAINER_HOSTNAME
+from cachetools import cached
 
 thread_local_storage = threading.local()
 
 
+@cached(cache={})
 def get_constant_tags():
+    # import locally to avoid circular imports
+    from posthog.git import get_git_commit_short
+    from posthog.settings import CONTAINER_HOSTNAME
+
     return {
         "git_commit": get_git_commit_short(),
         "container_hostname": CONTAINER_HOSTNAME,
