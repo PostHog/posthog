@@ -81,7 +81,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             // time can be "any", or a time range [start, end]
             time: z.union([
                 z.literal('any'),
-                z.array(z.string()), // e.g. ['10:00', '11:00']
+                z.tuple([z.string(), z.string()]), // e.g. ['10:00', '11:00']
             ]),
         }),
     }),
