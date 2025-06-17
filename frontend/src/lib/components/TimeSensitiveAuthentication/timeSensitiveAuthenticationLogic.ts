@@ -9,6 +9,8 @@ import posthog from 'posthog-js'
 import { PrecheckResponseType } from 'scenes/authentication/loginLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { globalModalsLogic } from '~/layout/GlobalModals'
+
 import type { timeSensitiveAuthenticationLogicType } from './timeSensitiveAuthenticationLogicType'
 
 export interface ReauthenticationForm {
@@ -17,6 +19,25 @@ export interface ReauthenticationForm {
 }
 
 const LOOKAHEAD_EXPIRY_SECONDS = 60 * 5
+
+/**
+ * Trying to figure out if interrupting form submission with the reauth modal is common
+ */
+function getInterruptedForm(): string | null {
+    const globalModals = globalModalsLogic.findMounted()
+
+    const { isCreateProjectModalShown, isCreateOrganizationModalShown } = globalModals?.values || {}
+
+    if (isCreateProjectModalShown) {
+        return 'create_project_modal'
+    }
+
+    if (isCreateOrganizationModalShown) {
+        return 'create_organization_modal'
+    }
+
+    return null
+}
 
 export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationLogicType>([
     path(['lib', 'components', 'timeSensitiveAuthenticationLogic']),
@@ -109,7 +130,9 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
     subscriptions(({ values, actions }) => ({
         showAuthenticationModal: (shown) => {
             if (shown) {
-                posthog.capture('reauthentication_modal_shown')
+                posthog.capture('reauthentication_modal_shown', {
+                    interrupted_form: getInterruptedForm(),
+                })
 
                 if (!values.precheckResponse) {
                     actions.precheck()
