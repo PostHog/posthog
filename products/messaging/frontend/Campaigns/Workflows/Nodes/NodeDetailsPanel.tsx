@@ -77,7 +77,7 @@ export function NodeDetailsPanel({
                             inputs: node.data.config.inputs,
                             inputs_schema: getNodeInputsSchema(node.data),
                         }}
-                        setConfigurationValue={handleInputChange}
+                        onInputChange={handleInputChange}
                         showSource={false}
                     />
                 </div>
