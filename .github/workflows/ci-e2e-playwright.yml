@@ -232,7 +232,7 @@ jobs:
                   pip install --quiet clickhouse_driver
                   echo ">>> running validator"
                   python -u bin/validate-query-versions.py | tee validation_output.txt
-                  echo ">>> validator exit code: $?
+                  echo ">>> validator exit code: $?"
 
     capture-run-time:
         name: Capture run time
