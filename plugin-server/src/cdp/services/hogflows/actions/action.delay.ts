@@ -8,15 +8,15 @@ export class HogFlowActionRunnerDelay {
     run(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'delay' }>
-    ): Promise<HogFlowActionRunnerResult> {
+    ): Omit<HogFlowActionRunnerResult, 'action'> {
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp
         )
 
-        return Promise.resolve({
+        return {
             finished: !scheduledAt,
             scheduledAt: scheduledAt ?? undefined,
-        })
+        }
     }
 }

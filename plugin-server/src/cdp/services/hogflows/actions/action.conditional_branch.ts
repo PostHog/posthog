@@ -12,7 +12,7 @@ export class HogFlowActionRunnerConditionalBranch {
     run(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
-    ): Promise<HogFlowActionRunnerResult> {
+    ): Omit<HogFlowActionRunnerResult, 'action'> {
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             groups: {},
@@ -27,10 +27,10 @@ export class HogFlowActionRunnerConditionalBranch {
             })
 
             if (filterResults.match) {
-                return Promise.resolve({
+                return {
                     finished: true,
                     goToActionId: condition.on_match,
-                })
+                }
             }
         }
 
@@ -42,14 +42,14 @@ export class HogFlowActionRunnerConditionalBranch {
                 DEFAULT_WAIT_DURATION_SECONDS
             )
 
-            return Promise.resolve({
+            return {
                 finished: !scheduledAt,
                 scheduledAt: scheduledAt ?? undefined,
-            })
+            }
         }
 
-        return Promise.resolve({
+        return {
             finished: true,
-        })
+        }
     }
 }

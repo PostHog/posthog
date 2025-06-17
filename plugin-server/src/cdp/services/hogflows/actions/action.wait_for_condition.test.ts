@@ -41,9 +41,9 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
     })
 
     describe('no matching events', () => {
-        it('should handle wait duration and schedule next check', async () => {
+        it('should handle wait duration and schedule next check', () => {
             action.config.max_wait_duration = '2h'
-            const result = await runner.run(invocation, action)
+            const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
                 // Should schedule for 10 minutes from now
@@ -51,9 +51,9 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
             })
         })
 
-        it('should not schedule for later than the max wait duration', async () => {
+        it('should not schedule for later than the max wait duration', () => {
             action.config.max_wait_duration = '5m'
-            const result = await runner.run(invocation, action)
+            const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
                 // Should schedule for 5 minutes from now
@@ -61,12 +61,10 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
             })
         })
 
-        it('should throw error if action started at timestamp is invalid', async () => {
+        it('should throw error if action started at timestamp is invalid', () => {
             invocation.state.currentAction = undefined
             action.config.max_wait_duration = '300s'
-            await expect(async () => await runner.run(invocation, action)).rejects.toThrow(
-                "'startedAtTimestamp' is not set or is invalid"
-            )
+            expect(() => runner.run(invocation, action)).toThrow("'startedAtTimestamp' is not set or is invalid")
         })
     })
 
@@ -79,17 +77,17 @@ describe('HogFlowActionRunnerWaitForCondition', () => {
             }
         })
 
-        it('should match condition and go to action', async () => {
-            const result = await runner.run(invocation, action)
+        it('should match condition and go to action', () => {
+            const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: true,
                 goToActionId: 'next-action',
             })
         })
 
-        it('should ignore conditions that do not match', async () => {
+        it('should ignore conditions that do not match', () => {
             action.config.condition.filter = HOG_FILTERS_EXAMPLES.elements_text_filter.filters // No match
-            const result = await runner.run(invocation, action)
+            const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
                 scheduledAt: DateTime.utc().plus({ minutes: 10 }),

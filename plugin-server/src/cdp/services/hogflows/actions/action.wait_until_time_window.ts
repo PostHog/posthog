@@ -10,14 +10,14 @@ type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
 
 export class HogFlowActionRunnerWaitUntilTimeWindow {
-    run(invocation: CyclotronJobInvocationHogFlow, action: Action): Promise<HogFlowActionRunnerResult> {
+    run(invocation: CyclotronJobInvocationHogFlow, action: Action): Omit<HogFlowActionRunnerResult, 'action'> {
         const now = DateTime.utc().setZone(action.config.timezone)
         const nextTime = this.getNextValidTime(now, action.config)
 
-        return Promise.resolve({
+        return {
             finished: true,
             scheduledAt: nextTime,
-        })
+        }
     }
 
     private getNextValidTime(now: DateTime, config: Action['config']): DateTime {

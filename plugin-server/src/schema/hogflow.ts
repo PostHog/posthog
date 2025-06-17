@@ -85,22 +85,14 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             ]),
         }),
     }),
-    // z.object({
-    //     ..._commonActionFields,
-    //     type: z.literal('message'),
-    //     config: z.object({
-    //         message: z.string(),
-    //         channel: z.string(),
-    //     }),
-    // }),
-    // z.object({
-    //     ..._commonActionFields,
-    //     type: z.literal('hog_function'),
-    //     function_id: z.string(),
-    //     config: z.object({
-    //         args: z.record(z.any()),
-    //     }),
-    // }),
+    // Function
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function'),
+        config: z.object({
+            function_id: z.string(),
+        }),
+    }),
     z.object({
         ..._commonActionFields,
         type: z.literal('exit'),

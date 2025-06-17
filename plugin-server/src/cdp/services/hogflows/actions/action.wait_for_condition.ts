@@ -13,7 +13,7 @@ export class HogFlowActionRunnerWaitForCondition {
     run(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
-    ): Promise<HogFlowActionRunnerResult> {
+    ): Omit<HogFlowActionRunnerResult, 'action'> {
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             groups: {},
@@ -27,10 +27,10 @@ export class HogFlowActionRunnerWaitForCondition {
         })
 
         if (filterResults.match) {
-            return Promise.resolve({
+            return {
                 finished: true,
                 goToActionId: action.config.condition.on_match,
-            })
+            }
         }
 
         if (action.config.max_wait_duration) {
@@ -41,14 +41,14 @@ export class HogFlowActionRunnerWaitForCondition {
                 DEFAULT_WAIT_DURATION_SECONDS
             )
 
-            return Promise.resolve({
+            return {
                 finished: !scheduledAt,
                 scheduledAt: scheduledAt ?? undefined,
-            })
+            }
         }
 
-        return Promise.resolve({
+        return {
             finished: true,
-        })
+        }
     }
 }

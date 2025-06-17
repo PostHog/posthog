@@ -37,9 +37,9 @@ describe('HogFlowActionRunnerDelay', () => {
 
     // NOTE: Most tests are covered in the common delay test file
     describe('delay step logic', () => {
-        it('should handle wait duration and schedule next check', async () => {
+        it('should handle wait duration and schedule next check', () => {
             action.config.delay_duration = '10m'
-            const result = await runner.run(invocation, action)
+            const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
                 // Should schedule for 10 minutes from now
@@ -47,9 +47,9 @@ describe('HogFlowActionRunnerDelay', () => {
             })
         })
 
-        it('should not schedule for later than the max wait duration', async () => {
+        it('should not schedule for later than the max wait duration', () => {
             action.config.delay_duration = '5m'
-            const result = await runner.run(invocation, action)
+            const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
                 // Should schedule for 5 minutes from now
@@ -57,12 +57,10 @@ describe('HogFlowActionRunnerDelay', () => {
             })
         })
 
-        it('should throw error if action started at timestamp is invalid', async () => {
+        it('should throw error if action started at timestamp is invalid', () => {
             invocation.state.currentAction = undefined
             action.config.delay_duration = '300s'
-            await expect(async () => await runner.run(invocation, action)).rejects.toThrow(
-                "'startedAtTimestamp' is not set or is invalid"
-            )
+            expect(() => runner.run(invocation, action)).toThrow("'startedAtTimestamp' is not set or is invalid")
         })
     })
 })
