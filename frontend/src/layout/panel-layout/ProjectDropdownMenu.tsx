@@ -29,46 +29,6 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-// const OtherProjectButton = forwardRef<HTMLAnchorElement, { children: ReactNode, team: TeamBasicType }>(({ children, team }, ref): JSX.Element => {
-//     const { location } = useValues(router)
-//     const { currentTeam } = useValues(teamLogic)
-
-//     const relativeOtherProjectPath = useMemo(() => {
-//         return getProjectSwitchTargetUrl(location.pathname, team.id, currentTeam?.project_id, team.project_id)
-//     }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
-
-//     return (
-//         <ButtonGroupPrimitive menuItem fullWidth>
-//             <Link
-//                 ref={ref}
-//                 buttonProps={{
-//                     menuItem: true,
-//                     hasSideActionRight: true,
-//                 }}
-//                 tooltip={`Switch to project: ${team.name}`}
-//                 tooltipPlacement="right"
-//                 to={relativeOtherProjectPath}
-//                 data-attr="tree-navbar-project-dropdown-other-project-button"
-//             >
-//                 <ProjectName team={team} />
-//             </Link>
-
-//             <Link
-//                 buttonProps={{
-//                     iconOnly: true,
-//                     isSideActionRight: true,
-//                 }}
-//                 tooltip={`View settings for project: ${team.name}`}
-//                 tooltipPlacement="right"
-//                 to={urls.project(team.id, urls.settings('project'))}
-//                 data-attr="tree-navbar-project-dropdown-other-project-settings-button"
-//             >
-//                 <IconGear />
-//             </Link>
-//         </ButtonGroupPrimitive>
-//     )
-// })
-
 export function ProjectDropdownMenu(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
