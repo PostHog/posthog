@@ -1834,6 +1834,10 @@ class RevenueAnalyticsGoal(BaseModel):
 class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
     COHORT = "cohort"
     COUNTRY = "country"
+    COUPON = "coupon"
+    COUPON_ID = "coupon_id"
+    INITIAL_COUPON = "initial_coupon"
+    INITIAL_COUPON_ID = "initial_coupon_id"
     PRODUCT = "product"
 
 

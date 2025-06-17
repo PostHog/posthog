@@ -9,13 +9,10 @@ pub trait DependencyProvider {
     type Id: Copy + Eq + std::hash::Hash + std::fmt::Display + Into<i64>;
     type Error;
 
-    /// Get the ID of this item
     fn get_id(&self) -> Self::Id;
 
-    /// Extract dependencies for this item
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error>;
 
-    /// Get the dependency type for this provider
     fn dependency_type() -> DependencyType;
 }
 
@@ -27,115 +24,234 @@ pub enum DependencyType {
 
 impl std::fmt::Display for DependencyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Rely on the default implementation of the Debug trait and then lower case it.
         f.write_str(&format!("{:?}", self).to_lowercase())
     }
 }
 
-/// Constructs a dependency graph for any type that implements DependencyProvider.
-/// This graph represents dependencies between entities (e.g. feature flags or cohorts).
-///
-/// Graph semantics:
-/// - Each node represents a flag or cohort.
-/// - Edges point from dependent to dependency:
-///     A → B  means "A depends on B"
-///     Note: Topological sorts expect edges to point from dependency to
-///     dependent (not dependent to dependency as we do here). This is why
-///     we reverse the output of the topological sort later.
-/// - This is a Directed Acyclic Graph (DAG); cycles are not allowed.
-///
-/// Example dependency graph:
-/// ```text
-///   A  B
-///   ↓ ↘ ↓
-///   C   D
-///    ↘ ↙
-///     E
-/// ```
-/// In this example:
-/// - A and B are root nodes (no dependencies).
-/// - C depends on A and B.
-/// - D depends on B.
-/// - E depends on C and D.
-///
-/// Evaluation order:
-/// - Because we model edges as "dependent → dependency", we reverse the output of the topological sort
-///   to obtain the correct evaluation order.
-/// - After reversing, dependencies are guaranteed to be evaluated before dependents.
-///
-/// DAG invariants:
-/// - All dependencies must be evaluated before evaluating dependents.
-/// - Cycles indicate invalid configuration and must be rejected.
-pub fn build_dependency_graph<T, E, F>(
-    initial_id: T::Id,
-    items: &[T],
-    criteria: F, // The first item must meet the criteria for us to continue.
-) -> Result<DiGraph<T::Id, ()>, E>
+/// A Directed Acyclic Graph that stores dependency relationships between items that implement DependencyProvider.
+#[derive(Debug)]
+pub struct DependencyGraph<T: DependencyProvider> {
+    graph: DiGraph<T, ()>,
+}
+
+impl<T> DependencyGraph<T>
 where
-    T: DependencyProvider<Error = E>,
-    E: From<FlagError>,
-    F: Fn(&T) -> bool,
+    T: DependencyProvider + Clone,
+    T::Error: From<FlagError>,
 {
-    let mut graph = DiGraph::new();
-    let mut node_map = HashMap::new();
-    let mut queue = VecDeque::new();
-
-    // Find the initial item
-    let initial_item = items
-        .iter()
-        .find(|item| item.get_id() == initial_id)
-        .ok_or_else(|| FlagError::DependencyNotFound(T::dependency_type(), initial_id.into()))?;
-
-    // Check if the initial item meets the criteria
-    if !criteria(initial_item) {
-        return Ok(graph);
-    }
-
-    // This implements a breadth-first search (BFS) traversal to build a directed graph of item dependencies.
-    // Starting from the initial item, we:
-    // 1. Add each item as a node in the graph
-    // 2. Track visited nodes in a map to avoid duplicates
-    // 3. For each item, get its dependencies and add directed edges from the item to its dependencies
-    // 4. Queue up any unvisited dependencies to process their dependencies later
-    // This builds up the full dependency graph level by level, which we can later check for cycles
-    queue.push_back(initial_id);
-    node_map.insert(initial_id, graph.add_node(initial_id));
-
-    while let Some(item_id) = queue.pop_front() {
-        let item = items
+    /// Creates a new DependencyGraph from a list of items, starting from an initial item.
+    /// The graph will include all dependencies of the initial item and their dependencies.
+    ///
+    /// Graph semantics:
+    /// - Each node represents a flag or cohort.
+    /// - Edges point from dependent to dependency:
+    ///     A → B means "A depends on B" (A requires B to be evaluated first)
+    ///     Note: Topological sorts expect edges to point from dependency to
+    ///     dependent (not dependent to dependency as we do here). This is why
+    ///     we reverse the output of the topological sort later.
+    /// - This is a Directed Acyclic Graph (DAG); cycles are not allowed.
+    ///
+    /// Example dependency graph:
+    /// ```text
+    ///   A  B
+    ///   ↓ ↘ ↓
+    ///   C   D
+    ///    ↘ ↙
+    ///     E
+    /// ```
+    /// In this example:
+    /// - A and B are root nodes (no dependencies).
+    /// - C depends on A and B.
+    /// - D depends on B.
+    /// - E depends on C and D.
+    ///
+    /// Evaluation order:
+    /// - Because edges are modeled as "dependent → dependency", the topological sort is
+    ///   reversed to ensure dependencies are evaluated before dependents in the for_each_dependencies_first method.
+    ///
+    /// DAG invariants:
+    /// - All dependencies must be evaluated before evaluating dependents.
+    /// - Cycles indicate invalid configuration and must be rejected.
+    pub fn new(root: T, pool: &[T]) -> Result<Self, T::Error> {
+        let lookup: HashMap<T::Id, T> = pool
             .iter()
-            .find(|item| item.get_id() == item_id)
-            .ok_or_else(|| FlagError::DependencyNotFound(T::dependency_type(), item_id.into()))?;
+            .map(|item| (item.get_id(), item.clone()))
+            .collect();
 
-        let dependencies = item.extract_dependencies()?;
-        for dep_id in dependencies {
-            // Retrieve the current node **before** mutable borrowing
-            // This is safe because we're not mutating the node map,
-            // and it keeps the borrow checker happy
-            let current_node = node_map[&item_id];
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(root.get_id());
+        visited.insert(root.get_id());
 
-            // Add dependency node if we haven't seen this dependency ID before in our traversal.
-            // This happens when we discover a new dependency that wasn't previously
-            // encountered while processing other dependencies in the graph.
-            let is_new_dep = !node_map.contains_key(&dep_id);
-            let dep_node = node_map
-                .entry(dep_id)
-                .or_insert_with(|| graph.add_node(dep_id));
-            graph.add_edge(current_node, *dep_node, ());
-            if is_new_dep {
-                queue.push_back(dep_id);
+        let mut nodes_to_include = vec![root.clone()];
+
+        while let Some(current_id) = queue.pop_front() {
+            let current_node = lookup.get(&current_id).ok_or_else(|| {
+                FlagError::DependencyNotFound(T::dependency_type(), current_id.into())
+            })?;
+
+            for dep in current_node.extract_dependencies()? {
+                // Strict: fail if dependency is not present in pool
+                let dep_node = lookup.get(&dep).ok_or_else(|| {
+                    FlagError::DependencyNotFound(T::dependency_type(), dep.into())
+                })?;
+
+                if visited.insert(dep) {
+                    nodes_to_include.push(dep_node.clone());
+                    queue.push_back(dep);
+                }
             }
         }
+
+        Self::build_from_nodes(&nodes_to_include)
     }
 
-    // Use toposort to detect cycles and get the cycle starting point
-    match toposort(&graph, None) {
-        Ok(_) => Ok(graph),
-        Err(e) => {
-            // Use the node that started the cycle (from the toposort error)
-            let cycle_start_id = e.node_id();
-            let dependency_id = graph[cycle_start_id].into();
-            Err(FlagError::DependencyCycle(T::dependency_type(), dependency_id).into())
+    /// Builds a full dependency graph from the provided set of nodes.
+    /// Strictly validates cycles and self-referential edges.
+    /// Supports multiple roots and independent subgraphs and independent nodes.
+    pub fn build_from_nodes(nodes: &[T]) -> Result<Self, T::Error> {
+        let mut graph = DiGraph::new();
+        let mut id_map = HashMap::new();
+
+        // Insert all nodes first
+        for node in nodes {
+            let idx = graph.add_node(node.clone());
+            id_map.insert(node.get_id(), idx);
         }
+
+        // Insert edges (strict: only between known nodes)
+        for node in nodes {
+            let source_idx = id_map[&node.get_id()];
+            for dep_id in node.extract_dependencies()? {
+                if let Some(target_idx) = id_map.get(&dep_id) {
+                    graph.add_edge(source_idx, *target_idx, ());
+                } else {
+                    return Err(
+                        FlagError::DependencyNotFound(T::dependency_type(), dep_id.into()).into(),
+                    );
+                }
+            }
+        }
+
+        // Validate cycles after full wiring.
+        // Use toposort to detect cycles because it gives us the Id of the node that causes the cycle.
+        if let Err(e) = toposort(&graph, None) {
+            let cycle_start_node = e.node_id();
+            let cycle_id = graph[cycle_start_node].get_id().into();
+            return Err(FlagError::DependencyCycle(T::dependency_type(), cycle_id).into());
+        }
+
+        Ok(Self { graph })
+    }
+
+    /// Traverses the graph in reverse topological order (dependencies first)
+    pub fn for_each_dependencies_first<F, R>(
+        &self,
+        mut callback: F,
+    ) -> Result<HashMap<T::Id, R>, T::Error>
+    where
+        F: FnMut(&T, &HashMap<T::Id, R>, &mut R) -> Result<(), T::Error>,
+        R: Default,
+    {
+        let sorted_nodes = toposort(&self.graph, None).map_err(|e| {
+            let cycle_start_id = e.node_id();
+            FlagError::DependencyCycle(T::dependency_type(), self.get_node_id(cycle_start_id))
+        })?;
+
+        let mut results = HashMap::new();
+
+        for node in sorted_nodes.into_iter().rev() {
+            let item = &self.graph[node];
+            let mut result = R::default();
+            callback(item, &results, &mut result)?;
+            results.insert(item.get_id(), result);
+        }
+
+        Ok(results)
+    }
+
+    /// Computes evaluation stages where each stage contains nodes that can be safely evaluated in parallel.
+    ///
+    /// This is a "leaves-first" topological batching algorithm, ideal for feature flag evaluation.
+    ///
+    /// Each stage consists of all nodes whose dependencies have already been evaluated.
+    /// Items in earlier stages must be evaluated before items in later stages.
+    ///
+    /// Graph edge semantics reminder:
+    /// - Edges point from dependent → dependency:
+    ///     A → B means "A depends on B" (A requires B to be evaluated first)
+    /// - Therefore:
+    ///     - Outgoing edges = dependencies
+    ///     - Incoming edges = dependents (nodes that require this node)
+    ///
+    /// The algorithm works by repeatedly finding all nodes that have no remaining dependencies (out-degree == 0),
+    /// evaluating them as one stage, and then decrementing the remaining dependencies of their dependents.
+    pub fn evaluation_stages(&self) -> Result<Vec<Vec<&T>>, T::Error> {
+        use petgraph::Direction::{Incoming, Outgoing};
+
+        // how many dependencies each node has remaining
+        let mut out_degree = HashMap::new();
+        // maps NodeIndex → &T for easy lookup later
+        let mut node_map = HashMap::new();
+
+        // Initialize the out-degree and node_map
+        for node_idx in self.graph.node_indices() {
+            let node = &self.graph[node_idx];
+            node_map.insert(node_idx, node);
+            let deg = self.graph.edges_directed(node_idx, Outgoing).count();
+            out_degree.insert(node_idx, deg);
+        }
+
+        let mut stages = Vec::new();
+
+        // We'll add nodes to stages as we find them.
+        // We'll remove nodes from the out_degree map as we process them.
+        // We'll stop when the out_degree map is empty.
+        while !out_degree.is_empty() {
+            let mut current_stage = Vec::new();
+
+            // Find all nodes whose dependencies have been fully satisfied (out-degree == 0)
+            for (&node_idx, &deg) in out_degree.iter() {
+                if deg == 0 {
+                    current_stage.push(node_idx);
+                }
+            }
+
+            if current_stage.is_empty() {
+                // This indicates a cycle — should not occur if graph is properly validated during build (which we do!)
+                return Err(FlagError::DependencyCycle(T::dependency_type(), -1).into());
+            }
+
+            // Collect references to items in this stage
+            let stage_items: Vec<&T> = current_stage.iter().map(|idx| node_map[idx]).collect();
+            stages.push(stage_items);
+
+            // After processing current stage, decrement out-degree (dependency count) of parents (dependents)
+            for node_idx in &current_stage {
+                for parent in self.graph.neighbors_directed(*node_idx, Incoming) {
+                    if let Some(deg) = out_degree.get_mut(&parent) {
+                        *deg -= 1;
+                    }
+                }
+                out_degree.remove(node_idx);
+            }
+        }
+
+        Ok(stages)
+    }
+
+    /// Helper to get a node's ID as an i64
+    fn get_node_id(&self, index: petgraph::graph::NodeIndex) -> i64 {
+        self.graph[index].get_id().into()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn edge_count(&self) -> usize {
+        self.graph.edge_count()
     }
 }
