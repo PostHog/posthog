@@ -200,6 +200,43 @@ describe('Hog Executor', () => {
             expect(result.error).toBeUndefined()
         })
 
+        it('can handle selecting entire object with overrides', () => {
+            const invocation = createExampleInvocation({
+                ...hogFunction,
+                inputs: {
+                    ...hogFunction.inputs,
+                    headers: {
+                        value: {
+                            [EXTEND_OBJECT_KEY]: '{person.properties}',
+                            email: 'email-is-hidden',
+                        },
+                        templating: 'hog',
+                        bytecode: {
+                            [EXTEND_OBJECT_KEY]: ['_H', 1, 32, 'properties', 32, 'person', 1, 2],
+                            email: ['_H', 1, 32, 'email-is-hidden'],
+                        },
+                        order: 3,
+                    },
+                },
+            })
+
+            const result = executor.execute(invocation)
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"event":{"uuid":"uuid","event":"test","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2024-06-07T12:00:00.000Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
+                  "headers": {
+                    "email": "email-is-hidden",
+                    "first_name": "Pumpkin",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://example.com/posthog-webhook",
+                }
+            `)
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+        })
+
         it('collects logs from the function', () => {
             const invocation = createExampleInvocation(hogFunction)
             const result = executor.execute(invocation)
