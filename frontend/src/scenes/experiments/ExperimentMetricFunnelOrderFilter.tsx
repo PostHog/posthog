@@ -1,7 +1,7 @@
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { ExperimentMetric, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
+import { ExperimentFunnelMetric, ExperimentMetric } from '~/queries/schema/schema-general'
 import { StepOrderValue } from '~/types'
 
 const funnelOrderOptions = [
@@ -35,13 +35,9 @@ export function ExperimentMetricFunnelOrderFilter({
     metric,
     handleSetMetric,
 }: {
-    metric: ExperimentMetric
+    metric: ExperimentFunnelMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element | null {
-    if (!isExperimentFunnelMetric(metric)) {
-        return null
-    }
-
     const handleFunnelOrderTypeChange = (funnelOrderType: StepOrderValue): void => {
         handleSetMetric({
             ...metric,
