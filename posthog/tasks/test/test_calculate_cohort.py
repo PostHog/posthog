@@ -13,8 +13,8 @@ from posthog.tasks.calculate_cohort import (
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
+    calculate_stuck_cohorts,
     update_stale_cohort_metrics,
-    reset_stuck_cohorts,
     COHORTS_STALE_COUNT_GAUGE,
     COHORT_STUCK_COUNT_GAUGE,
     increment_version_and_enqueue_calculate_cohort,
@@ -628,7 +628,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 )
                 stuck_cohorts.append(cohort)
 
-            reset_stuck_cohorts()
+            calculate_stuck_cohorts()
 
             # Count how many were actually reset
             reset_count = Cohort.objects.filter(id__in=[c.id for c in stuck_cohorts], is_calculating=False).count()
@@ -639,15 +639,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             mock_logger.warning.assert_called_once()
             log_call_args, log_kwargs = mock_logger.warning.call_args
 
-            self.assertEqual(log_call_args[0], "reset_stuck_cohorts")
-            self.assertEqual(log_kwargs["reset_count"], MAX_STUCK_COHORTS_TO_RESET)
+            self.assertEqual(log_call_args[0], "enqueued_stuck_cohorts")
             self.assertEqual(len(log_kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
-            cohort_details = log_kwargs["cohort_details"]
-            self.assertEqual(len(cohort_details), MAX_STUCK_COHORTS_TO_RESET)
-
-            reset_cohorts = Cohort.objects.filter(id__in=[c.id for c in stuck_cohorts], is_calculating=False)
-            logged_ids = set(log_kwargs["cohort_ids"])
-            actual_ids = set(reset_cohorts.values_list("id", flat=True))
-            self.assertSetEqual(logged_ids, actual_ids)
 
     return TestCalculateCohort

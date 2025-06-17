@@ -51,6 +51,12 @@ MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 10
 
+# Exponential backoff, with the first one starting after 30 minutes
+BACKOFF_DURATION = ExpressionWrapper(
+    timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
+    output_field=DurationField(),
+)
+
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
     return Cohort.objects.filter(
@@ -71,32 +77,20 @@ def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
     ).exclude(is_static=True)
 
 
-def reset_stuck_cohorts() -> None:
-    stuck_cohorts_to_reset = list(
+def calculate_stuck_cohorts() -> None:
+    cohort_ids = []
+    for cohort in (
         get_stuck_cohort_calculation_candidates_queryset()
-        .order_by(F("last_calculation").asc())[0:MAX_STUCK_COHORTS_TO_RESET]
-        .values_list("id", "name", "last_calculation")
-    )
-
-    if stuck_cohorts_to_reset:
-        cohort_ids = [cohort[0] for cohort in stuck_cohorts_to_reset]
-        reset_count = (
-            get_stuck_cohort_calculation_candidates_queryset().filter(id__in=cohort_ids).update(is_calculating=False)
+        .filter(
+            Q(last_error_at__lte=timezone.now() - BACKOFF_DURATION)  # type: ignore
+            | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
-
-        logger.warning(
-            "reset_stuck_cohorts",
-            reset_count=reset_count,
-            cohort_ids=cohort_ids,
-            cohort_details=[
-                {
-                    "id": cohort_id,
-                    "name": name or f"Cohort {cohort_id}",
-                    "stuck_since": last_calc.isoformat() if last_calc else None,
-                }
-                for cohort_id, name, last_calc in stuck_cohorts_to_reset
-            ],
-        )
+        .order_by(F("last_calculation").asc(nulls_first=True))[0:MAX_STUCK_COHORTS_TO_RESET]
+    ):
+        cohort = Cohort.objects.filter(pk=cohort.pk).get()
+        cohort_ids.append(cohort.pk)
+        increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+    logger.warning("enqueued_stuck_cohorts", cohort_ids=cohort_ids)
 
 
 def update_stale_cohort_metrics() -> None:
@@ -124,19 +118,13 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     Args:
         parallel_count: Maximum number of cohorts to calculate in parallel.
     """
-    # Exponential backoff, with the first one starting after 30 minutes
-    backoff_duration = ExpressionWrapper(
-        timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
-        output_field=DurationField(),
-    )
-
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
-            Q(last_error_at__lte=timezone.now() - backoff_duration)  # type: ignore
+            Q(last_error_at__lte=timezone.now() - BACKOFF_DURATION)  # type: ignore
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
-        .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
+        .order_by(F("last_calculation").asc(nulls_first=True))[0 : parallel_count - MAX_STUCK_COHORTS_TO_RESET]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         logger.info("Enqueuing cohort calculation", cohort_id=cohort.pk, last_calculation=cohort.last_calculation)
@@ -146,9 +134,9 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
 
     try:
-        reset_stuck_cohorts()
+        calculate_stuck_cohorts()
     except Exception as e:
-        logger.exception("Failed to reset stuck cohorts", error=str(e))
+        logger.exception("Failed to calculate stuck cohorts", error=str(e))
 
     try:
         update_stale_cohort_metrics()
