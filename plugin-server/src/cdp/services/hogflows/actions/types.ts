@@ -10,3 +10,6 @@ export type HogFlowActionRunnerResult = {
     scheduledAt?: DateTime
     goToAction?: HogFlowAction
 }
+
+// TODO: Improve the type above so it is super clear what the outcome is
+export type HogFlowActionRunnerResultOutcome = 'exited' | 'continued' | 'scheduled' | 'errored'
