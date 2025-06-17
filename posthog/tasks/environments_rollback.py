@@ -23,6 +23,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
         Cohort,
         Annotation,
         EarlyAccessFeature,
+        Notebook,
     )
     from posthog.event_usage import groups
     from django.db import transaction
@@ -64,6 +65,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
             Cohort,
             Annotation,
             EarlyAccessFeature,
+            Notebook,
         ]
 
         with transaction.atomic():
