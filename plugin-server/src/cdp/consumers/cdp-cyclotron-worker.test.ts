@@ -12,7 +12,6 @@ import {
     createExampleInvocation,
     createHogExecutionGlobals,
     createHogFunction,
-    createInvocationWithStatus,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'

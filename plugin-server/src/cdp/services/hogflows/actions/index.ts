@@ -26,7 +26,7 @@ export class HogFlowActionRunner {
         this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
     }
 
-    private findNextActionToRun(invocation: CyclotronJobInvocationHogFlow): string | undefined {
+    private findNextActionToRun(_invocation: CyclotronJobInvocationHogFlow): string | undefined {
         // Finds the next action to be run
 
         // TODO: Implement this!
