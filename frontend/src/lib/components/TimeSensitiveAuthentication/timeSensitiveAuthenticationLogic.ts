@@ -9,8 +9,7 @@ import posthog from 'posthog-js'
 import { PrecheckResponseType } from 'scenes/authentication/loginLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
-
+import { modalInterruptionTrackingLogic } from './modalInterruptionTrackingLogic'
 import type { timeSensitiveAuthenticationLogicType } from './timeSensitiveAuthenticationLogicType'
 
 export interface ReauthenticationForm {
@@ -20,30 +19,19 @@ export interface ReauthenticationForm {
 
 const LOOKAHEAD_EXPIRY_SECONDS = 60 * 5
 
-/**
- * Trying to figure out if interrupting form submission with the reauth modal is common
- */
-function getInterruptedForm(): string | null {
-    const globalModals = globalModalsLogic.findMounted()
-
-    const { isCreateProjectModalShown, isCreateOrganizationModalShown } = globalModals?.values || {}
-
-    if (isCreateProjectModalShown) {
-        return 'create_project_modal'
-    }
-
-    if (isCreateOrganizationModalShown) {
-        return 'create_organization_modal'
-    }
-
-    return null
-}
-
 export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationLogicType>([
     path(['lib', 'components', 'timeSensitiveAuthenticationLogic']),
     connect(() => ({
-        values: [apiStatusLogic, ['timeSensitiveAuthenticationRequired'], userLogic, ['user']],
+        values: [
+            apiStatusLogic,
+            ['timeSensitiveAuthenticationRequired'],
+            userLogic,
+            ['user'],
+            modalInterruptionTrackingLogic,
+            ['interruptedForm'],
+        ],
         actions: [apiStatusLogic, ['setTimeSensitiveAuthenticationRequired'], userLogic, ['loadUser']],
+        logic: [modalInterruptionTrackingLogic],
     })),
     actions({
         setDismissedReauthentication: (value: boolean) => ({ value }),
@@ -131,8 +119,13 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         showAuthenticationModal: (shown) => {
             if (shown) {
                 posthog.capture('reauthentication_modal_shown', {
-                    interrupted_form: getInterruptedForm(),
+                    interrupted_form: values.interruptedForm,
                 })
+
+                const modalTrackingLogic = modalInterruptionTrackingLogic.findMounted()
+                if (modalTrackingLogic) {
+                    modalTrackingLogic.actions.setInterruptedForm(null)
+                }
 
                 if (!values.precheckResponse) {
                     actions.precheck()
