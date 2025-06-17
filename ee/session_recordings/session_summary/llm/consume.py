@@ -98,7 +98,7 @@ def _convert_llm_content_to_session_summary_json(
     return json.dumps(session_summary.data)
 
 
-async def get_llm_session_summary(
+async def get_llm_single_session_summary(
     summary_prompt: str,
     user_pk: int,
     allowed_event_ids: list[str],
@@ -156,7 +156,7 @@ async def get_llm_session_summary(
         raise ExceptionToRetry()
 
 
-async def stream_llm_session_summary(
+async def stream_llm_single_session_summary(
     summary_prompt: str,
     user_pk: int,
     allowed_event_ids: list[str],

@@ -40,7 +40,7 @@ class _SessionSummaryPromptData:
 
 
 @dataclass(frozen=True)
-class _SessionSummaryPrompt:
+class SessionSummaryPrompt:
     summary_prompt: str
     system_prompt: str
 
@@ -50,7 +50,7 @@ class SingleSessionSummaryData:
     session_id: str
     user_pk: int
     prompt_data: _SessionSummaryPromptData | None
-    prompt: _SessionSummaryPrompt | None
+    prompt: SessionSummaryPrompt | None
     error_msg: str | None = None
 
 
@@ -148,12 +148,12 @@ def prepare_prompt_data(
     )
 
 
-def generate_prompt(
+def generate_single_session_summary_prompt(
     prompt_data: SessionSummaryPromptData,
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
     extra_summary_context: ExtraSummaryContext | None,
-) -> _SessionSummaryPrompt:
+) -> SessionSummaryPrompt:
     # Keep shortened URLs for the prompt to reduce the number of tokens
     short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
     # Render all templates
@@ -178,7 +178,7 @@ def generate_prompt(
             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
         },
     )
-    return _SessionSummaryPrompt(
+    return SessionSummaryPrompt(
         summary_prompt=summary_prompt,
         system_prompt=system_prompt,
     )
@@ -215,7 +215,7 @@ async def prepare_data_for_single_session_summary(
         session_events=db_data.session_events,
         timer=timer,
     )
-    prompt = generate_prompt(
+    prompt = generate_single_session_summary_prompt(
         prompt_data=prompt_data.prompt_data,
         url_mapping_reversed=prompt_data.url_mapping_reversed,
         window_mapping_reversed=prompt_data.window_mapping_reversed,

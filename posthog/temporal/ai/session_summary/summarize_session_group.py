@@ -6,7 +6,7 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.session_recordings.session_summary.llm.consume import get_llm_session_summary
+from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
 from posthog import constants
 from posthog.redis import get_client
@@ -33,7 +33,7 @@ async def get_llm_single_session_summary_activity(inputs: SingleSessionSummaryIn
         redis_input_key=inputs.redis_input_key,
     )
     # Get summary from LLM
-    session_summary_str = await get_llm_session_summary(
+    session_summary_str = await get_llm_single_session_summary(
         session_id=llm_input.session_id,
         user_pk=llm_input.user_pk,
         # Prompt

@@ -501,7 +501,7 @@ class TestSummarizeSessionWorkflow:
             redis_get_call_count += 1
             if redis_get_call_count in (1, 2):
                 # First two calls fail with a retryable exception
-                raise ApplicationError("Simulated stream_llm_session_summary failure", non_retryable=False)
+                raise ApplicationError("Simulated stream_llm_single_session_summary failure", non_retryable=False)
             else:
                 # Subsequent calls succeed - return actual data
                 return original_get(key)
@@ -559,7 +559,7 @@ class TestSummarizeSessionWorkflow:
             # Retries limit is 3, so failing 3 times should lead to workflow failure
             if redis_get_call_count in (1, 2, 3):
                 # First two calls fail with a retryable exception
-                raise ApplicationError("Simulated stream_llm_session_summary failure", non_retryable=False)
+                raise ApplicationError("Simulated stream_llm_single_session_summary failure", non_retryable=False)
             else:
                 # Subsequent calls succeed - return actual data
                 return original_get(key)

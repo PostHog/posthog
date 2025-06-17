@@ -11,7 +11,7 @@ from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
     prepare_data_for_single_session_summary,
-    generate_prompt,
+    generate_single_session_summary_prompt,
 )
 from ee.session_recordings.session_summary.stream import stream_recording_summary
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
@@ -219,7 +219,7 @@ class TestSummarizeSession:
         window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
         extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         # Generate prompts
-        prompt_result = generate_prompt(
+        prompt_result = generate_single_session_summary_prompt(
             prompt_data=prompt_data,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,

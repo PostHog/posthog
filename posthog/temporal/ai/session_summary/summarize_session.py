@@ -9,7 +9,7 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
+from ee.session_recordings.session_summary.llm.consume import stream_llm_single_session_summary
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
@@ -45,7 +45,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     temporalio.activity.heartbeat()
     last_heartbeat_timestamp = time.time()
     # Stream summary from the LLM stream
-    session_summary_generator = stream_llm_session_summary(
+    session_summary_generator = stream_llm_single_session_summary(
         session_id=llm_input.session_id,
         user_pk=llm_input.user_pk,
         # Prompt
