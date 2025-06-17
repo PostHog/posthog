@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 
+from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -43,7 +44,7 @@ async def create_sync_vectors_schedule(client: Client):
 async def create_run_quota_limiting_schedule(client: Client):
     """Create or update the schedule for the RunQuotaLimitingWorkflow.
 
-    This schedule runs every 30 minutes at the 10th and 40th minute of every hour.
+    This schedule runs every 1 hour at the 10th minute of every hour.
     """
     run_quota_limiting_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -52,9 +53,7 @@ async def create_run_quota_limiting_schedule(client: Client):
             id="run-quota-limiting-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(
-            cron_expressions=["10,40 * * * *"]  # Run at minutes 10 and 40 of every hour
-        ),
+        spec=ScheduleSpec(cron_expressions=["10 * * * *"]),  # Run at minutes 10 of every hour
     )
 
     if await a_schedule_exists(client, "run-quota-limiting-schedule"):
@@ -65,7 +64,28 @@ async def create_run_quota_limiting_schedule(client: Client):
         )
 
 
-schedules = [create_sync_vectors_schedule, create_run_quota_limiting_schedule]
+async def create_upgrade_queries_schedule(client: Client):
+    """Create or update the schedule for the UpgradeQueriesWorkflow.
+
+    This schedule runs every 6 hours.
+    """
+    upgrade_queries_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "upgrade-queries",
+            asdict(UpgradeQueriesWorkflowInputs()),
+            id="upgrade-queries-schedule",
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
+    )
+
+    if await a_schedule_exists(client, "upgrade-queries-schedule"):
+        await a_update_schedule(client, "upgrade-queries-schedule", upgrade_queries_schedule)
+    else:
+        await a_create_schedule(client, "upgrade-queries-schedule", upgrade_queries_schedule, trigger_immediately=False)
+
+
+schedules = [create_sync_vectors_schedule, create_run_quota_limiting_schedule, create_upgrade_queries_schedule]
 
 
 async def a_init_general_queue_schedules():

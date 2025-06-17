@@ -290,6 +290,7 @@ export const FEATURE_FLAGS = {
     REPLAY_FILTERS_IN_PLAYLIST_MAX_AI: 'replay-filters-in-playlist-max-ai', // owner: @veryayskiy #team-replay
     ANNOTATIONS_RECORDING_SCOPE: 'annotations-recording-scope', // owner: @pauldambra #team-replay,
     EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN: 'experiments-new-runner-results-breakdown', // owner: @rodrigoi #team-experiments
+    REPLAY_ZEN_MODE: 'replay-zen-mode', // owner: @veryayskiy #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -434,8 +434,7 @@ async fn write_property_definitions_batch(
                     COALESCE(project_id, team_id::bigint), name, type,
                     COALESCE(group_type_index, -1))
                 DO UPDATE SET property_type=EXCLUDED.property_type
-                WHERE (posthog_propertydefinition.property_type IS NULL
-                    OR posthog_propertydefinition.property_type != EXCLUDED.property_type)"#,
+                WHERE posthog_propertydefinition.property_type IS NULL"#,
             )
             .bind(&batch.ids)
             .bind(&batch.names)
