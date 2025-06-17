@@ -2,7 +2,7 @@ import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaManagedViewTable,
@@ -495,6 +496,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
+    urlToAction({
+        [urls.sqlEditor()]: () => {
+            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+        },
+    }),
     subscriptions({
         allTables: (allTables: DatabaseSchemaTable[]) => {
             const tables = allTables.filter((n) => n.type === 'posthog' || n.type === 'data_warehouse')

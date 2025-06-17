@@ -169,6 +169,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 : null,
         },
         {
+            identifier: 'Database',
+            id: 'Database',
+            icon: <IconDatabase />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Database')
+                }
+            },
+            showChevron: true,
+        },
+        {
             identifier: 'Data-management',
             id: 'Data management',
             icon: <IconDatabase />,

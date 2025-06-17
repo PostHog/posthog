@@ -23,7 +23,6 @@ import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryWindow } from './QueryWindow'
-import { EditorSidebar } from './sidebar/EditorSidebar'
 import { editorSidebarLogic } from './sidebar/editorSidebarLogic'
 
 export function EditorScene(): JSX.Element {
@@ -127,7 +126,6 @@ export function EditorScene(): JSX.Element {
                                                 className="EditorScene w-full h-full flex flex-row overflow-hidden"
                                                 ref={ref}
                                             >
-                                                <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
                                                 <QueryWindow
                                                     onSetMonacoAndEditor={(monaco, editor) =>
                                                         setMonacoAndEditor([monaco, editor])
