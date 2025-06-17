@@ -15,7 +15,8 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
-import { ThemeName } from './dataThemeLogic'
+import { ThemeName } from '../dataThemeLogic'
+import { MarketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/MarketingAnalyticsConfigurationDescriber'
 
 const teamActionsMapping: Record<
     keyof TeamType,
@@ -476,7 +477,7 @@ const teamActionsMapping: Record<
     slack_incoming_webhook: () => null,
     timezone: () => null,
     revenue_analytics_config: () => null,
-    marketing_analytics_config: () => null,
+    marketing_analytics_config: MarketingAnalyticsConfigurationDescriber,
     base_currency: () => null,
     flags_persistence_default: () => null,
     week_start_day: () => null,
