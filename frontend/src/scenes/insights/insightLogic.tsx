@@ -503,7 +503,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         setMaxContext: () => {
             // Set MaxAI context when insight changes
-            if (values.insight && values.insight.query) {
+            if (values.insight && values.insight.id && values.insight.query) {
                 maxContextLogic.findMounted()?.actions.addOrUpdateActiveInsight(values.insight, values.isInViewMode)
             }
         },
