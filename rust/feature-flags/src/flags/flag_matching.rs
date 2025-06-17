@@ -528,10 +528,10 @@ impl FeatureFlagMatcher {
                 // Handle database errors
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
-                for flag in flags_needing_db_properties {
+                for flag in &flags_needing_db_properties {
                     flag_details_map.insert(
                         flag.key.clone(),
-                        FlagDetails::create_error(&flag, reason, None),
+                        FlagDetails::create_error(flag, reason, None),
                     );
                 }
                 error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
@@ -557,9 +557,24 @@ impl FeatureFlagMatcher {
             flags_needing_db_properties
                 .par_iter()
                 .map(|flag| {
+                    // For flags that need DB properties, we still pass person property overrides
+                    // but only for super condition evaluation. Regular conditions will use cached DB properties.
+                    let person_overrides_for_super_conditions =
+                        if flag.get_group_type_index().is_some() {
+                            // For group-based flags, don't pass person overrides
+                            None
+                        } else {
+                            // For person-based flags, pass person overrides for super condition evaluation
+                            person_property_overrides.clone()
+                        };
+
                     (
                         flag.key.clone(),
-                        self.get_match(flag, None, hash_key_overrides.clone()),
+                        self.get_match_for_db_path(
+                            flag,
+                            person_overrides_for_super_conditions,
+                            hash_key_overrides.clone(),
+                        ),
                     )
                 })
                 .collect();
@@ -652,11 +667,107 @@ impl FeatureFlagMatcher {
             None => self.get_person_overrides(person_property_overrides, &flag_property_filters),
         };
 
+        // For flags with super conditions, we need special logic to ensure super condition properties are available
+        if let Some(super_groups) = &flag.filters.super_groups {
+            self.evaluate_with_super_conditions(flag, overrides, hash_key_overrides, super_groups)
+        } else if flag.ensure_experience_continuity {
+            self.evaluate_with_experience_continuity(
+                flag,
+                overrides,
+                hash_key_overrides,
+                &flag_property_filters,
+            )
+        } else {
+            // Flag has no super conditions and no experience continuity - use the original override logic
+            // This preserves the existing behavior where overrides can be partial
+            match overrides {
+                Some(props) => self
+                    .get_match(flag, Some(props), hash_key_overrides)
+                    .map(Some),
+                None => Ok(None),
+            }
+        }
+    }
+
+    /// Evaluates flags with super conditions, ensuring all required properties are available in overrides
+    fn evaluate_with_super_conditions(
+        &mut self,
+        flag: &FeatureFlag,
+        overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
+        super_groups: &[FlagPropertyGroup],
+    ) -> Result<Option<FeatureFlagMatch>, FlagError> {
+        let properties_available =
+            self.are_super_condition_properties_available(&overrides, super_groups);
+
         match overrides {
-            Some(props) => self
-                .get_match(flag, Some(props), hash_key_overrides)
-                .map(Some),
-            None => Ok(None),
+            Some(props) if properties_available => {
+                // Super condition properties are available in overrides
+                self.get_match(flag, Some(props), hash_key_overrides)
+                    .map(Some)
+            }
+            _ => {
+                // Super condition properties are missing from overrides, go to DB path
+                Ok(None)
+            }
+        }
+    }
+
+    /// Evaluates flags with experience continuity, ensuring all flag properties are available in overrides
+    fn evaluate_with_experience_continuity(
+        &mut self,
+        flag: &FeatureFlag,
+        overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
+        flag_property_filters: &[PropertyFilter],
+    ) -> Result<Option<FeatureFlagMatch>, FlagError> {
+        let properties_available =
+            self.are_all_properties_available(&overrides, flag_property_filters);
+
+        match overrides {
+            Some(props) if properties_available => {
+                // All flag properties are available in overrides for continuity flag
+                self.get_match(flag, Some(props), hash_key_overrides)
+                    .map(Some)
+            }
+            _ => {
+                // Required properties missing from overrides for continuity flag, go to DB path
+                Ok(None)
+            }
+        }
+    }
+
+    /// Checks if all super condition properties are available in the provided overrides
+    fn are_super_condition_properties_available(
+        &self,
+        overrides: &Option<HashMap<String, Value>>,
+        super_groups: &[FlagPropertyGroup],
+    ) -> bool {
+        if let Some(ref overrides_map) = overrides {
+            super_groups.iter().all(|super_group| {
+                super_group.properties.as_ref().map_or(true, |props| {
+                    props
+                        .iter()
+                        .all(|prop| overrides_map.contains_key(&prop.key))
+                })
+            })
+        } else {
+            false
+        }
+    }
+
+    /// Checks if all required properties are available in the provided overrides
+    fn are_all_properties_available(
+        &self,
+        overrides: &Option<HashMap<String, Value>>,
+        property_filters: &[PropertyFilter],
+    ) -> bool {
+        if let Some(ref overrides_map) = overrides {
+            property_filters
+                .iter()
+                .all(|prop| overrides_map.contains_key(&prop.key))
+        } else {
+            false
         }
     }
 
@@ -705,9 +816,7 @@ impl FeatureFlagMatcher {
         person_property_overrides: &Option<HashMap<String, Value>>,
         flag_property_filters: &[PropertyFilter],
     ) -> Option<HashMap<String, Value>> {
-        person_property_overrides.as_ref().and_then(|overrides| {
-            locally_computable_property_overrides(&Some(overrides.clone()), flag_property_filters)
-        })
+        locally_computable_property_overrides(person_property_overrides, flag_property_filters)
     }
 
     /// Determines if a feature flag matches for the current context.
@@ -806,6 +915,145 @@ impl FeatureFlagMatcher {
                 flag,
                 condition,
                 property_overrides.clone(),
+                hash_key_overrides.clone(),
+            )?;
+
+            // Update highest_match and highest_index
+            let (new_highest_match, new_highest_index) = self
+                .get_highest_priority_match_evaluation(
+                    highest_match.clone(),
+                    highest_index,
+                    reason.clone(),
+                    Some(index),
+                );
+            highest_match = new_highest_match;
+            highest_index = new_highest_index;
+
+            if is_match {
+                if highest_match == FeatureFlagMatchReason::SuperConditionValue {
+                    break; // Exit early if we've found a super condition match
+                }
+
+                // Check for variant override in the condition
+                let variant = if let Some(variant_override) = &condition.variant {
+                    // Check if the override is a valid variant
+                    if flag
+                        .get_variants()
+                        .iter()
+                        .any(|v| &v.key == variant_override)
+                    {
+                        Some(variant_override.clone())
+                    } else {
+                        // If override isn't valid, fall back to computed variant
+                        self.get_matching_variant(flag, hash_key_overrides.clone())?
+                    }
+                } else {
+                    // No override, use computed variant
+                    self.get_matching_variant(flag, hash_key_overrides.clone())?
+                };
+                let payload = self.get_matching_payload(variant.as_deref(), flag);
+
+                return Ok(FeatureFlagMatch {
+                    matches: true,
+                    variant,
+                    reason: highest_match,
+                    condition_index: highest_index,
+                    payload,
+                });
+            }
+        }
+
+        condition_timer.label("outcome", "success").fin();
+        // Return with the highest_match reason and index even if no conditions matched
+        Ok(FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: highest_match,
+            condition_index: highest_index,
+            payload: None,
+        })
+    }
+
+    /// Evaluates a feature flag in the DB path where regular conditions use cached DB properties
+    /// but super conditions can still access property overrides.
+    ///
+    /// This method is used when a flag has property filters that require DB access (like cohorts),
+    /// but we still want super conditions to be able to use property overrides.
+    fn get_match_for_db_path(
+        &self,
+        flag: &FeatureFlag,
+        super_condition_overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
+    ) -> Result<FeatureFlagMatch, FlagError> {
+        if self
+            .hashed_identifier(flag, hash_key_overrides.clone())?
+            .is_empty()
+        {
+            return Ok(FeatureFlagMatch {
+                matches: false,
+                variant: None,
+                reason: FeatureFlagMatchReason::NoGroupType,
+                condition_index: None,
+                payload: None,
+            });
+        }
+
+        let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
+        let mut highest_index = None;
+
+        // Evaluate any super conditions first, with access to property overrides
+        if let Some(super_groups) = &flag.filters.super_groups {
+            if !super_groups.is_empty() {
+                let super_condition_evaluation = self.is_super_condition_match(
+                    flag,
+                    super_condition_overrides,
+                    hash_key_overrides.clone(),
+                )?;
+
+                if super_condition_evaluation.should_evaluate {
+                    let payload = self.get_matching_payload(None, flag);
+                    return Ok(FeatureFlagMatch {
+                        matches: super_condition_evaluation.is_match,
+                        variant: None,
+                        reason: super_condition_evaluation.reason,
+                        condition_index: Some(0),
+                        payload,
+                    });
+                } // if no match, continue to normal conditions
+            }
+        }
+
+        // Match for holdout super condition - same logic as regular get_match
+        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if !holdout_groups.is_empty() {
+                let (is_match, holdout_value, evaluation_reason) =
+                    self.is_holdout_condition_match(flag)?;
+                if is_match {
+                    let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
+                    return Ok(FeatureFlagMatch {
+                        matches: true,
+                        variant: holdout_value,
+                        reason: evaluation_reason,
+                        condition_index: None,
+                        payload,
+                    });
+                }
+            }
+        }
+
+        // Evaluate regular conditions using cached DB properties (no overrides)
+        let mut sorted_conditions: Vec<(usize, &FlagPropertyGroup)> =
+            flag.get_conditions().iter().enumerate().collect();
+
+        sorted_conditions
+            .sort_by_key(|(_, condition)| if condition.variant.is_some() { 0 } else { 1 });
+
+        let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
+        for (index, condition) in sorted_conditions {
+            let (is_match, reason) = self.is_condition_match(
+                flag,
+                condition,
+                None, // Use cached DB properties instead of overrides
                 hash_key_overrides.clone(),
             )?;
 
@@ -1082,10 +1330,27 @@ impl FeatureFlagMatcher {
             .as_ref()
             .and_then(|sc| sc.first())
         {
-            let person_properties = self.get_person_properties(
-                property_overrides.clone(),
-                super_condition.properties.as_deref().unwrap_or(&[]),
-            )?;
+            // For super conditions, we want to check if we can evaluate using ONLY the super condition properties
+            // We don't care about other properties on the flag (like cohort filters in regular conditions)
+            let super_condition_properties = super_condition.properties.as_deref().unwrap_or(&[]);
+
+            let person_properties = if let Some(ref overrides) = property_overrides {
+                // For super conditions, check if ALL required properties are present in overrides
+                let all_super_condition_props_in_overrides = super_condition_properties
+                    .iter()
+                    .all(|prop| overrides.contains_key(&prop.key));
+
+                if all_super_condition_props_in_overrides {
+                    // We can compute all super condition properties from overrides
+                    overrides.clone()
+                } else {
+                    // Fall back to cached properties since some super condition properties are missing
+                    self.get_person_properties_from_cache().unwrap_or_default()
+                }
+            } else {
+                // No overrides at all, fall back to cached properties
+                self.get_person_properties_from_cache().unwrap_or_default()
+            };
 
             let has_relevant_super_condition_properties =
                 super_condition.properties.as_ref().map_or(false, |props| {
