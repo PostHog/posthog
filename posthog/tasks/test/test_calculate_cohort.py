@@ -628,18 +628,26 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 )
                 stuck_cohorts.append(cohort)
 
-            # Call the function
             reset_stuck_cohorts()
 
             # Count how many were actually reset
-            reset_count = sum(1 for cohort in stuck_cohorts if not Cohort.objects.get(id=cohort.id).is_calculating)
+            reset_count = Cohort.objects.filter(id__in=[c.id for c in stuck_cohorts], is_calculating=False).count()
 
             # Should only reset up to the limit
             self.assertEqual(reset_count, MAX_STUCK_COHORTS_TO_RESET)
-            # Verify logging shows the correct count
+
             mock_logger.warning.assert_called_once()
-            log_kwargs = mock_logger.warning.call_args[1]
+            log_call_args, log_kwargs = mock_logger.warning.call_args
+
+            self.assertEqual(log_call_args[0], "reset_stuck_cohorts")
             self.assertEqual(log_kwargs["reset_count"], MAX_STUCK_COHORTS_TO_RESET)
             self.assertEqual(len(log_kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
+            cohort_details = log_kwargs["cohort_details"]
+            self.assertEqual(len(cohort_details), MAX_STUCK_COHORTS_TO_RESET)
+
+            reset_cohorts = Cohort.objects.filter(id__in=[c.id for c in stuck_cohorts], is_calculating=False)
+            logged_ids = set(log_kwargs["cohort_ids"])
+            actual_ids = set(reset_cohorts.values_list("id", flat=True))
+            self.assertSetEqual(logged_ids, actual_ids)
 
     return TestCalculateCohort
