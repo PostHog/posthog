@@ -14,7 +14,7 @@ def _clause(kind: str, version: int) -> str:
     template = """
         query @? '$.** ? (
             @.kind == "{kind}" &&
-            (!exists(@.version) || @.version == null || @.version <= {version})
+            (!exists(@.version) || @.version == null || @.version < {version})
         )'"""
     return textwrap.dedent(template.format(kind=kind, version=version)).strip()
 
