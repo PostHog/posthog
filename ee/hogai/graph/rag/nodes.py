@@ -33,7 +33,8 @@ class InsightRagContextNode(AssistantNode):
         distinct_id = self._get_user_distinct_id(config)
 
         plan = state.root_tool_insight_plan
-        assert plan is not None
+        if not plan:
+            raise ValueError("Query description is not present, but it's needed to retrieve actions")
 
         # Kick off retrieval of the event taxonomy.
         self._prewarm_queries()

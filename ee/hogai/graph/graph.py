@@ -1,5 +1,5 @@
 from collections.abc import Hashable
-from typing import Optional, cast
+from typing import Literal, Optional, cast
 
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
@@ -138,7 +138,9 @@ class InsightsAssistantGraph(BaseAssistantGraph):
 
     def add_query_planner(
         self,
-        end_node: AssistantNodeName = AssistantNodeName.END,
+        path_map: Optional[
+            dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName]
+        ] = None,
     ):
         builder = self._graph
 
@@ -151,13 +153,14 @@ class InsightsAssistantGraph(BaseAssistantGraph):
         builder.add_conditional_edges(
             AssistantNodeName.QUERY_PLANNER_TOOLS,
             query_planner_tools.router,
-            path_map={
+            path_map=path_map
+            or {
                 "continue": AssistantNodeName.QUERY_PLANNER,
                 "trends": AssistantNodeName.TRENDS_GENERATOR,
                 "funnel": AssistantNodeName.FUNNEL_GENERATOR,
                 "retention": AssistantNodeName.RETENTION_GENERATOR,
                 "sql": AssistantNodeName.SQL_GENERATOR,
-                "end": end_node,
+                "end": AssistantNodeName.END,
             },
         )
 

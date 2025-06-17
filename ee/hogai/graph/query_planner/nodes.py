@@ -194,6 +194,8 @@ class QueryPlannerNode(AssistantNode):
                 template_format="mustache",
             ) + self._construct_messages(state)
         else:
+            if not state.intermediate_steps:
+                raise ValueError("No intermediate steps found in the state.")
             conversation = ChatPromptTemplate(
                 [
                     LangchainToolMessage(
@@ -203,26 +205,7 @@ class QueryPlannerNode(AssistantNode):
                 ]
             )
 
-        # Get dynamic entity tools with correct types for this team
-        DynamicRetrieveEntityProperties, DynamicRetrieveEntityPropertyValues = self._get_dynamic_entity_tools()
-
-        chain = (
-            conversation
-            | merge_message_runs()
-            | self._get_model(state).bind_tools(
-                [
-                    retrieve_event_properties,
-                    retrieve_action_properties,
-                    DynamicRetrieveEntityProperties,
-                    retrieve_event_property_values,
-                    retrieve_action_property_values,
-                    DynamicRetrieveEntityPropertyValues,
-                    ask_user_for_help,
-                    final_answer,
-                ],
-                tool_choice="required",
-            )
-        )
+        chain = conversation | merge_message_runs() | self._get_model(state)
 
         output_message = chain.invoke(
             {
@@ -257,6 +240,9 @@ class QueryPlannerNode(AssistantNode):
         )
 
     def _get_model(self, state: AssistantState) -> ChatOpenAI:
+        # Get dynamic entity tools with correct types for this team
+        dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
+
         return ChatOpenAI(
             model="o3",
             use_responses_api=True,
@@ -265,6 +251,18 @@ class QueryPlannerNode(AssistantNode):
                 "reasoning": {"summary": "auto"},
                 "previous_response_id": state.query_planner_previous_response_id or None,  # Must alias "" to None
             },
+        ).bind_tools(
+            [
+                retrieve_event_properties,
+                retrieve_action_properties,
+                dynamic_retrieve_entity_properties,
+                retrieve_event_property_values,
+                retrieve_action_property_values,
+                dynamic_retrieve_entity_property_values,
+                ask_user_for_help,
+                final_answer,
+            ],
+            tool_choice="required",
         )
 
     def _get_react_property_filters_prompt(self) -> str:

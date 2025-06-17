@@ -10,7 +10,6 @@ from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from django.test import override_settings
 from langchain_core import messages
-from langchain_core.agents import AgentAction
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
@@ -186,11 +185,20 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
 
     @patch(
-        "ee.hogai.graph.trends.nodes.QueryPlannerNode.run",
-        return_value=PartialAssistantState(
-            intermediate_steps=[
-                (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
-            ],
+        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
+        return_value=FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "trends", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         ),
     )
     @patch(
@@ -202,9 +210,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_funnel_planner_run):
         output, _ = self._run_assistant_graph(
             InsightsAssistantGraph(self.team)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-            .add_trends_planner(AssistantNodeName.QUERY_EXECUTOR, AssistantNodeName.END)
-            .add_query_executor(AssistantNodeName.END)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
+            .add_query_planner(
+                {
+                    "continue": AssistantNodeName.QUERY_PLANNER,
+                    "trends": AssistantNodeName.END,
+                    "funnel": AssistantNodeName.END,
+                    "retention": AssistantNodeName.END,
+                    "sql": AssistantNodeName.END,
+                    "end": AssistantNodeName.END,
+                }
+            )
             .compile(),
             conversation=self.conversation,
         )
@@ -235,38 +251,86 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
     @patch(
-        "ee.hogai.graph.trends.nodes.QueryPlannerNode.run",
-        return_value=PartialAssistantState(
-            intermediate_steps=[
-                # Compare with toolkit.py to see supported AgentAction shapes. The list below is supposed to include ALL
-                (AgentAction(tool="retrieve_entity_properties", tool_input="session", log=""), None),
-                (AgentAction(tool="retrieve_event_properties", tool_input="$pageview", log=""), None),
-                (
-                    AgentAction(
-                        tool="retrieve_event_property_values",
-                        tool_input={"event_name": "purchase", "property_name": "currency"},
-                        log="",
-                    ),
-                    None,
+        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
+        return_value=FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "retrieve_entity_properties",
+                            "args": {"entity": "session"},
+                        }
+                    ],
                 ),
-                (
-                    AgentAction(
-                        tool="retrieve_entity_property_values",
-                        tool_input={"entity": "person", "property_name": "country_of_birth"},
-                        log="",
-                    ),
-                    None,
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_2",
+                            "name": "retrieve_event_properties",
+                            "args": {"event_name": "$pageview"},
+                        }
+                    ],
                 ),
-                (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), None),
-                (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_3",
+                            "name": "retrieve_event_property_values",
+                            "args": {"event_name": "purchase", "property_name": "currency"},
+                        }
+                    ],
+                ),
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_4",
+                            "name": "retrieve_entity_property_values",
+                            "args": {"entity": "person", "property_name": "country_of_birth"},
+                        }
+                    ],
+                ),
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_5",
+                            "name": "handle_incorrect_response",
+                            "args": {},
+                        }
+                    ],
+                ),
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_6",
+                            "name": "final_answer",
+                            "args": {"query_kind": "trends", "plan": "Plan"},
+                        }
+                    ],
+                ),
             ]
         ),
     )
     def test_reasoning_messages_with_substeps_added(self, _mock_funnel_planner_run):
         output, _ = self._run_assistant_graph(
             InsightsAssistantGraph(self.team)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-            .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
+            .add_query_planner(
+                {
+                    "continue": AssistantNodeName.QUERY_PLANNER,
+                    "trends": AssistantNodeName.END,
+                    "funnel": AssistantNodeName.END,
+                    "retention": AssistantNodeName.END,
+                    "sql": AssistantNodeName.END,
+                    "end": AssistantNodeName.END,
+                }
+            )
             .compile(),
             conversation=self.conversation,
         )
@@ -305,34 +369,55 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         action = Action.objects.create(team=self.team, name="Marius Tech Tips")
 
         with patch(
-            "ee.hogai.graph.trends.nodes.QueryPlannerNode.run",
-            return_value=PartialAssistantState(
-                intermediate_steps=[
-                    (
-                        AgentAction(
-                            tool="retrieve_action_properties",
-                            # String is expected here.
-                            tool_input=str(action.id),
-                            log="",
-                        ),
-                        None,
+            "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
+            return_value=FakeChatOpenAI(
+                responses=[
+                    messages.AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "call_1",
+                                "name": "retrieve_action_properties",
+                                "args": {"action_id": action.id},
+                            }
+                        ],
                     ),
-                    (
-                        AgentAction(
-                            tool="retrieve_action_property_values",
-                            tool_input={"action_id": action.id, "property_name": "video_name"},
-                            log="",
-                        ),
-                        None,
+                    messages.AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "call_2",
+                                "name": "retrieve_action_property_values",
+                                "args": {"action_id": action.id, "property_name": "video_name"},
+                            }
+                        ],
                     ),
-                    (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
+                    messages.AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "call_3",
+                                "name": "final_answer",
+                                "args": {"query_kind": "trends", "plan": "Plan"},
+                            }
+                        ],
+                    ),
                 ]
             ),
         ):
             output, _ = self._run_assistant_graph(
                 InsightsAssistantGraph(self.team)
-                .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-                .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
+                .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
+                .add_query_planner(
+                    {
+                        "continue": AssistantNodeName.QUERY_PLANNER,
+                        "trends": AssistantNodeName.END,
+                        "funnel": AssistantNodeName.END,
+                        "retention": AssistantNodeName.END,
+                        "sql": AssistantNodeName.END,
+                        "end": AssistantNodeName.END,
+                    }
+                )
                 .compile(),
                 conversation=self.conversation,
             )
@@ -382,7 +467,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with (
             patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock,
-            patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model") as planner_mock,
+            patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as planner_mock,
         ):
             config: RunnableConfig = {
                 "configurable": {
@@ -408,17 +493,20 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             root_mock.return_value = FakeRunnableLambdaWithTokenCounter(root_side_effect)
 
             # Interrupt the graph
-            message = """
-            Thought: Let's ask for help.
-            Action:
-            ```
-            {
-                "action": "ask_user_for_help",
-                "action_input": "Need help with this query"
-            }
-            ```
-            """
-            planner_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
+            planner_mock.return_value = FakeChatOpenAI(
+                responses=[
+                    messages.AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "call_1",
+                                "name": "ask_user_for_help",
+                                "args": {"request": "Need help with this query"},
+                            }
+                        ],
+                    )
+                ]
+            )
             output, _ = self._run_assistant_graph(graph, conversation=self.conversation)
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
@@ -449,13 +537,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self._test_human_in_the_loop("retention")
 
     def test_ai_messages_appended_after_interrupt(self):
-        with patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model") as mock:
-            graph = (
-                InsightsAssistantGraph(self.team)
-                .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-                .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
-                .compile()
-            )
+        with patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as mock:
+            graph = InsightsAssistantGraph(self.team).compile_full_graph()
             config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
@@ -569,7 +652,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_trends_flow(
@@ -592,19 +675,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
 
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="""
-                Thought: Done.
-                Action:
-                ```
-                {
-                    "action": "final_answer",
-                    "action_input": "Plan"
-                }
-                ```
-                """
-            )
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "trends", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         )
         query = AssistantTrendsQuery(series=[])
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
@@ -636,7 +719,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_funnel_flow(
@@ -661,19 +744,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
 
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="""
-                Thought: Done.
-                Action:
-                ```
-                {
-                    "action": "final_answer",
-                    "action_input": "Plan"
-                }
-                ```
-                """
-            )
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "funnel", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         )
         query = AssistantFunnelsQuery(
             series=[
@@ -710,7 +793,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_retention_flow(
@@ -735,19 +818,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
 
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="""
-                Thought: Done.
-                Action:
-                ```
-                {
-                    "action": "final_answer",
-                    "action_input": "Plan"
-                }
-                ```
-                """
-            )
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "retention", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         )
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
@@ -784,7 +867,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock):
@@ -805,19 +888,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
 
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="""
-                Thought: Done.
-                Action:
-                ```
-                {
-                    "action": "final_answer",
-                    "action_input": "Plan"
-                }
-                ```
-                """
-            )
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "sql", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         )
         query = AssistantHogQLQuery(query="SELECT 1")
         generator_mock.return_value = RunnableLambda(lambda _: query.model_dump())
@@ -1000,7 +1083,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_exits_infinite_loop_after_fourth_attempt(
@@ -1029,19 +1112,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             return messages.AIMessage(content="No more tool calls after 4th attempt")
 
         get_model_mock.return_value = FakeRunnableLambdaWithTokenCounter(make_tool_call)
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="""
-                Thought: Done.
-                Action:
-                ```
-                {
-                    "action": "final_answer",
-                    "action_input": "Plan"
-                }
-                ```
-                """
-            )
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "trends", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         )
         query = AssistantTrendsQuery(series=[])
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
@@ -1167,7 +1250,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     def test_insights_tool_mode_flow(self, query_executor_mock, planner_mock, generator_mock):
         """Test that the insights tool mode works correctly."""
@@ -1180,19 +1263,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             messages=[],
         )
 
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="""
-                Thought: Done.
-                Action:
-                ```
-                {
-                    "action": "final_answer",
-                    "action_input": "Plan"
-                }
-                ```
-                """
-            )
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "trends", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         )
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
         query_executor_mock.return_value = RunnableLambda(
@@ -1228,7 +1311,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     def test_insights_tool_mode_invalid_insight_type(self, query_executor_mock, planner_mock, generator_mock):
         """Test that insights tool mode handles invalid insight types correctly."""
@@ -1442,7 +1525,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.taxonomy_agent.nodes.QueryPlannerNode._model")
+    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     def test_create_and_query_insight_contextual_tool(
@@ -1468,19 +1551,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             rag_context="",
         )
 
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="""
-                Thought: Done.
-                Action:
-                ```
-                {
-                    "action": "final_answer",
-                    "action_input": "Plan"
-                }
-                ```
-                """
-            )
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "trends", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
         )
         query = AssistantTrendsQuery(series=[])
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
