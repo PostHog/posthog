@@ -547,22 +547,12 @@ function ProfilingStats({ item }: { item: Query }): JSX.Element | null {
 
 function QueryContext({ item }: { item: Query }): JSX.Element | null {
     const logComment = item.logComment
-    const { modifiers, git_commit, container_hostname } = logComment || {}
 
-    const context: Record<string, unknown> = {}
-    if (git_commit) {
-        context.git_commit = git_commit
-    }
-    if (container_hostname) {
-        context.container_hostname = container_hostname
-    }
-    if (modifiers && Object.keys(modifiers).length > 0) {
-        context.modifiers = modifiers
-    }
-
-    if (!git_commit && !container_hostname && !(modifiers && Object.keys(modifiers).length > 0)) {
+    if (!logComment) {
         return null
     }
+
+    const { modifiers, git_commit, container_hostname } = logComment
 
     return (
         <div>
@@ -578,14 +568,16 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
                     </tr>
                 </tbody>
             </table>
-            <CodeSnippet
-                language={Language.JSON}
-                maxLinesWithoutExpansion={0}
-                key={item.query_id}
-                className="text-sm mb-2 w-80"
-            >
-                {JSON.stringify(modifiers, null, 2)}
-            </CodeSnippet>
+            {modifiers && Object.keys(modifiers).length > 0 ? (
+                <CodeSnippet
+                    language={Language.JSON}
+                    maxLinesWithoutExpansion={0}
+                    key={item.query_id}
+                    className="text-sm mb-2 w-80"
+                >
+                    {JSON.stringify(modifiers, null, 2)}
+                </CodeSnippet>
+            ) : null}
         </div>
     )
 }
