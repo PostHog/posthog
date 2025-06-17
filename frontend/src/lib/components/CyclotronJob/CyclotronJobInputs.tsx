@@ -271,7 +271,7 @@ function DictionaryField({
     )
 }
 
-export function CyclotronJobInputRenderer({
+function CyclotronJobInputRenderer({
     onChange,
     schema,
     disabled,
@@ -469,7 +469,7 @@ function CyclotronJobInputSchemaControls({
     )
 }
 
-export function CyclotronJobInputWithSchema({
+function CyclotronJobInputWithSchema({
     schema,
     configuration,
     setConfigurationValue,
@@ -614,17 +614,15 @@ export function CyclotronJobInputs({
     setConfigurationValue,
     showSource,
 }: CyclotronJobInputsProps): JSX.Element | null {
-    const config = configuration
-
-    if (!config.inputs_schema?.length) {
-        if (!('type' in config)) {
+    if (!configuration.inputs_schema?.length) {
+        if (!('type' in configuration)) {
             // If this is a mapping or hog flow, don't show any error message.
             return null
         }
         return <span className="italic text-secondary">This function does not require any input variables.</span>
     }
 
-    const inputSchemas = config.inputs_schema
+    const inputSchemas = configuration.inputs_schema
     const inputSchemaIds = inputSchemas.map((schema: CyclotronJobInputSchemaType) => schema.key)
 
     return (
@@ -641,14 +639,14 @@ export function CyclotronJobInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {config.inputs_schema
+                    {configuration.inputs_schema
                         ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
                         .map((schema: CyclotronJobInputSchemaType) => {
                             return (
                                 <CyclotronJobInputWithSchema
                                     key={schema.key}
                                     schema={schema}
-                                    configuration={config}
+                                    configuration={configuration}
                                     setConfigurationValue={setConfigurationValue}
                                     showSource={showSource}
                                 />

@@ -14,8 +14,8 @@ export function IntegrationView({
     suffix?: JSX.Element
     schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
-    const errors = integration.errors?.split(',') || []
-
+    const errors = (integration.errors && integration.errors?.split(',')) || []
+    
     return (
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
