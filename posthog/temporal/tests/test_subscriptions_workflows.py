@@ -24,7 +24,7 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     ScheduleAllSubscriptionsWorkflowInputs,
 )
 
-pytestmark = [pytest.mark.django_db]
+pytestmark = pytest.mark.django_db(transaction=True, reset_sequences=True)
 
 
 @pytest.fixture
