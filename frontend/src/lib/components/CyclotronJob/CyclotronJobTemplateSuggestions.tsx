@@ -4,21 +4,24 @@ import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useState } from 'react'
 
-import { HogFunctionTemplateOption, hogFunctionTemplateSuggestionsLogic } from './hogFunctionTemplateSuggestionsLogic'
+import {
+    CyclotronJobTemplateOption,
+    cyclotronJobTemplateSuggestionsLogic,
+} from './cyclotronJobTemplateSuggestionsLogic'
 
-export type HogFunctionTemplateSuggestionsProps = {
+export type CyclotronJobTemplateSuggestionsProps = {
     templating: 'hog' | 'liquid'
     setTemplating?: (templating: 'hog' | 'liquid') => void
     value: string
-    onOptionSelect: (option: HogFunctionTemplateOption) => void
+    onOptionSelect: (option: CyclotronJobTemplateOption) => void
 }
 
-function HogFunctionTemplateSuggestionsItem({
+function CyclotronJobTemplateSuggestionsItem({
     option,
     onSelect,
 }: {
-    option: HogFunctionTemplateOption
-    onSelect: (option: HogFunctionTemplateOption) => void
+    option: CyclotronJobTemplateOption
+    onSelect: (option: CyclotronJobTemplateOption) => void
 }): JSX.Element {
     return (
         <LemonButton fullWidth role="menuitem" size="small" onClick={() => onSelect(option)}>
@@ -30,12 +33,12 @@ function HogFunctionTemplateSuggestionsItem({
     )
 }
 
-export function HogFunctionTemplateSuggestions({
+export function CyclotronJobTemplateSuggestions({
     templating,
     setTemplating,
     onOptionSelect,
-}: HogFunctionTemplateSuggestionsProps): JSX.Element {
-    const logic = hogFunctionTemplateSuggestionsLogic({ templating: templating ?? 'hog' })
+}: CyclotronJobTemplateSuggestionsProps): JSX.Element {
+    const logic = cyclotronJobTemplateSuggestionsLogic({ templating })
     const { search, optionsFiltered } = useValues(logic)
     const { setSearch } = useActions(logic)
 
@@ -81,7 +84,7 @@ export function HogFunctionTemplateSuggestions({
             <ul className="flex overflow-y-auto flex-col flex-1 gap-px p-2 border-t max-w-100">
                 {optionsFiltered.map((value) => (
                     <li key={value.key}>
-                        <HogFunctionTemplateSuggestionsItem option={value} onSelect={onOptionSelect} />
+                        <CyclotronJobTemplateSuggestionsItem option={value} onSelect={onOptionSelect} />
                     </li>
                 ))}
 
@@ -102,13 +105,13 @@ export function HogFunctionTemplateSuggestions({
     )
 }
 
-export function HogFunctionTemplateSuggestionsButton({
+export function CyclotronJobTemplateSuggestionsButton({
     onOptionSelect,
     ...props
-}: HogFunctionTemplateSuggestionsProps): JSX.Element {
+}: CyclotronJobTemplateSuggestionsProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false) // TODO: Move this to the logic somehow
 
-    const _onOptionSelect = (option: HogFunctionTemplateOption): void => {
+    const _onOptionSelect = (option: CyclotronJobTemplateOption): void => {
         onOptionSelect(option)
         setShowPopover(false)
     }
@@ -120,7 +123,7 @@ export function HogFunctionTemplateSuggestionsButton({
             matchWidth={false}
             actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
-            overlay={<HogFunctionTemplateSuggestions {...props} onOptionSelect={_onOptionSelect} />}
+            overlay={<CyclotronJobTemplateSuggestions {...props} onOptionSelect={_onOptionSelect} />}
             overflowHidden
         >
             <LemonButton
