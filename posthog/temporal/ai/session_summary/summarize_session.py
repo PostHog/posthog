@@ -24,8 +24,9 @@ from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
-from posthog.temporal.common.client import connect
-from temporalio.client import Client as TemporalClient, WorkflowHandle, WorkflowExecutionStatus
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
+from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -41,15 +42,6 @@ class SingleSessionSummaryInputs:
     redis_output_key: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
-
-
-async def _connect_to_temporal_client() -> TemporalClient:
-    return await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        server_root_ca_cert=settings.TEMPORAL_CLIENT_ROOT_CA,
-    )
 
 
 def _get_single_session_summary_llm_input_from_redis(
@@ -154,7 +146,13 @@ async def stream_llm_single_session_summary_activity(session_input: SingleSessio
 
 
 @temporalio.workflow.defn(name="summarize-session")
-class SummarizeSingleSessionWorkflow:
+class SummarizeSingleSessionWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SingleSessionSummaryInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return SingleSessionSummaryInputs(**loaded)
+
     @temporalio.workflow.run
     async def run(self, session_input: SingleSessionSummaryInputs) -> str:
         await temporalio.workflow.execute_activity(
@@ -162,6 +160,7 @@ class SummarizeSingleSessionWorkflow:
             session_input,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=1),
+            # Avoid heartbeat timeout for short one-shot activity
         )
         sse_summary = await temporalio.workflow.execute_activity(
             stream_llm_single_session_summary_activity,
@@ -177,7 +176,7 @@ class SummarizeSingleSessionWorkflow:
 
 
 async def _start_workflow(session_input: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
-    client = await _connect_to_temporal_client()
+    client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     handle = await client.start_workflow(
         "summarize-session",

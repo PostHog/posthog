@@ -1,7 +1,7 @@
 import merge from 'deepmerge'
 
-import { defaultConfig } from '~/src/config/config'
-import { GeoIp, GeoIPService } from '~/src/utils/geoip'
+import { defaultConfig } from '~/config/config'
+import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
