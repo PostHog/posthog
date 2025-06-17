@@ -78,9 +78,7 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             id="schedule-all-subscriptions-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(
-            cron_expressions=["55 * * * *"]  # Run at minute 55 of every hour
-        ),
+        spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
     )
 
     if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):
@@ -92,13 +90,6 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             schedule_all_subscriptions_schedule,
             trigger_immediately=False,
         )
-
-
-schedules = [
-    create_sync_vectors_schedule,
-    create_run_quota_limiting_schedule,
-    create_schedule_all_subscriptions_schedule,
-]
 
 
 async def create_upgrade_queries_schedule(client: Client):
