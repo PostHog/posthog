@@ -18,13 +18,6 @@ export const nodeLogic = kea<nodeLogicType>([
             defaults: {
                 ...props.node.data.config.inputs,
             },
-            errors: ({ name }) => ({
-                name: !name ? 'Please enter a name' : undefined,
-            }),
-            submit: async (values) => {
-                // TODO: Add API call to save campaign
-                alert(`Submitting node details: ${JSON.stringify(values)}`)
-            },
         },
     })),
 ])

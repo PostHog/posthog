@@ -234,7 +234,6 @@ function WorkflowEditorContent(): JSX.Element {
 
                 {selectedNode && (
                     <NodeDetailsPanel
-                        index={nodes.findIndex((node) => node.id === selectedNode.id)}
                         node={selectedNode}
                         onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
                         onDelete={(node) => {
