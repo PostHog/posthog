@@ -764,8 +764,6 @@ mod tests {
             negation: None,
         }];
 
-        // With the bug fix, overrides should be returned even though the flag
-        // doesn't explicitly check for $feature_enrollment/discussions
         let result = locally_computable_property_overrides(&overrides, &flag_property_filters);
         assert!(result.is_some(), "Person property overrides should be returned even when flag doesn't check for all override properties");
 
