@@ -415,13 +415,13 @@ function CyclotronJobInputSchemaControls({
                     label="Required"
                     bordered
                 />
-                    <LemonCheckbox
-                        size="small"
-                        checked={value.secret}
-                        onChange={(secret) => _onChange({ secret })}
-                        label="Secret"
-                        bordered
-                    />
+                <LemonCheckbox
+                    size="small"
+                    checked={value.secret}
+                    onChange={(secret) => _onChange({ secret })}
+                    label="Secret"
+                    bordered
+                />
                 <div className="flex-1" />
                 <LemonButton status="danger" icon={<IconTrash />} size="small" onClick={() => onChange(null)} />
                 <LemonButton type="secondary" size="small" onClick={() => onDone()}>
@@ -634,7 +634,6 @@ function CyclotronJobInputWithSchema({
                         value={schema}
                         onChange={onSchemaChange}
                         onDone={() => setEditing(false)}
-                        supportsSecrets={supportsSecrets}
                         configuration={configuration}
                     />
                 </div>
