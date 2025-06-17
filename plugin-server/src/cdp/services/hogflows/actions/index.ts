@@ -57,6 +57,18 @@ export class HogFlowActionRunner {
             case 'delay':
                 result = await this.hogFlowActionRunnerDelay.run(invocation, action)
                 break
+            case 'hog_function':
+                throw new Error('NotImplemented')
+                break
+            case 'message':
+                throw new Error('NotImplemented')
+                break
+            case 'exit':
+                result = {
+                    finished: true,
+                }
+                // We are truly finished here
+                return result
             default:
                 throw new Error(`Action type ${action.type} not supported`)
         }
