@@ -39,6 +39,15 @@ export class HogFlowActionRunner {
         return undefined
     }
 
+    private findActionById(invocation: CyclotronJobInvocationHogFlow, id: string): HogFlowAction {
+        const action = invocation.hogFlow.actions.find((action) => action.id === id)
+        if (!action) {
+            throw new Error(`Action ${id} not found`)
+        }
+
+        return action
+    }
+
     private shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): boolean {
         if (!action.filters) {
             return false
@@ -88,10 +97,7 @@ export class HogFlowActionRunner {
         }
 
         const currentActionId = invocation.state.currentAction?.id
-        const action = invocation.hogFlow.actions.find((action) => action.id === currentActionId)
-        if (!action) {
-            throw new Error(`Action ${currentActionId} not found`)
-        }
+        const action = this.findActionById(invocation, currentActionId)
 
         if (this.shouldSkipAction(invocation, action)) {
             // Before we do anything check for filter conditions on the user
@@ -143,7 +149,7 @@ export class HogFlowActionRunner {
 
             if (actionResult.goToActionId) {
                 // If the action is going to a specific action we need to find it and set it
-                result.goToAction = this.findNextActionToRun(invocation)
+                result.goToAction = this.findActionById(invocation, actionResult.goToActionId)
             }
 
             if (!actionResult.finished) {
@@ -155,6 +161,8 @@ export class HogFlowActionRunner {
             if (result.finished && !result.goToAction && result.action.type !== 'exit') {
                 // Finally if the action  finished but didn't go to a specific action then we need to find the default next action to run to
                 result.goToAction = this.findNextActionToRun(invocation)
+                // and set the finished flag to false to indicate we should continue to the next action
+                result.finished = false
             }
         } catch (error) {
             result = {
