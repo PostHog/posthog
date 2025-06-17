@@ -50,9 +50,7 @@ pub fn upload(
         &host,
         &token,
         Some(directory.clone()),
-        Some(content_hash(
-            &uploads.iter().map(|upload| &upload.data).collect(),
-        )),
+        Some(content_hash(uploads.iter().map(|upload| &upload.data))),
         project,
         version,
     )
@@ -180,10 +178,14 @@ fn finish_upload(
     Ok(())
 }
 
-fn content_hash(upload_data: &Vec<&Vec<u8>>) -> String {
+fn content_hash<Iter, Item>(upload_data: Iter) -> String
+where
+    Iter: IntoIterator<Item = Item>,
+    Item: AsRef<[u8]>,
+{
     let mut hasher = sha2::Sha512::new();
     for data in upload_data {
-        hasher.update(data);
+        hasher.update(data.as_ref());
     }
     format!("{:x}", hasher.finalize())
 }
