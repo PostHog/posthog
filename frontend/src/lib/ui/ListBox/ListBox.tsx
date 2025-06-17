@@ -9,13 +9,14 @@ import React, {
     useEffect,
     useImperativeHandle,
     useRef,
-    useState
+    useState,
 } from 'react'
 
 /** Imperative API handle for Combobox to call focusFirstItem() etc */
 export interface ListBoxHandle {
     recalculateFocusableElements: () => void
     focusFirstItem: () => void
+    getFocusableElementsCount: () => number
 }
 
 /** Context to expose container ref to child Items */
@@ -69,7 +70,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         focusFirstItem() {
             recalculateFocusableElements()
             const elements = focusableElements.current
-            if (!elements.length) return
+            if (!elements.length) {
+                return
+            }
 
             elements.forEach((el) => el.removeAttribute('data-focused'))
 
@@ -79,19 +82,29 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             } else {
                 elements[0].focus()
             }
-        }
+        },
+        getFocusableElementsCount() {
+            recalculateFocusableElements()
+            const elements = focusableElements.current
+            if (!elements.length) {
+                return 0
+            }
+            return elements.length
+        },
     }))
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
-        if (!containerRef.current?.contains(document.activeElement)) return
+        if (!containerRef.current?.contains(document.activeElement)) {
+            return
+        }
 
         recalculateFocusableElements()
         const elements = focusableElements.current
-        if (!elements.length) return
+        if (!elements.length) {
+            return
+        }
 
-        const activeElement = virtualFocus
-            ? virtualFocusedElement
-            : (document.activeElement as HTMLElement)
+        const activeElement = virtualFocus ? virtualFocusedElement : (document.activeElement as HTMLElement)
         const currentIndex = elements.indexOf(activeElement!)
         let nextIndex = currentIndex
 
@@ -235,7 +248,6 @@ ListBoxItem.displayName = 'ListBox.Item'
 type ListBoxType = React.ForwardRefExoticComponent<ListBoxProps & React.RefAttributes<ListBoxHandle>> & {
     Item: typeof ListBoxItem
 }
-
 ;(InnerListBox as ListBoxType).Item = ListBoxItem
 
 export const ListBox = InnerListBox as ListBoxType

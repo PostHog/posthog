@@ -3,6 +3,13 @@ import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { Label } from 'lib/ui/Label/Label'
+import {
+    PopoverPrimitive,
+    PopoverPrimitiveContent,
+    PopoverPrimitiveTrigger,
+} from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -12,9 +19,6 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxFooter, ComboboxItem, ComboboxSearch } from 'lib/ui/Combobox/Combobox'
-import { Label } from 'lib/ui/Label/Label'
-import { PopoverPrimitive, PopoverPrimitiveContent, PopoverPrimitiveTrigger } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function OrganizationDropdownMenu(): JSX.Element {
@@ -29,7 +33,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
 
     return (
         <>
-            <PopoverPrimitive >
+            <PopoverPrimitive>
                 <PopoverPrimitiveTrigger asChild>
                     <ButtonPrimitive
                         className="max-w-[210px]"
@@ -63,68 +67,70 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 </PopoverPrimitiveTrigger>
                 <PopoverPrimitiveContent
                     align="start"
-                    className={`
-                min-w-[200px] 
-                max-w-[var(--project-panel-inner-width)] 
-            `}
+                    className="min-w-[200px] max-w-[var(--project-panel-inner-width)]"
                 >
                     <Combobox>
-                        <ComboboxSearch placeholder="Search organization..." autoFocus />
-                        <ComboboxContent className='max-h-[300px]'>
-                            <Label intent="menu" className='px-2'>Organizations</Label>
-                            <div className="-mx-1 my-1 h-px bg-border-primary" />
+                        <Combobox.Search placeholder="Search organizations..." />
+                        <Combobox.Content className="max-h-[300px]">
+                            <Label intent="menu" className="px-2">
+                                Organizations
+                            </Label>
+                            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
 
-                            <ComboboxEmpty>No organizations found</ComboboxEmpty>
+                            <Combobox.Empty>No organizations found</Combobox.Empty>
 
                             {currentOrganization && (
-                                <ComboboxItem asChild filterValue={currentOrganization.name}>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        active
-                                        tooltip={`Current organization: ${currentOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-current-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={currentOrganization.name}
-                                            entityId={currentOrganization.id}
-                                            mediaId={currentOrganization.logo_media_id}
-                                        />
-                                        <span className="truncate">{currentOrganization.name}</span>
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={currentOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
+                                <Combobox.Group value={[currentOrganization.name]}>
+                                    <Combobox.Item asChild>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            active
+                                            tooltip={`Current organization: ${currentOrganization.name}`}
+                                            tooltipPlacement="right"
+                                            data-attr="tree-navbar-organization-dropdown-current-organization-button"
+                                        >
+                                            <UploadedLogo
+                                                size="xsmall"
+                                                name={currentOrganization.name}
+                                                entityId={currentOrganization.id}
+                                                mediaId={currentOrganization.logo_media_id}
+                                            />
+                                            <span className="truncate">{currentOrganization.name}</span>
+                                            <div className="ml-auto">
+                                                <AccessLevelIndicator organization={currentOrganization} />
+                                            </div>
+                                        </ButtonPrimitive>
+                                    </Combobox.Item>
+                                </Combobox.Group>
                             )}
 
                             {otherOrganizations.map((otherOrganization) => (
-                                <ComboboxItem key={otherOrganization.id} asChild filterValue={otherOrganization.name}>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
-                                        tooltip={`Switch to organization: ${otherOrganization.name}`}
-                                        tooltipPlacement="right"
-                                        data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                    >
-                                        <UploadedLogo
-                                            size="xsmall"
-                                            name={otherOrganization.name}
-                                            entityId={otherOrganization.id}
-                                            mediaId={otherOrganization.logo_media_id}
-                                        />
-                                        {otherOrganization.name}
-                                        <div className="ml-auto">
-                                            <AccessLevelIndicator organization={otherOrganization} />
-                                        </div>
-                                    </ButtonPrimitive>
-                                </ComboboxItem>
+                                <Combobox.Group value={[otherOrganization.name]} key={otherOrganization.id}>
+                                    <Combobox.Item key={otherOrganization.id} asChild>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => updateCurrentOrganization(otherOrganization.id)}
+                                            tooltip={`Switch to organization: ${otherOrganization.name}`}
+                                            tooltipPlacement="right"
+                                            data-attr="tree-navbar-organization-dropdown-other-organization-button"
+                                        >
+                                            <UploadedLogo
+                                                size="xsmall"
+                                                name={otherOrganization.name}
+                                                entityId={otherOrganization.id}
+                                                mediaId={otherOrganization.logo_media_id}
+                                            />
+                                            {otherOrganization.name}
+                                            <div className="ml-auto">
+                                                <AccessLevelIndicator organization={otherOrganization} />
+                                            </div>
+                                        </ButtonPrimitive>
+                                    </Combobox.Item>
+                                </Combobox.Group>
                             ))}
-                        </ComboboxContent>
-                        {preflight?.can_create_org && (
-                            <ComboboxFooter>
-                                <ComboboxItem asChild alwaysVisible>
+
+                            {preflight?.can_create_org && (
+                                <Combobox.Item asChild>
                                     <ButtonPrimitive
                                         menuItem
                                         data-attr="new-organization-button"
@@ -146,11 +152,10 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                         <IconPlusSmall className="size-4" />
                                         New organization
                                     </ButtonPrimitive>
-                                </ComboboxItem>
-                            </ComboboxFooter>
-                        )}
+                                </Combobox.Item>
+                            )}
+                        </Combobox.Content>
                     </Combobox>
-
                 </PopoverPrimitiveContent>
             </PopoverPrimitive>
         </>

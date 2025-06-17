@@ -1,7 +1,7 @@
 import type { Meta } from '@storybook/react'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxItem, ComboboxSearch } from './Combobox'
+import { Combobox } from './Combobox'
 
 const meta = {
     title: 'UI/Combobox',
@@ -15,19 +15,29 @@ export function Default(): JSX.Element {
     return (
         <div className="flex gap-4">
             <Combobox>
-                <ComboboxSearch placeholder="Search this list..." />
+                <Combobox.Search placeholder="Search this list..." />
 
-                <ComboboxContent>
-                    <ComboboxItem asChild onClick={() => console.log('clicked Pineapple')}>
-                        <ButtonPrimitive menuItem>Pineapple</ButtonPrimitive>
-                    </ComboboxItem>
+                <Combobox.Empty>No results found</Combobox.Empty>
 
-                    <ComboboxItem asChild onClick={() => console.log('clicked Banana')}>
-                        <ButtonPrimitive menuItem>Banana</ButtonPrimitive>
-                    </ComboboxItem>
+                {/* For styling the list items */}
+                <Combobox.Content>
+                    {/* responsible for filtering the list items */}
+                    {/* can pass in an array of values to filter by */}
+                    <Combobox.Group value={['Pineapple', 'belongs on pizza']}>
+                        {/* what we actually get as focus */}
+                        {/* eslint-disable-next-line no-console */}
+                        <Combobox.Item asChild onClick={() => console.log('clicked Pineapple')}>
+                            <ButtonPrimitive menuItem>Pineapple</ButtonPrimitive>
+                        </Combobox.Item>
+                    </Combobox.Group>
 
-                    <ComboboxEmpty>No results found</ComboboxEmpty>
-                </ComboboxContent>
+                    <Combobox.Group value={['Banana']}>
+                        {/* eslint-disable-next-line no-console */}
+                        <Combobox.Item asChild onClick={() => console.log('clicked Banana')}>
+                            <ButtonPrimitive menuItem>Banana</ButtonPrimitive>
+                        </Combobox.Item>
+                    </Combobox.Group>
+                </Combobox.Content>
             </Combobox>
         </div>
     )

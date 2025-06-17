@@ -1,30 +1,24 @@
 import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { Label } from 'lib/ui/Label/Label'
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+    PopoverPrimitive,
+    PopoverPrimitiveContent,
+    PopoverPrimitiveTrigger,
+} from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { forwardRef, useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxFooter, ComboboxGroup, ComboboxItem, ComboboxSearch } from 'lib/ui/Combobox/Combobox'
-import { PopoverPrimitive, PopoverPrimitiveContent, PopoverPrimitiveTrigger } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
-import { Label } from 'lib/ui/Label/Label'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -57,7 +51,7 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
 //                 data-attr="tree-navbar-project-dropdown-other-project-button"
 //             >
 //                 <ProjectName team={team} />
-//             </Link> 
+//             </Link>
 
 //             <Link
 //                 buttonProps={{
@@ -85,11 +79,9 @@ export function ProjectDropdownMenu(): JSX.Element | null {
 
     return isAuthenticatedTeam(currentTeam) ? (
         <>
-            <PopoverPrimitive >
+            <PopoverPrimitive>
                 <PopoverPrimitiveTrigger asChild>
-                    <ButtonPrimitive
-                        data-attr="tree-navbar-project-dropdown-button"
-                    >
+                    <ButtonPrimitive data-attr="tree-navbar-project-dropdown-button">
                         <IconFolderOpen className="text-tertiary" />
                         Project
                         <IconChevronRight
@@ -107,114 +99,124 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 </PopoverPrimitiveTrigger>
                 <PopoverPrimitiveContent
                     align="start"
-                    className={"min-w-[200px] max-w-[var(--project-panel-inner-width)]"}
+                    className="min-w-[200px] max-w-[var(--project-panel-inner-width)]"
                 >
                     <Combobox>
-                        <ComboboxSearch placeholder="Search projects..." autoFocus />
-                        <ComboboxContent className='max-h-[300px]'>
-                            <Label intent="menu" className='px-2'>Projects</Label>
-                            <div className="-mx-1 my-1 h-px bg-border-primary" />
+                        <Combobox.Search placeholder="Search projects..." />
+                        <Combobox.Content className="max-h-[300px]">
+                            <Label intent="menu" className="px-2">
+                                Projects
+                            </Label>
+                            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
 
-                            <ComboboxEmpty>No projects found</ComboboxEmpty>
+                            <Combobox.Empty>No projects found</Combobox.Empty>
 
-                            <ComboboxGroup>
-                                    <ButtonGroupPrimitive fullWidth disabled>
-                                <ComboboxItem asChild filterValue={currentTeam.name}>
+                            <Combobox.Group value={[currentTeam.name]}>
+                                <ButtonGroupPrimitive fullWidth disabled>
+                                    <Combobox.Item asChild>
                                         <ButtonPrimitive
                                             menuItem
                                             active
                                             hasSideActionRight
                                             tooltip={`Current project: ${currentTeam.name}`}
-                                        tooltipPlacement="right"
-                                        disabled
-                                        data-attr="tree-navbar-project-dropdown-current-project-button"
-                                    >
-                                        <ProjectName team={currentTeam} />
-                                    </ButtonPrimitive>
-                                    </ComboboxItem>
-                                    <Link
-                                        buttonProps={{
-                                            active: true,
-                                            iconOnly: true,
-                                            isSideActionRight: true,
-                                        }}
-                                        tooltip={`View settings for project: ${currentTeam.name}`}
-                                        tooltipPlacement="right"
-                                        to={urls.project(currentTeam.id, urls.settings('project'))}
-                                        data-attr="tree-navbar-project-dropdown-current-project-settings-button"
-                                    >
-                                        <IconGear className="text-tertiary" />
-                                    </Link>
+                                            tooltipPlacement="right"
+                                            disabled
+                                            data-attr="tree-navbar-project-dropdown-current-project-button"
+                                        >
+                                            <ProjectName team={currentTeam} />
+                                        </ButtonPrimitive>
+                                    </Combobox.Item>
+
+                                    <Combobox.Item asChild>
+                                        <Link
+                                            buttonProps={{
+                                                active: true,
+                                                iconOnly: true,
+                                                isSideActionRight: true,
+                                            }}
+                                            tooltip={`View settings for project: ${currentTeam.name}`}
+                                            tooltipPlacement="right"
+                                            to={urls.project(currentTeam.id, urls.settings('project'))}
+                                            data-attr="tree-navbar-project-dropdown-current-project-settings-button"
+                                        >
+                                            <IconGear className="text-tertiary" />
+                                        </Link>
+                                    </Combobox.Item>
                                 </ButtonGroupPrimitive>
-                            </ComboboxGroup>
+                            </Combobox.Group>
 
                             {currentOrganization?.teams &&
                                 currentOrganization.teams
                                     .filter((team) => team.id !== currentTeam?.id)
                                     .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
                                     .map((team) => {
-                                        const relativeOtherProjectPath = getProjectSwitchTargetUrl(location.pathname, team.id, currentTeam?.project_id, team.project_id)
+                                        const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                            location.pathname,
+                                            team.id,
+                                            currentTeam?.project_id,
+                                            team.project_id
+                                        )
 
-                                        return <ComboboxGroup>
-                                            <ButtonGroupPrimitive menuItem fullWidth>
-                                            <ComboboxItem asChild filterValue={team.name}>
-                                                <Link
-                                                    buttonProps={{
-                                                        menuItem: true,
-                                                        hasSideActionRight: true,
-                                                    }}
-                                                    tooltip={`Switch to project: ${team.name}`}
-                                                    tooltipPlacement="right"
-                                                    to={relativeOtherProjectPath}
-                                                    data-attr="tree-navbar-project-dropdown-other-project-button"
-                                                >
-                                                    <ProjectName team={team} />
-                                                </Link>
-                                            </ComboboxItem>
+                                        return (
+                                            <Combobox.Group value={[team.name]} key={team.id}>
+                                                <ButtonGroupPrimitive menuItem fullWidth>
+                                                    <Combobox.Item asChild>
+                                                        <Link
+                                                            buttonProps={{
+                                                                menuItem: true,
+                                                                hasSideActionRight: true,
+                                                            }}
+                                                            tooltip={`Switch to project: ${team.name}`}
+                                                            tooltipPlacement="right"
+                                                            to={relativeOtherProjectPath}
+                                                            data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                        >
+                                                            <ProjectName team={team} />
+                                                        </Link>
+                                                    </Combobox.Item>
 
-                                            <Link
-                                                buttonProps={{
-                                                    iconOnly: true,
-                                                    isSideActionRight: true,
-                                                }}
-                                                tooltip={`View settings for project: ${team.name}`}
-                                                tooltipPlacement="right"
-                                                to={urls.project(team.id, urls.settings('project'))}
-                                                data-attr="tree-navbar-project-dropdown-other-project-settings-button"
-                                            >
-                                                <IconGear />
-                                            </Link>
-                                        </ButtonGroupPrimitive>
-                                        </ComboboxGroup>
+                                                    <Combobox.Item asChild>
+                                                        <Link
+                                                            buttonProps={{
+                                                                iconOnly: true,
+                                                                isSideActionRight: true,
+                                                            }}
+                                                            tooltip={`View settings for project: ${team.name}`}
+                                                            tooltipPlacement="right"
+                                                            to={urls.project(team.id, urls.settings('project'))}
+                                                            data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                        >
+                                                            <IconGear />
+                                                        </Link>
+                                                    </Combobox.Item>
+                                                </ButtonGroupPrimitive>
+                                            </Combobox.Group>
+                                        )
                                     })}
 
-                        </ComboboxContent>
-
                             {preflight?.can_create_org && (
-                        <ComboboxFooter>
-                                <ComboboxItem
-                                asChild
-                                onClick={() =>
-                                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
-                                        closeAccountPopover()
-                                        showCreateProjectModal()
-                                    })
-                                }
-                                alwaysVisible
-                                className="sticky bottom-0"
+                                <Combobox.Item
+                                    asChild
+                                    onClick={() =>
+                                        guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
+                                            closeAccountPopover()
+                                            showCreateProjectModal()
+                                        })
+                                    }
+                                    className="sticky bottom-0"
                                 >
                                     <ButtonPrimitive
                                         menuItem
                                         data-attr="new-project-button"
                                         tooltip="Create a new project"
                                         tooltipPlacement="right"
-                                        >
+                                    >
                                         <IconPlusSmall className="text-tertiary" />
                                         New project
                                     </ButtonPrimitive>
-                                </ComboboxItem>
-                            </ComboboxFooter>
+                                </Combobox.Item>
                             )}
+                        </Combobox.Content>
                     </Combobox>
                 </PopoverPrimitiveContent>
             </PopoverPrimitive>
