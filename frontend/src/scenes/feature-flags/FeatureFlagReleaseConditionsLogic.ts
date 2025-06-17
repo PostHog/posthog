@@ -37,6 +37,18 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
 }
 
+function generateUUID(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID()
+    }
+    // Fallback to a simple random string
+    return 'xxxx-xxxx-4xxx-yxxx-xxxx'.replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0
+        const v = c === 'x' ? r : (r & 0x3) | 0x8
+        return v.toString(16)
+    })
+}
+
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
@@ -69,9 +81,28 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     }),
     reducers(({ props }) => ({
         filters: [
-            props.filters,
             {
-                setFilters: (_, { filters }) => ({ ...filters }),
+                ...props.filters,
+                groups: props.filters.groups.map((group) => ({
+                    ...group,
+                    sort_key: group.sort_key ?? generateUUID(),
+                })),
+            },
+            {
+                setFilters: (_, { filters }) => {
+                    // Only assign sort_keys to groups that don't have one
+                    const groupsWithKeys = filters.groups.map((group) => {
+                        if (group.sort_key) {
+                            return group
+                        }
+                        return {
+                            ...group,
+                            sort_key: generateUUID(),
+                        }
+                    })
+
+                    return { ...filters, groups: groupsWithKeys }
+                },
                 setAggregationGroupTypeIndex: (state, { value }) => {
                     if (!state || state.aggregation_group_type_index == value) {
                         return state
@@ -83,7 +114,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         ...state,
                         aggregation_group_type_index: value,
                         // :TRICKY: We reset property filters after changing what you're aggregating by.
-                        groups: [{ properties: [], rollout_percentage: originalRolloutPercentage, variant: null }],
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: originalRolloutPercentage,
+                                variant: null,
+                                sort_key: generateUUID(),
+                            },
+                        ],
                     }
                 },
                 addConditionSet: (state) => {
@@ -92,7 +130,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     }
                     const groups = [
                         ...(state?.groups || []),
-                        { properties: [], rollout_percentage: undefined, variant: null },
+                        { properties: [], rollout_percentage: undefined, variant: null, sort_key: generateUUID() },
                     ]
                     return { ...state, groups }
                 },
