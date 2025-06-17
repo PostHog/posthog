@@ -1384,17 +1384,11 @@ impl FeatureFlagMatcher {
                     overrides.clone()
                 } else {
                     // Fall back to cached properties since some super condition properties are missing
-                    match self.get_person_properties_from_cache() {
-                        Ok(props) => props,
-                        Err(_) => HashMap::new(),
-                    }
+                    self.get_person_properties_from_cache().unwrap_or_default()
                 }
             } else {
                 // No overrides at all, fall back to cached properties
-                match self.get_person_properties_from_cache() {
-                    Ok(props) => props,
-                    Err(_) => HashMap::new(),
-                }
+                self.get_person_properties_from_cache().unwrap_or_default()
             };
 
             let has_relevant_super_condition_properties =
