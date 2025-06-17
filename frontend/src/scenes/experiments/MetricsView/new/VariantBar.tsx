@@ -5,19 +5,27 @@ import { valueToXCoordinate } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
 export function VariantBar({
-    variant,
+    variantResult,
     index,
     chartRadius,
     metricIndex,
     isSecondary,
+    onMouseEnter,
+    onMouseLeave,
+    chartHeight,
+    totalBars,
 }: {
-    variant: ExperimentVariantResultFrequentist
+    variantResult: ExperimentVariantResultFrequentist
     index: number
     chartRadius: number
     metricIndex: number
     isSecondary: boolean
+    onMouseEnter: () => void
+    onMouseLeave: () => void
+    chartHeight: number
+    totalBars: number
 }): JSX.Element {
-    const interval = variant.confidence_interval
+    const interval = variantResult.confidence_interval
 
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
 
@@ -29,13 +37,15 @@ export function VariantBar({
     const colors = useChartColors()
 
     // Positioning
-    const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
+    const totalContentHeight = BAR_SPACING + totalBars * (BAR_HEIGHT + BAR_SPACING)
+    const verticalOffset = Math.max(0, (chartHeight - totalContentHeight) / 2)
+    const y = verticalOffset + BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
     const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const deltaX = valueToXCoordinate(delta, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     return (
-        <g key={variant.key}>
+        <g key={variantResult.key} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="cursor-pointer">
             {hasEnoughData ? (
                 <>
                     {/* Variant name */}
@@ -47,11 +57,11 @@ export function VariantBar({
                         dominantBaseline="middle"
                         fill="var(--text-secondary)"
                     >
-                        {variant.key}
+                        {variantResult.key}
                     </text>
 
                     {/* Confidence interval bar */}
-                    {variant.key === 'control' ? (
+                    {variantResult.key === 'control' ? (
                         <rect
                             x={x1}
                             y={y}
@@ -66,7 +76,7 @@ export function VariantBar({
                         <>
                             <defs>
                                 <linearGradient
-                                    id={`gradient-${metricIndex}-${variant.key}-${
+                                    id={`gradient-${metricIndex}-${variantResult.key}-${
                                         isSecondary ? 'secondary' : 'primary'
                                     }`}
                                     x1="0"
@@ -100,7 +110,7 @@ export function VariantBar({
                                 y={y}
                                 width={x2 - x1}
                                 height={BAR_HEIGHT}
-                                fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
                                     isSecondary ? 'secondary' : 'primary'
                                 })`}
                             />
@@ -113,7 +123,9 @@ export function VariantBar({
                         y1={y}
                         x2={deltaX}
                         y2={y + BAR_HEIGHT}
-                        stroke={variant.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT}
+                        stroke={
+                            variantResult.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT
+                        }
                         strokeWidth={2}
                         shapeRendering="crispEdges"
                     />
@@ -129,7 +141,7 @@ export function VariantBar({
                         dominantBaseline="middle"
                         fill="var(--text-secondary)"
                     >
-                        {variant.key}
+                        {variantResult.key}
                     </text>
 
                     {/* "Not enough data" message */}

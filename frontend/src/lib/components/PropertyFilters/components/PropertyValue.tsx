@@ -7,13 +7,13 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useEffect } from 'react'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
     AssigneeResolver,
-} from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
-import { AssigneeSelect } from 'scenes/error-tracking/components/Assignee/AssigneeSelect'
+} from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
+import { useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -39,6 +39,7 @@ export interface PropertyValueProps {
     groupTypeIndex?: GroupTypeIndex
     size?: LemonButtonProps['size']
     editable?: boolean
+    preloadValues?: boolean
 }
 
 export function PropertyValue({
@@ -57,6 +58,7 @@ export function PropertyValue({
     additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
     editable = true,
+    preloadValues = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -83,6 +85,12 @@ export function PropertyValue({
     }
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
+
+    useEffect(() => {
+        if (preloadValues) {
+            load('')
+        }
+    }, [])
 
     useEffect(() => {
         if (!isDateTimeProperty) {

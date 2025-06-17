@@ -305,7 +305,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_balance_transactions(team, stripe_balance_transaction):
+async def test_stripe_balance_transactions(team, stripe_balance_transaction, mock_stripe_client):
     await _run(
         team=team,
         schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -318,7 +318,7 @@ async def test_stripe_balance_transactions(team, stripe_balance_transaction):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_charges(team, stripe_charge):
+async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
     await _run(
         team=team,
         schema_name=STRIPE_CHARGE_RESOURCE_NAME,
@@ -335,7 +335,7 @@ async def test_stripe_charges(team, stripe_charge):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_customer(team, stripe_customer):
+async def test_stripe_customer(team, stripe_customer, mock_stripe_client):
     await _run(
         team=team,
         schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -348,7 +348,7 @@ async def test_stripe_customer(team, stripe_customer):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_invoice(team, stripe_invoice):
+async def test_stripe_invoice(team, stripe_invoice, mock_stripe_client):
     await _run(
         team=team,
         schema_name=STRIPE_INVOICE_RESOURCE_NAME,
@@ -361,7 +361,7 @@ async def test_stripe_invoice(team, stripe_invoice):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_price(team, stripe_price):
+async def test_stripe_price(team, stripe_price, mock_stripe_client):
     await _run(
         team=team,
         schema_name=STRIPE_PRICE_RESOURCE_NAME,
@@ -374,7 +374,7 @@ async def test_stripe_price(team, stripe_price):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_product(team, stripe_product):
+async def test_stripe_product(team, stripe_product, mock_stripe_client):
     await _run(
         team=team,
         schema_name=STRIPE_PRODUCT_RESOURCE_NAME,
@@ -387,7 +387,7 @@ async def test_stripe_product(team, stripe_product):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_subscription(team, stripe_subscription):
+async def test_stripe_subscription(team, stripe_subscription, mock_stripe_client):
     await _run(
         team=team,
         schema_name=STRIPE_SUBSCRIPTION_RESOURCE_NAME,
@@ -566,7 +566,7 @@ async def test_chargebee_customer(team, chargebee_customer):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_reset_pipeline(team, stripe_balance_transaction):
+async def test_reset_pipeline(team, stripe_balance_transaction, mock_stripe_client):
     await _run(
         team=team,
         schema_name="BalanceTransaction",
@@ -620,7 +620,7 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delta_wrapper_files(team, stripe_balance_transaction, minio_client):
+async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe_client, minio_client):
     workflow_id, inputs = await _run(
         team=team,
         schema_name="BalanceTransaction",
@@ -652,7 +652,7 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, minio_clien
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_funnels_lazy_joins_ordering(team, stripe_customer):
+async def test_funnels_lazy_joins_ordering(team, stripe_customer, mock_stripe_client):
     # Tests that funnels work in PERSON_ID_OVERRIDE_PROPERTIES_JOINED PoE mode when using extended person properties
     await _run(
         team=team,
@@ -838,7 +838,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_billing_limits(team, stripe_customer):
+async def test_billing_limits(team, stripe_customer, mock_stripe_client):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -881,7 +881,7 @@ async def test_billing_limits(team, stripe_customer):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_external_job_failure(team, stripe_customer):
+async def test_create_external_job_failure(team, stripe_customer, mock_stripe_client):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -925,7 +925,7 @@ async def test_create_external_job_failure(team, stripe_customer):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_external_job_failure_no_job_model(team, stripe_customer):
+async def test_create_external_job_failure_no_job_model(team, stripe_customer, mock_stripe_client):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -976,19 +976,23 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_retryable_error(team, stripe_customer):
+async def test_non_retryable_error(team, zendesk_brands):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
         destination_id=uuid.uuid4(),
         team=team,
         status="running",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
+        name="Brands",
         team_id=team.pk,
         source_id=source.pk,
         sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
@@ -1008,12 +1012,10 @@ async def test_non_retryable_error(team, stripe_customer):
         ) as mock_list_limited_team_attributes,
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
-        mock_list_limited_team_attributes.side_effect = Exception(
-            "401 Client Error: Unauthorized for url: https://api.stripe.com"
-        )
+        mock_list_limited_team_attributes.side_effect = Exception("404 Client Error: Not Found for url")
 
         with pytest.raises(Exception):
-            await _execute_run(workflow_id, inputs, stripe_customer["data"])
+            await _execute_run(workflow_id, inputs, zendesk_brands["brands"])
 
         capture_mock.assert_called_once()
 
@@ -1024,12 +1026,12 @@ async def test_non_retryable_error(team, stripe_customer):
     assert schema.should_sync is False
 
     with pytest.raises(Exception):
-        await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
+        await sync_to_async(execute_hogql_query)("SELECT * FROM zendesk_brands", team)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_retryable_error_with_special_characters(team, stripe_customer):
+async def test_non_retryable_error_with_special_characters(team, stripe_customer, mock_stripe_client):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -1089,12 +1091,16 @@ async def test_inconsistent_types_in_data(team):
         destination_id=uuid.uuid4(),
         team=team,
         status="running",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        source_type="Zendesk",
+        job_inputs={
+            "zendesk_subdomain": "test",
+            "zendesk_api_key": "test_api_key",
+            "zendesk_email_address": "test@posthog.com",
+        },
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Price",
+        name="organizations",
         team_id=team.pk,
         source_id=source.pk,
         sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
@@ -1112,35 +1118,35 @@ async def test_inconsistent_types_in_data(team):
         workflow_id,
         inputs,
         [
-            {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": "transfer"},
-            {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": ["transfer", "another_value"]},
+            {"id": "4112492", "domain_names": "transfer"},
+            {"id": "4112492", "domain_names": ["transfer", "another_value"]},
         ],
     )
 
-    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM stripe_price", team)
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM zendesk_organizations", team)
     columns = res.columns
     results = res.results
 
     assert columns is not None
     assert any(x == "id" for x in columns)
-    assert any(x == "type" for x in columns)
+    assert any(x == "domain_names" for x in columns)
 
     assert results is not None
     assert len(results) == 2
 
     id_index = columns.index("id")
-    arr_index = columns.index("type")
+    arr_index = columns.index("domain_names")
 
-    assert results[0][id_index] == "txn_1MiN3gLkdIwHu7ixxapQrznl"
+    assert results[0][id_index] == "4112492"
     assert results[0][arr_index] == '["transfer"]'
 
-    assert results[1][id_index] == "txn_1MiN3gLkdIwHu7ixxapQrznl"
+    assert results[1][id_index] == "4112492"
     assert results[1][arr_index] == '["transfer","another_value"]'
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_postgres_uuid_type(team, postgres_config, postgres_connection):
+async def test_postgres_uuid_type(team, mock_stripe_client):
     await _run(
         team=team,
         schema_name="BalanceTransaction",
@@ -1203,7 +1209,7 @@ async def test_decimal_down_scales(team, postgres_config, postgres_connection):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_missing_source(team, stripe_balance_transaction):
+async def test_missing_source(team):
     inputs = ExternalDataWorkflowInputs(
         team_id=team.id,
         external_data_source_id=uuid.uuid4(),
@@ -1283,7 +1289,7 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delete_table_on_reset(team, stripe_balance_transaction):
+async def test_delete_table_on_reset(team, stripe_balance_transaction, mock_stripe_client):
     with (
         mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
     ):
@@ -1316,7 +1322,7 @@ async def test_delete_table_on_reset(team, stripe_balance_transaction):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_billable_job(team, stripe_balance_transaction):
+async def test_billable_job(team, stripe_balance_transaction, mock_stripe_client):
     workflow_id, inputs = await _run(
         team=team,
         schema_name="BalanceTransaction",
@@ -1386,7 +1392,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The last call should be an append
@@ -1396,7 +1401,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1466,7 +1470,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The subsequent call should be an append
@@ -1476,7 +1479,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -2075,7 +2077,7 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_earliest_incremental_value(team, stripe_balance_transaction):
+async def test_stripe_earliest_incremental_value(team, stripe_balance_transaction, mock_stripe_client):
     _, inputs = await _run(
         team=team,
         schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -2108,3 +2110,26 @@ async def test_stripe_earliest_incremental_value_v2(team, stripe_balance_transac
 
         schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
         assert schema.incremental_field_earliest_value == stripe_balance_transaction["data"][0]["created"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_append_only_table(team, mock_stripe_client):
+    _, inputs = await _run(
+        team=team,
+        schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.APPEND,
+        sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+    )
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id FROM stripe_balancetransaction", team)
+
+    # We should now have 2 rows with the same `id`
+    assert len(res.results) == 2
+    assert res.results[0][0] == res.results[1][0]

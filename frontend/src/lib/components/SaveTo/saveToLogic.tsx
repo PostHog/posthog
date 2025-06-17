@@ -21,6 +21,8 @@ export interface OpenSaveToProps {
     cancelCallback?: () => void
 }
 
+export type SelectedFolder = string
+
 export const saveToLogic = kea<saveToLogicType>([
     path(['lib', 'components', 'SaveTo', 'saveToLogic']),
     props({} as SaveToLogicProps),
@@ -32,6 +34,11 @@ export const saveToLogic = kea<saveToLogicType>([
         openSaveToModal: (props: OpenSaveToProps) => props,
         closeSaveToModal: true,
         closedSaveToModal: true,
+        addSelectedFolder: (folder: SelectedFolder) => ({ folder }),
+        removeSelectedFolder: (folderValue: string) => ({ folderValue }),
+        clearSelectedFolders: true,
+        // Used for keeping track of the default folder set on openSaveToModal
+        setDefaultFolder: (defaultFolder: string | null) => ({ defaultFolder }),
     }),
     reducers({
         isOpen: [
@@ -55,6 +62,28 @@ export const saveToLogic = kea<saveToLogicType>([
                 closedSaveToModal: () => null,
             },
         ],
+        selectedFolders: [
+            [] as SelectedFolder[],
+            { persist: true },
+            {
+                addSelectedFolder: (state, { folder }) => {
+                    // Check if folder already exists to avoid duplicates
+                    if (state.some((f) => f === folder)) {
+                        return state
+                    }
+                    return [...state, folder]
+                },
+                removeSelectedFolder: (state, { folderValue }) => state.filter((folder) => folder !== folderValue),
+                clearSelectedFolders: () => [],
+            },
+        ],
+        defaultFolder: [
+            null as string | null,
+            {
+                openSaveToModal: (_, { defaultFolder }) => defaultFolder ?? null,
+                closedSaveToModal: () => null,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setLastNewFolder: ({ folder }) => {
@@ -63,10 +92,12 @@ export const saveToLogic = kea<saveToLogicType>([
         openSaveToModal: ({ folder, defaultFolder }) => {
             const realFolder = folder ?? values.lastNewFolder ?? defaultFolder ?? null
             actions.setFormValue('folder', realFolder)
+            actions.setDefaultFolder(defaultFolder ?? null)
         },
         closeSaveToModal: () => {
             values.cancelCallback?.()
             actions.closedSaveToModal()
+            actions.setDefaultFolder(null)
         },
     })),
     forms(({ actions, values }) => ({
@@ -75,7 +106,7 @@ export const saveToLogic = kea<saveToLogicType>([
                 folder: null as string | null,
             },
             errors: ({ folder }) => ({
-                folder: !folder ? 'You need to specify a folder.' : null,
+                folder: typeof folder !== 'string' ? 'You need to specify a folder.' : null,
             }),
             submit: (formValues) => {
                 actions.setLastNewFolder(formValues.folder)
