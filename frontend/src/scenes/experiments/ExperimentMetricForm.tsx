@@ -1,11 +1,17 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { Query } from '~/queries/Query/Query'
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import {
+    ExperimentMetric,
+    ExperimentMetricType,
+    isExperimentFunnelMetric,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { FilterType, StepOrderValue } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
@@ -38,6 +44,17 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     },
 ]
 
+const funnelOrderOptions = [
+    {
+        label: 'Sequential',
+        value: StepOrderValue.ORDERED,
+    },
+    {
+        label: 'Any order',
+        value: StepOrderValue.UNORDERED,
+    },
+]
+
 export function ExperimentMetricForm({
     metric,
     handleSetMetric,
@@ -62,6 +79,15 @@ export function ExperimentMetricForm({
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
         handleSetMetric(getDefaultExperimentMetric(newMetricType))
+    }
+
+    const handleFunnelOrderTypeChange = (funnelOrderType: StepOrderValue): void => {
+        if (isExperimentFunnelMetric(metric)) {
+            handleSetMetric({
+                ...metric,
+                funnel_order_type: funnelOrderType,
+            })
+        }
     }
 
     const radioOptions = [
@@ -144,6 +170,18 @@ export function ExperimentMetricForm({
                     />
                 )}
             </div>
+            {isExperimentFunnelMetric(metric) && (
+                <div>
+                    <LemonLabel className="mb-1">Step order</LemonLabel>
+                    <LemonSelect
+                        data-attr="experiment-funnel-order-filter"
+                        value={metric.funnel_order_type || StepOrderValue.ORDERED}
+                        onChange={handleFunnelOrderTypeChange}
+                        dropdownMatchSelectWidth={false}
+                        options={funnelOrderOptions}
+                    />
+                </div>
+            )}
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
             {metric.metric_type === ExperimentMetricType.MEAN && (
                 <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
