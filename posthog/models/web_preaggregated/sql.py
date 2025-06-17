@@ -392,6 +392,7 @@ def WEB_BOUNCES_INSERT_SQL(
     settings="",
     table_name="web_bounces_daily",
     granularity="daily",
+    select_only=False,
 ):
     params = get_insert_params(team_ids, granularity)
     team_filter = params["team_filter"]
@@ -399,8 +400,7 @@ def WEB_BOUNCES_INSERT_SQL(
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
 
-    return f"""
-    INSERT INTO {table_name}
+    query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -532,8 +532,13 @@ def WEB_BOUNCES_INSERT_SQL(
         os,
         viewport_width,
         viewport_height
-    SETTINGS {settings}
+    {"SETTINGS " + settings if settings and not select_only else ""}
     """
+
+    if select_only:
+        return query
+    else:
+        return f"INSERT INTO {table_name}\n{query}"
 
 
 def WEB_STATS_EXPORT_SQL(
