@@ -22,6 +22,7 @@ import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettin
 const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
     goals: [],
+    filter_test_accounts: false,
 })
 
 const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] => {
@@ -53,6 +54,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         addGoal: (goal: RevenueAnalyticsGoal) => ({ goal }),
         deleteGoal: (index: number) => ({ index }),
         updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
+
+        updateFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
 
         save: true,
         resetConfig: true,
@@ -166,6 +169,12 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     const goals = sortByDueDate(state.goals.map((item, i) => (i === index ? goal : item)))
                     return { ...state, goals }
                 },
+                updateFilterTestAccounts: (state: RevenueAnalyticsConfig | null, { filterTestAccounts }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return { ...state, filter_test_accounts: filterTestAccounts }
+                },
                 resetConfig: () => {
                     return values.savedRevenueAnalyticsConfig
                 },
@@ -183,6 +192,12 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         ],
     })),
     selectors({
+        filterTestAccounts: [
+            (s) => [s.revenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
+                revenueAnalyticsConfig?.filter_test_accounts || false,
+        ],
+
         goals: [
             (s) => [s.revenueAnalyticsConfig],
             (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => revenueAnalyticsConfig?.goals || [],
@@ -268,6 +283,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             addGoal: updateCurrentTeam,
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
+            updateFilterTestAccounts: updateCurrentTeam,
             save: updateCurrentTeam,
         }
     }),

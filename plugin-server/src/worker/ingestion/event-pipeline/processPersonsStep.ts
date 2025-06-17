@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Person, Team } from '~/src/types'
+import { Person, Team } from '~/types'
 
 import { PersonState } from '../persons/person-state'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'

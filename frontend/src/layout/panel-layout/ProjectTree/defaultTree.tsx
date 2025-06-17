@@ -3,6 +3,7 @@ import {
     IconApp,
     IconApps,
     IconBook,
+    IconCalendar,
     IconChevronRight,
     IconCursor,
     IconDatabase,
@@ -96,31 +97,35 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     insightFunnel: {
         icon: <IconFunnels />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--insight-funnel-light)'],
     },
     insightTrends: {
         icon: <IconTrends />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--insight-trends-light)'],
     },
     insightRetention: {
         icon: <IconRetention />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--insight-retention-light)'],
     },
     insightUserPaths: {
         icon: <IconUserPaths />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--insight-user-paths-light)', 'var(--insight-user-paths-dark)'],
     },
     insightLifecycle: {
         icon: <IconLifecycle />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--insight-lifecycle-light)'],
     },
     insightStickiness: {
         icon: <IconStickiness />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--insight-stickiness-light)'],
     },
     insightHogQL: {
         icon: <IconHogQL />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--insight-sql-light)'],
+    },
+    insightCalendarHeatmap: {
+        icon: <IconCalendar className="mt-[2px]" />,
+        iconColor: ['var(--insight-calendar-heatmap-light)', 'var(--insight-calendar-heatmap-dark)'],
     },
     cohort: {
         icon: <IconCohort />,

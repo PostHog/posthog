@@ -126,7 +126,7 @@ export const manifest: ProductManifest = {
             path: `Insight/Calendar heatmap`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
-            iconType: 'insightHogQL',
+            iconType: 'insightCalendarHeatmap',
             visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
         },
     ],

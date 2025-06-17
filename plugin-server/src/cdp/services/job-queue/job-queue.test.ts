@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '~/src/config/config'
-import { PluginsServerConfig } from '~/src/types'
+import { defaultConfig } from '~/config/config'
+import { PluginsServerConfig } from '~/types'
 
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { HOG_EXAMPLES } from '../../_tests/examples'
