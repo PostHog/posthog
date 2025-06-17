@@ -1,6 +1,10 @@
 import abc
+import asyncio
+import collections.abc
+import concurrent.futures
 import gzip
 import json
+import multiprocessing.shared_memory as sm
 import typing
 from io import BytesIO
 
@@ -9,6 +13,10 @@ import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
+
+from posthog.temporal.batch_exports.utils import (
+    cast_record_batch_json_columns,
+)
 
 logger = structlog.get_logger()
 
@@ -223,6 +231,71 @@ class ParquetStreamTransformer(StreamTransformer):
         self._parquet_buffer.truncate(0)
 
         yield data
+
+
+def transform_batch(shm_name: str, transformer: StreamTransformer):
+    shm = None
+    record_batch = None
+    buffer_reader = None
+    reader = None
+
+    try:
+        shm = sm.SharedMemory(name=shm_name)
+        buffer_reader = pa.BufferReader(shm.buf)
+        with pa.RecordBatchStreamReader(buffer_reader) as reader:
+            record_batch = reader.read_next_batch()
+
+        record_batch = cast_record_batch_json_columns(record_batch)
+        chunks = list(transformer.transform_batch(record_batch))
+
+        return chunks
+    finally:
+        if buffer_reader:
+            del buffer_reader
+        if record_batch:
+            del record_batch
+        if reader:
+            del reader
+
+        if shm:
+            shm.close()
+            shm.unlink()
+
+
+async def produce_transformed_chunks_to_queue(
+    transformer: StreamTransformer,
+    record_batch_iter: collections.abc.AsyncIterator[pa.RecordBatch],
+):
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        loop = asyncio.get_running_loop()
+        tasks = []
+
+        async for record_batch in record_batch_iter:
+            sink = pa.MockOutputStream()
+            with pa.ipc.new_stream(sink, record_batch.schema) as writer:
+                writer.write_batch(record_batch)
+            size = sink.size()
+
+            shm = sm.SharedMemory(create=True, size=size)
+
+            stream = pa.FixedSizeBufferWriter(pa.py_buffer(shm.buf))
+            with pa.RecordBatchStreamWriter(stream, record_batch.schema) as writer:
+                writer.write_batch(record_batch)
+
+            tasks.append(loop.run_in_executor(executor, transform_batch, shm.name, transformer))
+
+            del stream
+            del writer
+            del record_batch
+            del sink
+
+            shm.close()
+
+        for task in asyncio.as_completed(tasks):
+            result = await task
+
+            for chunk in result:
+                yield chunk
 
 
 # TODO: Implement other transformers
