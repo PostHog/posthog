@@ -30,7 +30,9 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def get_presigned_upload_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_upload_url(
+        self, bucket: str, file_key: str, conditions: list[any], expiration: int = 3600
+    ) -> Optional[str]:
         pass
 
     @abc.abstractmethod
@@ -75,7 +77,9 @@ class UnavailableStorage(ObjectStorageClient):
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
         pass
 
-    def get_presigned_upload_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_upload_url(
+        self, bucket: str, file_key: str, conditions: list[any], expiration: int = 3600
+    ) -> Optional[str]:
         pass
 
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
@@ -131,11 +135,17 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
-    def get_presigned_upload_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_upload_url(
+        self, bucket: str, file_key: str, conditions: list[any], expiration: int = 3600
+    ) -> Optional[str]:
         try:
             return self.aws_client.generate_presigned_url(
                 ClientMethod="put_object",
-                Params={"Bucket": bucket, "Key": file_key},
+                Params={
+                    "Bucket": bucket,
+                    "Key": file_key,
+                    "Conditions": conditions,
+                },
                 ExpiresIn=expiration,
             )
         except Exception as e:
@@ -314,9 +324,9 @@ def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
     )
 
 
-def get_presigned_upload_url(file_key: str, expiration: int = 3600) -> Optional[str]:
+def get_presigned_upload_url(file_key: str, conditions: list[any], expiration: int = 3600) -> Optional[str]:
     return object_storage_client().get_presigned_upload_url(
-        bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, expiration=expiration
+        bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, conditions=conditions, expiration=expiration
     )
 
 
