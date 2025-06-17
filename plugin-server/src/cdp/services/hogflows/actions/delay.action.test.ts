@@ -16,8 +16,11 @@ describe('HogFlowActionRunnerDelay', () => {
         jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
 
         runner = new HogFlowActionRunnerDelay()
-        action = createHogFlowAction('delay', {
-            delay_seconds: 60 * 10,
+        action = createHogFlowAction({
+            type: 'delay',
+            config: {
+                delay_duration: '10m',
+            },
         })
         invocation = createExampleHogFlowInvocation(
             {
@@ -32,9 +35,10 @@ describe('HogFlowActionRunnerDelay', () => {
         )
     })
 
+    // NOTE: Most tests are covered in the common delay test file
     describe('delay step logic', () => {
         it('should handle wait duration and schedule next check', async () => {
-            action.config.delay_seconds = 60 * 10
+            action.config.delay_duration = '10m'
             const result = await runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
@@ -44,7 +48,7 @@ describe('HogFlowActionRunnerDelay', () => {
         })
 
         it('should not schedule for later than the max wait duration', async () => {
-            action.config.delay_seconds = 60 * 5 // 5 minutes
+            action.config.delay_duration = '5m'
             const result = await runner.run(invocation, action)
             expect(result).toEqual({
                 finished: false,
@@ -55,9 +59,9 @@ describe('HogFlowActionRunnerDelay', () => {
 
         it('should throw error if action started at timestamp is invalid', async () => {
             invocation.state.currentAction = undefined
-            action.config.delay_seconds = 300
+            action.config.delay_duration = '300s'
             await expect(async () => await runner.run(invocation, action)).rejects.toThrow(
-                "'currentAction.startedAtTimestamp' is not set or is invalid"
+                "'startedAtTimestamp' is not set or is invalid"
             )
         })
     })

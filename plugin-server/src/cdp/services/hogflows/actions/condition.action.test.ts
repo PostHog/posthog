@@ -52,7 +52,7 @@ describe('HogFlowActionRunnerCondition', () => {
 
         describe('wait logic', () => {
             it('should handle wait duration and schedule next check', async () => {
-                action.config.wait_duration_seconds = 60 * 60 * 2 // 2 hours
+                action.config.delay_duration = '2h'
                 const result = await runner.run(invocation, action)
                 expect(result).toEqual({
                     finished: false,
@@ -62,7 +62,7 @@ describe('HogFlowActionRunnerCondition', () => {
             })
 
             it('should not schedule for later than the max wait duration', async () => {
-                action.config.wait_duration_seconds = 60 * 5 // 5 minutes
+                action.config.delay_duration = '5m'
                 const result = await runner.run(invocation, action)
                 expect(result).toEqual({
                     finished: false,
@@ -73,9 +73,9 @@ describe('HogFlowActionRunnerCondition', () => {
 
             it('should throw error if action started at timestamp is invalid', async () => {
                 invocation.state.currentAction = undefined
-                action.config.wait_duration_seconds = 300
+                action.config.delay_duration = '300s'
                 await expect(async () => await runner.run(invocation, action)).rejects.toThrow(
-                    "'currentAction.startedAtTimestamp' is not set or is invalid"
+                    "'startedAtTimestamp' is not set or is invalid"
                 )
             })
         })

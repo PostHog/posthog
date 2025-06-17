@@ -27,14 +27,14 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
                     on_match: z.string(), // TODO: Can we type this more directly to an edge?
                 })
             ),
-            wait_duration_seconds: z.number().optional(),
+            delay_duration: z.string().optional(),
         }),
     }),
     z.object({
         ..._commonActionFields,
         type: z.literal('delay'),
         config: z.object({
-            delay_seconds: z.number(),
+            delay_duration: z.string(),
         }),
     }),
     z.object({
@@ -42,7 +42,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_for_condition'),
         config: z.object({
             condition: z.any(),
-            timeout_seconds: z.number(),
+            delay_duration: z.string(),
         }),
     }),
     z.object({
