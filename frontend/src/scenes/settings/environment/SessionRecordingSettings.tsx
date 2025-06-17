@@ -250,15 +250,15 @@ function ZenModeSettings(): JSX.Element | null {
 
     return (
         <div>
-            <h3>Zen mode</h3>
+            <h3>Minimalist mode</h3>
             <p>
-                This setting controls if the Zen mode is enabled. Zen mode hides all the UI elements and only shows the
-                bare minimum.
+                This setting controls if the Minimalist mode is enabled. Minimalist mode hides all the extra features
+                (e.g. annotations, inspector, etc.) and only shows the bare minimum.
             </p>
             <LemonSwitch
-                data-attr="opt-in-zen-mode-switch"
+                data-attr="opt-in-minimalist-mode-switch"
                 onChange={setIsZenMode}
-                label="Enable Zen mode"
+                label="Enable Minimalist mode"
                 bordered
                 checked={isZenMode}
             />
