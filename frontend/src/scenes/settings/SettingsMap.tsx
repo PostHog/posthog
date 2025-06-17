@@ -2,14 +2,15 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { ErrorTrackingAlerting } from 'products/error_tracking/frontend/configuration/alerting/ErrorTrackingAlerting'
+import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/configuration/ExceptionAutocaptureSettings'
+import { ErrorTrackingAutoAssignment } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingCustomGrouping } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingCustomGrouping'
+import { ErrorTrackingSymbolSets } from 'products/error_tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from 'products/revenue_analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
-import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ExceptionAutocaptureSettings } from 'scenes/error-tracking/configuration/ExceptionAutocaptureSettings'
-import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/rules/ErrorTrackingAutoAssignment'
-import { ErrorTrackingCustomGrouping } from 'scenes/error-tracking/configuration/rules/ErrorTrackingCustomGrouping'
-import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -24,8 +25,9 @@ import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
-import { NonNativeExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/NonNativeExternalDataSourceConfiguration'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
+import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { Realm } from '~/types'
 
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
@@ -72,8 +74,8 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -250,6 +252,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BaseCurrency hideTitle />,
             },
             {
+                id: 'revenue-analytics-filter-test-accounts',
+                title: 'Filter test accounts out of revenue analytics',
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+            },
+            {
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 component: <GoalsConfiguration />,
@@ -275,9 +282,9 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'WEB_ANALYTICS_MARKETING',
         settings: [
             {
-                id: 'marketing-analytics-external-data-sources',
-                title: 'External data sources',
-                component: <NonNativeExternalDataSourceConfiguration />,
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettings />,
             },
         ],
     },
@@ -405,6 +412,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',
                 component: <UserGroups />,
+                flag: 'USER_GROUPS_ENABLED',
             },
             {
                 id: 'error-tracking-alerting',
@@ -611,6 +619,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 component: <OrganizationAI />,
             },
+            {
+                id: 'organization-experiment-stats-method',
+                title: 'Default experiment statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
+                component: <OrganizationExperimentStatsMethod />,
+                flag: 'EXPERIMENTS_FREQUENTIST',
+            },
         ],
     },
     {
@@ -643,7 +659,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-roles',
                 title: 'Roles',
-                component: <RoleBasedAccess />,
+                component: <RolesAccessControls />,
             },
         ],
     },
@@ -739,6 +755,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-notifications',
+        title: 'Notifications',
+        settings: [
+            {
+                id: 'notifications',
+                title: 'Notifications',
+                component: <UpdateEmailPreferences />,
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -746,11 +774,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
-            },
-            {
-                id: 'notifications',
-                title: 'Notifications',
-                component: <UpdateEmailPreferences />,
             },
             {
                 id: 'optout',

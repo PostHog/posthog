@@ -11,7 +11,7 @@ import { messageTemplateLogic, MessageTemplateLogicProps } from './messageTempla
 export const scene: SceneExport = {
     component: MessageTemplate,
     logic: messageTemplateLogic,
-    paramsToProps: ({ params: { id }, searchParams: { messageId } }): (typeof messageTemplateLogic)['props'] => ({
+    paramsToProps: ({ params: { id }, searchParams: { messageId } }): MessageTemplateLogicProps => ({
         id: id || 'new',
         messageId,
     }),
@@ -73,7 +73,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Ele
                             <EmailTemplater
                                 value={template?.content.email}
                                 onChange={(value) => setTemplateValue('content.email', value)}
-                                emailMetaFields={['from', 'subject']}
+                                emailMetaFields={['subject']}
                             />
                         )}
                     </div>

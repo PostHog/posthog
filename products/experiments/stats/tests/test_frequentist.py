@@ -1,15 +1,14 @@
 from unittest import TestCase
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
-from products.experiments.stats.frequentist.statistics import (
+from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
     SampleMeanStatistic,
-    TestType,
-    DifferenceType,
 )
+from products.experiments.stats.shared.enums import DifferenceType
 
 
 def create_test_result_dict(result):
-    """Convert TestResult to dictionary similar to gbstats format."""
+    """Convert TestResult to dictionary for easy interpretation."""
     return {
         "expected": result.point_estimate,
         "ci": [result.confidence_interval[0], result.confidence_interval[1]],

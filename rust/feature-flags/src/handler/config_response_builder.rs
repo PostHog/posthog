@@ -125,7 +125,7 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
 
     response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
-    response.config.autocapture_opt_out = team.autocapture_opt_out.unwrap_or(false);
+    response.config.autocapture_opt_out = Some(team.autocapture_opt_out.unwrap_or(false));
 
     response.config.analytics = if !*config.debug
         && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
@@ -553,7 +553,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert!(response.config.autocapture_opt_out);
+        assert!(response.config.autocapture_opt_out.unwrap());
     }
 
     #[test]
@@ -566,7 +566,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert!(!response.config.autocapture_opt_out);
+        assert!(!response.config.autocapture_opt_out.unwrap());
     }
 
     #[test]
@@ -603,7 +603,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        println!("response: {:?}", response);
+        tracing::debug!("response: {:?}", response);
 
         // Test that defaults are applied correctly
         assert_eq!(response.config.surveys, Some(json!(false)));
@@ -611,7 +611,7 @@ mod tests {
         assert_eq!(response.config.flags_persistence_default, Some(false));
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
         assert_eq!(response.config.capture_performance, Some(json!(false)));
-        assert!(!response.config.autocapture_opt_out);
+        assert!(!response.config.autocapture_opt_out.unwrap());
         assert!(response.config.capture_dead_clicks.is_none());
     }
 

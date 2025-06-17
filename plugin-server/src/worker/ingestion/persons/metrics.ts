@@ -1,6 +1,6 @@
 import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
 
-import { InternalPerson } from '~/src/types'
+import { InternalPerson } from '~/types'
 
 export const personMethodCallsPerBatchHistogram = new Histogram({
     name: 'person_method_calls_per_batch',
@@ -29,10 +29,28 @@ export const personCacheOperationsCounter = new Counter({
     labelNames: ['cache', 'operation'],
 })
 
+export const personFetchForCheckingCacheOperationsCounter = new Counter({
+    name: 'person_fetch_for_checking_cache_operations_total',
+    help: 'Number of operations on the fetchForChecking cache',
+    labelNames: ['operation'],
+})
+
+export const personFetchForUpdateCacheOperationsCounter = new Counter({
+    name: 'person_fetch_for_update_cache_operations_total',
+    help: 'Number of operations on the fetchForUpdate cache',
+    labelNames: ['operation'],
+})
+
 export const personOperationLatencyByVersionSummary = new Summary({
     name: 'person_operation_latency_by_version',
     help: 'Latency distribution of person by version',
     labelNames: ['operation', 'version_bucket'],
+})
+
+export const personPropertyKeyUpdateCounter = new Counter({
+    name: 'person_property_key_update_total',
+    help: 'Number of person updates triggered by this property value changing.',
+    labelNames: ['key'],
 })
 
 export function getVersionBucketLabel(version: number): string {

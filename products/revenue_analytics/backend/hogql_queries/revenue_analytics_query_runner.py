@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional, Union, cast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
@@ -12,10 +12,18 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsTopCustomersQuery,
 )
-from products.revenue_analytics.backend.utils import revenue_selects_from_database
+from products.revenue_analytics.backend.utils import (
+    REVENUE_SELECT_OUTPUT_CHARGE_KEY,
+    REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
+    REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
+    REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    revenue_selects_from_database,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
 from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
@@ -41,6 +49,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         for property in self.query.properties:
             if property.key == "product":
                 joins_set.add("products")
+            elif property.key == "country":
+                joins_set.add("customers")
             elif property.key == "customer":
                 joins_set.add("customers")
         return joins_set
@@ -73,6 +83,20 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             base_join.next_join = current_join
         return initial_join
 
+    # NOTE: It doesn't make sense to join with the `invoice_items` table
+    # because it's the base table we're all joining to
+    def create_subquery_join(
+        self, join_to: type[RevenueAnalyticsBaseView], subquery: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.JoinExpr:
+        if join_to == RevenueAnalyticsProductView:
+            return self.create_product_join(subquery)
+        elif join_to == RevenueAnalyticsCustomerView:
+            return self.create_customer_join(subquery)
+        elif join_to == RevenueAnalyticsChargeView:
+            return self.create_charge_join(subquery)
+        else:
+            raise ValueError(f"Invalid join to: {join_to}")
+
     def create_product_join(self, product_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
         return ast.JoinExpr(
             alias=RevenueAnalyticsProductView.get_generic_view_alias(),
@@ -103,9 +127,24 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             ),
         )
 
+    def create_charge_join(self, charge_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            alias=RevenueAnalyticsChargeView.get_generic_view_alias(),
+            table=charge_subquery,
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                constraint_type="ON",
+                expr=ast.CompareOperation(
+                    left=ast.Field(chain=[RevenueAnalyticsChargeView.get_generic_view_alias(), "id"]),
+                    right=ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "charge_id"]),
+                    op=ast.CompareOperationOp.Eq,
+                ),
+            ),
+        )
+
     @cached_property
     def revenue_selects(self) -> defaultdict[str, dict[str, ast.SelectQuery | None]]:
-        return revenue_selects_from_database(self.database, self.query.revenueSources)
+        return revenue_selects_from_database(self.database)
 
     @cached_property
     def revenue_subqueries(
@@ -114,19 +153,25 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None
     ]:
         # Remove the view name because it's not useful for the select query
-        parsed_charge_selects = [
-            selects["charge"] for _, selects in self.revenue_selects.items() if selects["charge"] is not None
-        ]
-        parsed_customer_selects = [
-            selects["customer"] for _, selects in self.revenue_selects.items() if selects["customer"] is not None
-        ]
-        parsed_invoice_item_selects = [
-            selects["invoice_item"]
+        parsed_charge_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY])
             for _, selects in self.revenue_selects.items()
-            if selects["invoice_item"] is not None
+            if selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY] is not None
         ]
-        parsed_product_selects = [
-            selects["product"] for _, selects in self.revenue_selects.items() if selects["product"] is not None
+        parsed_customer_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
+            for _, selects in self.revenue_selects.items()
+            if selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
+        ]
+        parsed_invoice_item_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY])
+            for _, selects in self.revenue_selects.items()
+            if selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY] is not None
+        ]
+        parsed_product_selects: list[ast.SelectQuery] = [
+            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY])
+            for _, selects in self.revenue_selects.items()
+            if selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY] is not None
         ]
 
         return (

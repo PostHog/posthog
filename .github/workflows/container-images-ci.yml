@@ -36,7 +36,7 @@ jobs:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
         # Only on PostHog/posthog, as there's no docker login on forks
-        if: ${{ github.repository == 'PostHog/posthog' }}
+        if: ${{ github.event.pull_request.head.repo.full_name  == github.repository }}
 
         steps:
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
@@ -63,7 +63,7 @@ jobs:
               if: needs.changes.outputs.docker_files == 'true'
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  push-image: true
+                  push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
                   aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
                   aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}

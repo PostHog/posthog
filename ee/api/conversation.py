@@ -5,7 +5,6 @@ from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -29,10 +28,14 @@ class MessageSerializer(serializers.Serializer):
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
+    ui_context = serializers.JSONField(required=False)
 
     def validate(self, data):
         try:
-            message = HumanMessage(content=data["content"])
+            message_data = {"content": data["content"]}
+            if "ui_context" in data:
+                message_data["ui_context"] = data["ui_context"]
+            message = HumanMessage.model_validate(message_data)
             data["message"] = message
         except pydantic.ValidationError:
             raise serializers.ValidationError("Invalid message content.")
@@ -105,8 +108,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
-        if conversation.status == Conversation.Status.CANCELING:
-            raise ValidationError("Generation has already been cancelled.")
-        conversation.status = Conversation.Status.CANCELING
-        conversation.save()
+        if conversation.status != Conversation.Status.CANCELING:
+            conversation.status = Conversation.Status.CANCELING
+            conversation.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
