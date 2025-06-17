@@ -49,7 +49,7 @@ export default meta
 const Template: StoryFn<StoryProps> = ({ sectionId }) => {
     useEffect(() => {
         router.actions.push(urls.settings(sectionId))
-    }, [])
+    }, [sectionId])
     return <App />
 }
 
@@ -174,7 +174,6 @@ export const SettingsUserDangerZone: Story = Template.bind({})
 SettingsUserDangerZone.args = { sectionId: 'user-danger-zone' }
 
 // NOTE: This is used to guarantee we're testing all sections
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _ALL_SECTIONS_CHECKER: Record<SettingSectionId, Story> = {
     'environment-details': SettingsEnvironmentDetails,
     'environment-autocapture': SettingsEnvironmentAutocapture,
@@ -217,3 +216,7 @@ const _ALL_SECTIONS_CHECKER: Record<SettingSectionId, Story> = {
     'user-customization': SettingsUserCustomization,
     'user-danger-zone': SettingsUserDangerZone,
 }
+
+// NOTE: This is here to avoid TS complaining
+// about us not using the variable used above to check all sections
+;(() => _ALL_SECTIONS_CHECKER)()
