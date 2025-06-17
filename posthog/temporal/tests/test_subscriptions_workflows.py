@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from unittest.mock import MagicMock, patch
 
-import pytest
 from freezegun import freeze_time
 from temporalio.client import Client
 from temporalio.common import RetryPolicy
@@ -26,6 +27,8 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
 )
 
 TASK_QUEUE = "TEST-SUBSCRIPTIONS-TQ"
+
+pytestmark = [pytest.mark.django_db]
 
 
 @pytest.fixture
