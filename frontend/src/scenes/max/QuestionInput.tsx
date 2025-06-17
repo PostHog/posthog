@@ -70,9 +70,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                             isFloating && 'border-primary'
                         )}
                     >
-                        <div className="px-3 pt-2">
-                            <ContextDisplay />
-                        </div>
+                        <ContextDisplay />
                         <LemonTextArea
                             ref={textAreaRef}
                             value={question}
@@ -86,7 +84,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                             disabled={inputDisabled}
                             minRows={1}
                             maxRows={10}
-                            className={clsx('!border-none !bg-transparent p-3 pr-12')}
+                            className={clsx('!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12')}
                         />
                     </div>
                     <div className="absolute flex items-center right-2 bottom-[7px]">
