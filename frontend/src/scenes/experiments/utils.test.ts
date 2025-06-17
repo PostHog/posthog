@@ -872,7 +872,7 @@ describe('metricToFilter', () => {
                     math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
-                    properties: undefined,
+                    properties: [],
                 },
             ],
         })
@@ -1049,6 +1049,7 @@ describe('metricToQuery', () => {
                     kind: NodeKind.EventsNode,
                     name: '$pageview',
                     event: '$pageview',
+                    properties: [],
                 },
             ],
         })
@@ -1087,6 +1088,7 @@ describe('metricToQuery', () => {
                     name: '$pageview',
                     math: PropertyMathType.Sum,
                     math_property: 'property_value',
+                    properties: [],
                 },
             ],
         })
@@ -1122,6 +1124,7 @@ describe('metricToQuery', () => {
                     event: '$pageview',
                     name: '$pageview',
                     math: ExperimentMetricMathType.UniqueSessions,
+                    properties: [],
                 },
             ],
         })
@@ -1175,6 +1178,7 @@ describe('metricToQuery', () => {
                     name: 'test action',
                     math: PropertyMathType.Sum,
                     math_property: 'property_value',
+                    properties: [],
                 },
             ],
         })
@@ -1213,6 +1217,7 @@ describe('metricToQuery', () => {
                     name: 'purchase',
                     math_property: 'amount',
                     math: ExperimentMetricMathType.Max,
+                    properties: [],
                 },
             ],
         })
