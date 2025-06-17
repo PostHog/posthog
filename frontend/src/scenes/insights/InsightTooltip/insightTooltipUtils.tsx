@@ -120,12 +120,10 @@ function getPillValues(
     return pillValues
 }
 
-function getDatumTitle(
-    s: SeriesDatum,
-    breakdownFilter: BreakdownFilter | null | undefined,
-    cohorts: any,
-    formatPropertyValueForDisplay: any
-): React.ReactNode {
+function getDatumTitle(s: SeriesDatum, breakdownFilter: BreakdownFilter | null | undefined): React.ReactNode {
+    // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
+    const cohorts = cohortsModel.findMounted()?.values?.allCohorts
+    const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const pillValues = getPillValues(s, breakdownFilter, cohorts, formatPropertyValueForDisplay)
     if (pillValues.length > 0) {
         return (
@@ -148,9 +146,6 @@ export function invertDataSource(
     seriesData: SeriesDatum[],
     breakdownFilter: BreakdownFilter | null | undefined
 ): InvertedSeriesDatum[] {
-    // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
-    const cohorts = cohortsModel.findMounted()?.values?.allCohorts
-    const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
 
     seriesData.forEach((s) => {
@@ -163,7 +158,7 @@ export function invertDataSource(
                 id: datumKey,
                 datasetIndex: s.datasetIndex,
                 color: s.color,
-                datumTitle: getDatumTitle(s, breakdownFilter, cohorts, formatPropertyValueForDisplay),
+                datumTitle: getDatumTitle(s, breakdownFilter),
                 seriesData: [s],
             }
         }
