@@ -19,7 +19,7 @@ export class HogFlowActionRunner {
             if (!triggerAction) {
                 throw new Error('No trigger action found')
             }
-            // Se the current action to the trigger action
+            // Set the current action to the trigger action
             invocation.state.currentAction = {
                 id: triggerAction.id,
                 startedAtTimestamp: DateTime.now().toMillis(),
