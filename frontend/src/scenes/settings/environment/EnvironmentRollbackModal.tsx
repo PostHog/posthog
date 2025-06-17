@@ -61,7 +61,7 @@ function ModalFooter(): JSX.Element {
                 className="my-2"
                 panels={[
                     {
-                        key: 'main',
+                        key: 'resources',
                         header: 'What will happen to my resources?',
                         content: (
                             <>
@@ -86,6 +86,15 @@ function ModalFooter(): JSX.Element {
                             </>
                         ),
                     },
+                    {
+                        key: 'data',
+                        header: 'Will my data be affected?',
+                        content: (
+                            <>
+                                <p>No.</p>
+                            </>
+                        ),
+                    },
                 ]}
             />
             <div className="flex justify-end gap-2">
@@ -98,7 +107,7 @@ function ModalFooter(): JSX.Element {
                     onClick={submitEnvironmentRollback}
                     disabled={!isReadyToSubmit}
                 >
-                    Consolidate environments
+                    Separate environments
                 </LemonButton>
             </div>
         </div>
@@ -112,7 +121,7 @@ export function EnvironmentRollbackModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Consolidate project environments"
+            title="Separate environments into projects"
             description={<ModalDescription />}
             onClose={closeModal}
             isOpen={isOpen}

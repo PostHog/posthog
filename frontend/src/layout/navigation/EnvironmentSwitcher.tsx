@@ -142,7 +142,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 ? {
                       items: [
                           {
-                              label: `We're rolling back the environment beta, click here to learn more`,
+                              label: `We're rolling back the environments beta`,
                               onClick: openModal,
                               status: 'danger',
                               icon: <IconWarning />,
