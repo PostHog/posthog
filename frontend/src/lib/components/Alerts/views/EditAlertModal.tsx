@@ -374,7 +374,7 @@ export function EditAlertModal({
                                         <LemonSelect
                                             fullWidth
                                             className="w-28"
-                                            data-attr="alertForm-calculation-interval"
+                                            data-attr="alertForm-trend-interval"
                                             disabledReason={
                                                 <>
                                                     To change the interval being checked, edit and <b>save</b> the
