@@ -19,6 +19,7 @@ from posthog.temporal.ai.session_summary.shared import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
 
@@ -61,37 +62,117 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         loaded = json.loads(inputs[0])
         return SessionGroupSummaryInputs(**loaded)
 
-    @temporalio.workflow.run
-    async def run(self, inputs: SessionGroupSummaryInputs) -> dict[str, str]:
-        # Fetch data for each session and store in Redis
-        session_inputs = []
-        for session_id in inputs.session_ids:
-            redis_input_key = f"{inputs.redis_input_key_base}:{session_id}"
-            single_session_input = SingleSessionSummaryInputs(
-                session_id=session_id,
-                user_pk=inputs.user_pk,
-                team_id=inputs.team_id,
-                redis_input_key=redis_input_key,
-                extra_summary_context=inputs.extra_summary_context,
-                local_reads_prod=inputs.local_reads_prod,
-            )
+    @staticmethod
+    async def _fetch_session_data(inputs: SingleSessionSummaryInputs) -> None | Exception:
+        """
+        Fetch and handle the session data for a single session to avoid one activity failing the whole group.
+        """
+        try:
             await temporalio.workflow.execute_activity(
                 fetch_session_data_activity,
-                single_session_input,
+                inputs,
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            session_inputs.append(single_session_input)
-        # Summarize all sessions
-        summaries = {}
-        for session_input in session_inputs:
-            summary = await temporalio.workflow.execute_activity(
+            return None
+        except Exception as err:  # Activity retries exhausted
+            # Let caller handle the error
+            return err
+
+    async def _fetch_session_group_data(self, inputs: SessionGroupSummaryInputs) -> list[SingleSessionSummaryInputs]:
+        if not inputs.session_ids:
+            raise ApplicationError(f"No sessions to fetch data for group summary: {inputs}")
+        # Fetch data for each session and store in Redis
+        async with asyncio.TaskGroup() as tg:
+            tasks = {}
+            for session_id in inputs.session_ids:
+                redis_input_key = f"{inputs.redis_input_key_base}:{session_id}"
+                single_session_input = SingleSessionSummaryInputs(
+                    session_id=session_id,
+                    user_pk=inputs.user_pk,
+                    team_id=inputs.team_id,
+                    redis_input_key=redis_input_key,
+                    extra_summary_context=inputs.extra_summary_context,
+                    local_reads_prod=inputs.local_reads_prod,
+                )
+                tasks[session_id] = tg.create_task(self._fetch_session_data(single_session_input))
+        session_inputs: list[SingleSessionSummaryInputs] = []
+        # Check fetch results
+        for session_id, task in tasks.items():
+            res = task.result()
+            if isinstance(res, Exception):
+                temporalio.workflow.logger.warning(
+                    "Session data fetch failed for group summary",
+                    session_id=session_id,
+                    team_id=inputs.team_id,
+                    user_pk=inputs.user_pk,
+                    exc_info=res,
+                )
+            else:
+                # Store only successful fetches
+                session_inputs.append(single_session_input)
+        # Fail the workflow if >50% of sessions failed to fetch
+        if len(session_inputs) < len(inputs.session_ids) / 2:
+            raise ApplicationError(
+                f"Too many sessions failed to fetch data from DB, when summarizing {len(inputs.session_ids)} "
+                f"sessions ({inputs.session_ids}) for user {inputs.user_pk} in team {inputs.team_id}."
+            )
+        return session_inputs
+
+    @staticmethod
+    async def _run_summary(inputs: SingleSessionSummaryInputs) -> str | Exception:
+        """
+        Run and handle the summary for a single session to avoid one activity failing the whole group.
+        """
+        try:
+            return await temporalio.workflow.execute_activity(
                 get_llm_single_session_summary_activity,
-                session_input,
+                inputs,
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            summaries[session_input.session_id] = summary
+        except Exception as err:  # Activity retries exhausted
+            # Let caller handle the error
+            return err
+
+    async def _run_summaries(self, inputs: list[SingleSessionSummaryInputs]) -> dict[str, str]:
+        """
+        Generate per-session summaries.
+        """
+        if not inputs:
+            raise ApplicationError("No sessions to summarize for group summary")
+        # Summarize all sessions
+        summaries: dict[str, str] = {}
+        async with asyncio.TaskGroup() as tg:
+            tasks = {}
+            for session_input in inputs:
+                tasks[session_input.session_id] = tg.create_task(self._run_summary(session_input))
+        for session_id, task in tasks.items():
+            res = task.result()
+            if isinstance(res, Exception):
+                temporalio.workflow.logger.warning(
+                    "Session summary failed for group summary",
+                    session_id=session_id,
+                    # Assuming all the sessions are from the same project and called by the same user
+                    team_id=inputs[0].team_id,
+                    user_pk=inputs[0].user_pk,
+                    exc_info=res,
+                )
+            else:
+                summaries[session_id] = res
+        # Fail the workflow if >50% of sessions failed to summarize
+        if len(summaries) < len(inputs) / 2:
+            raise ApplicationError(
+                f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
+                f"({[s.session_id for s in inputs]}) "
+                f"for user {inputs[0].user_pk} in team {inputs[0].team_id}."
+            )
+        return summaries
+
+    @temporalio.workflow.run
+    async def run(self, inputs: SessionGroupSummaryInputs) -> dict[str, str]:
+        session_inputs = await self._fetch_session_group_data(inputs)
+        summaries = await self._run_summaries(session_inputs)
         temporalio.workflow.logger.info(
             f"Successfully executed summarize-session-group workflow with id {temporalio.workflow.info().workflow_id}"
         )
