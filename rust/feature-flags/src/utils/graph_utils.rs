@@ -125,6 +125,10 @@ where
             for dep_id in node.extract_dependencies()? {
                 if let Some(target_idx) = id_map.get(&dep_id) {
                     graph.add_edge(source_idx, *target_idx, ());
+                } else {
+                    return Err(
+                        FlagError::DependencyNotFound(T::dependency_type(), dep_id.into()).into(),
+                    );
                 }
             }
         }

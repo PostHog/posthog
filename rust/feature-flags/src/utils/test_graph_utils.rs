@@ -378,6 +378,23 @@ mod tests {
             // Total edges: 3 (1->2, 2->3, 4->5)
             assert_eq!(graph.edge_count(), 3);
         }
+
+        #[test]
+        fn test_build_from_nodes_with_missing_dependencies() {
+            // Node 1 depends on Node 999, which is not in the list
+            let items = vec![TestItem::new(1, HashSet::from([999]))];
+
+            let result = DependencyGraph::build_from_nodes(&items);
+
+            assert!(
+                result.is_err(),
+                "Expected an error due to missing dependencies"
+            );
+            assert!(matches!(
+                result.unwrap_err(),
+                FlagError::DependencyNotFound(DependencyType::Flag, 999)
+            ));
+        }
     }
 
     mod evaluation_stages {
