@@ -49,6 +49,7 @@ logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
+MAX_STUCK_COHORTS_TO_RESET = 10
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -59,6 +60,43 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
         is_calculating=False,
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
+
+
+def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
+    return Cohort.objects.filter(
+        is_calculating=True,
+        last_calculation__lte=timezone.now() - relativedelta(hours=1),
+        last_calculation__isnull=False,
+        deleted=False,
+    ).exclude(is_static=True)
+
+
+def reset_stuck_cohorts() -> None:
+    stuck_cohorts_to_reset = list(
+        get_stuck_cohort_calculation_candidates_queryset()
+        .order_by(F("last_calculation").asc())[0:MAX_STUCK_COHORTS_TO_RESET]
+        .values_list("id", "name", "last_calculation")
+    )
+
+    if stuck_cohorts_to_reset:
+        cohort_ids = [cohort[0] for cohort in stuck_cohorts_to_reset]
+        reset_count = (
+            get_stuck_cohort_calculation_candidates_queryset().filter(id__in=cohort_ids).update(is_calculating=False)
+        )
+
+        logger.warning(
+            "reset_stuck_cohorts",
+            reset_count=reset_count,
+            cohort_ids=cohort_ids,
+            cohort_details=[
+                {
+                    "id": cohort_id,
+                    "name": name or f"Cohort {cohort_id}",
+                    "stuck_since": last_calc.isoformat() if last_calc else None,
+                }
+                for cohort_id, name, last_calc in stuck_cohorts_to_reset
+            ],
+        )
 
 
 def update_stale_cohort_metrics() -> None:
@@ -74,16 +112,7 @@ def update_stale_cohort_metrics() -> None:
         stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
         COHORTS_STALE_COUNT_GAUGE.labels(hours=str(hours)).set(stale_count)
 
-    stuck_count = (
-        Cohort.objects.filter(
-            is_calculating=True,
-            last_calculation__lte=now - relativedelta(hours=1),
-            last_calculation__isnull=False,
-            deleted=False,
-        )
-        .exclude(is_static=True)
-        .count()
-    )
+    stuck_count = get_stuck_cohort_calculation_candidates_queryset().count()
 
     COHORT_STUCK_COUNT_GAUGE.set(stuck_count)
 
@@ -115,6 +144,11 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
+    try:
+        reset_stuck_cohorts()
+    except Exception as e:
+        logger.exception("Failed to reset stuck cohorts", error=str(e))
 
     try:
         update_stale_cohort_metrics()
