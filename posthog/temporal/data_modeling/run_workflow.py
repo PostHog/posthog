@@ -182,11 +182,11 @@ async def handle_model_ready(model: ModelNode, team_id: int, job_id: str) -> Non
         job_id: The ID of the job that is running this model.
     """
 
+    job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
-            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
             # Only materialize the current node, no upstream logic
             saved_query.progress = f"Updating current view..."
@@ -195,18 +195,22 @@ async def handle_model_ready(model: ModelNode, team_id: int, job_id: str) -> Non
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, err)
+        raise
     except CannotCoerceColumnException as err:
         await logger.aexception("Type coercion error for model %s", model.label, job_id=job_id)
         await handle_error(job, model, err)
+        raise
     except DataModelingCancelledException as err:
         await logger.aexception("Data modeling run was cancelled for model %s", model.label, job_id=job_id)
         await handle_cancelled(job, model, err)
+        raise
     except Exception as err:
         await logger.aexception(
             "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
         )
         capture_exception(err)
         await handle_error(job, model, err)
+        raise
     else:
         await logger.ainfo("Materialized model %s", model.label)
 
@@ -1038,8 +1042,8 @@ class RunWorkflow(PostHogWorkflow):
 
 
 @temporalio.activity.defn
-def get_upstream_dag_activity(team_id: int, model_id: str) -> dict:
-    return get_upstream_dag(team_id, model_id, should_stringify_numerics=True)
+async def get_upstream_dag_activity(team_id: int, model_id: str) -> dict:
+    return await database_sync_to_async(get_upstream_dag)(team_id, model_id, should_stringify_numerics=True)
 
 
 def serialize_set(s):

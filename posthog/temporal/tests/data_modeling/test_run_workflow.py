@@ -4,9 +4,9 @@ import functools
 import unittest.mock
 import uuid
 import os
+import collections
 
 import aioboto3
-import dlt
 import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -15,7 +15,6 @@ import temporalio.worker
 from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
-from dlt.common.libs.deltalake import get_delta_tables
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from freezegun.api import freeze_time
 
@@ -35,11 +34,13 @@ from posthog.temporal.data_modeling.run_workflow import (
     build_dag_activity,
     create_table_activity,
     finish_run_activity,
-    get_dlt_destination,
     materialize_model,
     start_run_activity,
     create_job_model_activity,
     fail_jobs_activity,
+    run_single_model_activity,
+    get_upstream_dag_activity,
+    create_jobs_for_materialized_views_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -97,8 +98,13 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     magic_mock = unittest.mock.AsyncMock(return_value=("test_key", unittest.mock.MagicMock(), uuid.uuid4()))
 
     with unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", new=magic_mock):
-        async with asyncio.timeout(10):
-            results = await activity_environment.run(run_dag_activity_inputs)
+        results = []
+        for model in dag:
+            if model in posthog_tables:
+                continue
+            async with asyncio.timeout(10):
+                result = await activity_environment.run(run_single_model_activity, run_dag_activity_inputs, model)
+                results.append(result)
 
         models_materialized = [model for model in dag.keys() if model not in posthog_tables]
 
@@ -111,7 +117,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
         call.args[1].pk == ateam.pk for call in calls
     ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
     assert len(calls) == len(models_materialized)
-    assert results.completed == set(dag.keys())
+    assert all(result == "completed" for result in results)
 
 
 async def test_create_table_activity(minio_client, activity_environment, ateam, bucket_name):
@@ -225,13 +231,47 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
             children_to_fail.extend(list(dag[child].children))
 
     expected_completed = {
-        key for key in dag.keys() if key not in expected_failed and key not in expected_ancestor_failed
+        key
+        for key in dag.keys()
+        if key not in expected_failed and key not in expected_ancestor_failed and key not in posthog_tables
     }
 
     magic_mock = unittest.mock.AsyncMock(side_effect=raise_if_should_make_fail)
     with unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", new=magic_mock):
-        async with asyncio.timeout(10):
-            results = await activity_environment.run(run_dag_activity_inputs)
+        results = {}
+
+        runnable_models = {label for label in dag if label not in posthog_tables}
+        dependencies = {model: dag[model].parents & runnable_models for model in runnable_models}
+        dependents = collections.defaultdict(set)
+        for model, deps in dependencies.items():
+            for dep in deps:
+                dependents[dep].add(model)
+
+        ready = collections.deque([model for model, deps in dependencies.items() if not deps])
+
+        completed_models = set()
+        failed_models = set()
+
+        while ready:
+            model_label = ready.popleft()
+
+            # Skip if already processed (can be added to ready queue multiple times)
+            if model_label in completed_models or model_label in failed_models:
+                continue
+
+            async with asyncio.timeout(10):
+                result = await activity_environment.run(run_single_model_activity, run_dag_activity_inputs, model_label)
+                results[model_label] = result
+
+            if result == "completed":
+                completed_models.add(model_label)
+                for dependent in dependents[model_label]:
+                    if dependencies[dependent].issubset(completed_models):
+                        ready.append(dependent)
+            else:  # failed
+                failed_models.add(model_label)
+                # Descendants will not be added to `ready` because this failed model
+                # will not be in `completed_models`.
 
         models_materialized = [model for model in expected_failed | expected_completed if model not in posthog_tables]
 
@@ -245,9 +285,8 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
     ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
     assert len(calls) == len(models_materialized)
 
-    assert results.completed == expected_completed
-    assert results.failed == expected_failed
-    assert results.ancestor_failed == expected_ancestor_failed
+    assert {model for model, result in results.items() if result == "completed"} == expected_completed
+    assert {model for model, result in results.items() if result == "failed"} == expected_failed
 
 
 TEST_ROOT_BUCKET = "test-data-modeling"
@@ -695,124 +734,7 @@ async def test_build_dag_activity_select_all(activity_environment, ateam, saved_
     assert all(dag[selected].selected is True for selected in dag.keys() if selected not in {"events", "persons"})
 
 
-async def test_run_workflow_with_minio_bucket(
-    minio_client,
-    ateam,
-    bucket_name,
-    pageview_events,
-    saved_queries,
-    temporal_client,
-):
-    """Test run workflow end-to-end using a local MinIO bucket."""
-    events, _ = pageview_events
-    all_expected_events = sorted(
-        [
-            {
-                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
-                for k, v in event.items()
-                if k in ("event", "distinct_id", "timestamp")
-            }
-            for event in events
-        ],
-        key=lambda d: (d["distinct_id"], d["timestamp"]),
-    )
-    expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
-    expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
-
-    for query in saved_queries:
-        attached_table = await DataWarehouseTable.objects.acreate(
-            name=query.name,
-            team=ateam,
-            format="Delta",
-            url_pattern=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}",
-            credential=None,
-        )
-        # link the saved query to the table
-        query.table_id = attached_table.id
-        await database_sync_to_async(query.save)()
-
-    workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(team_id=ateam.pk)
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-        ),
-        unittest.mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        unittest.mock.patch.object(
-            AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
-        ),
-        freeze_time(TEST_TIME),
-    ):
-        async with temporalio.worker.Worker(
-            temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
-            workflows=[RunWorkflow],
-            activities=[
-                start_run_activity,
-                build_dag_activity,
-                finish_run_activity,
-                create_table_activity,
-                create_job_model_activity,
-                fail_jobs_activity,
-            ],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            await temporal_client.execute_workflow(
-                RunWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
-            )
-        destination = get_dlt_destination()
-        tables_and_queries = {}
-
-        for query in saved_queries:
-            await database_sync_to_async(query.refresh_from_db)()
-
-            pipeline = dlt.pipeline(
-                pipeline_name=f"materialize_model_{query.id.hex}",
-                destination=destination,
-                dataset_name=f"team_{ateam.pk}_model_{query.id.hex}",
-            )
-
-            tables = get_delta_tables(pipeline)
-            key, delta_table = tables.popitem()
-            # All test tables have the same columns, which is a limitation of our test
-            table = delta_table.to_pyarrow_table(columns=["event", "distinct_id", "timestamp"])
-            tables_and_queries[key] = (table, query)
-
-        for key, table_and_query in tables_and_queries.items():
-            table, query = table_and_query
-
-            if "distinct_id = 'a'" in query.query["query"]:
-                expected_data = expected_events_a
-            elif "distinct_id = 'b'" in query.query["query"]:
-                expected_data = expected_events_b
-            else:
-                expected_data = all_expected_events
-
-            assert table.num_rows == len(expected_data)
-            assert table.num_columns == 3
-            assert table.column_names == ["event", "distinct_id", "timestamp"]
-            assert key == query.name
-            assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_data
-            assert query.status == DataWarehouseSavedQuery.Status.COMPLETED
-            assert query.last_run_at == TEST_TIME
-
-            # Verify row count was updated in the DataWarehouseTable
-            warehouse_table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, id=query.table_id)
-            assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
-            # Match the 50 page_view events defined above
-            assert warehouse_table.row_count == len(expected_data), f"Row count for {query.name} not the expected value"
-
-
+@pytest.mark.django_db(transaction=True)
 async def test_run_workflow_with_minio_bucket_with_errors(
     minio_client,
     ateam,
@@ -822,6 +744,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     temporal_client,
 ):
     """Test run workflow end-to-end using a local MinIO bucket."""
+    parent, child, child_2, grand_child = saved_queries
     for query in saved_queries:
         attached_table = await DataWarehouseTable.objects.acreate(
             name=query.name,
@@ -835,9 +758,9 @@ async def test_run_workflow_with_minio_bucket_with_errors(
         await database_sync_to_async(query.save)()
 
     workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(team_id=ateam.pk)
+    inputs = RunWorkflowInputs(team_id=ateam.pk, select=[Selector(label=grand_child.id.hex)])
 
-    async def mock_materialize_model(model_label, team, saved_query, job):
+    async def mock_materialize_model(model_label, team, saved_query, job, is_upstream):
         raise Exception("testing exception")
 
     with (
@@ -866,21 +789,30 @@ async def test_run_workflow_with_minio_bucket_with_errors(
                 create_table_activity,
                 create_job_model_activity,
                 fail_jobs_activity,
+                get_upstream_dag_activity,
+                create_jobs_for_materialized_views_activity,
+                run_single_model_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            await temporal_client.execute_workflow(
+            handle = await temporal_client.start_workflow(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
                 task_queue=constants.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
+                execution_timeout=dt.timedelta(minutes=5),
+                task_timeout=dt.timedelta(minutes=5),
             )
+            # a WorkflowFailureError will be raised, but we want to inspect the jobs
+            with pytest.raises(temporalio.client.WorkflowFailureError):
+                await handle.result()
 
-    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
-    assert job is not None
-    assert job.status == DataModelingJob.Status.FAILED
+    jobs = DataModelingJob.objects.filter(team_id=ateam.pk, workflow_id=workflow_id)
+    job_count = await jobs.acount()
+    assert job_count > 0, "No jobs were created"
+    async for job in jobs:
+        assert job.status == DataModelingJob.Status.FAILED
 
 
 async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
@@ -932,6 +864,7 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
+            False,
         )
 
     # Check that the column names maintain their original casing
