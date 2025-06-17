@@ -2,8 +2,10 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
+import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 
-import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
@@ -90,28 +92,56 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                 </div>
             </div>
             {metrics.length > 0 ? (
-                <div className="w-full overflow-x-auto">
-                    <div className="min-w-[1000px]">
-                        <div className="rounded bg-[var(--bg-table)]">
-                            <ConfidenceIntervalAxis chartRadius={chartRadius} />
-                            {metrics.map((metric, metricIndex) => {
-                                return (
-                                    <MetricRow
-                                        key={metricIndex}
-                                        metrics={metrics}
-                                        metricIndex={metricIndex}
-                                        result={results[metricIndex]}
-                                        metric={metric}
-                                        metricType={getInsightType(metric)}
-                                        isSecondary={!!isSecondary}
-                                        chartRadius={chartRadius}
-                                        error={errors[metricIndex]}
-                                    />
-                                )
-                            })}
+                <>
+                    <div className="w-full overflow-x-auto">
+                        <div className="min-w-[1000px]">
+                            <div className="rounded bg-[var(--bg-table)]">
+                                <ConfidenceIntervalAxis chartRadius={chartRadius} />
+                                {metrics.map((metric, metricIndex) => {
+                                    return (
+                                        <>
+                                            <MetricRow
+                                                key={metricIndex}
+                                                metrics={metrics}
+                                                metricIndex={metricIndex}
+                                                result={results[metricIndex]}
+                                                metric={metric}
+                                                metricType={getInsightType(metric)}
+                                                isSecondary={!!isSecondary}
+                                                chartRadius={chartRadius}
+                                                error={errors[metricIndex]}
+                                            />
+                                            {metrics.length === 1 && (
+                                                <div className="mt-2">
+                                                    <ResultsBreakdown
+                                                        result={{
+                                                            ...results[metricIndex],
+                                                            metric: metric as ExperimentMetric,
+                                                        }}
+                                                        experiment={experiment}
+                                                    >
+                                                        {({ query, breakdownResults }) => {
+                                                            return (
+                                                                <>
+                                                                    {query && breakdownResults && (
+                                                                        <ResultsQuery
+                                                                            query={query}
+                                                                            breakdownResults={breakdownResults}
+                                                                        />
+                                                                    )}
+                                                                </>
+                                                            )
+                                                        }}
+                                                    </ResultsBreakdown>
+                                                </div>
+                                            )}
+                                        </>
+                                    )
+                                })}
+                            </div>
                         </div>
                     </div>
-                </div>
+                </>
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">

@@ -20,7 +20,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useEffect, useState } from 'react'
-import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
+import { defaultQuery, syncAnchorIntervalToHumanReadable, SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -244,7 +244,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         type="secondary"
                                         onClick={() => openSyncMethodModal(schema)}
                                     >
-                                        {schema.sync_type == 'incremental' ? 'Incremental' : 'Full refresh'}
+                                        {SyncTypeLabelMap[schema.sync_type]}
                                     </LemonButton>
                                     <SyncMethodModal schema={schema} />
                                 </>
