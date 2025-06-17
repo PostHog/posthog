@@ -16,10 +16,9 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
     const { externalTables, loading } = useValues(marketingAnalyticsLogic)
     const { toggleManualLinkFormVisible, setManualLinkingProvider } = useActions(sourceWizardLogic)
 
-    const tables: ExternalTable[] | null =
-        externalTables.filter((source) =>
-            VALID_SELF_MANAGED_MARKETING_SOURCES.includes(source.source_type as ManualLinkSourceType)
-        ) ?? null
+    const tables: ExternalTable[] = externalTables.filter((source) =>
+        VALID_SELF_MANAGED_MARKETING_SOURCES.includes(source.source_type as ManualLinkSourceType)
+    )
 
     const handleSourceAdd = (manualLinkSource: ManualLinkSourceType): void => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))

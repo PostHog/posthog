@@ -155,9 +155,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 nativeSources.forEach((source) => {
                     const neededFieldsWithSync =
                         NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
-                    nativeSources.forEach((table) => {
-                        table.schemas = table.schemas.filter((schema) => neededFieldsWithSync.includes(schema.name))
-                    })
+                    source.schemas = source.schemas.filter((schema) => neededFieldsWithSync.includes(schema.name))
                 })
                 return nativeSources
             },

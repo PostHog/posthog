@@ -3,6 +3,7 @@ import { EntityTypes } from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
 import { ExternalTable, NativeSource } from './marketingAnalyticsLogic'
+import { GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_TABLE_NAME } from './utils'
 
 // Note: most of this logic will live in the backend in the future
 
@@ -28,10 +29,10 @@ function unionNativeQueries(validNativeSources: NativeSource[]): string[] {
     const googleAdsUnionNativeQueries = validNativeSources
         .filter((source) => source.source.source_type === 'GoogleAds')
         .map((nativeSource) => {
-            const campaignTableData = nativeSource.tables.find(
-                (table) => table.name.includes('campaign') && !table.name.includes('stats')
+            const campaignTableData = nativeSource.tables.find((table) => table.name === GOOGLE_ADS_CAMPAIGN_TABLE_NAME)
+            const campaignStatsTableData = nativeSource.tables.find(
+                (table) => table.name === GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME
             )
-            const campaignStatsTableData = nativeSource.tables.find((table) => table.name.includes('campaign_stats'))
 
             if (!campaignTableData || !campaignStatsTableData) {
                 return null
@@ -123,13 +124,7 @@ SELECT
     ${propertyName}${conversionGoal.schema.utm_campaign_name} as ${tableColumns.campaign_name},
     ${propertyName}${conversionGoal.schema.utm_source_name} as ${tableColumns.source_name},
     count(*) as conversion_${index}
-FROM ${
-                conversionGoal.type === EntityTypes.EVENTS
-                    ? 'events'
-                    : conversionGoal.type === EntityTypes.DATA_WAREHOUSE
-                    ? conversionGoal.name
-                    : 'TBD'
-            } 
+FROM ${getConversionGoalTable(conversionGoal)} 
 WHERE ${conversionGoal.type === EntityTypes.EVENTS && conversionGoal.id ? `event = '${conversionGoal.id}'` : '1=1'}
     AND ${tableColumns.campaign_name} IS NOT NULL
     AND ${tableColumns.campaign_name} != ''
@@ -202,4 +197,18 @@ ${conversionJoins}
 ORDER BY cc.total_cost DESC
 LIMIT 20
 `.trim()
+}
+
+function getConversionGoalTable(conversionGoal: ConversionGoalFilter): string {
+    if (!conversionGoal.name) {
+        return 'events'
+    }
+    switch (conversionGoal.type) {
+        case EntityTypes.EVENTS:
+            return 'events'
+        case EntityTypes.DATA_WAREHOUSE:
+            return conversionGoal.name
+        default:
+            throw new Error(`Unsupported conversion goal type: ${conversionGoal.type}`)
+    }
 }

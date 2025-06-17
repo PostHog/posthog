@@ -14,10 +14,9 @@ import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourc
 export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
     const { externalTables, loading } = useValues(marketingAnalyticsLogic)
 
-    const tables: ExternalTable[] | null =
-        externalTables.filter((source) =>
-            VALID_NON_NATIVE_MARKETING_SOURCES.includes(source.source_type as NonNativeMarketingSource)
-        ) ?? null
+    const tables: ExternalTable[] = externalTables.filter((source) =>
+        VALID_NON_NATIVE_MARKETING_SOURCES.includes(source.source_type as NonNativeMarketingSource)
+    )
     const handleSourceAdd = (source: ExternalDataSource['source_type']): void => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
     }
