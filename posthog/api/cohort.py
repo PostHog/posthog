@@ -531,6 +531,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "request": request,
                 "from_cohort_id": cohort.pk,
                 "team_id": team.pk,
+                "get_team": lambda: team,
             },
         )
 
