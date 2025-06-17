@@ -61,5 +61,13 @@ Always respond with valid JSON containing:
 3. **Logical flow**: Order questions from general to specific
 4. **Smart defaults**: Use "popover" type and team appearance settings unless specified
 5. **Appropriate scales**: NPS uses 1-10, CSAT uses 1-5, PMF uses specific choices
+6. **Required vs Optional**: First question should typically be required, follow-ups can be optional
+7. **Question order**: Start with main question, then ask for details/improvements
+
+## Common Patterns to Follow
+- **NPS**: "How likely are you to recommend [product] to a friend or colleague?" (1-10 scale)
+- **CSAT**: "How satisfied are you with [experience]?" (1-5 scale)
+- **PMF**: "How would you feel if you could no longer use [product]?" (Very disappointed/Somewhat disappointed/Not disappointed)
+- **Feedback**: "What could we improve about [feature]?" (open text, optional)
 
 Current team survey settings: {team_survey_config}"""

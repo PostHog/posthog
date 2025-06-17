@@ -41,7 +41,7 @@ class SurveyQuestionSchema(BaseModel):
     choices: Optional[list[str]] = Field(default=None, description="Answer choices for choice questions")
 
     # For rating questions
-    display: Optional[RatingDisplayEnum] = Field(default=None, description="Rating display type")
+    display: Optional[RatingDisplayEnum] = Field(default=RatingDisplayEnum.NUMBER, description="Rating display type")
     scale: Optional[int] = Field(
         default=None, description="Rating scale (e.g., 5, 7, 10). NPS Surveys are always scale 10."
     )

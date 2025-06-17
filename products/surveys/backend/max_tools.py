@@ -38,59 +38,100 @@ class SurveyCreatorTool(MaxTool):
         """
         Generate survey configuration from natural language instructions.
         """
-        # Get team for context
-        team = Team.objects.get(id=self._team_id)
-
-        # Create the prompt
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", SURVEY_CREATION_SYSTEM_PROMPT),
-                ("human", "Create a survey based on these instructions: {{{instructions}}}"),
-            ],
-            template_format="mustache",
-        )
-
-        # Set up the LLM with structured output
-        model = (
-            ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
-            .with_structured_output(SurveyCreationOutput, include_raw=False)
-            .with_retry()
-        )
-
-        # Generate the survey configuration
-        chain = prompt | model
-        result = chain.invoke(
-            {
-                "instructions": instructions,
-                "existing_surveys": self._get_existing_surveys_summary(),
-                "team_survey_config": self._get_team_survey_config(team),
-            }
-        )
-
-        # Convert to PostHog survey format and create directly
-        survey_data = self._convert_to_posthog_format(result, team)
-
         try:
-            # Create the survey directly using the model
-            from posthog.models import Survey
+            # Get team for context
+            team = Team.objects.get(id=self._team_id)
+
+            # Create the prompt
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", SURVEY_CREATION_SYSTEM_PROMPT),
+                    ("human", "Create a survey based on these instructions: {{{instructions}}}"),
+                ],
+                template_format="mustache",
+            )
+
+            # Set up the LLM with structured output
+            model = (
+                ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
+                .with_structured_output(SurveyCreationOutput, include_raw=False)
+                .with_retry()
+            )
+
+            # Generate the survey configuration
+            chain = prompt | model
+            result = chain.invoke(
+                {
+                    "instructions": instructions,
+                    "existing_surveys": self._get_existing_surveys_summary(),
+                    "team_survey_config": self._get_team_survey_config(team),
+                }
+            )
+
+            # Convert to PostHog survey format and create directly
+            survey_data = self._convert_to_posthog_format(result, team)
+
+            # Use the proper serializer for validation and creation
+            from posthog.api.survey import SurveySerializerCreateUpdateOnly
             from datetime import datetime
 
-            survey = Survey.objects.create(team=team, **survey_data)
-
-            # Launch immediately if requested
+            # Set launch date if requested
             if result.should_launch:
-                survey.start_date = datetime.now()
-                survey.save()
-                launch_msg = " and launched"
-            else:
-                launch_msg = ""
+                survey_data["start_date"] = datetime.now()
 
-            return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
-                "survey_id": str(survey.id),
-                "survey_name": survey.name,
-                "launched": result.should_launch,
-                "questions_count": len(survey.questions) if survey.questions else 0,
-            }
+            # Get the actual user from the context
+            user = None
+            user_id = self.context.get("user_id")
+            if not user_id:
+                return "❌ Failed to create survey: User authentication required", {"error": "authentication_required"}
+
+            try:
+                from posthog.models import User
+
+                user = User.objects.get(uuid=user_id)
+            except User.DoesNotExist:
+                return "❌ Failed to create survey: Invalid user", {"error": "invalid_user"}
+
+            # Create a minimal request-like object for the serializer context
+            class MinimalRequest:
+                def __init__(self, user):
+                    self.user = user
+                    self.method = "POST"
+
+            minimal_request = MinimalRequest(user)
+
+            serializer = SurveySerializerCreateUpdateOnly(
+                data=survey_data,
+                context={
+                    "request": minimal_request,
+                    "team_id": team.id,
+                    "project_id": team.project_id,
+                },
+            )
+
+            if serializer.is_valid():
+                survey = serializer.save()
+                launch_msg = " and launched" if result.should_launch else ""
+
+                return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
+                    "survey_id": str(survey.id),
+                    "survey_name": survey.name,
+                    "launched": result.should_launch,
+                    "questions_count": len(survey.questions) if survey.questions else 0,
+                }
+            else:
+                # Return validation errors
+                error_details = []
+                for field, errors in serializer.errors.items():
+                    if isinstance(errors, list):
+                        error_details.extend([f"{field}: {error}" for error in errors])
+                    else:
+                        error_details.append(f"{field}: {errors}")
+
+                return f"❌ Survey validation failed: {'; '.join(error_details)}", {
+                    "error": "validation_failed",
+                    "details": serializer.errors,
+                }
 
         except Exception as e:
             return f"❌ Failed to create survey: {str(e)}", {"error": str(e)}

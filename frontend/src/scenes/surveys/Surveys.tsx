@@ -49,11 +49,19 @@ function SurveysWithMaxTool(): JSX.Element {
     } = useValues(surveysLogic)
 
     const { loadSurveys } = useActions(surveysLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <MaxTool
             name="create_survey"
             displayName="AI Survey Creator"
+            initialMaxPrompt="Create a survey to "
+            suggestions={[
+                'Create an NPS survey for customers who completed checkout',
+                'Create a feedback survey asking about our new dashboard',
+                'Create a product-market fit survey for trial users',
+                'Create a quick satisfaction survey for support interactions',
+            ]}
             context={{
                 existing_surveys: surveys
                     .filter((survey) => getSurveyStatus(survey) === ProgressStatus.Running)
@@ -65,14 +73,23 @@ function SurveysWithMaxTool(): JSX.Element {
                         status: getSurveyStatus(survey),
                     })),
                 total_surveys_count: surveys.length,
+                user_id: user?.uuid, // Pass the actual user ID to the backend
             }}
-            callback={(toolOutput: any) => {
+            callback={(toolOutput: {
+                survey_id?: string
+                survey_name?: string
+                launched?: boolean
+                error?: string
+            }) => {
                 // Handle survey creation result
                 if (toolOutput?.survey_id) {
                     // Refresh surveys list to show new survey
                     loadSurveys()
                     // Optionally navigate to the new survey
                     router.actions.push(urls.survey(toolOutput.survey_id))
+                } else if (toolOutput?.error) {
+                    // Error case - surveys list should already be current
+                    console.error('Survey creation failed:', toolOutput.error)
                 }
             }}
         >
