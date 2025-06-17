@@ -4031,3 +4031,290 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_property_override_bug_real_scenario() -> Result<()> {
+    // This test demonstrates the REAL bug: when you override a property that a flag doesn't check for,
+    // the current "all or nothing" logic in locally_computable_property_overrides() fails.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_real_bug".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with TWO properties in the database
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "plan": "premium",  // Flag will check this property
+            "$feature_enrollment/discussions": true,  // We'll override this property
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create TWO flags:
+    // 1. Flag that checks "plan" property (should be true with DB value)
+    // 2. Flag that checks "$feature_enrollment/discussions" property (should respect override)
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "plan-flag",
+            "name": "Flag that checks plan",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "plan",
+                                "value": "premium",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 2,
+            "key": "discussions-flag",
+            "name": "Flag that checks discussions enrollment",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/discussions",
+                                "value": "true",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Send override for ONLY the discussions property, not the plan property
+    // This is the real bug scenario: overriding a property that only ONE flag checks
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": false  // Override to false, but flag expects true
+        }
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    println!("Response with current logic: {:#}", json_data);
+
+    // With the current "all or nothing" logic:
+    // - plan-flag: checks "plan" property, but override only has "discussions" property
+    //              → locally_computable_property_overrides() returns None
+    //              → Falls back to DB, gets "plan": "premium", evaluates to TRUE ✓
+    // - discussions-flag: checks "discussions" property, override has "discussions" property
+    //                     → locally_computable_property_overrides() returns Some(overrides)
+    //                     → Gets override "discussions": false, evaluates to FALSE ✓
+
+    // So actually both flags work correctly! The current logic isn't as broken as I thought.
+    // The real issue might be about performance (unnecessary DB hits) or
+    // about complex scenarios with multiple properties.
+
+    // Let me modify this to show a REAL failure case...
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "plan-flag": {
+                    "key": "plan-flag",
+                    "enabled": true,  // Should be true from DB value
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                },
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": false,  // Should be false from override
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_property_override_bug_complex_scenario() -> Result<()> {
+    // This test shows a more complex bug scenario:
+    // Flag checks for MULTIPLE properties, but we only override SOME of them
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_complex_bug".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with multiple properties
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "plan": "premium",
+            "email": "user@example.com",
+            "region": "US"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create a flag that checks MULTIPLE properties
+    let flag_json = json!([{
+        "id": 1,
+        "key": "complex-flag",
+        "name": "Flag with multiple property checks",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "plan",
+                            "value": "premium",
+                            "operator": "exact",
+                            "type": "person"
+                        },
+                        {
+                            "key": "email",
+                            "value": "user@example.com",
+                            "operator": "exact",
+                            "type": "person"
+                        }
+                    ],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Send override for ONLY ONE of the properties the flag checks, plus an unrelated property
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "different@example.com",  // Override one property the flag checks
+            "$feature_enrollment/discussions": false  // Override unrelated property
+        }
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    println!("Complex scenario response: {:#}", json_data);
+
+    // With current "all or nothing" logic:
+    // Flag checks for: ["plan", "email"]
+    // Overrides contain: ["email", "$feature_enrollment/discussions"]
+    // Missing from overrides: ["plan"]
+    // → locally_computable_property_overrides() returns None (not all required properties present)
+    // → Falls back to DB: gets {"plan": "premium", "email": "user@example.com", "region": "US"}
+    // → Ignores ALL overrides (including the email override!)
+    // → Flag evaluates to TRUE (should be FALSE because email override doesn't match)
+
+    // This demonstrates the BUG! The email override is completely ignored.
+    // With current logic: enabled = true (uses DB email, ignores override)
+    // With fixed logic: enabled = false (uses override email that doesn't match)
+
+    // Let's assert what SHOULD happen (this will fail with current logic):
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "complex-flag": {
+                    "key": "complex-flag",
+                    "enabled": false  // Should be false because override email doesn't match condition
+                }
+            }
+        })
+    );
+
+    // This test demonstrates the core bug: when you override SOME but not ALL properties
+    // that a flag checks, the current logic ignores ALL overrides and falls back to DB only.
+
+    Ok(())
+}

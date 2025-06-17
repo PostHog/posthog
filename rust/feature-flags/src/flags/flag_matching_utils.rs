@@ -203,32 +203,43 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     Ok(())
 }
 
-/// If we have overrides for all properties that flags need, and all those overrides are locally computable,
-/// return the overrides. Otherwise return None to force DB lookup and merging.
+/// /// Check if all required properties are present in the overrides
+/// and none of them are of type "cohort" – if so, return the overrides,
+/// otherwise return None, because we can't locally compute cohort properties
+// pub fn locally_computable_property_overrides(
+//     property_overrides: &Option<HashMap<String, Value>>,
+//     property_filters: &[PropertyFilter],
+// ) -> Option<HashMap<String, Value>> {
+//     property_overrides.as_ref().and_then(|overrides| {
+//         let should_prefer_overrides = property_filters.iter().all(|prop| {
+//             overrides.contains_key(&prop.key) && prop.prop_type != PropertyType::Cohort
+//         });
+
+//         if should_prefer_overrides {
+//             Some(overrides.clone())
+//         } else {
+//             None
+//         }
+//     })
+// }
+
+/// Return any locally computable property overrides (non-cohort properties).
+/// This returns the subset of overrides that can be computed locally, even if not all flag properties are overridden.
 pub fn locally_computable_property_overrides(
     property_overrides: &Option<HashMap<String, Value>>,
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
     property_overrides.as_ref().and_then(|overrides| {
-        // Check if any property filters involve cohorts - if so, we can't compute locally
+        // Check if any property filters involve cohorts - if so, we can't compute those locally
         let has_cohort_filters = property_filters
             .iter()
             .any(|prop| prop.prop_type == PropertyType::Cohort);
 
         if has_cohort_filters {
-            None // Can't compute cohort properties locally
+            None // Can't compute cohort properties locally, need DB lookup
         } else {
-            // Check if overrides contain all required properties
-            let has_all_required_properties = property_filters
-                .iter()
-                .filter(|prop| prop.prop_type == PropertyType::Person)
-                .all(|prop| overrides.contains_key(&prop.key));
-
-            if has_all_required_properties {
-                Some(overrides.clone()) // We have all required properties in overrides
-            } else {
-                None // Missing some properties, need to merge with DB properties
-            }
+            // Return all non-cohort overrides - the caller will merge with cached properties
+            Some(overrides.clone())
         }
     })
 }
@@ -685,7 +696,7 @@ mod tests {
         let result = locally_computable_property_overrides(&overrides, &empty_filters);
         assert!(result.is_some());
 
-        // Test case 4: Overrides don't contain all properties from filters - should return None to force DB lookup
+        // Test case 4: Overrides contain some but not all properties from filters - should return all overrides
         let property_filters_extra = vec![
             PropertyFilter {
                 key: "email".to_string(),
@@ -706,7 +717,12 @@ mod tests {
         ];
 
         let result = locally_computable_property_overrides(&overrides, &property_filters_extra);
-        assert!(result.is_none()); // Should return None since overrides don't contain all required properties
+        assert!(result.is_some()); // Should return all overrides
+        let returned_overrides = result.unwrap();
+        assert!(returned_overrides.contains_key("email")); // email should be included
+        assert!(returned_overrides.contains_key("age")); // age should also be included (all overrides returned)
+        assert!(!returned_overrides.contains_key("missing_property")); // missing_property was not in original overrides
+        assert_eq!(returned_overrides.len(), 2); // Both email and age should be returned
     }
 
     #[tokio::test]
@@ -766,14 +782,15 @@ mod tests {
         // Person property overrides contain only age, not email
         let person_property_overrides = Some(HashMap::from([("age".to_string(), json!(35))]));
 
-        // This should return None because overrides don't contain all required properties (email)
+        // This should return the overrides even though they don't contain all required properties (email)
+        // The new behavior returns all non-cohort overrides and lets merging happen in get_person_properties
         let result = locally_computable_property_overrides(
             &person_property_overrides,
             &flag_property_filters,
         );
         assert!(
-            result.is_none(),
-            "Should return None when overrides don't contain all required properties"
+            result.is_some(),
+            "Should return overrides and let merging happen in get_person_properties"
         );
 
         // Since we returned None, the system will fall back to DB evaluation
