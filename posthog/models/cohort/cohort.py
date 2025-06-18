@@ -394,7 +394,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size)
 
         # Call the batching method with ClickHouse insertion enabled
-        self.insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(
         self,
@@ -415,9 +415,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        self.insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
+        self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
 
-    def insert_users_list_with_batching(
+    def _insert_users_list_with_batching(
         self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
     ) -> None:
         """
