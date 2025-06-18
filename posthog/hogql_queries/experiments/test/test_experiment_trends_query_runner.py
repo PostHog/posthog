@@ -1,18 +1,32 @@
+import json
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 from django.test import override_settings
-from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
+from django.utils import timezone
+from flaky import flaky
+from freezegun import freeze_time
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
+from ee.clickhouse.materialized_columns.columns import (
+    get_enabled_materialized_columns,
+    materialize,
+)
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql.errors import QueryError
-from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.experiments.experiment_trends_query_runner import (
+    ExperimentTrendsQueryRunner,
+)
+from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
-from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -33,18 +47,9 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from freezegun import freeze_time
-from typing import cast, Any
-from django.utils import timezone
-from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
-from rest_framework.exceptions import ValidationError
-from posthog.constants import ExperimentNoResultsErrorKeys
-import json
-from flaky import flaky
-
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.hogql.query import execute_hogql_query
+from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -2459,7 +2464,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
         trend_result = cast(ExperimentTrendsQueryResponse, result)
 
-        self.assertEqual(trend_result.stats_version, 1)
         self.assertEqual(trend_result.significant, False)
         self.assertEqual(trend_result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
         self.assertEqual(trend_result.p_value, 1.0)
@@ -2491,7 +2495,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_runner_with_avg_math_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -2572,7 +2575,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
         trend_result = cast(ExperimentTrendsQueryResponse, result)
 
-        self.assertEqual(trend_result.stats_version, 2)
         self.assertEqual(trend_result.significant, False)
         self.assertEqual(trend_result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
         self.assertEqual(trend_result.p_value, 1.0)
@@ -2681,7 +2683,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
-        self.assertEqual(query_runner.stats_version, 1)
         result = query_runner.calculate()
 
         self.assertEqual(len(result.variants), 2)
@@ -2725,7 +2726,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -2804,7 +2804,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
-        self.assertEqual(query_runner.stats_version, 2)
         result = query_runner.calculate()
 
         self.assertEqual(len(result.variants), 2)
