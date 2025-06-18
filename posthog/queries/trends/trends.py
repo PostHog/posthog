@@ -197,7 +197,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                     query_type,
                     sql,
                     query_params,
-                    get_query_tags().model_copy(),
+                    get_query_tags().model_copy(deep=True),
                     adjusted_filter,
                     team.pk,
                 ),
