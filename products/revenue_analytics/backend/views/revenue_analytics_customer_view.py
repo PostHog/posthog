@@ -30,6 +30,8 @@ FIELDS: dict[str, FieldOrTable] = {
     "address": StringJSONDatabaseField(name="address"),
     "country": StringDatabaseField(name="country"),
     "cohort": StringDatabaseField(name="cohort"),
+    "initial_coupon": StringDatabaseField(name="initial_coupon"),
+    "initial_coupon_id": StringDatabaseField(name="initial_coupon_id"),
 }
 
 
@@ -93,6 +95,8 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                     ),
                 ),
                 ast.Alias(alias="cohort", expr=ast.Constant(value=None)),
+                ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
+                ast.Alias(alias="initial_coupon_id", expr=ast.Constant(value=None)),
             ],
             select_from=ast.JoinExpr(alias="outer", table=ast.Field(chain=[table.name])),
         )
@@ -106,28 +110,56 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
             if cohort_alias is not None:
                 cohort_alias.expr = ast.Field(chain=["cohort_readable"])
 
-                if query.select_from is not None:
-                    query.select_from.next_join = ast.JoinExpr(
-                        alias="cohort_inner",
-                        table=ast.SelectQuery(
-                            select=[
-                                ast.Field(chain=["customer_id"]),
-                                ast.Alias(alias="cohort", expr=parse_expr("toStartOfMonth(min(created_at))")),
-                                ast.Alias(alias="cohort_readable", expr=parse_expr("formatDateTime(cohort, '%Y-%m')")),
-                            ],
-                            select_from=ast.JoinExpr(alias="invoice", table=ast.Field(chain=[invoice_table.name])),
-                            group_by=[ast.Field(chain=["customer_id"])],
-                        ),
-                        join_type="LEFT JOIN",
-                        constraint=ast.JoinConstraint(
-                            constraint_type="ON",
-                            expr=ast.CompareOperation(
-                                left=ast.Field(chain=["cohort_inner", "customer_id"]),
-                                right=ast.Field(chain=["outer", "id"]),
-                                op=ast.CompareOperationOp.Eq,
+            initial_coupon_alias: ast.Alias | None = next(
+                (alias for alias in query.select if isinstance(alias, ast.Alias) and alias.alias == "initial_coupon"),
+                None,
+            )
+            if initial_coupon_alias is not None:
+                initial_coupon_alias.expr = ast.Field(chain=["initial_coupon"])
+
+            initial_coupon_id_alias: ast.Alias | None = next(
+                (
+                    alias
+                    for alias in query.select
+                    if isinstance(alias, ast.Alias) and alias.alias == "initial_coupon_id"
+                ),
+                None,
+            )
+            if initial_coupon_id_alias is not None:
+                initial_coupon_id_alias.expr = ast.Field(chain=["initial_coupon_id"])
+
+            if query.select_from is not None and (
+                cohort_alias is not None or initial_coupon_alias is not None or initial_coupon_id_alias is not None
+            ):
+                query.select_from.next_join = ast.JoinExpr(
+                    alias="cohort_inner",
+                    table=ast.SelectQuery(
+                        select=[
+                            ast.Field(chain=["customer_id"]),
+                            ast.Alias(alias="cohort", expr=parse_expr("toStartOfMonth(min(created_at))")),
+                            ast.Alias(alias="cohort_readable", expr=parse_expr("formatDateTime(cohort, '%Y-%m')")),
+                            ast.Alias(
+                                alias="initial_coupon",
+                                expr=parse_expr("argMin(JSONExtractString(discount, 'coupon', 'name'), created_at)"),
                             ),
+                            ast.Alias(
+                                alias="initial_coupon_id",
+                                expr=parse_expr("argMin(JSONExtractString(discount, 'coupon', 'id'), created_at)"),
+                            ),
+                        ],
+                        select_from=ast.JoinExpr(alias="invoice", table=ast.Field(chain=[invoice_table.name])),
+                        group_by=[ast.Field(chain=["customer_id"])],
+                    ),
+                    join_type="LEFT JOIN",
+                    constraint=ast.JoinConstraint(
+                        constraint_type="ON",
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["cohort_inner", "customer_id"]),
+                            right=ast.Field(chain=["outer", "id"]),
+                            op=ast.CompareOperationOp.Eq,
                         ),
-                    )
+                    ),
+                )
 
         return [
             RevenueAnalyticsCustomerView(

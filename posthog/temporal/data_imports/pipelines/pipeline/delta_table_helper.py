@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 import json
 from conditional_cache import lru_cache
-from typing import Any
+from typing import Any, Literal
 import deltalake.exceptions
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -12,7 +12,9 @@ from django.conf import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    normalize_column_name,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
@@ -63,10 +65,10 @@ class DeltaTableHelper:
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = delta_table.schema().to_pyarrow()
+        delta_table_schema = delta_table.schema().to_arrow()
 
         new_fields = [
-            deltalake.Field.from_pyarrow(field)
+            deltalake.Field.from_arrow(field)
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
@@ -109,7 +111,11 @@ class DeltaTableHelper:
         self._is_first_sync = True
 
     def write_to_deltalake(
-        self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
+        self,
+        data: pa.Table,
+        write_type: Literal["incremental", "full_refresh", "append"],
+        chunk_index: int,
+        primary_keys: Sequence[Any] | None,
     ) -> deltalake.DeltaTable:
         delta_table = self.get_delta_table()
 
@@ -123,7 +129,7 @@ class DeltaTableHelper:
             use_partitioning = True
             self._logger.debug(f"Using partitioning on {PARTITION_KEY}")
 
-        if is_incremental and delta_table is not None and not self._is_first_sync:
+        if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
@@ -181,10 +187,13 @@ class DeltaTableHelper:
                     .execute()
                 )
                 self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
-
-        else:
-            mode = "append"
-            schema_mode = "merge"
+        elif (
+            write_type == "full_refresh"
+            or (write_type == "incremental" and delta_table is None)
+            or (write_type == "incremental" and self._is_first_sync)
+        ):
+            mode: Literal["error", "append", "overwrite", "ignore"] = "append"
+            schema_mode: Literal["merge", "overwrite"] | None = "merge"
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
                 schema_mode = "overwrite"
@@ -207,8 +216,7 @@ class DeltaTableHelper:
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode=mode,
                     schema_mode=schema_mode,
-                    engine="rust",
-                )  # type: ignore
+                )
             except deltalake.exceptions.SchemaMismatchError as e:
                 self._logger.debug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
@@ -219,8 +227,26 @@ class DeltaTableHelper:
                     partition_by=None,
                     mode=mode,
                     schema_mode="overwrite",
-                    engine="rust",
-                )  # type: ignore
+                )
+        elif write_type == "append":
+            if delta_table is None:
+                storage_options = self._get_credentials()
+                delta_table = deltalake.DeltaTable.create(
+                    table_uri=self._get_delta_table_uri(),
+                    schema=data.schema,
+                    storage_options=storage_options,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
+                )
+
+            self._logger.debug(f"write_to_deltalake: write_type = append")
+
+            deltalake.write_deltalake(
+                table_or_uri=delta_table,
+                data=data,
+                partition_by=PARTITION_KEY if use_partitioning else None,
+                mode="append",
+                schema_mode="merge",
+            )
 
         delta_table = self.get_delta_table()
         assert delta_table is not None

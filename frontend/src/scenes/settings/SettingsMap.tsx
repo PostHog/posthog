@@ -9,6 +9,7 @@ import { ErrorTrackingCustomGrouping } from 'products/error_tracking/frontend/co
 import { ErrorTrackingSymbolSets } from 'products/error_tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from 'products/revenue_analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -249,6 +250,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-base-currency',
                 title: 'Base currency',
                 component: <BaseCurrency hideTitle />,
+            },
+            {
+                id: 'revenue-analytics-filter-test-accounts',
+                title: 'Filter test accounts out of revenue analytics',
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
             },
             {
                 id: 'revenue-analytics-goals',
