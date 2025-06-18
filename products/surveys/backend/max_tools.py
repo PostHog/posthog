@@ -53,7 +53,7 @@ class SurveyCreatorTool(MaxTool):
 
             # Set up the LLM with structured output
             model = (
-                ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
+                ChatOpenAI(model="gpt-4.1-mini", temperature=0.2)
                 .with_structured_output(SurveyCreationOutput, include_raw=False)
                 .with_retry()
             )

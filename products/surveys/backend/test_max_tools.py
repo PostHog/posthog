@@ -3,6 +3,7 @@ Tests for the survey creation MaxTool.
 """
 
 from unittest.mock import MagicMock, patch
+import os
 
 import pytest
 from django.test import override_settings
@@ -26,6 +27,9 @@ from .survey_schema import (
 class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Set mock OpenAI API key for tests
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+
         # Create a test user for survey creation
         self.test_user = User.objects.create_user(
             email="test@posthog.com", password="testpass", first_name="Test", last_name="User"
@@ -35,6 +39,12 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         OrganizationMembership.objects.create(
             organization=self.team.organization, user=self.test_user, level=OrganizationMembership.Level.ADMIN
         )
+
+    def tearDown(self):
+        super().tearDown()
+        # Clean up the mock API key
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
 
     def _create_tool(self, context=None, team_id=None):
         """Helper to create a SurveyCreatorTool instance"""
@@ -494,6 +504,9 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        # Set mock OpenAI API key for tests
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+
         self.test_user = User.objects.create_user(
             email="eval@posthog.com",
             password="testpass",
@@ -503,6 +516,12 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
         OrganizationMembership.objects.create(
             organization=self.team.organization, user=self.test_user, level=OrganizationMembership.Level.ADMIN
         )
+
+    def tearDown(self):
+        super().tearDown()
+        # Clean up the mock API key
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
 
     def _create_tool(self, context=None, team_id=None):
         """Helper to create a SurveyCreatorTool instance"""
