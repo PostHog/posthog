@@ -140,12 +140,12 @@ export function HogFunctionMapping({
                     <CyclotronJobInputs
                         configuration={{
                             inputs_schema: [
-                                ...(mapping.inputs_schema ?? []),
                                 ...(parentConfiguration.inputs_schema ?? []),
+                                ...(mapping.inputs_schema ?? []),
                             ],
                             inputs: {
-                                ...(mapping.inputs ?? {}),
                                 ...(parentConfiguration.inputs ?? {}),
+                                ...(mapping.inputs ?? {}),
                             },
                         }}
                         onInputSchemaChange={(schema) => {
