@@ -220,7 +220,7 @@ class JSONLStreamTransformer(StreamTransformer):
                 yield t
             return
 
-        max_workers = 5
+        max_workers = 2
         task_queue: asyncio.Queue[asyncio.Future[list[bytes]]] = asyncio.Queue(max_workers)
         loop = asyncio.get_running_loop()
 
@@ -231,9 +231,9 @@ class JSONLStreamTransformer(StreamTransformer):
                     writer.write_batch(record_batch)
                 size = sink.size()
 
-                shm = sm.SharedMemory(create=True, size=size)
-
                 try:
+                    shm = sm.SharedMemory(create=True, size=size)
+
                     stream = pa.FixedSizeBufferWriter(pa.py_buffer(shm.buf))
                     with pa.RecordBatchStreamWriter(stream, record_batch.schema) as writer:
                         writer.write_batch(record_batch)
@@ -247,7 +247,8 @@ class JSONLStreamTransformer(StreamTransformer):
                     del sink
 
                 finally:
-                    shm.close()
+                    if "shm" in locals():
+                        locals()["shm"].close()
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
             producer_task = asyncio.create_task(producer(executor))
@@ -350,14 +351,13 @@ def transform_record_batch_from_shared_memory(shm_name: str, transformer: Stream
 
     try:
         shm = sm.SharedMemory(name=shm_name)
+
         buffer_reader = pa.BufferReader(shm.buf)
         with pa.RecordBatchStreamReader(buffer_reader) as reader:
             record_batch = reader.read_next_batch()
 
         record_batch = cast_record_batch_json_columns(record_batch)
-        chunks = list(transformer.transform_batch(record_batch))
-
-        return chunks
+        return list(transformer.transform_batch(record_batch))
     finally:
         if buffer_reader:
             del buffer_reader
