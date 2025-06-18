@@ -40,6 +40,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
+        setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
+        setUserHasInteractedWithFloatingMax: (userHasInteracted: boolean) => ({ userHasInteracted }),
     }),
     reducers({
         toolMap: [
@@ -54,6 +56,21 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     delete newState[key]
                     return newState
                 },
+            },
+        ],
+        isFloatingMaxExpanded: [
+            true,
+            {
+                persist: true,
+            },
+            {
+                setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
+            },
+        ],
+        userHasInteractedWithFloatingMax: [
+            false,
+            {
+                setUserHasInteractedWithFloatingMax: (_, { userHasInteracted }) => userHasInteracted,
             },
         ],
     }),

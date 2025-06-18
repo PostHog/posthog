@@ -7,20 +7,20 @@ import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAu
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
 import { generateBurstPoints } from './utils'
 
 // Constants
-const STORAGE_KEY = 'posthog-floating-max-expanded'
 const WAVE_INTERVAL_MS = 5000
 
 interface QuestionInputWithInteractionTrackingProps {
@@ -49,57 +49,31 @@ function QuestionInputWithInteractionTracking({
     return <QuestionInput isFloating={isFloating} placeholder={placeholder} />
 }
 
-// Helper function to safely access localStorage
-const getStoredExpansionState = (): boolean => {
-    try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        return saved !== null ? JSON.parse(saved) : true
-    } catch {
-        return true // Default to expanded if localStorage is unavailable
-    }
-}
-
-const setStoredExpansionState = (isExpanded: boolean): void => {
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(isExpanded))
-    } catch {
-        // Silently fail if localStorage is unavailable (e.g., in private browsing)
-    }
-}
-
 function MaxFloatingInputWithLogic(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelLogic)
     const { activeStreamingThreads } = useValues(maxLogic)
+    const { isFloatingMaxExpanded, userHasInteractedWithFloatingMax } = useValues(maxGlobalLogic)
+    const { setIsFloatingMaxExpanded, setUserHasInteractedWithFloatingMax } = useActions(maxGlobalLogic)
     const { user } = useValues(userLogic)
     const { showAuthenticationModal } = useValues(timeSensitiveAuthenticationLogic)
-
-    // Initialize state from localStorage, default to expanded (true)
-    const [isExpanded, setIsExpanded] = useState(getStoredExpansionState)
-    const [hasUserInteracted, setHasUserInteracted] = useState(false)
     const hedgehogActorRef = useRef<HedgehogActor | null>(null)
 
-    // Memoized callbacks
     const handleExpand = (): void => {
-        setHasUserInteracted(true)
-        setIsExpanded(true)
+        setUserHasInteractedWithFloatingMax(true)
+        setIsFloatingMaxExpanded(true)
     }
 
     const handleCollapse = (): void => {
-        setIsExpanded(false)
+        setIsFloatingMaxExpanded(false)
     }
 
     const handleUserInteraction = (): void => {
-        setHasUserInteracted(true)
+        setUserHasInteractedWithFloatingMax(true)
     }
 
     const handleOpenSidePanel = (): void => {
         openSidePanel(SidePanelTab.Max)
     }
-
-    // Persist expansion state to localStorage whenever it changes
-    useEffect(() => {
-        setStoredExpansionState(isExpanded)
-    }, [isExpanded])
 
     // Watch for when a new conversation starts and open the sidebar
     useEffect(() => {
@@ -110,16 +84,16 @@ function MaxFloatingInputWithLogic(): JSX.Element {
 
     // Trigger wave animation periodically when collapsed
     useEffect(() => {
-        if (!isExpanded && hedgehogActorRef.current) {
+        if (!isFloatingMaxExpanded && hedgehogActorRef.current) {
             const interval = setInterval(() => {
                 hedgehogActorRef.current?.setAnimation('wave')
             }, WAVE_INTERVAL_MS)
 
             return () => clearInterval(interval)
         }
-    }, [isExpanded])
+    }, [isFloatingMaxExpanded])
 
-    if (!isExpanded) {
+    if (!isFloatingMaxExpanded) {
         // Collapsed state - animated hedgehog in a circle
         return (
             <div className="relative flex items-center justify-end mb-2">
@@ -215,13 +189,13 @@ function MaxFloatingInputWithLogic(): JSX.Element {
     )
 
     // Only show consent popover if user has interacted and no authentication modal is open
-    if (hasUserInteracted && !showAuthenticationModal) {
+    if (userHasInteractedWithFloatingMax && !showAuthenticationModal) {
         return (
             <AIConsentPopoverWrapper
                 placement="top-start"
                 fallbackPlacements={['top-end', 'bottom-start', 'bottom-end']}
                 showArrow
-                onDismiss={() => setHasUserInteracted(false)}
+                onDismiss={() => setUserHasInteractedWithFloatingMax(false)}
             >
                 {expandedContent}
             </AIConsentPopoverWrapper>
