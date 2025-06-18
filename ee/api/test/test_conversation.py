@@ -189,6 +189,21 @@ class TestConversation(APIBaseTest):
             self.assertIn('"type":"ai/failure"', content)
             self.assertIn("It looks like I'm having trouble answering this", content)
 
+            # Verify the error message is the last thing the client sees
+            # Split content into lines and find the last message event
+            lines = content.strip().split("\n")
+            last_message_event = None
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].startswith("event: message"):
+                    # Find the corresponding data line
+                    if i + 1 < len(lines) and lines[i + 1].startswith("data: "):
+                        last_message_event = lines[i + 1]
+                        break
+
+            self.assertIsNotNone(last_message_event, "Should have a last message event")
+            self.assertIn('"type":"ai/failure"', last_message_event)
+            self.assertIn("It looks like I'm having trouble answering this", last_message_event)
+
     def test_cancel_conversation(self):
         conversation = Conversation.objects.create(
             user=self.user, team=self.team, title="Test conversation", type=Conversation.Type.ASSISTANT

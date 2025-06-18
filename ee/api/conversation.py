@@ -20,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import AssistantEventType, FailureMessage, HumanMessage
+from posthog.schema import FailureMessage, HumanMessage
 from posthog.utils import get_instance_region
 from uuid import uuid4
 
@@ -125,8 +125,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     content="Oops! It looks like I'm having trouble answering this. Could you please try again?",
                     id=str(uuid4()),
                 )
-                yield f"event: {AssistantEventType.MESSAGE}\n"
-                yield f"data: {failure_message.model_dump_json(exclude_none=True)}\n\n"
+                yield assistant._serialize_message(failure_message)
 
         assistant._stream = safe_stream_wrapper  # type: ignore[method-assign]
         return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")
