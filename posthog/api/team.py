@@ -512,12 +512,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             serializer.save()
 
         if config_data := validated_data.pop("marketing_analytics_config", None):
-            # Capture the old sources_map before saving
-            old_sources_map = (
-                instance.marketing_analytics_config.sources_map.copy()
-                if instance.marketing_analytics_config.sources_map
-                else {}
-            )
+            # Capture the old config before saving
+            old_config = {
+                "sources_map": (
+                    instance.marketing_analytics_config.sources_map.copy()
+                    if instance.marketing_analytics_config.sources_map
+                    else {}
+                ),
+                # Add other fields as they're added to the model
+                # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
+            }
 
             marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
                 instance.marketing_analytics_config, data=config_data, partial=True
@@ -528,11 +532,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             marketing_serializer.save()
 
             # Log activity for marketing analytics config changes
-            new_sources_map = config_data.get("sources_map", {})
+            new_config = {
+                "sources_map": config_data.get("sources_map", {}),
+                # Add other fields as they're added to the model
+                # "conversion_goals": config_data.get("conversion_goals", []),
+            }
             marketing_config_changes_between = dict_changes_between(
                 "Team",
-                {"marketing_analytics_config": old_sources_map},
-                {"marketing_analytics_config": new_sources_map},
+                {"marketing_analytics_config": old_config},
+                {"marketing_analytics_config": new_config},
                 use_field_exclusions=True,
             )
 

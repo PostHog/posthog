@@ -1,5 +1,7 @@
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
 
+import { MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
+
 import { ClearSourceDescriber } from './ClearSourceDescriber'
 import { ColumnMappedDescriber } from './ColumnMappedDescriber'
 import { ColumnMappingChangedDescriber } from './ColumnMappingChangedDescriber'
@@ -13,64 +15,85 @@ export const MarketingAnalyticsConfigurationDescriber = (change?: ActivityChange
         return null
     }
 
-    // It should always be a record, but we'll be defensive
-    const before = (change.before ?? {}) as Record<string, any>
-    const after = (change.after ?? {}) as Record<string, any>
+    const sourceMapDescriptions = MarketingAnalyticsSourceMapDescriber(change) ?? []
 
-    if (!Object.keys(before).length && !Object.keys(after).length) {
+    return { description: [...sourceMapDescriptions] }
+}
+
+const MarketingAnalyticsSourceMapDescriber = (change?: ActivityChange): JSX.Element[] | null => {
+    if (!change) {
         return null
     }
 
-    const descriptions: JSX.Element[] = []
+    const sourceMapBefore: Record<string, SourceMap> =
+        ((change.before ?? {}) as MarketingAnalyticsConfig).sources_map ?? {}
+    const sourceMapAfter: Record<string, SourceMap> =
+        ((change.after ?? {}) as MarketingAnalyticsConfig).sources_map ?? {}
 
-    if (!Object.keys(before).length && Object.keys(after).length) {
-        const key = Object.keys(after)[0]
-        // First source being configured
-        descriptions.push(
-            <ConfigurationAddedDescriber
-                sourceKey={key}
-                columnKey={Object.keys(after[key])[0]}
-                mappedField={Object.values(after[key])[0] as string}
-            />
-        )
-    } else if (Object.keys(before).length && !Object.keys(after).length) {
-        const key = Object.keys(before)[0]
+    if (!Object.keys(sourceMapBefore).length && !Object.keys(sourceMapAfter).length) {
+        return null
+    }
+
+    const sourceMapDescriptions: JSX.Element[] = []
+
+    if (!Object.keys(sourceMapBefore).length && Object.keys(sourceMapAfter).length) {
+        const key = Object.keys(sourceMapAfter)[0]
+        const value = Object.values(sourceMapAfter[key])[0]
+        if (value) {
+            // First source being configured
+            sourceMapDescriptions.push(
+                <ConfigurationAddedDescriber
+                    sourceKey={key}
+                    columnKey={Object.keys(sourceMapAfter[key])[0]}
+                    mappedField={value}
+                />
+            )
+        }
+    } else if (Object.keys(sourceMapBefore).length && !Object.keys(sourceMapAfter).length) {
+        const key = Object.keys(sourceMapBefore)[0]
         // Last source being cleared
-        descriptions.push(<ConfigurationRemovedDescriber sourceKey={key} columnKey={Object.keys(before[key])[0]} />)
-    } else if (Object.keys(before).length && Object.keys(after).length) {
-        const beforeKeys = Object.keys(before)
-        const afterKeys = Object.keys(after)
+        sourceMapDescriptions.push(
+            <ConfigurationRemovedDescriber sourceKey={key} columnKey={Object.keys(sourceMapBefore[key])[0]} />
+        )
+    } else if (Object.keys(sourceMapBefore).length && Object.keys(sourceMapAfter).length) {
+        const beforeKeys = Object.keys(sourceMapBefore)
+        const afterKeys = Object.keys(sourceMapAfter)
 
         // Added sources
         for (const key of afterKeys) {
             if (!beforeKeys.includes(key)) {
-                descriptions.push(
-                    <SourceAddedDescriber
-                        sourceKey={key}
-                        columnKey={Object.keys(after[key])[0]}
-                        mappedField={Object.values(after[key])[0] as string}
-                    />
-                )
+                const value = Object.values(sourceMapAfter[key])[0]
+                if (value) {
+                    sourceMapDescriptions.push(
+                        <SourceAddedDescriber
+                            sourceKey={key}
+                            columnKey={Object.keys(sourceMapAfter[key])[0]}
+                            mappedField={value}
+                        />
+                    )
+                }
             }
         }
         // Removed sources
         for (const key of beforeKeys) {
             if (!afterKeys.includes(key)) {
-                descriptions.push(<ClearSourceDescriber sourceKey={key} columnKey={Object.keys(before[key])[0]} />)
+                sourceMapDescriptions.push(
+                    <ClearSourceDescriber sourceKey={key} columnKey={Object.keys(sourceMapBefore[key])[0]} />
+                )
             }
         }
         // Updated sources
         for (const key of afterKeys) {
             if (beforeKeys.includes(key)) {
-                const beforeCols = before[key] || {}
-                const afterCols = after[key] || {}
+                const beforeCols = sourceMapBefore[key] || {}
+                const afterCols = sourceMapAfter[key] || {}
                 const beforeColKeys = Object.keys(beforeCols)
                 const afterColKeys = Object.keys(afterCols)
 
                 // Added columns
                 for (const col of afterColKeys) {
-                    if (!beforeColKeys.includes(col)) {
-                        descriptions.push(
+                    if (!beforeColKeys.includes(col) && afterCols[col]) {
+                        sourceMapDescriptions.push(
                             <ColumnMappedDescriber sourceKey={key} columnKey={col} mappedField={afterCols[col]} />
                         )
                     }
@@ -78,16 +101,18 @@ export const MarketingAnalyticsConfigurationDescriber = (change?: ActivityChange
                 // Removed columns
                 for (const col of beforeColKeys) {
                     if (!afterColKeys.includes(col)) {
-                        descriptions.push(<ColumnUnmappedDescriber sourceKey={key} columnKey={col} />)
+                        sourceMapDescriptions.push(<ColumnUnmappedDescriber sourceKey={key} columnKey={col} />)
                     }
                 }
                 // Changed columns
                 for (const col of afterColKeys) {
                     if (
                         beforeColKeys.includes(col) &&
-                        JSON.stringify(beforeCols[col]) !== JSON.stringify(afterCols[col])
+                        JSON.stringify(beforeCols[col]) !== JSON.stringify(afterCols[col]) &&
+                        afterCols[col] &&
+                        beforeCols[col]
                     ) {
-                        descriptions.push(
+                        sourceMapDescriptions.push(
                             <ColumnMappingChangedDescriber
                                 sourceKey={key}
                                 columnKey={col}
@@ -101,9 +126,9 @@ export const MarketingAnalyticsConfigurationDescriber = (change?: ActivityChange
         }
     }
 
-    if (descriptions.length === 0) {
+    if (sourceMapDescriptions.length === 0) {
         return null
     }
 
-    return { description: descriptions }
+    return sourceMapDescriptions
 }
