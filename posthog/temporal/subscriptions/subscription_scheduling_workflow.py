@@ -80,8 +80,6 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
     async with Heartbeater():
         logger = get_internal_logger()
 
-        # deliver_subscription = sync_to_async(_deliver_subscription_report)
-
         await logger.ainfo(
             "Delivering subscription report",
             subscription_id=inputs.subscription_id,
@@ -163,9 +161,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> DeliverSubscriptionReportActivityInputs:
-        if not inputs:
-            return DeliverSubscriptionReportActivityInputs()
-
         loaded = json.loads(inputs[0])
         return DeliverSubscriptionReportActivityInputs(**loaded)
 
