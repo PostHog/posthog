@@ -18,8 +18,13 @@ from pydantic import ValidationError
 def test_simple_query_tags():
     uid = uuid.UUID("f3065cb7-10a5-4707-8910-a7c777896ac8")
     qt = QueryTags(
-        team_id=1, name="my name", product=Product.API, http_request_id=uid,
-        git_commit="", container_hostname="", service_name=""
+        team_id=1,
+        name="my name",
+        product=Product.API,
+        http_request_id=uid,
+        git_commit="",
+        container_hostname="",
+        service_name="",
     )
     assert qt.team_id == 1
     assert qt.user_id is None
@@ -31,8 +36,8 @@ def test_simple_query_tags():
 
     data = qt.to_json()
     assert (
-            '{"team_id":1,"product":"api","name":"my name","http_request_id":"f3065cb7-10a5-4707-8910-a7c777896ac8","git_commit":"","container_hostname":"", "service_name": ""}'
-            == data
+        '{"team_id":1,"product":"api","name":"my name","http_request_id":"f3065cb7-10a5-4707-8910-a7c777896ac8","git_commit":"","container_hostname":"", "service_name": ""}'
+        == data
     )
 
 
