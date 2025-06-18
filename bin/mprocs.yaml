@@ -64,11 +64,11 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service capture
 
-    capture-relay:
+    capture-replay:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
-            bin/start-rust-service capture-relay
+            bin/start-rust-service capture-replay
 
     migrate-clickhouse:
         # These migrations are not in the `backend` service, because they typically aren't blocking for backend startup,
