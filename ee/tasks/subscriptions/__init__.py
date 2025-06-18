@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta
+from itertools import groupby
 from typing import Optional
+import posthoganalytics
+
 
 import structlog
 from celery import shared_task
@@ -130,17 +133,39 @@ def schedule_all_subscriptions() -> None:
         Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
+        .select_related("team")
+        .order_by("team_id")
         .all()
     )
 
-    for subscription in subscriptions:
-        logger.info(
-            "Scheduling subscription",
-            subscription_id=subscription.id,
-            next_delivery_date=subscription.next_delivery_date,
-            destination=subscription.target_type,
+    for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
+        use_temporal = posthoganalytics.feature_enabled(
+            "use-temporal-subscriptions",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
-        deliver_subscription_report.delay(subscription.id)
+        if not use_temporal:
+            for subscription in group_subscriptions:
+                logger.info(
+                    "Scheduling subscription",
+                    subscription_id=subscription.id,
+                    next_delivery_date=subscription.next_delivery_date,
+                    destination=subscription.target_type,
+                )
+                deliver_subscription_report.delay(subscription.id)
 
 
 report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 60 * 1.5

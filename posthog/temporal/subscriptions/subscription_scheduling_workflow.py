@@ -3,6 +3,10 @@ import dataclasses
 import datetime as dt
 import typing
 import json
+from itertools import groupby
+
+import posthoganalytics
+
 
 import structlog
 import temporalio.activity
@@ -44,17 +48,45 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
 
     @sync_to_async
-    def get_subscription_ids() -> list[int]:
+    def get_subscription_ids() -> list[Subscription]:
         return list(
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
-            .values_list("id", flat=True)
+            .select_related("team")
+            .order_by("team_id")
+            .all()
         )
 
-    sub_ids = await get_subscription_ids()
-    await logger.ainfo("Fetched subscriptions", subscription_count=len(sub_ids))
-    return sub_ids
+    subscriptions = await get_subscription_ids()
+
+    subscription_ids = []
+
+    for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
+        use_temporal = posthoganalytics.feature_enabled(
+            "use-temporal-subscriptions",
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        if use_temporal:
+            for subscription in group_subscriptions:
+                subscription_ids.append(subscription.id)
+
+    await logger.ainfo("Fetched subscriptions", subscription_count=len(subscription_ids))
+    return subscription_ids
 
 
 @dataclasses.dataclass
