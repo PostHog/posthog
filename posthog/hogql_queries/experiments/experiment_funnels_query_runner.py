@@ -47,8 +47,6 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = 2
-
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
             query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context
@@ -93,7 +91,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
-            stats_version=self.stats_version,
+            stats_version=2,
             expected_loss=loss,
             credible_intervals=credible_intervals,
         )

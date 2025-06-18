@@ -93,8 +93,6 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = 2
-
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
@@ -741,7 +739,7 @@ class ExperimentQueryRunner(QueryRunner):
             probability=probability,
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
-            stats_version=self.stats_version,
+            stats_version=2,
             p_value=p_value,
             credible_intervals=credible_intervals,
         )
