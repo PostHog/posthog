@@ -68,6 +68,33 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): Cyclotron
     }
 }
 
+const serializePropertyFilters = (
+    contextId: HogFunctionConfigurationContextId,
+    properties?: AnyPropertyFilter[]
+): AnyPropertyFilter[] => {
+    const newProperties = properties ?? []
+    switch (contextId) {
+        case 'error-tracking':
+            // newProperties = [...newProperties]
+            return newProperties
+        default:
+            return newProperties
+    }
+}
+
+const deserializePropertyFilters = (
+    contextId: HogFunctionConfigurationContextId,
+    properties: AnyPropertyFilter[]
+): AnyPropertyFilter[] => {
+    switch (contextId) {
+        case 'error-tracking':
+            // TODO: split properties
+            return []
+        default:
+            return properties
+    }
+}
+
 export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
@@ -98,12 +125,12 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                         {taxonomicGroupTypes.length > 0 ? (
                             <PropertyFilters
                                 key={contextId}
-                                propertyFilters={value?.properties ?? []}
+                                propertyFilters={serializePropertyFilters(contextId, value?.properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
                                         ...value,
-                                        properties,
+                                        properties: deserializePropertyFilters(contextId, properties),
                                     })
                                 }}
                                 pageKey={`hog-function-internal-property-filters-${contextId}`}
