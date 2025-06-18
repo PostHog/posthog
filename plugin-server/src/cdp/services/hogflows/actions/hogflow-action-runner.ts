@@ -9,6 +9,7 @@ import { logger } from '~/utils/logger'
 
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
 import { HogFlowActionRunnerDelay } from './action.delay'
+import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
 import { HogFlowActionRunnerWaitForCondition } from './action.wait_for_condition'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
 import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
@@ -19,12 +20,14 @@ export class HogFlowActionRunner {
     private hogFlowActionRunnerDelay: HogFlowActionRunnerDelay
     private hogFlowActionRunnerWaitForCondition: HogFlowActionRunnerWaitForCondition
     private hogFlowActionRunnerWaitUntilTimeWindow: HogFlowActionRunnerWaitUntilTimeWindow
+    private hogFlowActionRunnerRandomCohortBranch: HogFlowActionRunnerRandomCohortBranch
 
     constructor(private hub: Hub) {
         this.hogFlowActionRunnerConditionalBranch = new HogFlowActionRunnerConditionalBranch()
         this.hogFlowActionRunnerDelay = new HogFlowActionRunnerDelay()
         this.hogFlowActionRunnerWaitForCondition = new HogFlowActionRunnerWaitForCondition()
         this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
+        this.hogFlowActionRunnerRandomCohortBranch = new HogFlowActionRunnerRandomCohortBranch()
     }
 
     private findNextActionToRun(_invocation: CyclotronJobInvocationHogFlow): HogFlowAction | undefined {
@@ -133,6 +136,9 @@ export class HogFlowActionRunner {
                     break
                 case 'wait_until_time_window':
                     actionResult = this.hogFlowActionRunnerWaitUntilTimeWindow.run(action)
+                    break
+                case 'random_cohort_branch':
+                    actionResult = this.hogFlowActionRunnerRandomCohortBranch.run(action)
                     break
                 case 'exit':
                     actionResult = {

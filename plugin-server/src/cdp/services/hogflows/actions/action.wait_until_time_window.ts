@@ -33,7 +33,7 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
         let nextTime = now.set({ hour: startHours, minute: startMinutes, second: 0, millisecond: 0 })
         const endTimeToday = now.set({ hour: endHours, minute: endMinutes, second: 0, millisecond: 0 })
 
-        // If we're within the time window today, schedule for end of window
+        // If we're within the time window today, execute immediately
         if (now >= nextTime && now <= endTimeToday && this.isValidDay(now, config.date)) {
             return null
         }
