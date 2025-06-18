@@ -40,7 +40,7 @@ export class HogFlowActionRunner {
         return undefined
     }
 
-    private findActionById(invocation: CyclotronJobInvocationHogFlow, id: string): HogFlowAction {
+    findActionById(invocation: CyclotronJobInvocationHogFlow, id: string): HogFlowAction {
         const action = invocation.hogFlow.actions.find((action) => action.id === id)
         if (!action) {
             throw new Error(`Action ${id} not found`)

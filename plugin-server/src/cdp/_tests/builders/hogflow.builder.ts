@@ -1,0 +1,111 @@
+import { randomUUID } from 'crypto'
+
+import { HogFlow, HogFlowAction, HogFlowEdge } from '~/schema/hogflow'
+import { logger } from '~/utils/logger'
+
+/**
+ * Helps us build like this
+    actions: {
+        'action-1': {
+            type: 'trigger',
+            config: {
+                filters: {},
+            },
+        },
+        'action-2': {
+            type: 'delay',
+            config: {
+                delay_duration: '1h',
+            },
+        },
+    },
+    edges: {
+        'edge-1': {
+            from: 'action-1',
+            to: 'action-2',
+            type: 'continue',
+        },
+        'edge-2': {
+            from: 'action-2',
+            to: 'action-1',
+            type: 'continue',
+        },
+    }
+ */
+export type SimpleHogFlowRepresentation = {
+    actions: Record<string, Pick<HogFlowAction, 'type' | 'config'> & Partial<Omit<HogFlowAction, 'type' | 'config'>>>
+    edges: HogFlowEdge[]
+}
+
+export class FixtureHogFlowBuilder {
+    private hogFlow: HogFlow
+
+    constructor() {
+        this.hogFlow = {
+            id: randomUUID(),
+            version: 1,
+            name: 'Hog Flow',
+            team_id: 1,
+            status: 'active',
+            trigger: {
+                type: 'event',
+                filters: {},
+            },
+            exit_condition: 'exit_on_conversion',
+            edges: [],
+            actions: [],
+        }
+    }
+
+    build(): HogFlow {
+        const triggerAction = this.hogFlow.actions.find((action) => action.type === 'trigger')
+        this.hogFlow.trigger =
+            this.hogFlow.trigger ??
+            (triggerAction
+                ? {
+                      type: triggerAction?.type ?? 'event',
+                      filters: triggerAction?.config?.filters ?? {},
+                  }
+                : undefined)
+
+        if (!this.hogFlow.trigger) {
+            logger.error('[HogFlowBuilder] No trigger action found. Indicates a faulty built workflow')
+        }
+
+        // TODO: Run throught the zod validation?
+
+        return this.hogFlow
+    }
+
+    withTrigger(trigger: HogFlow['trigger']): this {
+        this.hogFlow.trigger = trigger
+        return this
+    }
+
+    withExitCondition(exitCondition: HogFlow['exit_condition']): this {
+        this.hogFlow.exit_condition = exitCondition
+        return this
+    }
+
+    withWorkflow(workflow: SimpleHogFlowRepresentation): this {
+        // TRICKY: Getting the typing right here is really hard...
+        this.hogFlow.actions = Object.entries(workflow.actions).map(([id, action]) => ({
+            id,
+            name: action.type,
+            description: action.type,
+            created_at: Date.now(),
+            updated_at: Date.now(),
+            on_error: 'continue',
+            ...action,
+        }))
+
+        this.hogFlow.edges = Object.values(workflow.edges).map((edge) => ({
+            from: edge.from,
+            to: edge.to,
+            type: edge.type,
+            index: 0,
+        }))
+
+        return this
+    }
+}
