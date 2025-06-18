@@ -36,7 +36,7 @@ import { CyclotronJobInputConfiguration } from './types'
 
 export type CyclotronJobInputsProps = {
     configuration: CyclotronJobInputConfiguration
-    parentConfiguration: CyclotronJobInputConfiguration
+    parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
     onInputChange: (key: string, input: CyclotronJobInputType) => void
     showSource: boolean
@@ -307,7 +307,7 @@ type CyclotronJobInputProps = {
     onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
-    parentConfiguration: CyclotronJobInputConfiguration
+    parentConfiguration?: CyclotronJobInputConfiguration
 }
 
 function CyclotronJobInputRenderer({
@@ -382,7 +382,7 @@ type CyclotronJobInputSchemaControlsProps = {
     onChange: (value: CyclotronJobInputSchemaType | null) => void
     onDone: () => void
     configuration: CyclotronJobInputConfiguration
-    parentConfiguration: CyclotronJobInputConfiguration
+    parentConfiguration?: CyclotronJobInputConfiguration
 }
 
 function CyclotronJobInputSchemaControls({

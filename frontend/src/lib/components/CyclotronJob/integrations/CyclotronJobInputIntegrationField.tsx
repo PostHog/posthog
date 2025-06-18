@@ -21,7 +21,7 @@ export type CyclotronJobInputIntegrationFieldProps = {
     value?: any
     onChange?: (value: any) => void
     configuration: CyclotronJobInputConfiguration
-    parentConfiguration: CyclotronJobInputConfiguration
+    parentConfiguration?: CyclotronJobInputConfiguration
 }
 
 export function CyclotronJobInputIntegrationField({
