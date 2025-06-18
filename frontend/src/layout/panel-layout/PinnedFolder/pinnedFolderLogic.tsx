@@ -25,7 +25,7 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
                     if (pinned) {
                         return `${pinned.protocol || 'products://'}${pinned.path}`
                     }
-                    return 'products://'
+                    return 'shortcuts://'
                 },
             },
         ],
@@ -39,7 +39,7 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
             },
         ],
         selectedFolder: [
-            'products://',
+            'shortcuts://',
             {
                 setSelectedFolder: (_, { id }) => id,
             },

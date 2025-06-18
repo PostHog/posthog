@@ -22,7 +22,7 @@ import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
 export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { modalVisible, pinnedFolder, selectedFolder } = useValues(pinnedFolderLogic)
-    const { hideModal, showModal, setPinnedFolder, setSelectedFolder } = useActions(pinnedFolderLogic)
+    const { hideModal, setPinnedFolder, setSelectedFolder } = useActions(pinnedFolderLogic)
 
     const showDefaultHeader = pinnedFolder !== 'products://' && pinnedFolder !== 'data://'
 
@@ -40,19 +40,6 @@ export function PinnedFolder(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        setPinnedFolder('products://')
-                    }}
-                    data-attr="tree-item-menu-open-link-button"
-                >
-                    <ButtonPrimitive menuItem>
-                        {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
-                        Products
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
                         setPinnedFolder('shortcuts://')
                     }}
                     data-attr="tree-item-menu-open-link-button"
@@ -66,17 +53,13 @@ export function PinnedFolder(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        showModal()
+                        setPinnedFolder('products://')
                     }}
                     data-attr="tree-item-menu-open-link-button"
                 >
                     <ButtonPrimitive menuItem>
-                        {pinnedFolder && pinnedFolder !== 'products://' && pinnedFolder !== 'shortcuts://' ? (
-                            <IconCheck />
-                        ) : (
-                            <IconBlank />
-                        )}
-                        Custom project folder...
+                        {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
+                        Products
                     </ButtonPrimitive>
                 </DropdownMenuItem>
             </DropdownMenuContent>
