@@ -220,18 +220,22 @@ class JSONLStreamTransformer(StreamTransformer):
 
                 shm = sm.SharedMemory(create=True, size=size)
 
-                stream = pa.FixedSizeBufferWriter(pa.py_buffer(shm.buf))
-                with pa.RecordBatchStreamWriter(stream, record_batch.schema) as writer:
-                    writer.write_batch(record_batch)
+                try:
+                    stream = pa.FixedSizeBufferWriter(pa.py_buffer(shm.buf))
+                    with pa.RecordBatchStreamWriter(stream, record_batch.schema) as writer:
+                        writer.write_batch(record_batch)
 
-                tasks.append(loop.run_in_executor(executor, transform_record_batch_from_shared_memory, shm.name, self))
+                    tasks.append(
+                        loop.run_in_executor(executor, transform_record_batch_from_shared_memory, shm.name, self)
+                    )
 
-                del stream
-                del writer
-                del record_batch
-                del sink
+                    del stream
+                    del writer
+                    del record_batch
+                    del sink
 
-                shm.close()
+                finally:
+                    shm.close()
 
             for task in asyncio.as_completed(tasks):
                 result = await task
