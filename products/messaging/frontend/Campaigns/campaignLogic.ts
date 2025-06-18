@@ -1,8 +1,8 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { router } from 'node_modules/kea-router/lib/router'
 import { urls } from 'scenes/urls'
 
 import type { campaignLogicType } from './campaignLogicType'
