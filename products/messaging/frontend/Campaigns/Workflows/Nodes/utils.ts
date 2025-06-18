@@ -1,6 +1,7 @@
 import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xyflow/react'
+import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
-import { Optional } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, Optional } from '~/types'
 
 import {
     BOTTOM_HANDLE_POSITION,
@@ -43,15 +44,14 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
                 position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
                 data: {
                     id: dropzoneId,
-                    name: 'Dropzone',
                     description: '',
                     type: 'delay',
-                    config: null,
+                    config: {
+                        inputs: {},
+                    },
                     on_error: 'continue',
                     created_at: 0,
                     updated_at: 0,
-                    inputs: {},
-                    inputs_schema: [],
                 },
                 draggable: false,
                 selectable: false,
@@ -169,6 +169,88 @@ export const getNodeHandles = (nodeId: string, nodeType: HogFlowAction['type']):
             ]
     }
 }
+
+export const getNodeInputs = (node: HogFlowAction | ToolbarNode): Record<string, CyclotronJobInputType> => {
+    switch (node.type) {
+        case 'message':
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+                email: { value: ('config' in node && node.config.inputs.email.value) || NEW_TEMPLATE },
+            }
+        case 'delay':
+            // TODO(messaging-team): Add a dropdown for the duration unit, add new number input from #33673
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+                duration: { value: ('config' in node && node.config.inputs.duration.value) || 15 },
+            }
+        case 'wait_for_condition':
+            // TODO(messaging-team): Add condition filter, add a dropdown for the duration unit, add new number input from #33673
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+            }
+        case 'conditional_branch':
+            // TODO(messaging-team): Add condition filter
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+            }
+        default:
+            // Default: show the "This does not require any input variables."
+            return {}
+    }
+}
+
+export const getNodeInputsSchema = (node: HogFlowAction | ToolbarNode): CyclotronJobInputSchemaType[] => {
+    switch (node.type) {
+        case 'message':
+            return [
+                {
+                    type: 'string',
+                    key: 'name',
+                    label: 'Name',
+                    required: false,
+                },
+                {
+                    type: 'email',
+                    key: 'email',
+                    label: 'Email',
+                    required: true,
+                },
+            ]
+        case 'delay':
+            // TODO(messaging-team): Add a dropdown for the duration unit, add new number input from #33673
+            return [
+                {
+                    type: 'string',
+                    key: 'name',
+                    label: 'Name',
+                    required: false,
+                },
+                {
+                    type: 'string',
+                    key: 'duration',
+                    label: 'Duration (minutes)',
+                    required: true,
+                },
+            ]
+        case 'wait_for_condition':
+            // TODO(messaging-team): Add condition filter, add a dropdown for the duration unit, add new number input from #33673
+            return []
+        case 'conditional_branch':
+            // TODO(messaging-team): Add condition filter
+            return [
+                {
+                    type: 'string',
+                    key: 'name',
+                    label: 'Name',
+                    required: false,
+                },
+            ]
+        default:
+            // Default: show the "This function does not require any input variables."
+            return []
+    }
+}
+
 export const createNewNode = (
     toolbarNode: ToolbarNode,
     nodeId?: string,
@@ -180,16 +262,14 @@ export const createNewNode = (
         type: toolbarNode.type,
         data: {
             id,
-            name: toolbarNode.name,
             description: '',
-            config: null,
+            config: {
+                inputs: getNodeInputs(toolbarNode),
+            },
             type: toolbarNode.type,
             on_error: 'continue',
             created_at: 0,
             updated_at: 0,
-            // inputs implemented in https://github.com/PostHog/posthog/pull/33678
-            inputs: {},
-            inputs_schema: [],
         },
         handles: getNodeHandles(id, toolbarNode.type),
         position: {
@@ -239,18 +319,18 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
         type: 'trigger',
         data: {
             id: 'trigger_node',
-            name: 'Trigger',
             type: 'trigger',
             description: '',
-            config: null,
+            config: {
+                inputs: {},
+            },
             created_at: 0,
             updated_at: 0,
-            inputs: {},
-            inputs_schema: [],
         },
         handles: getNodeHandles('trigger_node', 'trigger'),
         position: { x: 0, y: 0 },
         ...DEFAULT_NODE_OPTIONS,
+        selectable: false,
         deletable: false,
     },
     {
@@ -258,14 +338,13 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
         type: 'exit',
         data: {
             id: 'exit_node',
-            name: 'Exit',
             type: 'exit',
             description: '',
-            config: null,
+            config: {
+                inputs: {},
+            },
             created_at: 0,
             updated_at: 0,
-            inputs: {},
-            inputs_schema: [],
         },
         handles: getNodeHandles('exit_node', 'exit'),
         position: { x: 0, y: 100 },

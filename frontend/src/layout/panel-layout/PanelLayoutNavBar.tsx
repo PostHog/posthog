@@ -180,12 +180,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
         },
         {
-            identifier: 'Data-management',
+            identifier: 'DataManagement',
             id: 'Data management',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Data-management')
+                    handlePanelTriggerClick('DataManagement')
                 }
             },
             showChevron: true,
