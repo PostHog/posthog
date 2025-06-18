@@ -181,6 +181,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     ref={mergedInputRef}
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                     value={value}
+                    disabled={props.disabled || !!props.disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {
                             event.stopPropagation()
