@@ -46,6 +46,20 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
 
+    def _setup_mocks(self, mock_prompt, mock_openai, mock_output):
+        """Helper method to set up mocks consistently"""
+        # Mock the chain and all method calls properly
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = mock_model
+        mock_model.with_retry.return_value = mock_model
+        mock_openai.return_value = mock_model
+
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = mock_output
+        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+
+        return mock_chain
+
     def _create_tool(self, context=None, team_id=None):
         """Helper to create a SurveyCreatorTool instance"""
         tool = SurveyCreatorTool()
@@ -95,7 +109,12 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             enable_partial_responses=True,
         )
 
-        # Mock the chain created by prompt | model
+        # Mock the chain and all method calls properly
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = mock_model
+        mock_model.with_retry.return_value = mock_model
+        mock_openai.return_value = mock_model
+
         mock_chain = MagicMock()
         mock_chain.invoke.return_value = mock_output
         mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
@@ -140,6 +159,12 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             should_launch=True,
             enable_partial_responses=True,
         )
+
+        # Mock the chain and all method calls properly
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = mock_model
+        mock_model.with_retry.return_value = mock_model
+        mock_openai.return_value = mock_model
 
         mock_chain = MagicMock()
         mock_chain.invoke.return_value = mock_output
@@ -189,9 +214,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             enable_partial_responses=True,
         )
 
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = mock_output
-        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+        mock_chain = self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
         tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
 
@@ -229,9 +252,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             should_launch=False,
         )
 
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = mock_output
-        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+        self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
         tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
 
@@ -246,10 +267,17 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
     @patch("langchain_core.prompts.ChatPromptTemplate.from_messages")
     def test_survey_creation_exception_handling(self, mock_prompt, mock_openai):
         """Test handling of unexpected exceptions during survey creation"""
-        # Mock the chain to raise an exception
-        mock_chain = MagicMock()
+        # Setup mocks first, then override the invoke method to raise exception
+        mock_output = SurveyCreationOutput(
+            name="Test",
+            description="Test",
+            type=SurveyTypeEnum.POPOVER,
+            questions=[SurveyQuestionSchema(type=QuestionTypeEnum.OPEN, question="Test?")],
+            should_launch=False,
+        )
+        mock_chain = self._setup_mocks(mock_prompt, mock_openai, mock_output)
+        # Override to make it raise an exception
         mock_chain.invoke.side_effect = Exception("LLM API Error")
-        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
 
         tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
 
@@ -405,9 +433,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             should_launch=False,
         )
 
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = mock_output
-        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+        self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
         tool = self._create_tool(context={})  # No user_id provided
 
@@ -430,9 +456,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             should_launch=False,
         )
 
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = mock_output
-        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+        self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
         # Use a non-existent user ID
         tool = self._create_tool(context={"user_id": "00000000-0000-0000-0000-000000000000"})
@@ -478,9 +502,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             should_launch=False,
         )
 
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = mock_output
-        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+        mock_chain = self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
         tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
 
@@ -522,6 +544,20 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
         # Clean up the mock API key
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
+
+    def _setup_mocks(self, mock_prompt, mock_openai, mock_output):
+        """Helper method to set up mocks consistently"""
+        # Mock the chain and all method calls properly
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = mock_model
+        mock_model.with_retry.return_value = mock_model
+        mock_openai.return_value = mock_model
+
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = mock_output
+        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+
+        return mock_chain
 
     def _create_tool(self, context=None, team_id=None):
         """Helper to create a SurveyCreatorTool instance"""
@@ -600,9 +636,7 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
                     should_launch=False,
                 )
 
-                mock_chain = MagicMock()
-                mock_chain.invoke.return_value = mock_output
-                mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+                self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
                 tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
 
@@ -638,9 +672,7 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
                     should_launch=should_launch,
                 )
 
-                mock_chain = MagicMock()
-                mock_chain.invoke.return_value = mock_output
-                mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
+                self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
                 tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
 
