@@ -53,7 +53,6 @@ from posthog.temporal.batch_exports.temporary_file import (
 )
 from posthog.temporal.batch_exports.transformer import (
     get_stream_transformer,
-    produce_transformed_chunks_to_queue,
 )
 from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
@@ -1230,7 +1229,8 @@ class ConsumerFromStage:
         records_count = 0
         bytes_count = 0
 
-        async def generate_record_batch():
+        async def track_iteration_of_record_batches():
+            """Wrap generator of record batches to track execution."""
             nonlocal record_batches_count
             nonlocal records_count
             nonlocal bytes_count
@@ -1254,14 +1254,11 @@ class ConsumerFromStage:
                 yield record_batch
 
         current_file_size = 0
-
-        chunk_count = 0
         try:
-            async for chunk in produce_transformed_chunks_to_queue(
-                transformer,
-                generate_record_batch(),
+            async for chunk in transformer.iter_transformed_record_batches(
+                track_iteration_of_record_batches(),
+                max_file_size_bytes,
             ):
-                chunk_count += 1
                 await self.consume_chunk(data=chunk)
                 current_file_size += len(chunk)
 
