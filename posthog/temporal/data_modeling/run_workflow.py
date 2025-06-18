@@ -989,8 +989,8 @@ class RunWorkflow(PostHogWorkflow):
                     status = await fut
                     if status == "completed":
                         is_success = True
-                except temporalio.exceptions.ActivityError:
-                    pass  # is_success remains False
+                except temporalio.exceptions.ActivityError as e:
+                    await logger.ainfo("Activity failed for model %s", done_label, error=str(e))
 
                 if is_success:
                     completed.add(done_label)

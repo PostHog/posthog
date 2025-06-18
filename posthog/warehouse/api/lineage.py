@@ -166,30 +166,27 @@ def get_upstream_dag(team_id: int, model_id: str, should_stringify_numerics: boo
                 except ValueError:
                     name = component
 
+                # Build base node data
+                sync_frequency = (
+                    saved_query.sync_frequency_interval
+                    if saved_query and saved_query.sync_frequency_interval is not None
+                    else None
+                )
+                last_run_at = saved_query.last_run_at if saved_query and saved_query.last_run_at else None
+
+                # Convert python types to strings if requested
                 if should_stringify_numerics:
-                    node_data[node_id] = {
-                        "id": node_id,
-                        "type": "view" if node_uuid else "table",
-                        "name": name,
-                        "sync_frequency": str(saved_query.sync_frequency_interval)
-                        if (saved_query and saved_query.sync_frequency_interval is not None)
-                        else None,
-                        "last_run_at": saved_query.last_run_at.isoformat()
-                        if (saved_query and saved_query.last_run_at)
-                        else None,
-                        "status": saved_query.status if saved_query else None,
-                    }
-                else:
-                    node_data[node_id] = {
-                        "id": node_id,
-                        "type": "view" if node_uuid else "table",
-                        "name": name,
-                        "sync_frequency": saved_query.sync_frequency_interval
-                        if (saved_query and saved_query.sync_frequency_interval is not None)
-                        else None,
-                        "last_run_at": saved_query.last_run_at if (saved_query and saved_query.last_run_at) else None,
-                        "status": saved_query.status if saved_query else None,
-                    }
+                    sync_frequency = str(sync_frequency) if sync_frequency is not None else None
+                    last_run_at = last_run_at.isoformat() if last_run_at else None
+
+                node_data[node_id] = {
+                    "id": node_id,
+                    "type": "view" if node_uuid else "table",
+                    "name": name,
+                    "sync_frequency": sync_frequency,
+                    "last_run_at": last_run_at,
+                    "status": saved_query.status if saved_query else None,
+                }
             if i > 0:
                 source = components[i - 1]
                 target = component
