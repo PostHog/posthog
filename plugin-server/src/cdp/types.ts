@@ -177,7 +177,9 @@ export type MinimalAppMetric = {
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
+        | 'missing_addon'
         | 'fetch'
+
     count: number
 }
 
@@ -290,10 +292,14 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 }
 
 export type HogFlowInvocationContext = {
+    event: HogFunctionInvocationGlobals['event']
     personId?: string
-    event?: any // TODO: Type better
     variables?: Record<string, any>
-    currentActionId?: string
+    currentAction?: {
+        id: string
+        startedAtTimestamp: number
+    }
+    actionStepCount?: number
 }
 
 // Mostly copied from frontend types
@@ -353,6 +359,7 @@ export type HogFunctionType = {
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    is_addon_required: boolean
     template_id?: string
     execution_order?: number
     created_at: string

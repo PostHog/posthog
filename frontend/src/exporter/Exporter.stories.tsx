@@ -23,6 +23,7 @@ const meta: Meta<typeof Exporter> = {
         mockDate: '2023-02-01',
         viewMode: 'story',
     },
+    tags: [], // Omit 'autodocs', as it's broken with Exporter
 }
 
 export default meta
@@ -175,7 +176,7 @@ FunnelTopToBottomBreakdownInsight.args = {
 }
 
 export const FunnelHistoricalTrendsInsight: Story = Template.bind({})
-FunnelHistoricalTrendsInsight.tags = ['autodocs', 'test-skip']
+FunnelHistoricalTrendsInsight.tags = ['test-skip']
 FunnelHistoricalTrendsInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
 }

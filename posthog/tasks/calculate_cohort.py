@@ -49,6 +49,13 @@ logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
+MAX_STUCK_COHORTS_TO_RESET = 10
+
+# Exponential backoff, with the first one starting after 30 minutes
+BACKOFF_DURATION = ExpressionWrapper(
+    timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
+    output_field=DurationField(),
+)
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -61,45 +68,47 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
     ).exclude(is_static=True)
 
 
+def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
+    return Cohort.objects.filter(
+        is_calculating=True,
+        last_calculation__lte=timezone.now() - relativedelta(hours=1),
+        last_calculation__isnull=False,
+        deleted=False,
+    ).exclude(is_static=True)
+
+
+def calculate_stuck_cohorts() -> int:
+    cohort_ids = []
+    for cohort in (
+        get_stuck_cohort_calculation_candidates_queryset()
+        .filter(
+            Q(last_error_at__lte=timezone.now() - BACKOFF_DURATION)  # type: ignore
+            | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
+        )
+        .order_by(F("last_calculation").asc(nulls_first=True))[0:MAX_STUCK_COHORTS_TO_RESET]
+    ):
+        cohort = Cohort.objects.filter(pk=cohort.pk).get()
+        cohort_ids.append(cohort.pk)
+        increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+    logger.warning("enqueued_stuck_cohorts", cohort_ids=cohort_ids, count=len(cohort_ids))
+    return len(cohort_ids)
+
+
 def update_stale_cohort_metrics() -> None:
     now = timezone.now()
-    stale_cohorts = (
-        Cohort.objects.filter(
-            Q(last_calculation__isnull=False),
-            deleted=False,
-            is_calculating=False,
-            errors_calculating__lte=20,
-        )
-        .exclude(is_static=True)
-        .values_list("last_calculation", flat=True)
-    )
+    base_queryset = Cohort.objects.filter(
+        Q(last_calculation__isnull=False),
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
 
-    stale_24h = stale_36h = stale_48h = 0
-    for last_calc in stale_cohorts:
-        if last_calc <= now - relativedelta(hours=48):
-            stale_48h += 1
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=36):
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=24):
-            stale_24h += 1
+    for hours in [24, 36, 48]:
+        stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
+        COHORTS_STALE_COUNT_GAUGE.labels(hours=str(hours)).set(stale_count)
 
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="24").set(stale_24h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="36").set(stale_36h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="48").set(stale_48h)
-
-    stuck_count = (
-        Cohort.objects.filter(
-            is_calculating=True,
-            last_calculation__lte=now - relativedelta(hours=1),
-            last_calculation__isnull=False,
-            deleted=False,
-        )
-        .exclude(is_static=True)
-        .count()
-    )
+    stuck_count = get_stuck_cohort_calculation_candidates_queryset().count()
 
     COHORT_STUCK_COUNT_GAUGE.set(stuck_count)
 
@@ -108,22 +117,29 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     """
     Calculates maximum N cohorts in parallel.
 
+    First processes stuck cohorts, then fills remaining capacity with regular cohorts.
+
     Args:
         parallel_count: Maximum number of cohorts to calculate in parallel.
     """
-    # Exponential backoff, with the first one starting after 30 minutes
-    backoff_duration = ExpressionWrapper(
-        timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
-        output_field=DurationField(),
-    )
 
+    # First, handle stuck cohorts
+    stuck_cohorts_processed = 0
+    try:
+        stuck_cohorts_processed = calculate_stuck_cohorts()
+    except Exception as e:
+        logger.exception("Failed to calculate stuck cohorts", error=str(e))
+
+    remaining_capacity = max(0, parallel_count - stuck_cohorts_processed)
+
+    # Process regular cohorts with remaining capacity
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
-            Q(last_error_at__lte=timezone.now() - backoff_duration)  # type: ignore
+            Q(last_error_at__lte=timezone.now() - BACKOFF_DURATION)  # type: ignore
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
-        .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
+        .order_by(F("last_calculation").asc(nulls_first=True))[0:remaining_capacity]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         logger.info("Enqueuing cohort calculation", cohort_id=cohort.pk, last_calculation=cohort.last_calculation)

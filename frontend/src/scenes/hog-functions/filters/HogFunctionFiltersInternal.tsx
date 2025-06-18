@@ -6,7 +6,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 
-import { AnyPropertyFilter, HogFunctionConfigurationContextId, HogFunctionFiltersType } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -52,11 +52,11 @@ const getFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterO
     }
 }
 
-const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
+const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefined => {
     return value?.events?.[0]?.id
 }
 
-const setSimpleFilterValue = (options: FilterOption[], value: string): HogFunctionFiltersType => {
+const setSimpleFilterValue = (options: FilterOption[], value: string): CyclotronJobFiltersType => {
     return {
         events: [
             {

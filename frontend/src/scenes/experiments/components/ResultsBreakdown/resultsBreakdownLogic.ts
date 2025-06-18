@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { FunnelLayout } from 'lib/constants'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { match, P } from 'ts-pattern'
 
@@ -13,7 +12,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -106,7 +105,9 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         funnelsFilter: {
                             layout: FunnelLayout.vertical,
                             breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                            funnelOrderType: StepOrderValue.ORDERED,
+                            funnelOrderType:
+                                (isExperimentFunnelMetric(metric) && metric.funnel_order_type) ||
+                                StepOrderValue.ORDERED,
                             funnelStepReference: FunnelStepReference.total,
                             funnelVizType: FunnelVizType.Steps,
                             funnelWindowInterval: 14,
@@ -166,13 +167,16 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
 
                         results = match(results)
                             /**
-                             * filter for FunnelSteps[][]
+                             * filter for FunnelSteps[][]. In this case, we get an array for each breakdown group,
+                             * each with an array of steps. We need to filter for each group and remove any empty arrays.
                              */
                             .with(P.array(P.array({ breakdown_value: P.any })), (nestedSteps) =>
-                                nestedSteps.map((stepGroup) => filterFunnelSteps(stepGroup, variants))
+                                nestedSteps
+                                    .map((stepGroup) => filterFunnelSteps(stepGroup, variants))
+                                    .filter((steps) => steps.length > 0)
                             )
                             /**
-                             * filter for FunnelSteps[]
+                             * filter for FunnelSteps[]. In this case, we just get an array of steps
                              */
                             .with(P.array({ breakdown_value: P.any }), (flatSteps) =>
                                 filterFunnelSteps(flatSteps, variants)

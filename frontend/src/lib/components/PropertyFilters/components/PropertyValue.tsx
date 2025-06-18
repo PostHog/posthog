@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -37,7 +37,7 @@ export interface PropertyValueProps {
     inputClassName?: string
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
-    size?: LemonButtonProps['size']
+    size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
 }
