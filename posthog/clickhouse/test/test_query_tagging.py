@@ -4,6 +4,7 @@ from posthog.clickhouse.query_tagging import tag_queries, get_query_tags, tags_c
 expected_builtin_tags = {
     "git_commit": "test",
     "container_hostname": "test",
+    "service_name": "test",
 }
 
 
