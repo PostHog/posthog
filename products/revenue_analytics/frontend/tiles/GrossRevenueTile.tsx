@@ -1,16 +1,16 @@
-import { IconInfo } from '@posthog/icons'
+import { IconGraph, IconInfo, IconLineGraph } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedButtonOption, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, RevenueAnalyticsInsightsQueryGroupBy } from '~/queries/schema/schema-general'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {
     buildDashboardItemId,
+    DisplayMode,
     REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
@@ -24,25 +24,16 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 }
 
 export const GrossRevenueTile = (): JSX.Element => {
-    const { queries, grossRevenueGroupBy } = useValues(revenueAnalyticsLogic)
-    const { setGrossRevenueGroupBy } = useActions(revenueAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { queries, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
+    const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 
     const query = queries[QUERY_ID]
     const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
 
-    const OPTIONS: LemonSegmentedButtonOption<RevenueAnalyticsInsightsQueryGroupBy>[] = [
-        { label: 'All', value: 'all' },
-        {
-            label: 'Product',
-            value: 'product',
-            disabledReason: featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_PRODUCT_GROUPING] ? undefined : 'Coming soon',
-        },
-        {
-            label: 'Cohort',
-            value: 'cohort',
-            disabledReason: featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_COHORT_GROUPING] ? undefined : 'Coming soon',
-        },
+    const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
+        { value: 'line', icon: <IconLineGraph /> },
+        { value: 'area', icon: <IconAreaChart /> },
+        { value: 'bar', icon: <IconGraph /> },
     ]
 
     return (
@@ -54,14 +45,14 @@ export const GrossRevenueTile = (): JSX.Element => {
                         <IconInfo />
                     </Tooltip>
                 </h3>
-                <span className="flex items-center gap-1 text-muted-alt">
-                    Group by&nbsp;
-                    <LemonSegmentedButton<RevenueAnalyticsInsightsQueryGroupBy>
-                        options={OPTIONS}
-                        value={grossRevenueGroupBy}
-                        onChange={setGrossRevenueGroupBy}
+                <div className="flex items-center gap-1 text-muted-alt">
+                    <LemonSegmentedButton
+                        value={insightsDisplayMode}
+                        onChange={setInsightsDisplayMode}
+                        options={DISPLAY_MODE_OPTIONS}
+                        size="small"
                     />
-                </span>
+                </div>
             </div>
 
             <Query query={query} readOnly context={context} />

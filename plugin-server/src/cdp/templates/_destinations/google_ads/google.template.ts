@@ -1,4 +1,4 @@
-import { HogFunctionInputSchemaType } from '~/src/cdp/types'
+import { HogFunctionInputSchemaType } from '~/cdp/types'
 
 import { HogFunctionTemplate } from '../../types'
 

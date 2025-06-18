@@ -11,7 +11,6 @@ from posthog.schema import (
     CurrencyCode,
     DateRange,
     PropertyOperator,
-    RevenueSources,
     RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsInsightsQueryResponse,
     RevenueAnalyticsInsightsQueryGroupBy,
@@ -167,26 +166,22 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_revenue_analytics_insights_query(
         self,
         date_range: DateRange | None = None,
-        revenue_sources: RevenueSources | None = None,
         interval: IntervalType | None = None,
-        group_by: RevenueAnalyticsInsightsQueryGroupBy | None = None,
+        group_by: list[RevenueAnalyticsInsightsQueryGroupBy] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range: DateRange = DateRange(date_from="-6m")
-        if revenue_sources is None:
-            revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
         if interval is None:
             interval = IntervalType.MONTH
         if group_by is None:
-            group_by = RevenueAnalyticsInsightsQueryGroupBy.ALL
+            group_by = []
         if properties is None:
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
             query = RevenueAnalyticsInsightsQuery(
                 dateRange=date_range,
-                revenueSources=revenue_sources,
                 interval=interval,
                 groupBy=group_by,
                 properties=properties,
@@ -212,7 +207,13 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_no_crash_when_no_source_is_selected(self):
         results = self._run_revenue_analytics_insights_query(
-            revenue_sources=RevenueSources(events=[], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["non-existent-source"],
+                )
+            ],
         ).results
 
         self.assertEqual(results, [])
@@ -273,7 +274,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_with_data_for_product_grouping(self):
         results = self._run_revenue_analytics_insights_query(
-            group_by=RevenueAnalyticsInsightsQueryGroupBy.PRODUCT
+            group_by=[RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]
         ).results
 
         self.assertEqual(len(results), 6)
@@ -348,24 +349,45 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_with_data_for_cohort_grouping(self):
+    def test_with_data_with_double_grouping(self):
         results = self._run_revenue_analytics_insights_query(
-            group_by=RevenueAnalyticsInsightsQueryGroupBy.COHORT
+            group_by=[RevenueAnalyticsInsightsQueryGroupBy.COHORT, RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]
         ).results
 
-        self.assertEqual(len(results), 2)
+        # 12 comes from the 6 products and 2 cohorts
+        self.assertEqual(len(results), 12)
         self.assertEqual(
             [result["label"] for result in results],
             [
-                "stripe.posthog_test - 2025-01",
-                "stripe.posthog_test - 2025-02",
+                "stripe.posthog_test - 2025-01 - Product F",
+                "stripe.posthog_test - 2025-01 - Product D",
+                "stripe.posthog_test - 2025-01 - Product A",
+                "stripe.posthog_test - 2025-01 - Product B",
+                "stripe.posthog_test - 2025-01 - Product C",
+                "stripe.posthog_test - 2025-01 - Product E",
+                "stripe.posthog_test - 2025-02 - Product F",
+                "stripe.posthog_test - 2025-02 - Product D",
+                "stripe.posthog_test - 2025-02 - Product A",
+                "stripe.posthog_test - 2025-02 - Product B",
+                "stripe.posthog_test - 2025-02 - Product E",
+                "stripe.posthog_test - 2025-02 - Product C",
             ],
         )
         self.assertEqual(
             [result["data"] for result in results],
             [
-                [0, 0, Decimal("9025.20409"), 0, Decimal("9009.96545"), 0, Decimal("8864.83175")],
-                [0, 0, 0, Decimal("9474.87946"), 0, Decimal("8882.54906"), 0],
+                [0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0, Decimal("8332.34808")],
+                [0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0, Decimal("386.90365")],
+                [0, 0, Decimal("98.4295"), 0, Decimal("215.3494"), 0, Decimal("115.9635")],
+                [0, 0, Decimal("195.6635"), 0, Decimal("72.2879"), 0, Decimal("19.5265")],
+                [0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0, Decimal("9.74731")],
+                [0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0, Decimal("0.34271")],
+                [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
+                [0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0],
+                [0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695"), 0],
+                [0, 0, 0, Decimal("547.1405"), 0, Decimal("79.69203"), 0],
+                [0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0],
+                [0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564"), 0],
             ],
         )
 
@@ -390,7 +412,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # When grouping results should be exactly the same, just the label changes
         results = self._run_revenue_analytics_insights_query(
-            group_by=RevenueAnalyticsInsightsQueryGroupBy.PRODUCT,
+            group_by=[RevenueAnalyticsInsightsQueryGroupBy.PRODUCT],
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="product",
@@ -404,6 +426,24 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([result["label"] for result in results], ["stripe.posthog_test - Product C"])
         self.assertEqual([result["data"] for result in results], expected_data)
 
+    def test_with_country_filter(self):
+        results = self._run_revenue_analytics_insights_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="country",
+                    operator=PropertyOperator.EXACT,
+                    value=["US"],
+                )
+            ]
+        ).results
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual([result["label"] for result in results], ["stripe.posthog_test"])
+        self.assertEqual(
+            [result["data"] for result in results],
+            [[0, 0, Decimal("294.093"), 0, Decimal("287.6373"), 0, Decimal("135.49")]],
+        )
+
     def test_with_events_data(self):
         s1 = str(uuid7("2024-12-25"))
         s2 = str(uuid7("2025-01-03"))
@@ -415,7 +455,13 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = self._run_revenue_analytics_insights_query(
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(
@@ -451,7 +497,13 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = self._run_revenue_analytics_insights_query(
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(

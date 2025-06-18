@@ -111,6 +111,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
@@ -164,6 +165,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -213,6 +215,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
@@ -262,6 +265,8 @@ export type QueryResponseAlternative = QueryAllResponses['response']
  */
 export interface Node<R extends Record<string, any> = Record<string, any>> {
     kind: NodeKind
+    /** version of the node, used for schema migrations */
+    version?: number
     /** @internal Don't use this property at runtime, it's here for typing. */
     response?: R
 }
@@ -320,7 +325,7 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
-export interface HogQLQueryResponse extends AnalyticsQueryResponseBase<any[]> {
+export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
     /** Input query string */
     query?: string
     /** Executed ClickHouse query */
@@ -1223,7 +1228,6 @@ export type RetentionFilter = {
     cumulative?: RetentionFilterLegacy['cumulative']
 
     //frontend only
-    showMean?: RetentionFilterLegacy['show_mean']
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /** controls the display of the retention graph */
     display?: ChartDisplayType
@@ -1556,7 +1560,7 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
 
 export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
     columns: any[]
-    types: string[]
+    types?: string[]
     hogql: string
     hasMore?: boolean
     limit: integer
@@ -1884,23 +1888,22 @@ export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: RevenueAnalyticsPropertyFilters
-    revenueSources: RevenueSources
 }
 
-export interface RevenueSources {
-    // These represent the IDs we're interested in from the data warehouse sources
-    dataWarehouseSources: string[]
-
-    // This is a list of strings that represent the event names we're interested in
-    events: string[]
+export enum RevenueAnalyticsInsightsQueryGroupBy {
+    COHORT = 'cohort',
+    COUNTRY = 'country',
+    COUPON = 'coupon',
+    COUPON_ID = 'coupon_id',
+    INITIAL_COUPON = 'initial_coupon',
+    INITIAL_COUPON_ID = 'initial_coupon_id',
+    PRODUCT = 'product',
 }
-
-export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort'
 
 export interface RevenueAnalyticsInsightsQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
     kind: NodeKind.RevenueAnalyticsInsightsQuery
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    groupBy: RevenueAnalyticsInsightsQueryGroupBy[]
     interval: IntervalType
 }
 
@@ -2016,9 +2019,9 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     offset?: integer
     orderBy?: 'latest' | 'earliest'
     searchTerm?: string
-    resource?: string
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
+    serviceNames: string[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
@@ -2101,7 +2104,7 @@ export type FileSystemIconType =
     | 'insightLifecycle'
     | 'insightStickiness'
     | 'insightHogQL'
-
+    | 'insightCalendarHeatmap'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -3143,6 +3146,11 @@ export interface RevenueAnalyticsConfig {
      * @default []
      */
     goals: RevenueAnalyticsGoal[]
+
+    /**
+     * @default false
+     */
+    filter_test_accounts: boolean
 }
 
 export interface PageURL {
@@ -3163,6 +3171,35 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
+
+export interface WebAnalyticsExternalSummaryRequest {
+    date_from: string
+    date_to: string
+    explicit_date?: boolean
+}
+
+export type ExternalQueryErrorCode = 'platform_access_required' | 'query_execution_failed'
+
+export type ExternalQueryStatus = 'success' | 'error'
+
+export interface ExternalQueryError {
+    code: ExternalQueryErrorCode
+    detail: string
+}
+
+export interface WebAnalyticsExternalSummaryQueryResponse {
+    data: Record<string, any>
+    status: ExternalQueryStatus
+    error?: ExternalQueryError
+}
+
+export interface WebAnalyticsExternalSummaryQuery
+    extends Pick<WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>, 'dateRange' | 'properties'> {
+    kind: NodeKind.WebAnalyticsExternalSummaryQuery
+    dateRange: DateRange
+    properties: WebAnalyticsPropertyFilters
+    response?: WebAnalyticsExternalSummaryQueryResponse
+}
 
 export type HeatMapQuerySource = EventsNode
 
