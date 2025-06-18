@@ -40,6 +40,7 @@ case "$RS_SVC" in
     export KAFKA_HOSTS=localhost:9092
     export REDIS_URL=redis://localhost:6479
     export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export KAFKA_EXCEPTIONS_TOPIC="exceptions_ingestion"
     export CAPTURE_MODE=events
     export LOG_LEVEL=debug
     export DEBUG=1
