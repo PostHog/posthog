@@ -36,8 +36,14 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--table-column",
+            type=str,
             help="The column to which --property should be materialised from.",
             default=DEFAULT_TABLE_COLUMN,
+            choices=[
+                "properties",
+                "group_properties",
+                "person_properties",
+            ],
         )
         parser.add_argument(
             "--backfill-period",

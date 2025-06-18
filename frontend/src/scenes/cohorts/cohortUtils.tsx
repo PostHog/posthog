@@ -157,7 +157,7 @@ export function validateGroup(
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
         const errorMsg = `${negatedCriteria
-            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)].label}'`)
+            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)]!.label}'`)
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
             CohortClientErrors.NegationCriteriaMissingOther
         }`
@@ -262,7 +262,8 @@ export function validateGroup(
     return {
         values: criteria.map((c) => {
             const behavioralFilterType = criteriaToBehavioralFilterType(c)
-            let requiredFields = ROWS[behavioralFilterType].fields.filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
+            const row = ROWS[behavioralFilterType]
+            let requiredFields = (row?.fields ?? []).filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
 
             // Edge case where property value is not required if operator is "is set" or "is not set"
             if (

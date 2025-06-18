@@ -127,7 +127,11 @@ SELECT
     ${propertyName}${conversionGoal.schema.utm_source_name} as ${tableColumns.source_name},
     count(*) as conversion_${index}
 FROM ${getConversionGoalTable(conversionGoal)} 
-WHERE ${conversionGoal.type === EntityTypes.EVENTS && conversionGoal.id ? `event = '${conversionGoal.id}'` : '1=1'}
+WHERE ${
+                conversionGoal.type === EntityTypes.EVENTS && conversionGoal.id
+                    ? `event = ${typeof conversionGoal.id === 'string' ? `'${conversionGoal.id}'` : conversionGoal.id}`
+                    : '1=1'
+            }
     AND ${tableColumns.campaign_name} IS NOT NULL
     AND ${tableColumns.campaign_name} != ''
     AND ${tableColumns.source_name} IS NOT NULL

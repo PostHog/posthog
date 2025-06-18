@@ -198,10 +198,10 @@ def store_exchange_rates_in_clickhouse(
         reload_results = cluster.map_all_hosts(reload_dict).result()
 
         if not all(insert_results.values()):
-            raise Exception("Failed to insert some exchange rates")
+            raise Exception(f"Failed to insert some exchange rates, {insert_results}")
 
         if not all(reload_results.values()):
-            raise Exception("Failed to reload some exchange_rate_dict dictionary")
+            raise Exception(f"Failed to reload some exchange_rate_dict dictionaries, {reload_results}")
 
     else:
         context.log.warning(f"No exchange rates to store for {date_str}")

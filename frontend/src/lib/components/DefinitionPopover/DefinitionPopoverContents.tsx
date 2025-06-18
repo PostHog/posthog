@@ -490,7 +490,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                                 allowClear={!!optional}
                                                 value={isHogQL ? '' : fieldValue}
                                                 options={[
-                                                    ...columnOptions.filter((col) => (type ? col.type === type : true)),
+                                                    ...columnOptions.filter((col) => !type || col.type === type),
                                                     ...(allowHogQL ? [hogqlOption] : []),
                                                 ]}
                                                 onChange={(value: string | null) =>

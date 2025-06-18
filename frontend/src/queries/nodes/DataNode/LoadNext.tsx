@@ -87,8 +87,8 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
     return (
         <>
             <span>
-                Showing {showFirstPrefix ? 'the first ' : ' '}
-                {isSingleEntry ? 'one' : resultCount} {isSingleEntry ? 'entry' : 'entries'}
+                {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
+                {isSingleEntry ? 'one row' : `${resultCount} rows`}
             </span>
             {lastRefreshTimeUtc && (
                 <>
