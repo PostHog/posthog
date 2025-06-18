@@ -16,7 +16,6 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.printer import to_printed_hogql
@@ -338,11 +337,11 @@ class TrendsQueryRunner(QueryRunner):
             query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
-            query_tags: Optional[QueryTags] = None,
+            query_tags: Optional[dict] = None,
         ):
             try:
                 if query_tags:
-                    query_tagging.update_tags(query_tags)
+                    query_tagging.tag_queries(**query_tags)
 
                 series_with_extra = self.series[index]
 
@@ -386,7 +385,7 @@ class TrendsQueryRunner(QueryRunner):
                             query,
                             self.timings.clone_for_subquery(index),
                             True,
-                            query_tagging.get_query_tags().model_copy(deep=True),
+                            query_tagging.get_query_tags(),
                         ),
                     )
                     for index, query in enumerate(queries)

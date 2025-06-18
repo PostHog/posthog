@@ -1,7 +1,7 @@
 import logging
 import os
 from contextlib import contextmanager
-from enum import StrEnum
+from enum import Enum
 from functools import cache
 from collections.abc import Mapping
 
@@ -16,7 +16,7 @@ from posthog.settings import data_stores
 from posthog.utils import patchable
 
 
-class Workload(StrEnum):
+class Workload(Enum):
     # Default workload
     DEFAULT = "DEFAULT"
     # Analytics queries, other 'lively' queries
@@ -27,7 +27,7 @@ class Workload(StrEnum):
     LOGS = "LOGS"
 
 
-class NodeRole(StrEnum):
+class NodeRole(Enum):
     ALL = "ALL"
     COORDINATOR = "COORDINATOR"
     DATA = "DATA"
@@ -36,7 +36,7 @@ class NodeRole(StrEnum):
 _default_workload = Workload.ONLINE
 
 
-class ClickHouseUser(StrEnum):
+class ClickHouseUser(Enum):
     # Default, not annotated queries goes here.
     DEFAULT = "default"
     # All /api/ requests called programmatically
