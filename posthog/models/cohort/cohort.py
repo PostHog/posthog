@@ -12,7 +12,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
-from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator
+from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, DBBatchIterator
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
@@ -331,11 +331,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         if team_id is None:
             team_id = self.team_id
-        batchsize = 1000
-        from posthog.models.cohort.util import (
-            insert_static_cohort,
-            get_static_cohort_size,
-        )
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -343,52 +338,24 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        try:
-            cursor = connection.cursor()
-            for i in range(0, len(items), batchsize):
-                batch = items[i : i + batchsize]
-                persons_query = (
-                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                    .filter(team_id=team_id)
-                    .filter(
-                        Q(
-                            persondistinctid__team_id=team_id,
-                            persondistinctid__distinct_id__in=batch,
-                        )
-                    )
-                    .exclude(cohort__id=self.id)
+        # Query PersonDistinctId to get person_ids, then join with Person to get UUIDs
+        persons_queryset = (
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id)
+            .filter(
+                Q(
+                    persondistinctid__team_id=team_id,
+                    persondistinctid__distinct_id__in=items,
                 )
-                insert_static_cohort(
-                    list(persons_query.values_list("uuid", flat=True)),
-                    self.pk,
-                    team_id=team_id,
-                )
-                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-                query = UPDATE_QUERY.format(
-                    cohort_id=self.pk,
-                    values_query=sql.replace(
-                        'FROM "posthog_person"',
-                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
-                        1,
-                    ),
-                )
-                cursor.execute(query, params)
+            )
+            .exclude(cohort__id=self.id)
+        )
 
-            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
-            self.count = count
+        # Use DBBatchIterator to stream UUIDs in batches
+        batch_iterator = DBBatchIterator(persons_queryset, batch_size=1000, values_list_field="uuid")
 
-            self.is_calculating = False
-            self.last_calculation = timezone.now()
-            self.errors_calculating = 0
-            self.save()
-        except Exception as err:
-            if settings.DEBUG:
-                raise
-            self.is_calculating = False
-            self.errors_calculating = F("errors_calculating") + 1
-            self.last_error_at = timezone.now()
-            self.save()
-            capture_exception(err)
+        # Call the batching method with ClickHouse insertion enabled
+        self.insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(
         self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000, *, team_id: int
