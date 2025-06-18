@@ -51,6 +51,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
     count_items_in_playlists,
+    schedule_all_subscriptions,
 )
 from posthog.utils import get_crontab
 
@@ -289,6 +290,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 clickhouse_mark_all_materialized.s(),
                 name="clickhouse mark all columns as materialized",
             )
+
+        sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
         sender.add_periodic_task(
             crontab(hour="2", minute=str(randrange(0, 40))),
