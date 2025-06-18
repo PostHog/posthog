@@ -680,7 +680,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
-                        ['data-management://', getDefaultTreeData()],
+                        ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
                     ]
