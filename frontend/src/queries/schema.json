@@ -107,6 +107,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -1764,6 +1767,9 @@
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -1874,6 +1880,9 @@
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_multiplier": {
                     "type": "number"
                 },
                 "math_property": {
@@ -7726,6 +7735,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -8371,6 +8383,9 @@
                 },
                 "math_hogql": {
                     "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
                 },
                 "math_property": {
                     "type": "string"
@@ -9033,6 +9048,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -9279,6 +9297,9 @@
                 },
                 "math_hogql": {
                     "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
                 },
                 "math_property": {
                     "type": "string"
@@ -10589,6 +10610,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -10658,6 +10682,9 @@
                 },
                 "math_hogql": {
                     "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
                 },
                 "math_property": {
                     "type": "string"
