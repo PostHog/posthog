@@ -507,8 +507,8 @@ def clean_stale_partials() -> None:
 def calculate_cohort(parallel_count: int) -> None:
     from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
-    reset_stuck_cohorts()
     enqueue_cohorts_to_calculate(parallel_count)
+    reset_stuck_cohorts()
 
 
 class Polling:
