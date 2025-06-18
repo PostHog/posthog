@@ -96,6 +96,21 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
+                                    if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
+                                        multitabEditorLogic({
+                                            key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                        }).actions.createTab(`SELECT * FROM ${item.name}`)
+                                    } else {
+                                        router.actions.push(urls.sqlEditor(`SELECT * FROM ${item.name}`))
+                                    }
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Query</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
                                     selectSourceTable(item.name)
                                 }}
                             >
@@ -132,9 +147,13 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            multitabEditorLogic({
-                                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                            }).actions.editView(item.record?.view.query.query, item.record?.view)
+                                            if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
+                                                multitabEditorLogic({
+                                                    key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                                }).actions.editView(item.record?.view.query.query, item.record?.view)
+                                            } else {
+                                                router.actions.push(urls.sqlEditor(undefined, item.record?.view.id))
+                                            }
                                         }}
                                     >
                                         <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>
