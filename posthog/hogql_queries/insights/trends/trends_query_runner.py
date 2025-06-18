@@ -96,8 +96,9 @@ class TrendsQueryRunner(QueryRunner):
 
         assert isinstance(query, TrendsQuery)
 
-        if query.trendsFilter and query.trendsFilter.formula and not query.trendsFilter.formulaNodes:
-            query.trendsFilter.formulaNodes = [TrendsFormulaNode(formula=query.trendsFilter.formula)]
+        if query.trendsFilter and query.trendsFilter.formula:
+            if not query.trendsFilter.formulaNodes:
+                query.trendsFilter.formulaNodes = [TrendsFormulaNode(formula=query.trendsFilter.formula)]
             query.trendsFilter.formula = None
 
         # Use the new function to handle WAU/MAU conversions
