@@ -15,7 +15,7 @@ from ee.session_recordings.session_summary.summarize_session import (
 )
 from ee.session_recordings.session_summary.stream import stream_recording_summary
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 
@@ -23,13 +23,10 @@ pytestmark = pytest.mark.django_db
 
 
 class TestSummarizeSession:
-    def test_execute_summarize_session_success(
+    def test_execute_summarize_session_stream_success(
         self,
         mock_user: MagicMock,
         mock_team: MagicMock,
-        mock_raw_metadata: dict[str, Any],
-        mock_raw_events: list[tuple[Any, ...]],
-        mock_raw_events_columns: list[str],
         mock_valid_llm_yaml_response: str,
     ):
         """
@@ -50,14 +47,17 @@ class TestSummarizeSession:
             mock_asyncio_run.side_effect = [mock_handle, (mock_desc, mock_valid_llm_yaml_response)]
             # Get the generator (stream simulation)
             empty_context = ExtraSummaryContext()
-            result_generator = execute_summarize_session(
+            result_generator = execute_summarize_session_stream(
                 session_id=session_id, user_pk=mock_user.pk, team=mock_team, extra_summary_context=empty_context
             )
             # Get all results from generator (consume the stream fully)
             results = list(result_generator)
             # Verify all mocks were called correctly
             assert len(results) == 1
-            assert results[0] == mock_valid_llm_yaml_response
+            assert results[0] == serialize_to_sse_event(
+                event_label="session-summary-stream",
+                event_data=mock_valid_llm_yaml_response,
+            )
 
     @pytest.mark.asyncio
     async def test_prepare_data_no_metadata(self, mock_user: MagicMock, mock_team: MagicMock):
@@ -124,7 +124,7 @@ class TestSummarizeSession:
         with (
             patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "ASGI"),
             patch(
-                "ee.session_recordings.session_summary.stream.execute_summarize_session",
+                "ee.session_recordings.session_summary.stream.execute_summarize_session_stream",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
@@ -155,7 +155,7 @@ class TestSummarizeSession:
         with (
             patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "WSGI"),
             patch(
-                "ee.session_recordings.session_summary.stream.execute_summarize_session",
+                "ee.session_recordings.session_summary.stream.execute_summarize_session_stream",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
