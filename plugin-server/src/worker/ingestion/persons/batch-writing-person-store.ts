@@ -351,7 +351,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         update: Partial<InternalPerson>,
         distinctId: string,
         _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         this.incrementCount('updatePersonForUpdate', distinctId)
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId))
     }
@@ -361,7 +361,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         update: Partial<InternalPerson>,
         distinctId: string,
         _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         this.incrementCount('updatePersonForMerge', distinctId)
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId))
     }
@@ -474,11 +474,19 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     // Private implementation methods
 
+    getCheckCache(): Map<string, InternalPerson | null> {
+        return this.personCheckCache
+    }
+
+    getUpdateCache(): Map<string, PersonUpdate | null> {
+        return this.personUpdateCache
+    }
+
     private getCacheKey(teamId: number, distinctId: string): string {
         return `${teamId}:${distinctId}`
     }
 
-    private clearCache(teamId: number, distinctId: string): void {
+    clearCache(teamId: number, distinctId: string): void {
         const cacheKey = this.getCacheKey(teamId, distinctId)
         this.personUpdateCache.delete(cacheKey)
         this.personCheckCache.delete(cacheKey)
@@ -507,7 +515,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return result
     }
 
-    private getCachedPersonForUpdate(teamId: number, distinctId: string): PersonUpdate | null | undefined {
+    getCachedPersonForUpdate(teamId: number, distinctId: string): PersonUpdate | null | undefined {
         const cacheKey = this.getCacheKey(teamId, distinctId)
         const result = this.personUpdateCache.get(cacheKey)
         if (result !== undefined) {
@@ -529,12 +537,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    private setCachedPersonForUpdate(teamId: number, distinctId: string, person: PersonUpdate | null): void {
+    setCachedPersonForUpdate(teamId: number, distinctId: string, person: PersonUpdate | null): void {
         const cacheKey = this.getCacheKey(teamId, distinctId)
         this.personUpdateCache.set(cacheKey, person)
     }
 
-    private setCheckCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
+    setCheckCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
         const cacheKey = this.getCacheKey(teamId, distinctId)
         this.personCheckCache.set(cacheKey, person)
     }
@@ -574,11 +582,17 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return [person, messages]
     }
 
+    async populatePersonStore(teamId: Team['id'], distinctId: string): Promise<void> {
+        const person = await this.fetchForUpdate(teamId, distinctId)
+        this.setCheckCachedPerson(teamId, distinctId, person)
+        this.setCachedPersonForUpdate(teamId, distinctId, person ? fromInternalPerson(person, distinctId) : null)
+    }
+
     private addPersonUpdateToBatch(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string
-    ): [InternalPerson, TopicMessage[]] {
+    ): [InternalPerson, TopicMessage[], boolean] {
         const existingUpdate = this.getCachedPersonForUpdate(person.team_id, distinctId)
 
         let personUpdate: PersonUpdate
@@ -614,7 +628,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache
-        return [toInternalPerson(personUpdate), []]
+        return [toInternalPerson(personUpdate), [], false]
     }
 
     private addPersonPropertiesUpdateToBatch(
@@ -630,7 +644,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     private async updatePersonNoAssert(
         personUpdate: PersonUpdate,
         source: string
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const operation = 'updatePersonNoAssert' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
         // Convert PersonUpdate back to InternalPerson for database call

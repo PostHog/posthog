@@ -195,12 +195,18 @@ const testWithTeamIngester = (
     describe(name, () => {
         testWithTeamIngesterBase(`${name} (batch writing disabled)`, testFn, {
             ...pluginServerConfig,
-            PERSON_BATCH_WRITING_ENABLED: false,
+            PERSON_BATCH_WRITING_MODE: 'NONE',
         })
 
         testWithTeamIngesterBase(`${name} (batch writing enabled)`, testFn, {
             ...pluginServerConfig,
-            PERSON_BATCH_WRITING_ENABLED: true,
+            PERSON_BATCH_WRITING_MODE: 'BATCH',
+        })
+
+        testWithTeamIngesterBase(`${name} (batch writing shadow mode enabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'SHADOW',
+            PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 100,
         })
     })
 }

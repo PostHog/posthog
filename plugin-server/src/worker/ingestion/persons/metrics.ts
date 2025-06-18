@@ -97,6 +97,12 @@ export const personFallbackOperationsCounter = new Counter({
     labelNames: ['db_write_mode', 'fallback_reason'], // fallback_reason: max_retries, error, conflict
 })
 
+export const personShadowModeComparisonCounter = new Counter({
+    name: 'person_shadow_mode_comparison_total',
+    help: 'Person shadow mode comparison results between measuring and batch stores',
+    labelNames: ['outcome_type'],
+})
+
 export function getVersionBucketLabel(version: number): string {
     if (version === 0) {
         return 'v0'

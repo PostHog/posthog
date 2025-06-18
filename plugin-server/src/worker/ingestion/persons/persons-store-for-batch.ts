@@ -50,19 +50,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         update: Partial<InternalPerson>,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]>
-
-    /**
-     * Updates an existing person with a properties diff rather than the entire property object
-     */
-    updatePersonWithPropertiesDiffForUpdate(
-        person: InternalPerson,
-        propertiesToSet: Properties,
-        propertiesToUnset: string[],
-        otherUpdates: Partial<InternalPerson>,
-        distinctId: string,
-        tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]>
+    ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
      * Updates an existing person for merge operations
@@ -72,7 +60,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         update: Partial<InternalPerson>,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]>
+    ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
      * Deletes a person

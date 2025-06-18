@@ -791,7 +791,7 @@ export class DB {
                 personUpdate.uuid,
                 personUpdate.version,
             ],
-            'updatePersonOptimistically'
+            'updatePersonAssertVersion'
         )
 
         if (result.rows.length === 0) {
@@ -807,7 +807,7 @@ export class DB {
         update: Partial<InternalPerson>,
         tx?: TransactionClient,
         tag?: string
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -818,7 +818,7 @@ export class DB {
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
-            return [person, []]
+            return [person, [], false]
         }
 
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
@@ -862,7 +862,7 @@ export class DB {
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
 
-        return [updatedPerson, [kafkaMessage]]
+        return [updatedPerson, [kafkaMessage], versionDisparity > 0]
     }
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
