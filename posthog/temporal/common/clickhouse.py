@@ -2,10 +2,13 @@ import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
+import enum
 import json
 import ssl
 import typing
 import uuid
+import decimal
+import ipaddress
 from urllib.parse import urljoin
 
 import aiohttp
@@ -14,6 +17,7 @@ import requests
 import structlog
 from django.conf import settings
 
+from posthog.exceptions_capture import capture_exception
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_internal_logger
 
@@ -85,6 +89,89 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return f"{quote_char}{str_data}{quote_char}".encode()
 
 
+def parse_clickhouse_value(value: str, ch_type: str) -> typing.Any:
+    if value == "\\N":
+        return None
+
+    try:
+        if ch_type.startswith("Int") or ch_type.startswith("UInt"):
+            return int(value)
+        if ch_type.startswith("Float"):
+            return float(value)
+        if ch_type in ("String", "FixedString"):
+            return value
+        if ch_type == "UUID":
+            return uuid.UUID(value)
+        if ch_type.startswith("DateTime"):
+            return dt.datetime.fromisoformat(value)
+        if ch_type.startswith("Date"):
+            return dt.date.fromisoformat(value)
+        if ch_type.startswith("Nullable("):
+            inner_type = ch_type[9:-1]
+            return parse_clickhouse_value(value, inner_type)
+        if ch_type.startswith("LowCardinality("):
+            return parse_clickhouse_value(value, ch_type[15:-1])
+        if ch_type.startswith("Decimal"):
+            return decimal.Decimal(value)
+        if ch_type == "IPv4":
+            return ipaddress.IPv4Address(value)
+        if ch_type == "IPv6":
+            return ipaddress.IPv6Address(value)
+        if ch_type.startswith("Enum"):
+            return value
+
+    except Exception as e:
+        capture_exception(e)
+
+        return value
+
+    return value
+
+
+def clickhouse_types_to_arrow_schema(types: dict[str, str]) -> pa.Schema:
+    fields: list[pa.Field] = []
+
+    def parse_ch_type(name: str, ch_type: str, nullable: bool = False) -> pa.Field:
+        if ch_type.startswith("Int") or ch_type.startswith("UInt"):
+            return pa.field(name, pa.int64(), nullable)
+        if ch_type.startswith("Float"):
+            return pa.field(name, pa.float64(), nullable)
+        if ch_type in ("String", "FixedString"):
+            return pa.field(name, pa.string(), nullable)
+        if ch_type == "UUID":
+            return pa.field(name, pa.string(), nullable)
+        if ch_type.startswith("DateTime"):
+            return pa.field(name, pa.timestamp(unit="us"), nullable)
+        if ch_type.startswith("Date"):
+            return pa.field(name, pa.date32(), nullable)
+        if ch_type.startswith("Nullable("):
+            inner_type = ch_type[9:-1]
+            return parse_ch_type(name=name, ch_type=inner_type, nullable=True)
+        if ch_type.startswith("LowCardinality("):
+            return parse_ch_type(name=name, ch_type=ch_type[15:-1])
+        if ch_type.startswith("Decimal"):
+            return pa.field(name, pa.decimal256(scale=32, precision=76), nullable)
+        if ch_type == "IPv4":
+            return pa.field(name, pa.string(), nullable)
+        if ch_type == "IPv6":
+            return pa.field(name, pa.string(), nullable)
+        if ch_type.startswith("Enum"):
+            return pa.field(name, pa.string(), nullable)
+
+        return pa.field(name, pa.string())
+
+    for key, ch_type in types.items():
+        fields.append(parse_ch_type(key, ch_type))
+
+    return pa.schema(fields)
+
+
+class ClickHouseQueryStatus(enum.StrEnum):
+    FINISHED = "Finished"
+    RUNNING = "Running"
+    ERROR = "Error"
+
+
 class ChunkBytesAsyncStreamIterator:
     """Async iterator of HTTP chunk bytes.
 
@@ -128,6 +215,25 @@ class ClickHouseAllReplicasAreStaleError(ClickHouseError):
 
     def __init__(self, query, error_message):
         super().__init__(query, error_message)
+
+
+class ClickHouseClientTimeoutError(ClickHouseError):
+    """Exception raised when `ClickHouseClient` timed-out waiting for a response.
+
+    This does not indicate the query failed as the timeout is local.
+    """
+
+    def __init__(self, query, query_id: str):
+        self.query_id = query_id
+        super().__init__(query, f"Timed-out waiting for response running query '{query_id}'")
+
+
+class ClickHouseQueryNotFound(ClickHouseError):
+    """Exception raised when a query with a given ID is not found."""
+
+    def __init__(self, query, query_id: str):
+        self.query_id = query_id
+        super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
 
 
 class ClickHouseClient:
@@ -305,7 +411,7 @@ class ClickHouseClient:
 
     @contextlib.asynccontextmanager
     async def apost_query(
-        self, query, *data, query_parameters, query_id
+        self, query, *data, query_parameters, query_id, timeout: float | None = None
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -346,9 +452,19 @@ class ClickHouseClient:
         else:
             request_data = query.encode("utf-8")
 
-        async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
-            await self.acheck_response(response, query)
-            yield response
+        if timeout:
+            client_timeout = aiohttp.ClientTimeout(total=timeout)
+        else:
+            client_timeout = None
+
+        try:
+            async with self.session.post(
+                url=self.url, params=params, headers=self.headers, data=request_data, timeout=client_timeout
+            ) as response:
+                await self.acheck_response(response, query)
+                yield response
+        except TimeoutError:
+            raise ClickHouseClientTimeoutError(query, query_id)
 
     @contextlib.contextmanager
     def post_query(self, query, *data, query_parameters, query_id) -> collections.abc.Iterator:
@@ -398,12 +514,16 @@ class ClickHouseClient:
             self.check_response(response, query)
             yield response
 
-    async def execute_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> None:
+    async def execute_query(
+        self, query, *data, query_parameters=None, query_id: str | None = None, timeout: float | None = None
+    ) -> None:
         """Execute the given query in ClickHouse.
 
         This method doesn't return any response.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id):
+        async with self.apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, timeout=timeout
+        ):
             return None
 
     async def read_query(self, query, query_parameters=None, query_id: str | None = None) -> bytes:
@@ -414,6 +534,65 @@ class ClickHouseClient:
         """
         async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
+
+    async def acheck_query(
+        self,
+        query_id: str,
+        raise_on_error: bool = True,
+    ) -> ClickHouseQueryStatus:
+        """Check the status of a query in ClickHouse.
+
+        Arguments:
+            query_id: The ID of the query to check.
+            raise_on_error: Whether to raise an exception if the query has
+                failed.
+        """
+        query = """
+        SELECT type, exception
+        FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
+        WHERE query_id = {{query_id:String}}
+        FORMAT JSONEachRow
+        """
+
+        resp = await self.read_query(
+            query,
+            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+            query_id=f"{query_id}-CHECK",
+        )
+
+        if not resp:
+            raise ClickHouseQueryNotFound(query, query_id)
+
+        lines = resp.split(b"\n")
+
+        events = set()
+        error = None
+        for line in lines:
+            if not line:
+                continue
+
+            loaded = json.loads(line)
+            events.add(loaded["type"])
+
+            error_value = loaded.get("exception", None)
+            if error_value:
+                error = error_value
+
+        if "QueryFinish" in events:
+            return ClickHouseQueryStatus.FINISHED
+        elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
+            if raise_on_error:
+                if error is not None:
+                    error_message = error
+                else:
+                    error_message = f"Unknown query error in query with ID: {query_id}"
+                raise ClickHouseError(query, error_message=error_message)
+
+            return ClickHouseQueryStatus.ERROR
+        elif "QueryStart" in events:
+            return ClickHouseQueryStatus.RUNNING
+        else:
+            raise ClickHouseQueryNotFound(query, query_id)
 
     async def stream_query_as_jsonl(
         self,
@@ -489,6 +668,86 @@ class ClickHouseClient:
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
             await reader.produce(queue=queue)
+
+    async def astream_query_in_batches(
+        self,
+        query: str,
+        *data,
+        query_parameters: dict[str, typing.Any] | None = None,
+        query_id: str | None = None,
+        batch_size: int = 5000,
+        line_separator: bytes = b"\n",
+    ) -> typing.AsyncGenerator[tuple[list[dict[str, typing.Any]], pa.Schema], None]:
+        """Stream typed rows from a ClickHouse query using FORMAT TabSeparatedWithNamesAndTypes.
+
+        Converts string results into native Python types based on ClickHouse column types.
+
+        Arguments:
+            query: The SQL query to execute. Must end with FORMAT TabSeparatedWithNamesAndTypes.
+            query_parameters: Optional query parameters to interpolate.
+            query_id: Optional ClickHouse query ID.
+            batch_size: The number of rows per batch to yield.
+            line_separator: The line separator used in the response (default: newline).
+
+        Yields:
+            Batches of parsed rows, each row as a dict[str, Any].
+        """
+        buffer = b""
+        headers: list[str] | None = None
+        types: list[str] | None = None
+        rows: list[dict[str, typing.Any]] = []
+        line_index = 0
+
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            pa_schema: pa.Schema | None = None
+
+            async for chunk in response.content.iter_any():
+                parts = chunk.split(line_separator)
+                parts[0] = buffer + parts[0]
+                buffer = parts.pop(-1)
+
+                for line in parts:
+                    decoded = line.decode("utf-8").rstrip("\n")
+                    if line_index == 0:
+                        headers = decoded.split("\t")
+                    elif line_index == 1:
+                        types = decoded.split("\t")
+                    else:
+                        assert headers and types
+
+                        if pa_schema is None:
+                            pa_schema = clickhouse_types_to_arrow_schema(dict(zip(headers, types)))
+
+                        raw_values = decoded.split("\t")
+                        parsed = {
+                            key: parse_clickhouse_value(value, ch_type)
+                            for key, value, ch_type in zip(headers, raw_values, types)
+                        }
+                        rows.append(parsed)
+
+                        if len(rows) >= batch_size:
+                            yield (rows, pa_schema)
+                            rows = []
+
+                    line_index += 1
+
+            # Final flush
+            if buffer:
+                decoded = buffer.decode("utf-8").strip()
+                if decoded:
+                    raw_values = decoded.split("\t")
+                    if headers and types:
+                        if pa_schema is None:
+                            pa_schema = clickhouse_types_to_arrow_schema(dict(zip(headers, types)))
+
+                        parsed = {
+                            key: parse_clickhouse_value(value, ch_type)
+                            for key, value, ch_type in zip(headers, raw_values, types)
+                        }
+                        rows.append(parsed)
+            if rows:
+                assert pa_schema
+                yield (rows, pa_schema)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
