@@ -16,7 +16,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
@@ -216,7 +216,7 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
 
             return () => newChart.destroy()
         }
-    }, [data])
+    }, [data, labels])
 
     return <canvas ref={canvasRef} className="h-[300px] w-full" />
 }
@@ -434,8 +434,10 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                             className="my-0"
                                         >
                                             Debug{' '}
-                                            {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'} in
-                                            new tab
+                                            <span>
+                                                {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'}
+                                            </span>{' '}
+                                            in new tab
                                         </LemonButton>
                                     ) : null}
                                 </div>
@@ -449,6 +451,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                 <div className="space-y-4">
                                     <ProfilingStats item={item} />
                                     <QueryContext item={item} />
+                                    <Timing item={item} />
                                 </div>
                             )
                         },
@@ -548,6 +551,8 @@ function ProfilingStats({ item }: { item: Query }): JSX.Element | null {
 function QueryContext({ item }: { item: Query }): JSX.Element | null {
     const logComment = item.logComment
 
+    const [showModifiers, setShowModifiers] = useState(false)
+
     if (!logComment) {
         return null
     }
@@ -569,15 +574,113 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
                 </tbody>
             </table>
             {modifiers && Object.keys(modifiers).length > 0 ? (
+                showModifiers ? (
+                    <CodeSnippet
+                        language={Language.JSON}
+                        maxLinesWithoutExpansion={0}
+                        key={item.query_id}
+                        className="text-sm mb-2 w-80"
+                    >
+                        {JSON.stringify(modifiers, null, 2)}
+                    </CodeSnippet>
+                ) : (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        onClick={() => setShowModifiers(!showModifiers)}
+                        className="my-1"
+                        fullWidth
+                        center
+                    >
+                        {showModifiers ? 'Hide HogQLQueryModifiers' : 'Show HogQLQueryModifiers'}
+                    </LemonButton>
+                )
+            ) : null}
+        </div>
+    )
+}
+
+function Timing({ item }: { item: Query }): JSX.Element | null {
+    const timings = item.logComment?.timings as Record<string, number> | undefined
+
+    const timingsSummary = useMemo(() => {
+        if (!timings) {
+            return null
+        }
+        const rootDuration = timings['.']
+
+        let slowestSpan = { name: '', duration: 0 }
+        const entries = Object.entries(timings)
+        // find the entries where the key is not a prefix of another key. This is quadratic, but the number of entries is small, do something smart if this becomes a problem
+        const leafEntries = entries.filter(
+            ([key]) => !entries.some(([otherKey]) => otherKey.startsWith(key + '/') && otherKey !== key)
+        )
+        for (const [key, val] of leafEntries) {
+            if (val > slowestSpan.duration) {
+                slowestSpan = { name: key, duration: val }
+            }
+        }
+        return {
+            rootDuration,
+            slowestSpan: slowestSpan.name !== '' ? slowestSpan : null,
+        }
+    }, [timings])
+
+    const [showFullTiming, setShowFullTiming] = useState(false)
+    if (!timings || !timingsSummary) {
+        return null
+    }
+
+    return (
+        <div>
+            {showFullTiming ? (
                 <CodeSnippet
                     language={Language.JSON}
                     maxLinesWithoutExpansion={0}
                     key={item.query_id}
                     className="text-sm mb-2 w-80"
                 >
-                    {JSON.stringify(modifiers, null, 2)}
+                    {JSON.stringify(timings, null, 2)}
                 </CodeSnippet>
-            ) : null}
+            ) : (
+                <table className="w-full">
+                    <tbody>
+                        <tr>
+                            <td>Root span duration</td>
+                            <td>{timingsSummary.rootDuration}</td>
+                        </tr>
+                        {timingsSummary.slowestSpan ? (
+                            <>
+                                <tr>
+                                    <td>Slowest span</td>
+                                    <td>
+                                        <div
+                                            className="w-60 overflow-scroll"
+                                            ref={(element) => element?.scrollTo({ left: element?.scrollWidth })}
+                                        >
+                                            {timingsSummary.slowestSpan.name}
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Slowest span duration</td>
+                                    <td>{timingsSummary.slowestSpan.duration}</td>
+                                </tr>
+                            </>
+                        ) : null}
+                    </tbody>
+                </table>
+            )}
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                onClick={() => setShowFullTiming(!showFullTiming)}
+                className="my-1"
+                fullWidth
+                center
+            >
+                {showFullTiming ? 'Show slowest span only' : 'Show full timing'}
+            </LemonButton>
         </div>
     )
 }
