@@ -6,7 +6,13 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 
-import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
+import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import {
+    AnyPropertyFilter,
+    CyclotronJobFiltersType,
+    ErrorTrackingIssueFilter,
+    HogFunctionConfigurationContextId,
+} from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -75,8 +81,14 @@ const serializePropertyFilters = (
     const newProperties = properties ?? []
     switch (contextId) {
         case 'error-tracking':
-            // newProperties = [...newProperties]
-            return newProperties
+            return newProperties.map((p) => {
+                if (p.key && ['assigned_user_group_id', 'assigned_user_id', 'assigned_role_id'].includes(p.key)) {
+                    const type = p.key.match(/^assigned_(.*)_id$/)?.[1] ?? 'user'
+                    const value = { type, id: Number(p.value) } as ErrorTrackingIssueAssignee
+                    return { ...p, key: 'assignee', value } as ErrorTrackingIssueFilter
+                }
+                return p
+            })
         default:
             return newProperties
     }
@@ -88,8 +100,13 @@ const deserializePropertyFilters = (
 ): AnyPropertyFilter[] => {
     switch (contextId) {
         case 'error-tracking':
-            // TODO: split properties
-            return []
+            return properties.map((p) => {
+                if (p.key === 'assignee') {
+                    const { type, id } = p.value as ErrorTrackingIssueAssignee
+                    return { ...p, key: `assigned_${type}_id`, value: id }
+                }
+                return p
+            })
         default:
             return properties
     }
