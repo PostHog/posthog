@@ -33,7 +33,7 @@ where
         }
     };
 
-    let redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
+    let _redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!(

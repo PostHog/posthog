@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
