@@ -9,7 +9,7 @@ from posthog.test.base import BaseTest
 class TestCohort(BaseTest):
     CLASS_DATA_LEVEL_SETUP = False  # So that each test gets a different team_id, ensuring separation of CH data
 
-    def test_insert_by_distinct_id_or_email(self):
+    def test_insert_by_distinct_id(self):
         Person.objects.create(team=self.team, distinct_ids=["000"])
         Person.objects.create(team=self.team, distinct_ids=["123"])
         Person.objects.create(team=self.team)
