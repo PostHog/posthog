@@ -33,7 +33,10 @@ pub enum DependencyType {
 
 impl std::fmt::Display for DependencyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{:?}", self).to_lowercase())
+        match self {
+            DependencyType::Flag => f.write_str("flag"),
+            DependencyType::Cohort => f.write_str("cohort"),
+        }
     }
 }
 
