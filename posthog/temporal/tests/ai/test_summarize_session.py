@@ -195,7 +195,7 @@ class TestStreamLlmSummaryActivity:
             assert spy_setex.call_count == 1 + 8
 
 
-class TestSummarizeSessionWorkflow:
+class TestSummarizeSingleSessionWorkflow:
     @asynccontextmanager
     async def workflow_test_environment(
         self,

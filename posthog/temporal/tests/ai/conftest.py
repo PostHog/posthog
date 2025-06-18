@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from typing import Any
 from posthog.redis import get_client
+from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
 
 
 @pytest.fixture
@@ -51,6 +52,26 @@ def mock_single_session_summary_llm_inputs(
             window_mapping_reversed=mock_window_mapping_reversed,
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
+        )
+
+    return _create_inputs
+
+
+@pytest.fixture
+def mock_session_group_summary_inputs(
+    mock_user: MagicMock,
+    mock_team: MagicMock,
+) -> Callable:
+    """Factory to produce inputs for session-group-summary related workflows/activities"""
+
+    def _create_inputs(
+        session_ids: list[str], redis_input_key_base: str = "test_input_base"
+    ) -> SessionGroupSummaryInputs:
+        return SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_pk=mock_user.pk,
+            team_id=mock_team.id,
+            redis_input_key_base=redis_input_key_base,
         )
 
     return _create_inputs
