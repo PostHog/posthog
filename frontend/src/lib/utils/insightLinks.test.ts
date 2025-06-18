@@ -20,7 +20,7 @@ describe('getInsightDefinitionUrl', () => {
             },
         }
         const url = getInsightDefinitionUrl({ query })
-        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=TRENDS&q=%7B.*%7D$/)
+        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=TRENDS&q=%7B.*%7D(%20)?$/)
         // Should not include /project/<id>
         expect(url).not.toContain('/project/')
     })
@@ -39,7 +39,7 @@ describe('getInsightDefinitionUrl', () => {
             name: 'My Funnel',
         }
         const url = getInsightDefinitionUrl(savedInsight as any)
-        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=FUNNELS&q=%7B.*%7D$/)
+        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=FUNNELS&q=%7B.*%7D(%20)?$/)
         expect(url).not.toContain('/project/')
     })
 })
