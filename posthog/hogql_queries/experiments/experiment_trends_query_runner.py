@@ -6,11 +6,6 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
-from posthog.hogql_queries.experiments.trends_statistics import (
-    are_results_significant,
-    calculate_credible_intervals,
-    calculate_probabilities,
-)
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
@@ -69,7 +64,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
-        self.stats_version = self.experiment.get_stats_config("version") or 1
+        self.stats_version = 2
 
         self._fix_math_aggregation()
 
@@ -291,26 +286,21 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
-        if self.stats_version == 2:
-            match self._get_metric_type():
-                case ExperimentMetricType.CONTINUOUS:
-                    probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
-                    significance_code, p_value = are_results_significant_v2_continuous(
-                        control_variant, test_variants, probabilities
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
-                case ExperimentMetricType.COUNT:
-                    probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
-                    significance_code, p_value = are_results_significant_v2_count(
-                        control_variant, test_variants, probabilities
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
-                case _:
-                    raise ValueError(f"Unsupported metric type: {self._get_metric_type()}")
-        else:
-            probabilities = calculate_probabilities(control_variant, test_variants)
-            significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
-            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        match self._get_metric_type():
+            case ExperimentMetricType.CONTINUOUS:
+                probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            case ExperimentMetricType.COUNT:
+                probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                significance_code, p_value = are_results_significant_v2_count(
+                    control_variant, test_variants, probabilities
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+            case _:
+                raise ValueError(f"Unsupported metric type: {self._get_metric_type()}")
 
         return ExperimentTrendsQueryResponse(
             kind="ExperimentTrendsQuery",

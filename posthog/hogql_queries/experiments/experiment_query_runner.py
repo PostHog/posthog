@@ -109,15 +109,12 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Determine which statistical method to use
         if self.experiment.stats_config is None:
-            self.stats_version = 2
             # Default to "bayesian" if not specified
             self.stats_method = "bayesian"
-
         else:
             self.stats_method = self.experiment.stats_config.get("method", "bayesian")
             if self.stats_method not in ["bayesian", "frequentist"]:
                 self.stats_method = "bayesian"
-            self.stats_version = self.experiment.stats_config.get("version", 1)
 
         # Just to simplify access
         self.metric = self.query.metric

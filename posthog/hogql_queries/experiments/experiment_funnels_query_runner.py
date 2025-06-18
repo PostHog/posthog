@@ -3,11 +3,6 @@ from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.funnels_statistics import (
-    are_results_significant,
-    calculate_credible_intervals,
-    calculate_probabilities,
-)
 from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
     are_results_significant_v2,
     calculate_credible_intervals_v2,
@@ -52,7 +47,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = self.experiment.get_stats_config("version") or 1
+        self.stats_version = 2
 
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
@@ -81,14 +76,9 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
             # Statistical analysis
             control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
-            if self.stats_version == 2:
-                probabilities = calculate_probabilities_v2(control_variant, test_variants)
-                significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
-                credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
-            else:
-                probabilities = calculate_probabilities(control_variant, test_variants)
-                significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
-                credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+            probabilities = calculate_probabilities_v2(control_variant, test_variants)
+            significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
         except Exception as e:
             raise ValueError(f"Error calculating experiment funnel results: {str(e)}") from e
 
