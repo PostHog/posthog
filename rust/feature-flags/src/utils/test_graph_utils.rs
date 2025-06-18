@@ -383,14 +383,19 @@ mod tests {
                 TestItem::new(4, HashSet::from([5])),
                 TestItem::new(5, HashSet::new()),
                 TestItem::new(6, HashSet::new()),
-                // Cycle: (11, 12) -> (10, 13) -> (7 -> 8 -> 9 -> 7)
+                // Cycle: (7 -> 8 -> 9 -> 7)
+                // 10 -> (7 cycle)
+                // 11 -> 10 -> (7 cycle)
+                // 11 -> (7 cycle)
+                // 12 -> 10 -> (7 cycle)
+                // 13 -> (7 cycle)
                 TestItem::new(7, HashSet::from([8])),
                 TestItem::new(8, HashSet::from([9])), // Starts the cycle.
                 TestItem::new(9, HashSet::from([7])),
                 TestItem::new(10, HashSet::from([7])), // Needs to removed because it depends on a cycle.
-                TestItem::new(11, HashSet::from([10])), // Needs to removed because it depends on a node that depends on a cycle.
+                TestItem::new(11, HashSet::from([10, 7])), // Needs to removed because it depends on a node that depends on a cycle.
                 TestItem::new(12, HashSet::from([10])), // Needs to removed because it depends on a node that depends on a cycle.
-                TestItem::new(13, HashSet::from([10])), // Needs to removed because it depends on a cycle.
+                TestItem::new(13, HashSet::from([7])), // Needs to removed because it depends on a cycle.
                 // Cycle: 14 -> 15 -> 16 -> 14
                 TestItem::new(14, HashSet::from([15])),
                 TestItem::new(15, HashSet::from([16])),
