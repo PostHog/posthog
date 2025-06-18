@@ -17,4 +17,10 @@
             opacity: 1;
         }
     }
+
+    // Progress bar styles
+    .progress-bar-active {
+        width: 0%;
+        transition: width 0.1s ease-linear;
+    }
 }

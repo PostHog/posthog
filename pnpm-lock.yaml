@@ -944,9 +944,6 @@ importers:
       react-grid-layout:
         specifier: ^1.3.0
         version: 1.3.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      react-insta-stories:
-        specifier: ^2.8.0
-        version: 2.8.0(react@18.2.0)
       react-instantsearch:
         specifier: ^7.6.0
         version: 7.6.0(algoliasearch@4.22.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -15087,11 +15084,6 @@ packages:
       react: '>= 16.3.0'
       react-dom: '>= 16.3.0'
 
-  react-insta-stories@2.8.0:
-    resolution: {integrity: sha512-GkzJGEomtWLf27zsZQ31Tgd+uWLLarVZr/XY8PVEZp89711gsAc3lW+rTzoHU+tlLbhhrSeQTttPA68ViXI+ag==}
-    peerDependencies:
-      react: '>=16.8.2'
-
   react-instantsearch-core@7.6.0:
     resolution: {integrity: sha512-FBTwAJAmNSha6pSFOP1fTPjIbvyv5btS49SsdWPvQ981yiMD+zWtvCXZlVTxrBGVH6mYGbmBT0lCHTOm4kpdOg==}
     peerDependencies:
@@ -18556,7 +18548,7 @@ snapshots:
       '@babel/traverse': 7.26.4
       '@babel/types': 7.26.3
       convert-source-map: 2.0.0
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -18621,7 +18613,7 @@ snapshots:
       '@babel/core': 7.26.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -18632,7 +18624,7 @@ snapshots:
       '@babel/core': 7.26.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -18643,7 +18635,7 @@ snapshots:
       '@babel/core': 7.26.0
       '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       lodash.debounce: 4.0.8
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -19416,7 +19408,7 @@ snapshots:
       '@babel/parser': 7.26.3
       '@babel/template': 7.25.9
       '@babel/types': 7.26.3
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       globals: 11.12.0
     transitivePeerDependencies:
       - supports-color
@@ -19962,7 +19954,7 @@ snapshots:
   '@eslint/eslintrc@2.1.4':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       espree: 9.6.1
       globals: 13.23.0
       ignore: 5.2.4
@@ -20092,7 +20084,7 @@ snapshots:
   '@humanwhocodes/config-array@0.11.14':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -20497,7 +20489,7 @@ snapshots:
       '@open-draft/until': 1.0.3
       '@types/debug': 4.1.7
       '@xmldom/xmldom': 0.8.6
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       headers-polyfill: 3.2.5
       outvariant: 1.4.0
       strict-event-emitter: 0.2.8
@@ -20769,7 +20761,7 @@ snapshots:
       '@parcel/utils': 2.13.3
       '@parcel/workers': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
       base-x: 3.0.10
-      browserslist: 4.24.3
+      browserslist: 4.24.4
       clone: 2.1.2
       dotenv: 16.4.7
       dotenv-expand: 11.0.7
@@ -25173,7 +25165,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/typescript-estree': 7.1.1(typescript@4.9.5)
       '@typescript-eslint/utils': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       eslint: 8.57.0
       ts-api-utils: 1.0.2(typescript@4.9.5)
     optionalDependencies:
@@ -25189,7 +25181,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 5.62.0
       '@typescript-eslint/visitor-keys': 5.62.0
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       globby: 11.1.0
       is-glob: 4.0.3
       semver: 7.7.0
@@ -25203,7 +25195,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 7.1.1
       '@typescript-eslint/visitor-keys': 7.1.1
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       globby: 11.1.0
       is-glob: 4.0.3
       minimatch: 9.0.3
@@ -25471,7 +25463,7 @@ snapshots:
 
   agent-base@6.0.2:
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
     transitivePeerDependencies:
       - supports-color
 
@@ -25479,7 +25471,7 @@ snapshots:
 
   agentkeepalive@4.3.0:
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       depd: 2.0.0
       humanize-ms: 1.2.1
     transitivePeerDependencies:
@@ -27568,6 +27560,10 @@ snapshots:
     dependencies:
       ms: 2.0.0
 
+  debug@3.2.7:
+    dependencies:
+      ms: 2.1.3
+
   debug@3.2.7(supports-color@5.5.0):
     dependencies:
       ms: 2.1.3
@@ -27583,6 +27579,10 @@ snapshots:
   debug@4.3.4:
     dependencies:
       ms: 2.1.2
+
+  debug@4.4.0:
+    dependencies:
+      ms: 2.1.3
 
   debug@4.4.0(supports-color@8.1.1):
     dependencies:
@@ -28215,7 +28215,7 @@ snapshots:
 
   esbuild-register@3.5.0(esbuild@0.18.20):
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       esbuild: 0.18.20
     transitivePeerDependencies:
       - supports-color
@@ -28322,7 +28322,7 @@ snapshots:
 
   eslint-import-resolver-node@0.3.9:
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7
       is-core-module: 2.13.1
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -28330,7 +28330,7 @@ snapshots:
 
   eslint-module-utils@2.8.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint-import-resolver-node@0.3.9)(eslint@8.57.0):
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7
     optionalDependencies:
       '@typescript-eslint/parser': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -28372,7 +28372,7 @@ snapshots:
       array.prototype.findlastindex: 1.2.3
       array.prototype.flat: 1.3.2
       array.prototype.flatmap: 1.3.2
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7
       doctrine: 2.1.0
       eslint: 8.57.0
       eslint-import-resolver-node: 0.3.9
@@ -29705,7 +29705,7 @@ snapshots:
     dependencies:
       '@tootallnate/once': 2.0.0
       agent-base: 6.0.2
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
     transitivePeerDependencies:
       - supports-color
 
@@ -29734,7 +29734,7 @@ snapshots:
   https-proxy-agent@5.0.1:
     dependencies:
       agent-base: 6.0.2
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
     transitivePeerDependencies:
       - supports-color
 
@@ -30301,7 +30301,7 @@ snapshots:
 
   istanbul-lib-source-maps@4.0.1:
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       istanbul-lib-coverage: 3.2.0
       source-map: 0.6.1
     transitivePeerDependencies:
@@ -31239,7 +31239,7 @@ snapshots:
     dependencies:
       chalk: 5.4.1
       commander: 13.1.0
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       execa: 8.0.1
       lilconfig: 3.1.3
       listr2: 8.2.5
@@ -31679,7 +31679,7 @@ snapshots:
 
   micromark@2.11.4:
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0
       parse-entities: 2.0.0
     transitivePeerDependencies:
       - supports-color
@@ -34329,10 +34329,6 @@ snapshots:
       react-dom: 18.2.0(react@18.2.0)
       react-draggable: 4.4.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react-resizable: 3.0.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-
-  react-insta-stories@2.8.0(react@18.2.0):
-    dependencies:
-      react: 18.2.0
 
   react-instantsearch-core@7.6.0(algoliasearch@4.22.1)(react@18.2.0):
     dependencies:

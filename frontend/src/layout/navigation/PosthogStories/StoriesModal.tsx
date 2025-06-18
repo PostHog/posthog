@@ -6,11 +6,10 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Stories from 'react-insta-stories'
-import { Story } from 'react-insta-stories/dist/interfaces'
 
 import { storiesLogic } from './storiesLogic'
 import type { story } from './storiesMap'
+import { StoriesPlayer, Story } from './StoriesPlayer'
 
 const IMAGE_STORY_INTERVAL = 3500
 const CRAZY_VIDEO_DURATION = 1000000 // this is a hack to make the video play for as long as a video would play
@@ -255,7 +254,7 @@ export const StoriesModal = (): JSX.Element | null => {
                 </div>
 
                 <div className="relative cursor-pointer flex-1 stories-container">
-                    <Stories
+                    <StoriesPlayer
                         stories={stories}
                         defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
                         width="100%"
