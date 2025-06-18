@@ -30,6 +30,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import FilteringBoundLogger, bind_temporal_worker_logger
+from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
@@ -181,14 +182,18 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
 
     running_tasks = set()
 
-    async with Heartbeater():
+    async with Heartbeater(), ShutdownMonitor() as shutdown_monitor:
         while True:
             message = await queue.get()
+            shutdown_monitor.raise_if_is_worker_shutdown()
+
             match message:
                 case QueueMessage(status=ModelStatus.READY, label=label):
                     await logger.adebug(f"Handling queue message READY. label={label}")
                     model = inputs.dag[label]
-                    task = asyncio.create_task(handle_model_ready(model, inputs.team_id, queue, inputs.job_id, logger))
+                    task = asyncio.create_task(
+                        handle_model_ready(model, inputs.team_id, queue, inputs.job_id, logger, shutdown_monitor)
+                    )
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
@@ -270,7 +275,12 @@ class CannotCoerceColumnException(Exception):
 
 
 async def handle_model_ready(
-    model: ModelNode, team_id: int, queue: asyncio.Queue[QueueMessage], job_id: str, logger: FilteringBoundLogger
+    model: ModelNode,
+    team_id: int,
+    queue: asyncio.Queue[QueueMessage],
+    job_id: str,
+    logger: FilteringBoundLogger,
+    shutdown_monitor: ShutdownMonitor,
 ) -> None:
     """Handle a model that is ready to run by materializing.
 
@@ -290,7 +300,7 @@ async def handle_model_ready(
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            await materialize_model(model.label, team, saved_query, job, logger)
+            await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s", logger)
@@ -384,6 +394,7 @@ async def materialize_model(
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
     logger: FilteringBoundLogger,
+    shutdown_monitor: ShutdownMonitor,
 ) -> tuple[str, DeltaTable, uuid.UUID]:
     """Materialize a given model by running its query and piping the results into a delta table.
 
@@ -436,6 +447,8 @@ async def materialize_model(
             )
 
             row_count = row_count + batch.num_rows
+
+            shutdown_monitor.raise_if_is_worker_shutdown()
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
