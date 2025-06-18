@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+const CyclotronJobInput = z.object({
+    // z.object({}) because TS any is not equivalent to z.any(), the latter is optional by default
+    value: z.object({}),
+    templating: z.enum(['hog', 'liquid']).optional(),
+    secret: z.boolean().optional(),
+})
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -13,9 +20,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('trigger'),
-        config: z.object({
-            filters: z.any(),
-        }),
+        // A trigger's event filters are stored on the top-level Hogflow object
     }),
     z.object({
         ..._commonActionFields,
@@ -49,8 +54,8 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('message'),
         config: z.object({
-            message: z.string(),
-            channel: z.string(),
+            message: CyclotronJobInput,
+            channel: z.enum(['email']),
         }),
     }),
     z.object({
@@ -58,7 +63,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('hog_function'),
         function_id: z.string(),
         config: z.object({
-            args: z.record(z.any()),
+            args: z.record(z.string(), CyclotronJobInput),
         }),
     }),
     z.object({

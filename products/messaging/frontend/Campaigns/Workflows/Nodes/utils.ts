@@ -42,11 +42,11 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
                 position: { x: labelX, y: labelY },
                 data: {
                     id: dropzoneId,
+                    name: '',
                     description: '',
-                    type: 'delay',
-                    config: {
-                        inputs: {},
-                    },
+                    // Hack: any cast because these are temporary nodes that are never persisted.
+                    type: 'dropzone' as any,
+                    config: {} as any,
                     on_error: 'continue',
                     created_at: 0,
                     updated_at: 0,
@@ -172,24 +172,24 @@ export const getNodeInputs = (node: HogFlowAction | ToolbarNode): Record<string,
     switch (node.type) {
         case 'message':
             return {
-                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
-                email: { value: ('config' in node && node.config.inputs.email.value) || NEW_TEMPLATE },
+                name: { value: ('config' in node && node.name) || '' },
+                email: { value: ('config' in node && node.config.message.value) || NEW_TEMPLATE },
             }
         case 'delay':
             // TODO(messaging-team): Add a dropdown for the duration unit, add new number input from #33673
             return {
-                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
-                duration: { value: ('config' in node && node.config.inputs.duration.value) || 15 },
+                name: { value: ('config' in node && node.name) || '' },
+                duration: { value: ('config' in node && node.config.delay_seconds) || 15 },
             }
         case 'wait_for_condition':
             // TODO(messaging-team): Add condition filter, add a dropdown for the duration unit, add new number input from #33673
             return {
-                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+                name: { value: ('config' in node && node.name) || '' },
             }
         case 'conditional_branch':
             // TODO(messaging-team): Add condition filter
             return {
-                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+                name: { value: ('config' in node && node.name) || '' },
             }
         default:
             // Default: show the "This does not require any input variables."
@@ -317,11 +317,9 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
         type: 'trigger',
         data: {
             id: 'trigger_node',
+            name: 'Trigger',
             type: 'trigger',
             description: '',
-            config: {
-                inputs: {},
-            },
             created_at: 0,
             updated_at: 0,
         },
@@ -334,10 +332,11 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
         type: 'exit',
         data: {
             id: 'exit_node',
+            name: 'Exit',
             type: 'exit',
             description: '',
             config: {
-                inputs: {},
+                reason: 'Default exit',
             },
             created_at: 0,
             updated_at: 0,
