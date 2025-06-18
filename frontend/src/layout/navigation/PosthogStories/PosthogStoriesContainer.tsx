@@ -1,4 +1,4 @@
-import { IconPlaylist } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
@@ -35,7 +35,9 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                     className="flex items-center gap-2 hover:opacity-70 transition-opacity cursor-pointer"
                     title={storiesCollapsed ? 'Show stories' : 'Hide stories'}
                 >
-                    <IconPlaylist className="text-lg opacity-80" />
+                    <IconChevronRight
+                        className={`w-4 h-4 opacity-80 transition-transform ${storiesCollapsed ? '' : 'rotate-90'}`}
+                    />
                     <span className="text-sm font-medium text-text-3000">Video updates</span>
                 </button>
             </div>
@@ -69,8 +71,8 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                 }}
                             >
                                 <div
-                                    className={`w-15 h-15 rounded-full p-[2px] relative ${
-                                        hasViewedEntireGroup ? 'bg-gray-300' : 'bg-orange-500'
+                                    className={`w-15 h-15 rounded-full relative ${
+                                        hasViewedEntireGroup ? 'bg-gray-300 p-[1px]' : 'bg-orange-500 p-[2px]'
                                     }`}
                                 >
                                     <div className="w-full h-full rounded-full overflow-hidden bg-bg-light p-[2px]">

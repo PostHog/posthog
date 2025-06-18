@@ -1,6 +1,6 @@
 import './StoriesModal.scss'
 
-import { IconChevronLeft, IconChevronRight, IconPause, IconPlay, IconX } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconPauseFilled, IconPlayFilled, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -239,11 +239,7 @@ export const StoriesModal = (): JSX.Element | null => {
                         className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
                         title={isPaused ? 'Resume story' : 'Pause story'}
                     >
-                        {isPaused ? (
-                            <IconPlay className="w-5 h-5 [&>*]:fill-white" />
-                        ) : (
-                            <IconPause className="w-5 h-5 [&>*]:fill-white" />
-                        )}
+                        {isPaused ? <IconPlayFilled className="w-5 h-5" /> : <IconPauseFilled className="w-5 h-5" />}
                     </button>
                     <button
                         onClick={(e) => {
