@@ -4,11 +4,12 @@ import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 
 import { HogFlowActionRunner } from './hogflow-action-runner'
 import { HogFlowActionRunnerResult } from './types'
+import { findActionById, findActionByType } from './utils'
 
 describe('HogFlowActionRunner', () => {
     let runner: HogFlowActionRunner
@@ -239,52 +240,73 @@ describe('HogFlowActionRunner', () => {
             expect(result).toEqual({
                 action: invocation.hogFlow.actions.find((action) => action.id === actionId),
                 ...expectation,
-                goToAction: goToActionId ? runner.findActionById(invocation, goToActionId) : undefined,
+                goToAction: goToActionId ? findActionById(invocation.hogFlow, goToActionId) : undefined,
             })
         })
     })
 
-    // describe('action filtering', () => {
-    //     let action: HogFlowAction
-    //     beforeEach(() => {
-    //         // Conditions that match the "pageview_or_autocapture_filter"
-    //         invocation.state.event.event = '$pageview'
-    //         invocation.state.event.properties = {
-    //             $current_url: 'https://posthog.com',
-    //         }
+    describe('action filtering', () => {
+        let invocation: CyclotronJobInvocationHogFlow
+        let action: HogFlowAction
 
-    //         action = createHogFlowAction({
-    //             type: 'delay',
-    //             config: {
-    //                 delay_duration: '2h',
-    //             },
-    //             filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-    //         })
+        beforeEach(() => {
+            const { invocation: _invocation } = createHogInvocation({
+                actions: {
+                    delay_1: {
+                        type: 'delay',
+                        config: {
+                            delay_duration: '2h',
+                        },
+                        filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    },
+                    delay_2: {
+                        type: 'delay',
+                        config: {
+                            delay_duration: '2h',
+                        },
+                    },
+                },
+                edges: [
+                    {
+                        from: 'delay_1',
+                        to: 'delay_2',
+                        type: 'continue',
+                    },
+                ],
+            })
+            invocation = _invocation
 
-    //         invocation.hogFlow.actions = [commonActions.trigger, commonActions.delay, action]
-    //         invocation.state.currentAction = {
-    //             id: action.id,
-    //             startedAtTimestamp: DateTime.utc().toMillis(),
-    //         }
-    //     })
+            action = findActionById(invocation.hogFlow, 'delay_1')!
 
-    //     it("should not skip the action if the filters don't match", async () => {
-    //         invocation.state.event.event = 'not-a-pageview'
-    //         const result = await runner.runCurrentAction(invocation)
-    //         expect(result).toEqual({
-    //             action,
-    //             finished: false,
-    //             scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
-    //         })
-    //     })
+            // Conditions that match the "pageview_or_autocapture_filter"
+            invocation.state.event.event = '$pageview'
+            invocation.state.event.properties = {
+                $current_url: 'https://posthog.com',
+            }
+            invocation.state.currentAction = {
+                id: action.id,
+                startedAtTimestamp: DateTime.utc().toMillis(),
+            }
+        })
 
-    //     it('should skip the action if the filters do match', async () => {
-    //         invocation.state.event.event = '$pageview'
-    //         const result = await runner.runCurrentAction(invocation)
-    //         expect(result).toEqual({
-    //             action,
-    //             finished: true,
-    //         })
-    //     })
-    // })
+        it("should not skip the action if the filters don't match", async () => {
+            invocation.state.event.event = 'not-a-pageview'
+            const result = await runner.runCurrentAction(invocation)
+            expect(result).toEqual({
+                action,
+                finished: false,
+                scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
+            })
+        })
+
+        it('should skip the action if the filters do match', async () => {
+            invocation.state.event.event = '$pageview'
+            const result = await runner.runCurrentAction(invocation)
+            expect(result).toEqual({
+                action,
+                finished: true,
+                goToAction: findActionById(invocation.hogFlow, 'delay_2'),
+            })
+        })
+    })
 })

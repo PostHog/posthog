@@ -12,7 +12,7 @@ import { HogFlowActionRunnerDelay } from './action.delay'
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
 import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
-import { findNextAction } from './utils'
+import { findActionById, findNextAction } from './utils'
 
 // TODO: Add a bunch of tests for this class!
 export class HogFlowActionRunner {
@@ -35,15 +35,6 @@ export class HogFlowActionRunner {
         }
 
         return findNextAction(invocation.hogFlow, currentActionId)
-    }
-
-    findActionById(invocation: CyclotronJobInvocationHogFlow, id: string): HogFlowAction {
-        const action = invocation.hogFlow.actions.find((action) => action.id === id)
-        if (!action) {
-            throw new Error(`Action ${id} not found`)
-        }
-
-        return action
     }
 
     private shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): boolean {
@@ -77,7 +68,7 @@ export class HogFlowActionRunner {
                 throw new Error('No trigger action found')
             }
 
-            // Se the current action to the trigger action
+            // Set the current action to the trigger action
             invocation.state.currentAction = {
                 id: triggerAction.id,
                 startedAtTimestamp: DateTime.now().toMillis(),
@@ -95,7 +86,7 @@ export class HogFlowActionRunner {
         }
 
         const currentActionId = invocation.state.currentAction?.id
-        const action = this.findActionById(invocation, currentActionId)
+        const action = findActionById(invocation.hogFlow, currentActionId)
 
         if (this.shouldSkipAction(invocation, action)) {
             // Before we do anything check for filter conditions on the user
