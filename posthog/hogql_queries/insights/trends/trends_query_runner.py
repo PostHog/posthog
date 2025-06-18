@@ -96,10 +96,17 @@ class TrendsQueryRunner(QueryRunner):
 
         assert isinstance(query, TrendsQuery)
 
-        if query.trendsFilter and query.trendsFilter.formula:
+        # For backwards compatibility
+        if query.trendsFilter:
             if not query.trendsFilter.formulaNodes:
-                query.trendsFilter.formulaNodes = [TrendsFormulaNode(formula=query.trendsFilter.formula)]
+                if query.trendsFilter.formulas:
+                    query.trendsFilter.formulaNodes = [
+                        TrendsFormulaNode(formula=formula) for formula in query.trendsFilter.formulas
+                    ]
+                elif query.trendsFilter.formula:
+                    query.trendsFilter.formulaNodes = [TrendsFormulaNode(formula=query.trendsFilter.formula)]
             query.trendsFilter.formula = None
+            query.trendsFilter.formulas = None
 
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
@@ -413,7 +420,7 @@ class TrendsQueryRunner(QueryRunner):
                 returned_results.append([result])
 
         final_result: list[dict] = []
-        formula_nodes = self.formula_nodes
+        formula_nodes = self.query.trendsFilter and self.query.trendsFilter.formulaNodes
 
         if formula_nodes:
             with self.timings.measure("apply_formula"):
@@ -1126,19 +1133,3 @@ class TrendsQueryRunner(QueryRunner):
             or isinstance(breakdown, list)
             and BREAKDOWN_OTHER_STRING_LABEL in breakdown
         )
-
-    @cached_property
-    def formula_nodes(self) -> list[TrendsFormulaNode]:
-        if not self.query.trendsFilter:
-            return []
-
-        formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
-
-        # for backwards compatibility
-        if not formula_nodes:
-            if self.query.trendsFilter.formulas:
-                formula_nodes = [TrendsFormulaNode(formula=formula) for formula in self.query.trendsFilter.formulas]
-            elif self.query.trendsFilter.formula:
-                formula_nodes = [TrendsFormulaNode(formula=self.query.trendsFilter.formula)]
-
-        return formula_nodes
