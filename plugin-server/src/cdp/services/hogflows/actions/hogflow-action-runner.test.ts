@@ -9,7 +9,7 @@ import { Hub } from '~/types'
 
 import { HogFlowActionRunner } from './hogflow-action-runner'
 import { HogFlowActionRunnerResult } from './types'
-import { findActionById, findActionByType } from './utils'
+import { findActionById } from './utils'
 
 describe('HogFlowActionRunner', () => {
     let runner: HogFlowActionRunner
