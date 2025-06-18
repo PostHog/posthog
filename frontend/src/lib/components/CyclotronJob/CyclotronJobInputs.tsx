@@ -237,6 +237,8 @@ function DictionaryField({
     const prevLocalValRef = useRef<string | undefined>(undefined)
     const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
+    const hasExtendObject = EXTEND_OBJECT_KEY in value
+
     useEffect(() => {
         if (mode === 'object') {
             if (localVal === prevLocalValRef.current) {
@@ -268,100 +270,77 @@ function DictionaryField({
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="flex gap-2 mb-2">
+            {!hasExtendObject ? (
                 <LemonButton
-                    type="secondary"
+                    icon={<IconPlus />}
                     size="small"
-                    className={clsx({
-                        'opacity-50': mode === 'object',
-                    })}
-                    disabledReason={mode === 'object' ? 'This option is already selected' : undefined}
-                    onClick={() => {
-                        setMode('object')
-                    }}
-                >
-                    Select entire object
-                </LemonButton>
-                <LemonButton
                     type="secondary"
-                    size="small"
-                    className={clsx({
-                        'opacity-50': mode === 'entries',
-                    })}
-                    disabledReason={mode === 'entries' ? 'This option is already selected' : undefined}
                     onClick={() => {
-                        setMode('entries')
+                        setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
                     }}
+                    tooltip="Enables you to load multiple properties from the available event properties"
                 >
-                    Select individual entries
+                    Include multiple properties from an object
                 </LemonButton>
-            </div>
-            {mode === 'entries' ? (
-                <>
-                    {entries.map(([key, val], index) => (
-                        <div className="flex gap-2 items-center" key={index}>
-                            <LemonInput
-                                value={key}
-                                className="flex-1 min-w-60"
-                                onChange={(key) => {
-                                    const newEntries = [...entries]
-                                    newEntries[index] = [key, newEntries[index][1]]
-                                    setEntries(newEntries)
-                                }}
-                                placeholder="Key"
-                            />
+            ) : null}
 
-                            <CyclotronJobTemplateInput
-                                className="overflow-hidden flex-2"
-                                input={{ ...input, value: val }}
-                                onChange={(val) => {
-                                    const newEntries = [...entries]
-                                    newEntries[index] = [newEntries[index][0], val.value ?? '']
-                                    if (val.templating) {
-                                        onChange?.({ ...input, templating: val.templating })
-                                    }
-                                    setEntries(newEntries)
-                                }}
-                                templating={templating}
-                            />
-
-                            <LemonButton
-                                icon={<IconX />}
-                                size="small"
-                                onClick={() => {
-                                    const newEntries = [...entries]
-                                    newEntries.splice(index, 1)
-                                    setEntries(newEntries)
-                                }}
-                            />
-                        </div>
-                    ))}
-                    <LemonButton
-                        icon={<IconPlus />}
-                        size="small"
-                        type="secondary"
-                        onClick={() => {
-                            setEntries([...entries, ['', '']])
-                        }}
+            {entries.map(([key, val], index) => (
+                <div className="flex gap-2 items-center" key={index}>
+                    <Tooltip
+                        title={
+                            key === EXTEND_OBJECT_KEY
+                                ? 'Include all properties from the event properties object'
+                                : undefined
+                        }
                     >
-                        Add entry
-                    </LemonButton>
-                </>
-            ) : (
-                <>
-                    {!templating ? (
-                        <LemonInput type="text" value={localVal} onChange={(val) => setLocalVal(val)} />
-                    ) : (
-                        <CodeEditorInline
-                            value={localVal}
-                            onChange={(val) => setLocalVal(val)}
-                            language={input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
-                            globals={sampleGlobalsWithInputs}
-                            className="ph-no-capture"
+                        <LemonInput
+                            value={key === EXTEND_OBJECT_KEY ? 'INCLUDE_ALL' : key}
+                            className="flex-1 min-w-60"
+                            disabled={key === EXTEND_OBJECT_KEY}
+                            onChange={(key) => {
+                                const newEntries = [...entries]
+                                newEntries[index] = [key, newEntries[index][1]]
+                                setEntries(newEntries)
+                            }}
+                            placeholder="Key"
                         />
-                    )}
-                </>
-            )}
+                    </Tooltip>
+
+                    <CyclotronJobTemplateInput
+                        className="overflow-hidden flex-2"
+                        input={{ ...input, value: val }}
+                        onChange={(val) => {
+                            const newEntries = [...entries]
+                            newEntries[index] = [newEntries[index][0], val.value ?? '']
+                            if (val.templating) {
+                                onChange?.({ ...input, templating: val.templating })
+                            }
+                            setEntries(newEntries)
+                        }}
+                        templating={templating}
+                    />
+
+                    <LemonButton
+                        icon={<IconX />}
+                        size="small"
+                        onClick={() => {
+                            const newEntries = [...entries]
+                            newEntries.splice(index, 1)
+                            setEntries(newEntries)
+                        }}
+                    />
+                </div>
+            ))}
+            <LemonButton
+                icon={<IconPlus />}
+                size="small"
+                type="secondary"
+                onClick={() => {
+                    setEntries([...entries, ['', '']])
+                }}
+            >
+                Add entry
+            </LemonButton>
         </div>
     )
 }
