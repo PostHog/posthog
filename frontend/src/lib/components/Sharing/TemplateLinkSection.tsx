@@ -20,7 +20,7 @@ export function TemplateLinkSection({
     templateLink,
     onShortenLink,
     showShortenButton = true,
-    heading = 'Share as template',
+    heading,
     tooltip = 'Share this link to let others create a copy of this insight with the same configuration.',
     piiWarning = 'Be aware that you may be sharing sensitive data if contained in your event, property names or filters.',
 }: TemplateLinkSectionProps): JSX.Element {
@@ -38,7 +38,7 @@ export function TemplateLinkSection({
 
     return (
         <div className="deprecated-space-y-2">
-            {heading && (
+            {typeof heading === 'string' && heading && (
                 <TitleWithIcon
                     icon={
                         tooltip ? (
@@ -53,7 +53,7 @@ export function TemplateLinkSection({
                     <b>{heading}</b>
                 </TitleWithIcon>
             )}
-            {piiWarning && <p className="text-muted text-xs mb-1">{piiWarning}</p>}
+            {piiWarning && <p className="text-muted mb-1">{piiWarning}</p>}
             <div className="flex gap-2">
                 <div className="flex-1">
                     <input

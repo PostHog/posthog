@@ -1,4 +1,4 @@
-import { IconWarning } from '@posthog/icons'
+import { IconInfo, IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -18,6 +18,7 @@ import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -26,6 +27,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
@@ -339,13 +341,25 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             onClick={() => {
                                                 const templateLink = getInsightDefinitionUrl({ query })
                                                 LemonDialog.open({
-                                                    title: 'Share as template',
+                                                    title: (
+                                                        <span className="flex items-center gap-2">
+                                                            <TitleWithIcon
+                                                                icon={
+                                                                    <Tooltip title="Share this link to let others create a copy of this insight with the same configuration.">
+                                                                        <IconInfo />
+                                                                    </Tooltip>
+                                                                }
+                                                            >
+                                                                <b>Share as template</b>
+                                                            </TitleWithIcon>
+                                                        </span>
+                                                    ),
                                                     content: (
                                                         <TemplateLinkSection
                                                             templateLink={templateLink}
                                                             showShortenButton={false}
-                                                            heading="Share as template"
-                                                            tooltip="Share this link to let others create a copy of this insight with the same configuration."
+                                                            heading={undefined}
+                                                            tooltip={undefined}
                                                             piiWarning="Be aware that you may be sharing sensitive data if contained in your event, property names or filters."
                                                         />
                                                     ),
