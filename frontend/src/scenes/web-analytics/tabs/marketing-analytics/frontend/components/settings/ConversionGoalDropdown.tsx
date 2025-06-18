@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { uuid } from 'lib/utils'
 import { useState } from 'react'
@@ -8,7 +8,11 @@ import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLo
 
 import { actionsModel } from '~/models/actionsModel'
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
 import { ActionFilter, EntityType, EntityTypes } from '~/types'
+
+import { ConversionGoalSchema, UTM_CAMPAIGN_NAME_SCHEMA_FIELD, UTM_SOURCE_NAME_SCHEMA_FIELD } from '../../../utils'
+import { defaultConversionGoalFilter } from './constants'
 
 export function taxonomicFilterGroupTypeToEntityType(
     taxonomicFilterGroupType: TaxonomicFilterGroupType
@@ -42,34 +46,6 @@ interface ConversionGoalDropdownProps {
     placeholder?: string
     value?: ConversionGoalFilter
     onChange?: (filter: ConversionGoalFilter, uuid?: string) => void
-}
-
-const UTM_CAMPAIGN_NAME_SCHEMA_FIELD = 'utm_campaign_name'
-const UTM_SOURCE_NAME_SCHEMA_FIELD = 'utm_source_name'
-
-const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
-    {
-        key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
-        label: 'UTM Campaign Name',
-        type: 'string',
-    },
-    {
-        key: UTM_SOURCE_NAME_SCHEMA_FIELD,
-        label: 'UTM Source Name',
-        type: 'string',
-    },
-]
-
-const defaultConversionGoalFilter: ConversionGoalFilter = {
-    conversion_goal_id: '',
-    conversion_goal_name: '',
-    type: EntityTypes.EVENTS,
-    id: null,
-    name: null,
-    schema: {
-        utm_campaign_name: 'utm_campaign',
-        utm_source_name: 'utm_source',
-    },
 }
 
 export function ConversionGoalDropdown({
@@ -137,10 +113,11 @@ export function ConversionGoalDropdown({
                     }
                     // If the group type is a data warehouse, we override the schema with the data warehouse schema
                     if (groupType === EntityTypes.DATA_WAREHOUSE) {
-                        updatedFilter.schema = {
+                        const overrideSchema: Record<ConversionGoalSchema, string> = {
                             utm_campaign_name: item[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
                             utm_source_name: item[UTM_SOURCE_NAME_SCHEMA_FIELD],
                         }
+                        updatedFilter.schema = overrideSchema
                     }
                     handleFilterChange(updatedFilter, localFilter.uuid)
                 }

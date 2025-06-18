@@ -3,6 +3,9 @@ type MarketingAnalyticsSchemaField = {
     required: boolean
 }
 
+export const UTM_CAMPAIGN_NAME_SCHEMA_FIELD = 'utm_campaign_name'
+export const UTM_SOURCE_NAME_SCHEMA_FIELD = 'utm_source_name'
+
 export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchemaField> = {
     campaign_name: { type: ['string'], required: true },
     clicks: { type: ['integer', 'number', 'float'], required: false },
@@ -11,15 +14,15 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchema
     impressions: { type: ['integer', 'number', 'float'], required: false },
     source_name: { type: ['string'], required: false },
     total_cost: { type: ['float', 'integer'], required: true },
-    utm_campaign_name: { type: ['string'], required: false },
-    utm_source_name: { type: ['string'], required: false },
+    [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: { type: ['string'], required: false },
+    [UTM_SOURCE_NAME_SCHEMA_FIELD]: { type: ['string'], required: false },
 }
 
 export type MarketingAnalyticsSchema = keyof typeof MARKETING_ANALYTICS_SCHEMA
 
 export const MARKETING_ANALYTICS_CONVERSION_GOAL_SCHEMA: Record<string, MarketingAnalyticsSchemaField> = {
-    utm_campaign_name: { type: ['string'], required: true },
-    utm_source_name: { type: ['string'], required: true },
+    [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: { type: ['string'], required: true },
+    [UTM_SOURCE_NAME_SCHEMA_FIELD]: { type: ['string'], required: true },
 }
 
 export type ConversionGoalSchema = keyof typeof MARKETING_ANALYTICS_CONVERSION_GOAL_SCHEMA
