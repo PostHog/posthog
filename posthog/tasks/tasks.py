@@ -673,15 +673,6 @@ def demo_reset_master_team() -> None:
         demo_reset_master_team()
 
 
-@shared_task(ignore_result=True)
-def sync_all_organization_available_product_features() -> None:
-    from posthog.tasks.sync_all_organization_available_product_features import (
-        sync_all_organization_available_product_features,
-    )
-
-    sync_all_organization_available_product_features()
-
-
 @shared_task(ignore_result=False, track_started=True, max_retries=0)
 def check_async_migration_health() -> None:
     from posthog.tasks.async_migrations import check_async_migration_health

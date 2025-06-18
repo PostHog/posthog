@@ -46,7 +46,6 @@ from posthog.tasks.tasks import (
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
-    sync_all_organization_available_product_features,
     update_event_partitions,
     update_survey_adaptive_sampling,
     update_survey_iteration,
@@ -133,9 +132,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour="0", minute="0"), clean_stale_partials.s())
-
-    # Sync all Organization.available_product_features every hour, only for billing v1 orgs
-    sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 

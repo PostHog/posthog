@@ -9,7 +9,6 @@ from posthoganalytics.client import Client
 from posthoganalytics.exception_capture import Integrations
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import get_machine_id, initialize_self_capture_api_token, get_instance_region
 
 
@@ -49,9 +48,6 @@ class PostHogConfig(AppConfig):
                 async_to_sync(initialize_self_capture_api_token)()
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
-                # Sync all organization.available_product_features once on launch, in case plans changed
-                sync_all_organization_available_product_features()
-
                 # NOTE: This has to be created as a separate client so that the "capture" call doesn't lock in the properties
                 phcloud_client = Client(posthoganalytics.api_key)
 

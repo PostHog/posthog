@@ -1,9 +1,7 @@
-import sys
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 import structlog
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models.query import QuerySet
@@ -192,58 +190,6 @@ class Organization(UUIDModel):
 
     __repr__ = sane_repr("name")
 
-    @property
-    def _billing_plan_details(self) -> tuple[Optional[str], Optional[str]]:
-        """
-        Obtains details on the billing plan for the organization.
-        Returns a tuple with (billing_plan_key, billing_realm)
-        """
-        try:
-            from ee.models.license import License
-        except ImportError:
-            License = None  # type: ignore
-        # Demo gets all features
-        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
-            return (License.ENTERPRISE_PLAN, "demo")
-        # Otherwise, try to find a valid license on this instance
-        if License is not None:
-            license = License.objects.first_valid()
-            if license:
-                return (license.plan, "ee")
-        return (None, None)
-
-    def update_available_product_features(self) -> list[ProductFeature]:
-        """Updates field `available_product_features`. Does not `save()`."""
-        if is_cloud() or self.usage:
-            # Since billing V2 we just use the field which is updated when the billing service is called
-            return self.available_product_features or []
-
-        try:
-            from ee.models.license import License
-        except ImportError:
-            self.available_product_features = []
-            return []
-
-        self.available_product_features = []
-
-        # Self hosted legacy license so we just sync the license features
-        # Demo gets all features
-        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
-            features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
-            self.available_product_features = [
-                {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
-            ]
-        else:
-            # Otherwise, try to find a valid license on this instance
-            license = License.objects.first_valid()
-            if license:
-                features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
-                self.available_product_features = [
-                    {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
-                ]
-
-        return self.available_product_features
-
     def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
         vals: list[dict[str, Any]] = self.available_product_features or []
         return next(
@@ -269,7 +215,6 @@ class Organization(UUIDModel):
 @receiver(models.signals.pre_save, sender=Organization)
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
-        instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
