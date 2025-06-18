@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -77,17 +77,18 @@ export function TemplateLinkSection({
 
             {showShortenButton && (
                 <>
-                    <LemonDivider />
                     <div className="flex items-center justify-between">
                         <div>
-                            <LemonButton type="secondary" onClick={onShortenLink} disabled={!onShortenLink}>
-                                Create shortlink
-                            </LemonButton>
-                            {!onShortenLink && (
-                                <Tooltip title="Shortlink creation coming soon">
-                                    <span className="ml-2 text-muted text-sm">(Coming soon)</span>
-                                </Tooltip>
-                            )}
+                            <div className="flex items-center gap-2">
+                                <LemonButton type="secondary" onClick={onShortenLink} disabled={!onShortenLink}>
+                                    Shorten URL
+                                </LemonButton>
+                                {!onShortenLink && (
+                                    <Tooltip title="Shortlink creation coming soon">
+                                        <span className="text-muted text-sm">(Coming soon!)</span>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </>

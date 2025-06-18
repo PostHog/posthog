@@ -362,7 +362,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     content: (
                                                         <TemplateLinkSection
                                                             templateLink={templateLink}
-                                                            showShortenButton={false}
                                                             heading={undefined}
                                                             tooltip={undefined}
                                                             piiWarning={TEMPLATE_LINK_PII_WARNING}
