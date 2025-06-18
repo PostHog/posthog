@@ -1,30 +1,32 @@
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionResult } from './types'
+import { findNextAction } from './utils'
 
 type Action = Extract<HogFlowAction, { type: 'random_cohort_branch' }>
 
 export class HogFlowActionRunnerRandomCohortBranch {
-    run(action: Action): HogFlowActionResult {
+    run(invocation: CyclotronJobInvocationHogFlow, action: Action): HogFlowActionResult {
         const random = Math.random() * 100 // 0-100
         let cumulativePercentage = 0
 
-        for (const cohort of action.config.cohorts) {
+        for (const [index, cohort] of action.config.cohorts.entries()) {
             cumulativePercentage += cohort.percentage
             if (random <= cumulativePercentage) {
                 return {
                     finished: true,
-                    goToActionId: cohort.on_match,
+                    // TODO: Do we error out here if not found?
+                    goToActionId: findNextAction(invocation.hogFlow, action.id, index)?.id,
                 }
             }
         }
 
         // If we somehow get here (shouldn't happen if percentages add up to 100),
         // go to the last cohort
-        const lastCohort = action.config.cohorts[action.config.cohorts.length - 1]
         return {
             finished: true,
-            goToActionId: lastCohort.on_match,
+            goToActionId: findNextAction(invocation.hogFlow, action.id, action.config.cohorts.length - 1)?.id,
         }
     }
 }

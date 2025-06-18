@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
-import { createExampleHogFlowInvocation, createHogFlowAction } from '~/cdp/_tests/fixtures-hogflows'
+import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { HogFlow, HogFlowAction } from '~/schema/hogflow'
+import { HogFlow } from '~/schema/hogflow'
 import { Hub } from '~/types'
 
 import { HogFlowActionRunner } from './hogflow-action-runner'
@@ -218,7 +218,7 @@ describe('HogFlowActionRunner', () => {
             ],
         ]
 
-        it.each(cases)('should run %s action', async (actionId, workflow, expectation) => {
+        it.each(cases)('should run %s action', async (actionId, workflow, { goToActionId, ...expectation }) => {
             const { invocation } = createHogInvocation(workflow)
 
             // Conditions that match the "pageview_or_autocapture_filter"
@@ -239,9 +239,7 @@ describe('HogFlowActionRunner', () => {
             expect(result).toEqual({
                 action: invocation.hogFlow.actions.find((action) => action.id === actionId),
                 ...expectation,
-                goToActionId: expectation.goToActionId
-                    ? runner.findActionById(invocation, expectation.goToActionId)
-                    : undefined,
+                goToAction: goToActionId ? runner.findActionById(invocation, goToActionId) : undefined,
             })
         })
     })
