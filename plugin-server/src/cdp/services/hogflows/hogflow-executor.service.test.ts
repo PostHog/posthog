@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
 
-import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
-import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
-import { createExampleHogFlowInvocation, createHogFlow, createHogFlowAction } from '../_tests/fixtures-hogflows'
+import { Hub } from '../../../types'
+import { createHub } from '../../../utils/db/hub'
+import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
+import { createExampleHogFlowInvocation, createHogFlow, createHogFlowAction } from '../../_tests/fixtures-hogflows'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
 describe('Hogflow Executor', () => {

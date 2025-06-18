@@ -4,7 +4,7 @@ import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresUse } from '~/utils/db/postgres'
 
-import { insertHogFlow } from '../_tests/fixtures-hogflows'
+import { insertHogFlow } from '../../_tests/fixtures-hogflows'
 import { HogFlowManagerService } from './hogflow-manager.service'
 
 describe('HogFlowManager', () => {
