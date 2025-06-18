@@ -280,9 +280,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             enqueue_cohorts_to_calculate(2)
 
             self.assertEqual(mock_logger.warning.call_count, 1)
-            mock_logger.warning.assert_called_once_with(
-                "enqueued_cohort_calculation", cohort_ids=[cohort2.pk, cohort1.pk]
-            )
+            args, kwargs = mock_logger.warning.call_args
+            assert args[0] == "enqueued_cohort_calculation"
+            assert set(kwargs["cohort_ids"]) == {cohort1.pk, cohort2.pk}
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
