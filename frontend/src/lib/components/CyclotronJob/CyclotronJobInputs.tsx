@@ -34,6 +34,8 @@ import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIn
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
 
+const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+
 export type CyclotronJobInputsProps = {
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
@@ -90,8 +92,6 @@ export function CyclotronJobInputs({
         </>
     )
 }
-
-const typeList = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 function JsonConfigField(props: {
     input: CyclotronJobInputType
@@ -408,7 +408,7 @@ function CyclotronJobInputSchemaControls({
             <div className="flex flex-wrap flex-1 gap-2 items-center">
                 <LemonSelect
                     size="small"
-                    options={typeList.map((type) => ({
+                    options={INPUT_TYPE_LIST.map((type) => ({
                         label: capitalizeFirstLetter(type),
                         value: type,
                     }))}
