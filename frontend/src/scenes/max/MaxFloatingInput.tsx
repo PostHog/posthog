@@ -231,7 +231,8 @@ export function MaxFloatingInput(): JSX.Element | null {
     }
 
     return (
-        <div className="fixed bottom-0 right-15 z-50 max-w-sm w-80">
+        // `right:` gets 1px removed to account for border
+        <div className="fixed bottom-0 z-[var(--z-popover)] max-w-sm w-80 transition-all right-[calc(3rem-1px)]">
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <MaxFloatingInputWithLogic />
             </BindLogic>

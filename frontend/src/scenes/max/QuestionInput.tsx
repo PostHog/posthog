@@ -57,8 +57,7 @@ export function QuestionInput({ isFloating, placeholder }: QuestionInputProps): 
                 className={clsx(
                     'flex flex-col items-center',
                     isFloating &&
-                        'p-1 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]',
-                    isFloating && (tools.length > 0 ? 'mb-1.5' : 'mb-3')
+                        'p-1 mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <div className="relative w-full">
