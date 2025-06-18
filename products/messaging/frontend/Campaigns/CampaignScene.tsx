@@ -44,7 +44,7 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
                     <>
                         {campaignChanged && (
                             <LemonButton
-                                data-attr="cancel-message-template"
+                                data-attr="discard-campaign-changes"
                                 type="secondary"
                                 onClick={() => resetCampaign(originalCampaign)}
                             >

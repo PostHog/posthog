@@ -29,10 +29,10 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
             },
         ],
     }),
-    selectors(({ props }) => ({
+    selectors({
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            () => [(_, props) => props.id as CampaignSceneLogicProps['id']],
+            (id): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.MessagingCampaigns,
@@ -46,12 +46,12 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
                     },
                     {
                         key: 'campaign',
-                        name: props.id == 'new' ? 'New campaign' : 'Manage campaign',
+                        name: id == 'new' ? 'New campaign' : 'Manage campaign',
                     },
                 ]
             },
         ],
-    })),
+    }),
     actionToUrl(({ props, values }) => ({
         setCurrentTab: () => [urls.messagingCampaign(props.id || 'new', values.currentTab)],
     })),

@@ -10,7 +10,7 @@ import { CampaignsTable } from './CampaignsTable'
 
 export function Campaigns(): JSX.Element {
     return (
-        <>
+        <div>
             <MessagingTabs key="campaigns-tabs" />
             <PageHeader
                 caption="Create automated messaging campaigns triggered by events"
@@ -26,7 +26,7 @@ export function Campaigns(): JSX.Element {
                 }
             />
             <CampaignsTable />
-        </>
+        </div>
     )
 }
 

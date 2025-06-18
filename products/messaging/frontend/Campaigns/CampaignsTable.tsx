@@ -30,7 +30,7 @@ export function CampaignsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    data-attr="message-template-delete"
+                                    data-attr="campaign-delete"
                                     fullWidth
                                     status="danger"
                                     onClick={() => deleteCampaign(campaign)}

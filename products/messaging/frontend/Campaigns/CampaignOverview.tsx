@@ -159,7 +159,6 @@ function ExitConditionSection(): JSX.Element {
                                 value: 'exit_on_trigger_not_matched',
                                 label: 'Exit on trigger not matched',
                             },
-
                             {
                                 value: 'exit_on_conversion',
                                 label: 'Exit on conversion',
