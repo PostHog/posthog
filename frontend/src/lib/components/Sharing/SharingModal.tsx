@@ -267,7 +267,7 @@ export function SharingModalContent({
                     </>
                 )}
             </div>
-            {insight && insight.query && (
+            {insight?.query && (
                 <>
                     <LemonDivider />
                     <TemplateLinkSection
