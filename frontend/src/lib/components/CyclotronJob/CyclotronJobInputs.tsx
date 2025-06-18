@@ -46,8 +46,8 @@ export type CyclotronJobInputsProps = {
         | HogFunctionConfigurationType
         | HogFunctionMappingType
         | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
-    onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
     onInputChange: (key: string, input: CyclotronJobInputType) => void
+    onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
 }
 
