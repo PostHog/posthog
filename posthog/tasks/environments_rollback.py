@@ -3,6 +3,23 @@ from dataclasses import dataclass
 from structlog import get_logger
 import posthoganalytics
 from posthog.event_usage import groups
+from posthog.models import (
+    User,
+    Team,
+    Project,
+    Organization,
+    Insight,
+    Dashboard,
+    FeatureFlag,
+    Action,
+    Survey,
+    Experiment,
+    Cohort,
+    Annotation,
+    EarlyAccessFeature,
+    Notebook,
+)
+from django.db import transaction, IntegrityError
 
 logger = get_logger(__name__)
 
@@ -41,24 +58,6 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
     Migrates resources from multiple environments to a single environment.
     The source and target environments must be in the same project.
     """
-    from posthog.models import (
-        User,
-        Team,
-        Project,
-        Organization,
-        Insight,
-        Dashboard,
-        FeatureFlag,
-        Action,
-        Survey,
-        Experiment,
-        Cohort,
-        Annotation,
-        EarlyAccessFeature,
-        Notebook,
-    )
-    from django.db import transaction, IntegrityError
-
     try:
         organization = Organization.objects.get(id=organization_id)
         user = User.objects.get(id=user_id)
