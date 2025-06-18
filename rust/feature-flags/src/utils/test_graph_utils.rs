@@ -40,7 +40,7 @@ mod tests {
         }
     }
 
-    mod graph_creation {
+    mod new_graph_creation {
         use super::*;
 
         #[test]
@@ -99,7 +99,7 @@ mod tests {
         }
     }
 
-    mod error_handling {
+    mod new_error_handling {
         use super::*;
 
         #[test]
@@ -148,7 +148,7 @@ mod tests {
         }
     }
 
-    mod traversal {
+    mod new_traversal {
         use super::*;
 
         #[test]
@@ -304,7 +304,7 @@ mod tests {
         }
     }
 
-    mod edge_cases {
+    mod new_edge_cases {
         use super::*;
 
         #[test]
@@ -338,30 +338,27 @@ mod tests {
         }
     }
 
-    mod build_from_nodes_tests {
+    mod from_nodes_tests {
+        use crate::utils::graph_utils::GraphError;
+
         use super::*;
 
         #[test]
         fn test_build_multiple_independent_nodes() {
-            // Independent nodes: 1, 2, 3
             let items = vec![
                 TestItem::new(1, HashSet::new()),
                 TestItem::new(2, HashSet::new()),
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
             assert_eq!(graph.node_count(), 3);
             assert_eq!(graph.edge_count(), 0);
         }
 
         #[test]
         fn test_build_multiple_subgraphs() {
-            // Build a forest with disconnected subgraphs:
-            // Subgraph 1: 1 -> 2 -> 3
-            // Subgraph 2: 4 -> 5
-            // Subgraph 3: 6
-
             let items = vec![
                 TestItem::new(1, HashSet::from([2])),
                 TestItem::new(2, HashSet::from([3])),
@@ -371,29 +368,137 @@ mod tests {
                 TestItem::new(6, HashSet::new()),
             ];
 
-            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
-
-            // Total nodes: 6
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
             assert_eq!(graph.node_count(), 6);
-            // Total edges: 3 (1->2, 2->3, 4->5)
             assert_eq!(graph.edge_count(), 3);
         }
 
         #[test]
-        fn test_build_from_nodes_with_missing_dependencies() {
-            // Node 1 depends on Node 999, which is not in the list
-            let items = vec![TestItem::new(1, HashSet::from([999]))];
+        fn test_build_multiple_subgraphs_removes_cycles() {
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::from([3])),
+                TestItem::new(3, HashSet::new()),
+                TestItem::new(4, HashSet::from([5])),
+                TestItem::new(5, HashSet::new()),
+                TestItem::new(6, HashSet::new()),
+                // Cycle: (7 -> 8 -> 9 -> 7)
+                // 10 -> (7 cycle)
+                // 11 -> 10 -> (7 cycle)
+                // 11 -> (7 cycle)
+                // 12 -> 10 -> (7 cycle)
+                // 13 -> (7 cycle)
+                TestItem::new(7, HashSet::from([8])),
+                TestItem::new(8, HashSet::from([9])), // Starts the cycle.
+                TestItem::new(9, HashSet::from([7])),
+                TestItem::new(10, HashSet::from([7])), // Needs to removed because it depends on a cycle.
+                TestItem::new(11, HashSet::from([10, 7])), // Needs to removed because it depends on a node that depends on a cycle.
+                TestItem::new(12, HashSet::from([10])), // Needs to removed because it depends on a node that depends on a cycle.
+                TestItem::new(13, HashSet::from([7])), // Needs to removed because it depends on a cycle.
+                // Cycle: 14 -> 15 -> 16 -> 14
+                TestItem::new(14, HashSet::from([15])),
+                TestItem::new(15, HashSet::from([16])),
+                TestItem::new(16, HashSet::from([14])),
+            ];
 
-            let result = DependencyGraph::build_from_nodes(&items);
-
-            assert!(
-                result.is_err(),
-                "Expected an error due to missing dependencies"
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert_eq!(
+                errors.len(),
+                2,
+                "Expected two cycle errors, found: {:?}",
+                errors
             );
-            assert!(matches!(
-                result.unwrap_err(),
-                FlagError::DependencyNotFound(DependencyType::Flag, 999)
-            ));
+            // Check that both cycles are detected (order may vary)
+            let cycle_ids: Vec<_> = errors
+                .iter()
+                .filter_map(|e| {
+                    if let GraphError::CycleDetected(id) = e {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert!(cycle_ids.contains(&9), "Expected cycle starting at node 9");
+            assert!(
+                cycle_ids.contains(&16),
+                "Expected cycle starting at node 16"
+            );
+            assert_eq!(
+                graph.node_count(),
+                6,
+                "Expected only the valid subgraphs (1->2->3, 4->5, 6)"
+            );
+            assert_eq!(graph.edge_count(), 3, "Expected edges: 1->2, 2->3, 4->5");
+
+            assert!(graph.contains_node(1));
+            assert!(graph.contains_node(2));
+            assert!(graph.contains_node(3));
+            assert!(graph.contains_node(4));
+            assert!(graph.contains_node(5));
+            assert!(graph.contains_node(6));
+
+            assert!(!graph.contains_node(7));
+            assert!(!graph.contains_node(8));
+            assert!(!graph.contains_node(9));
+            assert!(!graph.contains_node(10));
+
+            assert!(!graph.contains_node(14));
+            assert!(!graph.contains_node(15));
+            assert!(!graph.contains_node(16));
+        }
+
+        #[test]
+        fn test_build_from_nodes_with_missing_dependencies() {
+            // 4 -> 3 -> 1 -> (999: missing)
+            // 2 -> 1 -> (999: missing)
+            // 6 -> (1000: missing)
+            let items = vec![
+                TestItem::new(1, HashSet::from([999])),  // Missing dependency.
+                TestItem::new(2, HashSet::from([1])), // Depends on node that depends on a missing dependency.
+                TestItem::new(3, HashSet::from([1])), // Depends on node that depends on a missing dependency.
+                TestItem::new(4, HashSet::from([2])), // Depends on node that depends on a node that depends on a missing dependency.
+                TestItem::new(5, HashSet::new()),     // Should remain.
+                TestItem::new(6, HashSet::from([1000])), // Missing dependency.
+            ];
+
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert_eq!(
+                graph.node_count(),
+                1,
+                "Expected only the valid subgraph (5)"
+            );
+            assert_eq!(
+                errors.len(),
+                2,
+                "Expected two errors due to missing dependencies"
+            );
+            // Check that both missing dependencies are reported (order may vary)
+            let missing_ids: Vec<_> = errors
+                .iter()
+                .filter_map(|e| {
+                    if let GraphError::MissingDependency(id) = e {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert!(
+                missing_ids.contains(&999),
+                "Expected missing dependency 999"
+            );
+            assert!(
+                missing_ids.contains(&1000),
+                "Expected missing dependency 1000"
+            );
+            assert!(graph.contains_node(5));
+            assert!(!graph.contains_node(1));
+            assert!(!graph.contains_node(2));
+            assert!(!graph.contains_node(3));
+            assert!(!graph.contains_node(4));
+            assert!(!graph.contains_node(6));
         }
     }
 
@@ -402,14 +507,14 @@ mod tests {
 
         #[test]
         fn test_linear_chain_stages() {
-            // 1 -> 2 -> 3
             let items = vec![
                 TestItem::new(1, HashSet::from([2])),
                 TestItem::new(2, HashSet::from([3])),
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
             let stages = graph.evaluation_stages().unwrap();
 
             assert_eq!(stages.len(), 3);
@@ -435,7 +540,8 @@ mod tests {
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
             let stages = graph.evaluation_stages().unwrap();
 
             assert_eq!(stages.len(), 1);
@@ -454,7 +560,8 @@ mod tests {
                 TestItem::new(6, HashSet::new()),
             ];
 
-            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
             let stages = graph.evaluation_stages().unwrap();
 
             let expected_stages: Vec<HashSet<_>> = vec![
@@ -485,7 +592,8 @@ mod tests {
                 TestItem::new(4, HashSet::new()),
             ];
 
-            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
             let stages = graph.evaluation_stages().unwrap();
 
             let expected_stages: Vec<HashSet<_>> = vec![
@@ -509,14 +617,6 @@ mod tests {
 
         #[test]
         fn test_evaluation_stages_complex_shared_dependencies() {
-            // Notice 4 is at different levels, but only evaluated once.
-            // 1 -> 2 -> 3 -> 4
-            // 5 -> 4 -> 6
-            // 6
-            // 7
-            // 8 -> 9
-            // 9
-
             let items = vec![
                 TestItem::new(1, HashSet::from([2])),
                 TestItem::new(2, HashSet::from([3])),
@@ -529,7 +629,8 @@ mod tests {
                 TestItem::new(9, HashSet::new()),
             ];
 
-            let graph = DependencyGraph::build_from_nodes(&items).unwrap();
+            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
             let stages = graph.evaluation_stages().unwrap();
 
             let expected_stages: Vec<HashSet<_>> = vec![

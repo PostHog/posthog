@@ -428,6 +428,7 @@ export function getExperimentMetricFromInsight(
                 layout: insight.query.source.funnelsFilter?.layout,
                 breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
                 breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
+                funnelOrderType: insight.query.source.funnelsFilter?.funnelOrderType,
             },
             filterTestAccounts: insight.query.source.filterTestAccounts,
         })
@@ -507,7 +508,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
             math: source.math,
             math_property: source.math_property,
             math_hogql: source.math_hogql,
-            properties: source.properties,
+            properties: source.properties || [],
             ...(type === 'data_warehouse' && {
                 timestamp_field: source.timestamp_field,
                 events_join_key: source.events_join_key,
@@ -711,6 +712,7 @@ export function metricToQuery(
                         ...(metric.source.math === ExperimentMetricMathType.UniqueSessions && {
                             math: ExperimentMetricMathType.UniqueSessions,
                         }),
+                        properties: source.properties || [],
                     },
                 ],
             } as TrendsQuery
@@ -726,6 +728,7 @@ export function metricToQuery(
                 },
                 funnelsFilter: {
                     layout: FunnelLayout.horizontal,
+                    ...(metric.funnel_order_type && { funnelOrderType: metric.funnel_order_type }),
                 },
                 series: getFunnelPreviewSeries(metric),
             } as FunnelsQuery
