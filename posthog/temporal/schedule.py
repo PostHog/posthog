@@ -22,6 +22,7 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
+from django.conf import settings
 
 
 logger = structlog.get_logger(__name__)
@@ -117,8 +118,10 @@ schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
-    create_schedule_all_subscriptions_schedule,
 ]
+
+if settings.EE_AVAILABLE:
+    schedules.append(create_schedule_all_subscriptions_schedule)
 
 
 async def a_init_general_queue_schedules():
