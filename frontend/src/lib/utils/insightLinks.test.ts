@@ -1,0 +1,45 @@
+import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+
+describe('getInsightDefinitionUrl', () => {
+    it('generates a template link for an unsaved insight (raw query)', () => {
+        const query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: null,
+                        name: 'All events',
+                        math: 'total',
+                    },
+                ],
+                trendsFilter: {},
+            },
+        }
+        const url = getInsightDefinitionUrl({ query })
+        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=TRENDS&q=%7B.*%7D$/)
+        // Should not include /project/<id>
+        expect(url).not.toContain('/project/')
+    })
+
+    it('generates a template link for a saved insight (model)', () => {
+        const savedInsight = {
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {},
+                },
+            },
+            id: 123,
+            name: 'My Funnel',
+        }
+        const url = getInsightDefinitionUrl(savedInsight as any)
+        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=FUNNELS&q=%7B.*%7D$/)
+        expect(url).not.toContain('/project/')
+    })
+})
