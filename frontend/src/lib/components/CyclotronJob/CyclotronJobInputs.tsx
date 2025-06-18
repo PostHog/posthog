@@ -24,7 +24,6 @@ import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
@@ -42,6 +41,7 @@ export type CyclotronJobInputsProps = {
     onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
     onInputChange: (key: string, input: CyclotronJobInputType) => void
     showSource: boolean
+    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }
 
 export function CyclotronJobInputs({
@@ -49,6 +49,7 @@ export function CyclotronJobInputs({
     onInputSchemaChange,
     onInputChange,
     showSource,
+    sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
@@ -82,6 +83,7 @@ export function CyclotronJobInputs({
                                     onInputSchemaChange={onInputSchemaChange}
                                     onInputChange={onInputChange}
                                     showSource={showSource}
+                                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                 />
                             )
                         })}
@@ -222,10 +224,12 @@ function DictionaryField({
     input,
     onChange,
     templating,
+    sampleGlobalsWithInputs,
 }: {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     templating: boolean
+    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }): JSX.Element {
     const value = input.value ?? {}
     const [mode, setMode] = useState<'object' | 'entries'>(EXTEND_OBJECT_KEY in value ? 'object' : 'entries')
@@ -235,7 +239,6 @@ function DictionaryField({
         mode === 'object' ? value[EXTEND_OBJECT_KEY] : '{event.properties}'
     )
     const prevLocalValRef = useRef<string | undefined>(undefined)
-    const { sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
     useEffect(() => {
         if (mode === 'object') {
@@ -372,6 +375,7 @@ type CyclotronJobInputProps = {
     onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
+    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }
 
 function CyclotronJobInputRenderer({
@@ -380,6 +384,7 @@ function CyclotronJobInputRenderer({
     disabled,
     input,
     configuration,
+    sampleGlobalsWithInputs,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -412,7 +417,14 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'dictionary':
-            return <DictionaryField input={input} onChange={onChange} templating={templating} />
+            return (
+                <DictionaryField
+                    input={input}
+                    onChange={onChange}
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+            )
         case 'boolean':
             return (
                 <LemonSwitch checked={input.value} onChange={(checked) => onValueChange(checked)} disabled={disabled} />
@@ -570,6 +582,7 @@ function CyclotronJobInputSchemaControls({
 
 type CyclotronJobInputWithSchemaProps = CyclotronJobInputsProps & {
     schema: CyclotronJobInputSchemaType
+    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }
 
 function CyclotronJobInputWithSchema({
@@ -578,6 +591,7 @@ function CyclotronJobInputWithSchema({
     onInputSchemaChange,
     onInputChange,
     showSource,
+    sampleGlobalsWithInputs,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -690,6 +704,7 @@ function CyclotronJobInputWithSchema({
                                         input={value ?? { value: '' }}
                                         onChange={onChange}
                                         configuration={configuration}
+                                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                     />
                                 )}
                             </>
