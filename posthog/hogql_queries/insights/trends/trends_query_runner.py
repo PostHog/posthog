@@ -94,6 +94,11 @@ class TrendsQueryRunner(QueryRunner):
         if isinstance(query, dict):
             query = TrendsQuery.model_validate(query)
 
+        assert isinstance(query, TrendsQuery)
+
+        if query.trendsFilter and query.trendsFilter.formula and not query.trendsFilter.formulaNodes:
+            query.trendsFilter.formulaNodes = [TrendsFormulaNode(formula=query.trendsFilter.formula)]
+
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
 
@@ -784,7 +789,6 @@ class TrendsQueryRunner(QueryRunner):
             and self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and not in_breakdown_clause
             and self.query.trendsFilter
-            and self.query.trendsFilter.formula
         ):
             cohort_count = len(self.query.breakdownFilter.breakdown)
 
@@ -794,12 +798,12 @@ class TrendsQueryRunner(QueryRunner):
                 for i in range(cohort_count):
                     cohort_series = results[(i * results_per_cohort) : ((i + 1) * results_per_cohort)]
                     cohort_results = self.apply_formula(
-                        TrendsFormulaNode(formula=self.query.trendsFilter.formula),
+                        formula_node,
                         cohort_series,
                         in_breakdown_clause=True,
                     )
-                    conjoined_results.append(cohort_results)
-                results = conjoined_results
+                    conjoined_results.extend(cohort_results)
+                return conjoined_results
             else:
                 raise ValueError("Number of results is not divisible by breakdowns count")
 
