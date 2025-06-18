@@ -19,7 +19,7 @@ interface TemplateLinkSectionProps {
 export function TemplateLinkSection({
     templateLink,
     onShortenLink,
-    showShortenButton = true,
+    showShortenButton = false,
     heading,
     tooltip = 'Share this link to let others create a copy of this insight with the same configuration.',
     piiWarning = 'Be aware that you may be sharing sensitive data if contained in your event, property names or filters.',
@@ -75,7 +75,7 @@ export function TemplateLinkSection({
                 </LemonButton>
             </div>
 
-            {!showShortenButton && (
+            {showShortenButton && (
                 <>
                     <div className="flex items-center justify-between">
                         <div>
