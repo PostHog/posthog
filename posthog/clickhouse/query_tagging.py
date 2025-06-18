@@ -78,9 +78,13 @@ class QueryTags(BaseModel):
     filter: Optional[object] = None
     filter_by_type: Optional[list[str]] = None
     breakdown_by: Optional[list[str]] = None
+
+    # data warehouse
     trend_volume_display: Optional[str] = None
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
+
+    trend_volume_type: Optional[str] = None
 
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
