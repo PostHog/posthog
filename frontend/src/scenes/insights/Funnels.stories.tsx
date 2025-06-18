@@ -67,6 +67,8 @@ FunnelLeftToRightBreakdownEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
 
+// TODO: this test is very flakey due to relying on ResizeObserver. Either fix it, or remove it completely.
+
 // export const FunnelTopToBottom: Story = createInsightStory(
 //     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
 // )
