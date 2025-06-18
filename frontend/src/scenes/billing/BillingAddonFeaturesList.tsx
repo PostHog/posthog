@@ -28,20 +28,18 @@ export const BillingAddonFeaturesList = ({
         <div>
             <p className="ml-0 mb-2 max-w-200">{title}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                {addonFeatures
-                    .filter((feature) => !feature.entitlement_only)
-                    .map((feature, index) => (
-                        <div className="flex gap-x-2 items-center mb-2" key={'addon-features-' + addonType + index}>
-                            {icon}
-                            <Tooltip key={feature.key} title={feature.description}>
-                                <b>
-                                    {feature.name}
-                                    {feature.note ? ': ' + feature.note : ''}
-                                    {feature.limit && feature.unit ? ': ' + feature.limit + ' ' + feature.unit : ''}
-                                </b>
-                            </Tooltip>
-                        </div>
-                    ))}
+                {addonFeatures.map((feature, index) => (
+                    <div className="flex gap-x-2 items-center mb-2" key={'addon-features-' + addonType + index}>
+                        {icon}
+                        <Tooltip key={feature.key} title={feature.description}>
+                            <b>
+                                {feature.name}
+                                {feature.note ? ': ' + feature.note : ''}
+                                {feature.limit && feature.unit ? ': ' + feature.limit + ' ' + feature.unit : ''}
+                            </b>
+                        </Tooltip>
+                    </div>
+                ))}
             </div>
         </div>
     )

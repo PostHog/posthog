@@ -124,7 +124,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
             {/* Features */}
             <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
-                <BillingAddonFeaturesList addonFeatures={addonFeatures} addonType={addon.type} />
+                <BillingAddonFeaturesList
+                    addonFeatures={addonFeatures.filter((feature) => !feature.entitlement_only)}
+                    addonType={addon.type}
+                />
 
                 {addon.type === 'mobile_replay' && addon.subscribed && (
                     <>
