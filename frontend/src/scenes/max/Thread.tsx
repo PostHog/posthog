@@ -47,7 +47,7 @@ import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schem
 import { isHogQLQuery } from '~/queries/utils'
 import { ProductKey } from '~/types'
 
-import { ContextSummary } from './ContextTags'
+import { ContextSummary } from './components/ContextTags'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'

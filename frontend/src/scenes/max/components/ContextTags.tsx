@@ -3,7 +3,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
-import { MaxDashboardContext, MaxInsightContext } from './maxTypes'
+import { MaxDashboardContext, MaxInsightContext } from '../maxTypes'
 
 interface ContextTagsProps {
     size?: 'small' | 'default'

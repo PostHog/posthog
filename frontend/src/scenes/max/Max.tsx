@@ -27,6 +27,8 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { QuestionInput } from './components/QuestionInput'
+import { QuestionInputWithSuggestions } from './components/QuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
@@ -34,8 +36,6 @@ import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
-import { QuestionInput } from './QuestionInput'
-import { QuestionInputWithSuggestions } from './QuestionInputWithSuggestions'
 import { Thread } from './Thread'
 
 export const scene: SceneExport = {
@@ -100,7 +100,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
             updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.ARTIFICIAL_HOG, true)
             setWasUserAutoEnrolled(true)
         }
-    }, [])
+    }, [featureFlags, updateEarlyAccessFeatureEnrollment])
 
     const headerButtons = (
         <>

@@ -20,6 +20,8 @@ import {
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxContextLogic } from './maxContextLogic'
+import { MaxFloatingInput } from './MaxFloatingInput'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -89,7 +91,7 @@ export const Thread: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
-    }, [])
+    }, [askMax, setConversationId])
 
     return <Template />
 }
@@ -107,7 +109,7 @@ export const EmptyThreadLoading: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
-    }, [])
+    }, [askMax, setConversationId])
 
     return <Template />
 }
@@ -134,13 +136,13 @@ export const GenerationFailureThread: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
-    }, [])
+    }, [askMax, setConversationId])
 
     useEffect(() => {
         if (threadRaw.length === 2 && !threadLoading) {
             setMessageStatus(1, 'error')
         }
-    }, [threadRaw.length, threadLoading])
+    }, [threadRaw.length, threadLoading, setMessageStatus])
 
     return <Template />
 }
@@ -158,7 +160,7 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
-    }, [])
+    }, [askMax, setConversationId])
 
     return <Template />
 }
@@ -178,7 +180,7 @@ export const ThreadWithRateLimit: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax('Is Bielefeld real?')
-    }, [])
+    }, [askMax, setConversationId])
 
     return <Template />
 }
@@ -198,7 +200,7 @@ export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax('Is Finland real?')
-    }, [])
+    }, [askMax, setConversationId])
 
     return <Template />
 }
@@ -216,7 +218,7 @@ export const ThreadWithForm: StoryFn = () => {
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
-    }, [])
+    }, [askMax, setConversationId])
 
     return <Template />
 }
@@ -232,7 +234,7 @@ export const ThreadWithConversationLoading: StoryFn = () => {
 
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
-    }, [])
+    }, [setConversationId])
 
     return <Template />
 }
@@ -253,7 +255,7 @@ export const ThreadWithEmptyConversation: StoryFn = () => {
 
     useEffect(() => {
         setConversationId('empty')
-    }, [])
+    }, [setConversationId])
 
     return <Template />
 }
@@ -270,7 +272,7 @@ export const ThreadWithInProgressConversation: StoryFn = () => {
 
     useEffect(() => {
         setConversationId('in_progress')
-    }, [])
+    }, [setConversationId])
 
     return <Template sidePanel />
 }
@@ -306,7 +308,7 @@ export const ChatHistory: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -327,7 +329,7 @@ export const ChatHistoryEmpty: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -348,7 +350,7 @@ export const ChatHistoryLoading: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -364,7 +366,7 @@ export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
     useEffect(() => {
         // The largest group is the set up group
         setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
-    }, [])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }
@@ -488,5 +490,125 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
 ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+    },
+}
+
+// Floating Input Stories
+export const FloatingInputCollapsed: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        setIsFloatingMaxExpanded(false)
+    }, [setIsFloatingMaxExpanded])
+
+    return <MaxFloatingInput />
+}
+FloatingInputCollapsed.parameters = {
+    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
+}
+
+export const FloatingInputExpanded: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+    }, [setIsFloatingMaxExpanded])
+
+    return <MaxFloatingInput />
+}
+FloatingInputExpanded.parameters = {
+    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
+}
+
+export const FloatingInputWithUserInteraction: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+
+    const { setUserHasInteractedWithFloatingMax } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        setUserHasInteractedWithFloatingMax(true)
+    }, [setUserHasInteractedWithFloatingMax])
+
+    return <MaxFloatingInput />
+}
+FloatingInputWithUserInteraction.parameters = {
+    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
+}
+
+export const FloatingInputWithSuggestions: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+
+    const { setShowSuggestions } = useActions(maxLogic)
+    useEffect(() => {
+        setShowSuggestions(true)
+    }, [setShowSuggestions])
+
+    return <MaxFloatingInput />
+}
+FloatingInputWithSuggestions.parameters = {
+    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
+}
+
+export const FloatingInputMobileView: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+
+    return <MaxFloatingInput />
+}
+FloatingInputMobileView.parameters = {
+    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
+    viewport: {
+        defaultViewport: 'mobile2',
     },
 }
