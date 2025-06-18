@@ -41,7 +41,6 @@ export type CyclotronJobInputsProps = {
     onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
     onInputChange: (key: string, input: CyclotronJobInputType) => void
     showSource: boolean
-    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }
 
 export function CyclotronJobInputs({
@@ -49,7 +48,6 @@ export function CyclotronJobInputs({
     onInputSchemaChange,
     onInputChange,
     showSource,
-    sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
@@ -83,7 +81,6 @@ export function CyclotronJobInputs({
                                     onInputSchemaChange={onInputSchemaChange}
                                     onInputChange={onInputChange}
                                     showSource={showSource}
-                                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                 />
                             )
                         })}
@@ -224,147 +221,95 @@ function DictionaryField({
     input,
     onChange,
     templating,
-    sampleGlobalsWithInputs,
 }: {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     templating: boolean
-    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }): JSX.Element {
     const value = input.value ?? {}
-    const [mode, setMode] = useState<'object' | 'entries'>(EXTEND_OBJECT_KEY in value ? 'object' : 'entries')
-    const [entries, setEntries] = useState<[string, string][]>(mode === 'entries' ? Object.entries(value) : [['', '']])
-    const prevFilteredEntriesRef = useRef<[string, string][]>([])
-    const [localVal, setLocalVal] = useState<string | undefined>(
-        mode === 'object' ? value[EXTEND_OBJECT_KEY] : '{event.properties}'
-    )
-    const prevLocalValRef = useRef<string | undefined>(undefined)
+    const [entries, setEntries] = useState<[string, string][]>(Object.entries(value))
+    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
 
     useEffect(() => {
-        if (mode === 'object') {
-            if (localVal === prevLocalValRef.current) {
-                return
-            }
-            prevLocalValRef.current = localVal
-            onChange?.({
-                ...input,
-                value: {
-                    [EXTEND_OBJECT_KEY]: localVal,
-                },
-            })
-        } else {
-            // NOTE: Filter out all empty entries as fetch will throw if passed in
-            const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+        // NOTE: Filter out all empty entries as fetch will throw if passed in
+        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
 
-            // Compare with previous filtered entries to avoid unnecessary updates
-            if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
-                return
-            }
-
-            // Update the ref with current filtered entries
-            prevFilteredEntriesRef.current = filteredEntries
-
-            const val = Object.fromEntries(filteredEntries)
-            onChange?.({ ...input, value: val })
+        // Compare with previous filtered entries to avoid unnecessary updates
+        if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
+            return
         }
-    }, [entries, localVal, mode, onChange])
+
+        // Update the ref with current filtered entries
+        prevFilteredEntriesRef.current = filteredEntries
+
+        const val = Object.fromEntries(filteredEntries)
+        onChange?.({ ...input, value: val })
+    }, [entries, onChange])
+
+    const handleEnableIncludeObject = (): void => {
+        setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
+    }
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="flex gap-2 mb-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    className={clsx({
-                        'opacity-50': mode === 'object',
-                    })}
-                    disabledReason={mode === 'object' ? 'This option is already selected' : undefined}
-                    onClick={() => {
-                        setMode('object')
-                    }}
-                >
-                    Select entire object
+            {entries[0]?.[0] !== EXTEND_OBJECT_KEY ? (
+                <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
+                    Include properties from an entire object
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    className={clsx({
-                        'opacity-50': mode === 'entries',
-                    })}
-                    disabledReason={mode === 'entries' ? 'This option is already selected' : undefined}
-                    onClick={() => {
-                        setMode('entries')
-                    }}
-                >
-                    Select individual entries
-                </LemonButton>
-            </div>
-            {mode === 'entries' ? (
-                <>
-                    {entries.map(([key, val], index) => (
-                        <div className="flex gap-2 items-center" key={index}>
-                            <LemonInput
-                                value={key}
-                                className="flex-1 min-w-60"
-                                onChange={(key) => {
-                                    const newEntries = [...entries]
-                                    newEntries[index] = [key, newEntries[index][1]]
-                                    setEntries(newEntries)
-                                }}
-                                placeholder="Key"
-                            />
-
-                            <CyclotronJobTemplateInput
-                                className="overflow-hidden flex-2"
-                                input={{ ...input, value: val }}
-                                onChange={(val) => {
-                                    const newEntries = [...entries]
-                                    newEntries[index] = [newEntries[index][0], val.value ?? '']
-                                    if (val.templating) {
-                                        onChange?.({ ...input, templating: val.templating })
-                                    }
-                                    setEntries(newEntries)
-                                }}
-                                templating={templating}
-                            />
-
-                            <LemonButton
-                                icon={<IconX />}
-                                size="small"
-                                onClick={() => {
-                                    const newEntries = [...entries]
-                                    newEntries.splice(index, 1)
-                                    setEntries(newEntries)
-                                }}
-                            />
-                        </div>
-                    ))}
-                    <LemonButton
-                        icon={<IconPlus />}
-                        size="small"
-                        type="secondary"
-                        onClick={() => {
-                            setEntries([...entries, ['', '']])
+            ) : null}
+            {entries.map(([key, val], index) => (
+                <div className="flex gap-2 items-center" key={index}>
+                    <LemonInput
+                        value={key === EXTEND_OBJECT_KEY && index === 0 ? 'INCLUDE ENTIRE OBJECT' : key}
+                        disabledReason={
+                            EXTEND_OBJECT_KEY === key && index === 0
+                                ? 'Include properties from an entire object'
+                                : undefined
+                        }
+                        className="flex-1 min-w-60"
+                        onChange={(key) => {
+                            const newEntries = [...entries]
+                            newEntries[index] = [key, newEntries[index][1]]
+                            setEntries(newEntries)
                         }}
-                    >
-                        Add entry
-                    </LemonButton>
-                </>
-            ) : (
-                <>
-                    {!templating ? (
-                        <LemonInput type="text" value={localVal} onChange={(val) => setLocalVal(val)} />
-                    ) : (
-                        <CodeEditorInline
-                            value={localVal}
-                            onChange={(val) => setLocalVal(val)}
-                            language={input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
-                            globals={sampleGlobalsWithInputs}
-                            className="ph-no-capture"
-                        />
-                    )}
-                </>
-            )}
+                        placeholder="Key"
+                    />
+
+                    <CyclotronJobTemplateInput
+                        className="overflow-hidden flex-2"
+                        input={{ ...input, value: val }}
+                        onChange={(val) => {
+                            const newEntries = [...entries]
+                            newEntries[index] = [newEntries[index][0], val.value ?? '']
+                            if (val.templating) {
+                                onChange?.({ ...input, templating: val.templating })
+                            }
+                            setEntries(newEntries)
+                        }}
+                        templating={templating}
+                    />
+
+                    <LemonButton
+                        icon={<IconX />}
+                        size="small"
+                        onClick={() => {
+                            const newEntries = [...entries]
+                            newEntries.splice(index, 1)
+                            setEntries(newEntries)
+                        }}
+                    />
+                </div>
+            ))}
+            <LemonButton
+                icon={<IconPlus />}
+                size="small"
+                type="secondary"
+                onClick={() => {
+                    setEntries([...entries, ['', '']])
+                }}
+            >
+                Add entry
+            </LemonButton>
         </div>
     )
 }
@@ -375,7 +320,6 @@ type CyclotronJobInputProps = {
     onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
-    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }
 
 function CyclotronJobInputRenderer({
@@ -384,7 +328,6 @@ function CyclotronJobInputRenderer({
     disabled,
     input,
     configuration,
-    sampleGlobalsWithInputs,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -417,14 +360,7 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'dictionary':
-            return (
-                <DictionaryField
-                    input={input}
-                    onChange={onChange}
-                    templating={templating}
-                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                />
-            )
+            return <DictionaryField input={input} onChange={onChange} templating={templating} />
         case 'boolean':
             return (
                 <LemonSwitch checked={input.value} onChange={(checked) => onValueChange(checked)} disabled={disabled} />
@@ -591,7 +527,6 @@ function CyclotronJobInputWithSchema({
     onInputSchemaChange,
     onInputChange,
     showSource,
-    sampleGlobalsWithInputs,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -704,7 +639,6 @@ function CyclotronJobInputWithSchema({
                                         input={value ?? { value: '' }}
                                         onChange={onChange}
                                         configuration={configuration}
-                                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                     />
                                 )}
                             </>
