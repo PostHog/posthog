@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 
+import { findActionByType } from '~/cdp/services/hogflows/actions/utils'
 import { HogFlow, HogFlowAction, HogFlowEdge } from '~/schema/hogflow'
 import { logger } from '~/utils/logger'
 
@@ -58,7 +59,7 @@ export class FixtureHogFlowBuilder {
     }
 
     build(): HogFlow {
-        const triggerAction = this.hogFlow.actions.find((action) => action.type === 'trigger')
+        const triggerAction = findActionByType(this.hogFlow, 'trigger')
         this.hogFlow.trigger =
             this.hogFlow.trigger ??
             (triggerAction
@@ -103,7 +104,6 @@ export class FixtureHogFlowBuilder {
     }
 
     withWorkflow(workflow: SimpleHogFlowRepresentation): this {
-        // TRICKY: Getting the typing right here is really hard...
         this.hogFlow.actions = Object.entries(workflow.actions).map(([id, action]) => ({
             id,
             name: action.type,
@@ -111,7 +111,7 @@ export class FixtureHogFlowBuilder {
             created_at: Date.now(),
             updated_at: Date.now(),
             on_error: 'continue',
-            ...action,
+            ...(action as any), // TRICKY: Nasty cast as the union types are beyond me get right
         }))
 
         this.hogFlow.edges = workflow.edges

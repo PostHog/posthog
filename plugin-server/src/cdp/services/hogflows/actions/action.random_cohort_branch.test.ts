@@ -4,6 +4,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
+import { findActionByType } from './utils'
 
 describe('HogFlowActionRunnerRandomCohortBranch', () => {
     let runner: HogFlowActionRunnerRandomCohortBranch
@@ -61,7 +62,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
             })
             .build()
 
-        action = hogFlow.actions.find((action) => action.type === 'random_cohort_branch')!
+        action = findActionByType(hogFlow, 'random_cohort_branch')!
         invocation = createExampleHogFlowInvocation(hogFlow)
     })
 

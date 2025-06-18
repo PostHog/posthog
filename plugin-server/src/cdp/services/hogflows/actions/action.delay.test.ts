@@ -6,6 +6,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerDelay } from './action.delay'
+import { findActionByType } from './utils'
 
 describe('HogFlowActionRunnerDelay', () => {
     let runner: HogFlowActionRunnerDelay
@@ -32,7 +33,7 @@ describe('HogFlowActionRunnerDelay', () => {
             })
             .build()
 
-        action = hogFlow.actions.find((action) => action.type === 'delay')!
+        action = findActionByType(hogFlow, 'delay')!
         invocation = createExampleHogFlowInvocation(hogFlow, {
             currentAction: {
                 id: action.id,

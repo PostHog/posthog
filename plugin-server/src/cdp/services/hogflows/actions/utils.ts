@@ -9,6 +9,18 @@ export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
     return action
 }
 
+export const findActionByType = <T extends HogFlowAction['type']>(
+    hogFlow: HogFlow,
+    type: T
+): Extract<HogFlowAction, { type: T }> | undefined => {
+    const action = hogFlow.actions.find((action) => action.type === type)
+    if (!action) {
+        return undefined
+    }
+
+    return action as Extract<HogFlowAction, { type: T }>
+}
+
 export const findNextAction = (
     hogFlow: HogFlow,
     currentActionId: string,

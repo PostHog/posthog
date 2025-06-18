@@ -7,6 +7,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
+import { findActionByType } from './utils'
 
 describe('HogFlowActionRunnerCondition', () => {
     let runner: HogFlowActionRunnerConditionalBranch
@@ -63,7 +64,7 @@ describe('HogFlowActionRunnerCondition', () => {
             })
             .build()
 
-        action = hogFlow.actions.find((action) => action.type === 'conditional_branch')!
+        action = findActionByType(hogFlow, 'conditional_branch')!
         invocation = createExampleHogFlowInvocation(hogFlow)
 
         invocation.state.currentAction = {

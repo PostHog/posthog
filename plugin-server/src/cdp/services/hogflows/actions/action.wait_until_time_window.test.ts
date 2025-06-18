@@ -4,6 +4,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
+import { findActionByType } from './utils'
 
 describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
     let runner: HogFlowActionRunnerWaitUntilTimeWindow
@@ -29,7 +30,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 edges: [],
             })
             .build()
-        action = hogFlow.actions.find((action) => action.type === 'wait_until_time_window')!
+        action = findActionByType(hogFlow, 'wait_until_time_window')!
     })
 
     describe('time window scheduling', () => {
