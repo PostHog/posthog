@@ -39,6 +39,7 @@ export function filterFunctionInstrumented(options: {
 }): HogFilterResult {
     const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
+    const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const start = performance.now()
     const logs: LogEntry[] = []
     const metrics: MinimalAppMetric[] = []
@@ -77,7 +78,7 @@ export function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        logger.error('🦔', `[HogFunction] Error filtering function`, {
+        logger.error('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,
             teamId: fn.team_id,
@@ -96,7 +97,7 @@ export function filterFunctionInstrumented(options: {
         if (eventUuid) {
             logs.push({
                 team_id: fn.team_id,
-                log_source: 'hog_function',
+                log_source: fnKind === 'HogFunction' ? 'hog_function' : 'hog_flow',
                 log_source_id: fn.id,
                 instance_id: new UUIDT().toString(),
                 timestamp: DateTime.now(),
@@ -114,7 +115,7 @@ export function filterFunctionInstrumented(options: {
         hogFunctionFilterDuration.observe({ type }, duration)
 
         if (duration > DEFAULT_TIMEOUT_MS) {
-            logger.error('🦔', `[HogFunction] Filter took longer than expected`, {
+            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
                 functionId: fn.id,
                 functionName: fn.name,
                 teamId: fn.team_id,

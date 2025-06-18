@@ -13,6 +13,7 @@ import { cn } from 'lib/utils/css-classes'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { RevenueAnalyticsInsightsQueryGroupBy } from '~/queries/schema/schema-general'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { DateMappingOption } from '~/types'
 
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -106,12 +107,17 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
 const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsInsightsQueryGroupBy, string> = {
     [RevenueAnalyticsInsightsQueryGroupBy.COHORT]: 'Cohort',
     [RevenueAnalyticsInsightsQueryGroupBy.COUNTRY]: 'Country',
+    [RevenueAnalyticsInsightsQueryGroupBy.COUPON]: 'Coupon',
+    [RevenueAnalyticsInsightsQueryGroupBy.COUPON_ID]: 'Coupon ID',
+    [RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON]: 'Initial coupon',
+    [RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON_ID]: 'Initial coupon ID',
     [RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]: 'Product',
 }
 
 const BREAKDOWN_BY_OPTIONS: LemonInputSelectOption[] = Object.entries(BREAKDOWN_BY_MAPPING).map(([key, label]) => ({
     key,
     label,
+    tooltip: CORE_FILTER_DEFINITIONS_BY_GROUP['revenue_analytics_properties'][key]?.description,
 }))
 
 const RevenueAnalyticsBreakdownBy = (): JSX.Element => {
