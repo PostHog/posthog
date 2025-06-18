@@ -21,7 +21,7 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     currency_aware_amount,
     is_zero_decimal_in_stripe,
 )
-from .revenue_analytics_base_view import RevenueAnalyticsBaseView
+from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_exprs_for_team
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
@@ -42,6 +42,8 @@ FIELDS: dict[str, FieldOrTable] = {
     "invoice_id": StringDatabaseField(name="invoice_id"),
     "session_id": StringDatabaseField(name="session_id"),
     "event_name": StringDatabaseField(name="event_name"),
+    "coupon": StringDatabaseField(name="coupon"),
+    "coupon_id": StringDatabaseField(name="coupon_id"),
     **BASE_CURRENCY_FIELDS,
 }
 
@@ -68,6 +70,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
             return []
 
         revenue_config = team.revenue_analytics_config
+        generic_team_exprs = events_exprs_for_team(team)
 
         queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
@@ -81,6 +84,16 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
             )
 
             prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
+
+            filter_exprs = [
+                comparison_expr,
+                *generic_team_exprs,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["amount"]),  # refers to the Alias above
+                    right=ast.Constant(value=None),
+                ),
+            ]
 
             query = ast.SelectQuery(
                 select=[
@@ -96,6 +109,8 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
                     ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
+                    ast.Alias(alias="coupon", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="coupon_id", expr=ast.Constant(value=None)),
                     ast.Alias(alias="original_currency", expr=currency_expression_for_events(revenue_config, event)),
                     ast.Alias(alias="original_amount", expr=value_expr),
                     # Being zero-decimal implies we will NOT divide the original amount by 100
@@ -113,16 +128,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="amount", expr=currency_aware_amount_expr),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.And(
-                    exprs=[
-                        comparison_expr,
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.NotEq,
-                            left=ast.Field(chain=["amount"]),  # refers to the Alias above
-                            right=ast.Constant(value=None),
-                        ),
-                    ]
-                ),
+                where=ast.And(exprs=filter_exprs),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             )
 
@@ -175,6 +181,8 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["id"])),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
+                ast.Alias(alias="coupon", expr=extract_json_string("discount", "coupon", "name")),
+                ast.Alias(alias="coupon_id", expr=extract_json_string("discount", "coupon", "id")),
                 # Compute the original currency, converting to uppercase to match the currency code in the `exchange_rate` table
                 ast.Alias(
                     alias="original_currency",
@@ -237,6 +245,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         ast.Field(chain=["id"]),
                         ast.Field(chain=["created_at"]),
                         ast.Field(chain=["customer_id"]),
+                        ast.Field(chain=["discount"]),
                         # Explode the `lines.data` field into an individual row per item
                         ast.Alias(
                             alias="data",

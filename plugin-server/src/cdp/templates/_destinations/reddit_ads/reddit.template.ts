@@ -1,4 +1,4 @@
-import { HogFunctionInputSchemaType } from '~/src/cdp/types'
+import { HogFunctionInputSchemaType } from '~/cdp/types'
 
 import { HogFunctionTemplate } from '../../types'
 
@@ -34,7 +34,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'beta',
+    status: 'alpha',
     type: 'destination',
     id: 'template-reddit-conversions-api',
     name: 'Reddit Conversions API',

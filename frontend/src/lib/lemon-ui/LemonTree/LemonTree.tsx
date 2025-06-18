@@ -125,8 +125,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
-    /** The icon for the side action, defaults to ellipsis */
-    itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
     /** The button to render for the item's side action. */
     itemSideActionButton?: (item: TreeDataItem) => React.ReactNode
     /** The context menu to render for the item. */
@@ -246,7 +244,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             isItemDroppable,
             depth = 0,
             itemSideAction,
-            itemSideActionIcon,
             itemSideActionButton,
             isItemEditing,
             onItemNameChange,
@@ -617,7 +614,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             renderItemTooltip={renderItemTooltip}
                                             renderItemIcon={renderItemIcon}
                                             itemSideAction={itemSideAction}
-                                            itemSideActionIcon={itemSideActionIcon}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
                                             isItemDraggable={isItemDraggable}
@@ -681,7 +677,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isItemDraggable,
             isItemDroppable,
             itemSideAction,
-            itemSideActionIcon,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -1392,7 +1387,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
-                            itemSideActionIcon={itemSideActionIcon}
                             isItemEditing={isItemEditing}
                             onItemNameChange={onItemNameChange}
                             className={cn('p-1', {

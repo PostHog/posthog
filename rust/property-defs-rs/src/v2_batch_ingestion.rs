@@ -318,14 +318,16 @@ pub async fn process_batch_v2(
         }));
     }
 
-    for handle in handles {
-        match handle.await {
-            // metrics are statted in write_*_batch methods so we just log here
-            Ok(result) => match result {
+    // Execute final batch handles concurrently
+    let final_results = futures::future::join_all(handles).await;
+    for result in final_results {
+        match result {
+            Ok(batch_result) => match batch_result {
                 Ok(_) => continue,
-                Err(db_err) => {
+                // fanned-out write attempts are instrumented locally w/more
+                // detail, so we only publish global error metric here
+                Err(_) => {
                     metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
-                    error!("Batch write exhausted retries: {:?}", db_err);
                 }
             },
             Err(join_err) => {
@@ -366,6 +368,10 @@ async fn write_event_properties_batch(
                     metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+                    error!(
+                        "Batch write to posthog_eventproperty exhausted retries: {:?}",
+                        &e
+                    );
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
@@ -446,6 +452,10 @@ async fn write_property_definitions_batch(
                     metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+                    error!(
+                        "Batch write to posthog_propertydefinition exhausted retries: {:?}",
+                        &e
+                    );
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
@@ -491,7 +501,18 @@ async fn write_event_definitions_batch(
     let mut tries: u64 = 1;
 
     loop {
-        // TODO: is last_seen_at critical to the product UX? "ON CONFLICT DO NOTHING" may be much cheaper...
+        // last_seen_ats are manipulated on event defs for cache expiration
+        // at the moment; as in v1 writes, let's keep these fresh per-attempt
+        // to ensure the values in the UI are more accurate, and avoid PG 21000
+        // errors (constraint violations) when retrying writes w/o tx wrapper
+        let mut per_attempt_last_seen_ats: Vec<DateTime<Utc>> = Vec::with_capacity(batch.len());
+        let per_attempt_ts = Utc::now();
+        for _ in 0..batch.len() {
+            per_attempt_last_seen_ats.push(per_attempt_ts);
+        }
+
+        // TODO: see if we can eliminate last_seen_at from being exposed in the UI,
+        // then convert this stmt to ON CONFLICT DO NOTHING
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
@@ -510,7 +531,7 @@ async fn write_event_definitions_batch(
         .bind(&batch.names)
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
-        .bind(&batch.last_seen_ats)
+        .bind(per_attempt_last_seen_ats)
         .execute(pool)
         .await;
 
@@ -520,6 +541,10 @@ async fn write_event_definitions_batch(
                     metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
                     total_time.fin();
+                    error!(
+                        "Batch write to posthog_eventdefinition exhausted retries: {:?}",
+                        &e
+                    );
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
