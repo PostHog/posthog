@@ -1,4 +1,4 @@
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 import json
 from collections.abc import Callable
 from typing import Any
@@ -17,6 +17,7 @@ from posthog.temporal.ai.session_summary.shared import (
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryOfSummariesInputs,
     SummarizeSessionGroupWorkflow,
+    execute_summarize_session_group,
     get_llm_session_group_summary_activity,
     get_llm_single_session_summary_activity,
 )
@@ -120,6 +121,50 @@ async def test_get_llm_session_group_summary_activity_standalone(
 
 
 class TestSummarizeSessionGroupWorkflow:
+    @contextmanager
+    def execute_test_environment(
+        self,
+        session_ids: list[str],
+        mock_call_llm: Callable,
+        mock_team: MagicMock,
+        mock_raw_metadata: dict[str, Any],
+        mock_raw_events_columns: list[str],
+        mock_raw_events: list[tuple[Any, ...]],
+        mock_valid_event_ids: list[str],
+        custom_content: str | None = None,
+    ):
+        """Test environment for sync Django functions to run the workflow from"""
+        # Mock LLM responses:
+        # Session calls - mock_valid_llm_yaml_response to simulate single-session-summary (YAML)
+        # Summary call (last) - summary of summaries (str)
+        call_llm_side_effects = [mock_call_llm() for _ in range(len(session_ids))] + [
+            mock_call_llm(custom_content=custom_content)
+        ]
+        with (
+            # Mock LLM call
+            patch(
+                "ee.session_recordings.session_summary.llm.consume.call_llm",
+                new=AsyncMock(side_effect=call_llm_side_effects),
+            ),
+            # Mock DB calls
+            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                return_value=mock_raw_metadata,
+            ),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_events",
+                return_value=(mock_raw_events_columns, mock_raw_events),
+            ),
+            # Mock deterministic hex generation
+            patch.object(
+                SessionSummaryPromptData,
+                "_get_deterministic_hex",
+                side_effect=iter(mock_valid_event_ids * len(session_ids)),
+            ),
+        ):
+            yield
+
     @asynccontextmanager
     async def workflow_test_environment(
         self,
@@ -132,47 +177,29 @@ class TestSummarizeSessionGroupWorkflow:
         mock_valid_event_ids: list[str],
         custom_content: str | None = None,
     ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
-        # Mock LLM responses:
-        # Session calls - mock_valid_llm_yaml_response to simulate single-session-summary (YAML)
-        # Summary call (last) - summary of summaries (str)
-        call_llm_side_effects = [mock_call_llm() for _ in range(len(session_ids))] + [
-            mock_call_llm(custom_content=custom_content)
-        ]
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=[
-                    get_llm_single_session_summary_activity,
-                    get_llm_session_group_summary_activity,
-                    fetch_session_data_activity,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ) as worker:
-                with (
-                    # Mock LLM call
-                    patch(
-                        "ee.session_recordings.session_summary.llm.consume.call_llm",
-                        new=AsyncMock(side_effect=call_llm_side_effects),
-                    ),
-                    # Mock DB calls
-                    patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
-                    patch(
-                        "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
-                        return_value=mock_raw_metadata,
-                    ),
-                    patch(
-                        "ee.session_recordings.session_summary.summarize_session.get_session_events",
-                        return_value=(mock_raw_events_columns, mock_raw_events),
-                    ),
-                    # Mock deterministic hex generation
-                    patch.object(
-                        SessionSummaryPromptData,
-                        "_get_deterministic_hex",
-                        side_effect=iter(mock_valid_event_ids * len(session_ids)),
-                    ),
-                ):
+        """Test environment for Temporal workflow"""
+        with self.execute_test_environment(
+            session_ids,
+            mock_call_llm,
+            mock_team,
+            mock_raw_metadata,
+            mock_raw_events_columns,
+            mock_raw_events,
+            mock_valid_event_ids,
+            custom_content=custom_content,
+        ):
+            async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+                async with Worker(
+                    activity_environment.client,
+                    task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                    workflows=WORKFLOWS,
+                    activities=[
+                        get_llm_single_session_summary_activity,
+                        get_llm_session_group_summary_activity,
+                        fetch_session_data_activity,
+                    ],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ) as worker:
                     yield activity_environment, worker
 
     def setup_workflow_test(
@@ -191,6 +218,22 @@ class TestSummarizeSessionGroupWorkflow:
         expected_summary = "everything is good"
         return session_ids, workflow_id, workflow_input, expected_summary
 
+    def test_execute_summarize_session_group(
+        self,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_session_group_summary_inputs: Callable,
+    ):
+        """Test the execute_summarize_session_group starts a Temporal workflow and returns the expected result"""
+        session_ids, _, _, expected_summary = self.setup_workflow_test(mock_session_group_summary_inputs, "execute")
+        with patch(
+            "posthog.temporal.ai.session_summary.summarize_session_group._execute_workflow",
+            new=AsyncMock(return_value=expected_summary),
+        ):
+            # Wait for workflow to complete and get result
+            result = execute_summarize_session_group(session_ids=session_ids, user_pk=mock_user.pk, team=mock_team)
+            assert result == expected_summary
+
     @pytest.mark.asyncio
     async def test_summarize_session_group_workflow(
         self,
@@ -206,7 +249,7 @@ class TestSummarizeSessionGroupWorkflow:
     ):
         """Test that the workflow completes successfully and returns the expected result"""
         session_ids, workflow_id, workflow_input, expected_summary = self.setup_workflow_test(
-            mock_session_group_summary_inputs, "mixed"
+            mock_session_group_summary_inputs, "success"
         )
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
