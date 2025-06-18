@@ -163,24 +163,21 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         validNativeSources: [
             (s) => [s.nativeSources, s.dataWarehouseTables],
             (nativeSources, dataWarehouseTables): NativeSource[] => {
-                const validNativeSources: NativeSource[] = []
-                nativeSources.forEach((source) => {
-                    let vns: NativeSource | null = null
+                return nativeSources.reduce((validNativeSources: NativeSource[], source) => {
                     if (
                         source.schemas.length ===
                         NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource].length
                     ) {
-                        vns = {
+                        validNativeSources.push({
                             source,
                             tables:
                                 dataWarehouseTables?.filter((table) =>
                                     source.schemas.some((schema) => schema.id === table.schema?.id)
                                 ) ?? [],
-                        }
-                        validNativeSources.push(vns)
+                        })
                     }
-                })
-                return validNativeSources
+                    return validNativeSources
+                }, [])
             },
         ],
         loading: [
