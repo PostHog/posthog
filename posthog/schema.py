@@ -2815,6 +2815,18 @@ class Day(RootModel[int]):
     root: int
 
 
+class EntityFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+
+
 class ErrorTrackingIssueAssignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3135,13 +3147,6 @@ class LogMessage(BaseModel):
     timestamp: datetime
     trace_id: str
     uuid: str
-
-
-class MarketingAnalyticsConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class MatchedRecording(BaseModel):
@@ -8112,6 +8117,50 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
 
 
+class ConversionGoalFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goal_id: str
+    conversion_goal_name: str
+    custom_name: Optional[str] = None
+    days: Optional[list[str]] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    math: Optional[str] = None
+    math_group_type_index: Optional[int] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    math_property_type: Optional[TaxonomicFilterGroupType] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    schema_: dict[str, Union[str, Any]] = Field(..., alias="schema")
+    type: EntityType
+
+
 class DashboardFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8842,6 +8891,14 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     status: Optional[list[StatusItem]] = None
 
 
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goals: Optional[list[ConversionGoalFilter]] = None
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
+
+
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9226,6 +9283,47 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ActionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    days: Optional[list[str]] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    math: Optional[str] = None
+    math_group_type_index: Optional[int] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    math_property_type: Optional[TaxonomicFilterGroupType] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    type: EntityType
 
 
 class ActionsNode(BaseModel):
