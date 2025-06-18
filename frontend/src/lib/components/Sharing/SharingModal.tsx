@@ -139,6 +139,9 @@ export function SharingModalContent({
                                         data-attr="sharing-link-button"
                                         type="secondary"
                                         onClick={() => {
+                                            // TRICKY: there's a chance this was sending useless errors to error tracking
+                                            // even when it succeeded, so we're explicitly ignoring the promise success
+                                            // and naming the error when reported to error tracking - @pauldambra
                                             copyToClipboard(shareLink, shareLink).catch((e) =>
                                                 posthog.captureException(
                                                     new Error('unexpected sharing modal clipboard error: ' + e.message)
@@ -202,6 +205,7 @@ export function SharingModalContent({
                                                     }
                                                     onChange={() =>
                                                         guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
+                                                            // setEmbedConfigValue is used to update the form state and report the event
                                                             setEmbedConfigValue('whitelabel', !value)
                                                         })
                                                     }
@@ -211,6 +215,7 @@ export function SharingModalContent({
                                         </LemonField>
 
                                         {isInsightVizNode(insight?.query) && insightShortId && (
+                                            // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
                                             <>
                                                 <LegendCheckbox insightShortId={insightShortId} />
                                                 <DetailedResultsCheckbox insightShortId={insightShortId} />
