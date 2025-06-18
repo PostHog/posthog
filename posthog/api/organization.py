@@ -123,7 +123,6 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
-            "is_env_rollback_triggered",
         ]
         read_only_fields = [
             "id",
@@ -138,7 +137,6 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "member_count",
-            "is_env_rollback_triggered",
         ]
         extra_kwargs = {
             "slug": {
@@ -343,10 +341,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
         """
         from posthog.tasks.tasks import environments_rollback_migration
+        from posthog.storage.environments_rollback_storage import (
+            add_organization_to_rollback_list,
+            is_organization_rollback_triggered,
+        )
 
         organization = self.get_object()
 
-        if organization.is_env_rollback_triggered:
+        if is_organization_rollback_triggered(organization.id):
             raise exceptions.ValidationError("Environments rollback has already been requested for this organization.")
 
         environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
@@ -372,8 +374,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=user.id,
         )
 
-        organization.is_env_rollback_triggered = True
-        organization.save(update_fields=["is_env_rollback_triggered"])
+        # Mark organization as having triggered rollback in Redis
+        add_organization_to_rollback_list(organization.id)
 
         posthoganalytics.capture(
             str(user.distinct_id),
