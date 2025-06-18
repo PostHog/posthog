@@ -12,7 +12,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
-from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, DBBatchIterator
+from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
@@ -21,6 +21,7 @@ from posthog.models.property import BehavioralPropertyType, Property, PropertyGr
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.person import PersonDistinctId
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -323,6 +324,43 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             duration=(time.monotonic() - start_time),
         )
 
+    def _get_uuids_for_distinct_ids_batch(self, distinct_ids: list[str], team_id: int) -> list[str]:
+        """
+        Get UUIDs for a batch of distinct IDs, excluding those already in this cohort.
+
+        Args:
+            distinct_ids: List of distinct IDs to convert to UUIDs
+            team_id: Team ID to filter by
+
+        Remarks:
+            This used to be a single query with a complex JOIN, but that query was timing out.
+            So we split it into two queries that are much simpler and should hopefully not time out.
+
+        Returns:
+            List of UUIDs for persons with the given distinct IDs who are not already in this cohort
+        """
+        if not distinct_ids:
+            return []
+
+        # Get person_ids for this batch of distinct IDs
+        # This is limited to the batch size so it will be no more than 1000 items in-memory at a time.
+        person_ids_qs = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, distinct_id__in=distinct_ids)
+            .values_list("person_id", flat=True)
+            .distinct()
+        )
+
+        # Grab uuids for this batch of distinct IDs
+        uuids = list(
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, id__in=person_ids_qs)
+            .exclude(id__in=CohortPeople.objects.filter(cohort_id=self.id).values_list("person_id", flat=True))
+            .values_list("uuid", flat=True)
+        )
+
+        return uuids
+
     def insert_users_by_list(
         self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
     ) -> None:
@@ -343,21 +381,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # Query PersonDistinctId to get person_ids, then join with Person to get UUIDs
-        persons_queryset = (
-            Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=team_id)
-            .filter(
-                Q(
-                    persondistinctid__team_id=team_id,
-                    persondistinctid__distinct_id__in=items,
-                )
-            )
-            .exclude(cohort__id=self.id)
-        )
+        # Process distinct IDs in batches to avoid memory issues
+        def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
+            """Create a batch of UUIDs from distinct IDs, excluding those already in cohort."""
+            start_idx = batch_index * batch_size
+            end_idx = start_idx + batch_size
+            batch_distinct_ids = items[start_idx:end_idx]
 
-        # Use DBBatchIterator to stream UUIDs in batches
-        batch_iterator = DBBatchIterator(persons_queryset, batch_size=batch_size, values_list_field="uuid")
+            return self._get_uuids_for_distinct_ids_batch(batch_distinct_ids, team_id)
+
+        # Use FunctionBatchIterator to process distinct IDs in batches
+        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size)
 
         # Call the batching method with ClickHouse insertion enabled
         self.insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
@@ -397,10 +431,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
+        current_batch_index = -1
         try:
             cursor = connection.cursor()
-            # TODO: We should include the batch index in the exception message.
-            for _, batch in batch_iterator:
+            for batch_index, batch in batch_iterator:
+                current_batch_index = batch_index
                 persons_query = (
                     Person.objects.db_manager(READ_DB_FOR_PERSONS)
                     .filter(team_id=team_id)
@@ -439,7 +474,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.last_error_at = timezone.now()
 
             self.save()
-            capture_exception(err)
+            # Add batch index context to the exception
+            capture_exception(err, extra={"batch_index": current_batch_index})
 
     def to_dict(self) -> dict:
         people_data = [
