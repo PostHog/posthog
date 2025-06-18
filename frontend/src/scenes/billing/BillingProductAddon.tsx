@@ -8,6 +8,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
+import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
@@ -123,32 +124,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
             {/* Features */}
             <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
-                {addonFeatures?.length > 2 && (
-                    <div>
-                        <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                            {addonFeatures
-                                .filter((feature) => !feature.entitlement_only)
-                                .map((feature, index) => (
-                                    <div
-                                        className="flex gap-x-2 items-center mb-2"
-                                        key={'addon-features-' + addon.type + index}
-                                    >
-                                        <IconCheckCircle className="text-success" />
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>
-                                                {feature.name}
-                                                {feature.note ? ': ' + feature.note : ''}
-                                                {feature.limit && feature.unit
-                                                    ? ': ' + feature.limit + ' ' + feature.unit
-                                                    : ''}
-                                            </b>
-                                        </Tooltip>
-                                    </div>
-                                ))}
-                        </div>
-                    </div>
-                )}
+                <BillingAddonFeaturesList addonFeatures={addonFeatures} addonType={addon.type} />
 
                 {addon.type === 'mobile_replay' && addon.subscribed && (
                     <>
