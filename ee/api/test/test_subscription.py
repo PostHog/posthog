@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from rest_framework import status
 
 import pytest
@@ -60,6 +60,7 @@ class TestSubscription(APILicensedTest):
 
     def test_can_create_new_subscription(self, mock_sync):
         mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
         mock_sync.return_value = mock_client
         response = self._create_subscription()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -96,6 +97,7 @@ class TestSubscription(APILicensedTest):
 
     def test_can_create_new_subscription_without_invite_message(self, mock_sync):
         mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
         mock_sync.return_value = mock_client
         response = self._create_subscription(invite_message=None)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -104,6 +106,7 @@ class TestSubscription(APILicensedTest):
 
     def test_can_update_existing_subscription(self, mock_sync):
         mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
         mock_sync.return_value = mock_client
         response = self._create_subscription(invite_message=None)
         data = response.json()
