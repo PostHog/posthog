@@ -802,7 +802,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.resetLoadingTimer()
         },
         loadDataSuccess: ({ response }) => {
-            props.onData?.(response)
+            props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
@@ -812,10 +812,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.collectionNodeLoadDataFailure(props.key)
         },
         loadNewDataSuccess: ({ response }) => {
-            props.onData?.(response)
+            props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         loadNextDataSuccess: ({ response }) => {
-            props.onData?.(response)
+            props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         resetLoadingTimer: () => {
             if (cache.loadingTimer) {
