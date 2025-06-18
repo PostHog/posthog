@@ -33,7 +33,7 @@ export class HogFlowActionRunnerConditionalBranch {
                 return {
                     finished: true,
                     // TODO: Should we throw if not found - or at least log something?
-                    goToActionId: findNextAction(invocation.hogFlow, action.id, index)?.id,
+                    goToAction: findNextAction(invocation.hogFlow, action.id, index),
                 }
             }
         }

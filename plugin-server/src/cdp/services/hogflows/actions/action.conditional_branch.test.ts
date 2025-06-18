@@ -7,7 +7,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
-import { findActionByType } from './utils'
+import { findActionById, findActionByType } from './utils'
 
 describe('HogFlowActionRunnerCondition', () => {
     let runner: HogFlowActionRunnerConditionalBranch
@@ -124,7 +124,7 @@ describe('HogFlowActionRunnerCondition', () => {
             const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: true,
-                goToActionId: 'condition_1',
+                goToAction: findActionById(invocation.hogFlow, 'condition_1'),
             })
         })
 
@@ -141,7 +141,7 @@ describe('HogFlowActionRunnerCondition', () => {
             const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: true,
-                goToActionId: 'condition_2',
+                goToAction: findActionById(invocation.hogFlow, 'condition_2'),
             })
         })
     })

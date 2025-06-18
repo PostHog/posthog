@@ -20,5 +20,5 @@ export type HogFlowActionResult = {
     // Indicates the flow should be scheduled for later
     scheduledAt?: DateTime
     // Indicates the next action to go to (and assumes it is finished)
-    goToActionId?: string
+    goToAction?: HogFlowAction
 }

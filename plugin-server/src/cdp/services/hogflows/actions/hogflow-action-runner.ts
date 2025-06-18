@@ -102,7 +102,7 @@ export class HogFlowActionRunner {
             return Promise.resolve({
                 action,
                 finished: true,
-                goToActionId: this.findContinueAction(invocation),
+                goToAction: this.findContinueAction(invocation),
             })
         }
 
@@ -148,9 +148,9 @@ export class HogFlowActionRunner {
                 result.scheduledAt = actionResult.scheduledAt
             }
 
-            if (actionResult.goToActionId) {
+            if (actionResult.goToAction) {
                 // If the action is going to a specific action we need to find it and set it
-                result.goToAction = this.findActionById(invocation, actionResult.goToActionId)
+                result.goToAction = actionResult.goToAction
             }
 
             if (!actionResult.finished) {

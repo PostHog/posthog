@@ -4,7 +4,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
-import { findActionByType } from './utils'
+import { findActionById, findActionByType } from './utils'
 
 describe('HogFlowActionRunnerRandomCohortBranch', () => {
     let runner: HogFlowActionRunnerRandomCohortBranch
@@ -71,7 +71,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         const result = runner.run(invocation, action)
         expect(result).toEqual({
             finished: true,
-            goToActionId: 'cohort_a',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_a'),
         })
     })
 
@@ -80,7 +80,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         const result = runner.run(invocation, action)
         expect(result).toEqual({
             finished: true,
-            goToActionId: 'cohort_b',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })
 
@@ -89,7 +89,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         const result = runner.run(invocation, action)
         expect(result).toEqual({
             finished: true,
-            goToActionId: 'cohort_c',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_c'),
         })
     })
 
@@ -98,13 +98,13 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         const result = runner.run(invocation, action)
         expect(result).toEqual({
             finished: true,
-            goToActionId: 'cohort_a',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_a'),
         })
         ;(Math.random as jest.Mock).mockReturnValue(0.7) // Exactly at second boundary
         const result2 = runner.run(invocation, action)
         expect(result2).toEqual({
             finished: true,
-            goToActionId: 'cohort_b',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })
 
@@ -114,7 +114,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         const result = runner.run(invocation, action)
         expect(result).toEqual({
             finished: true,
-            goToActionId: 'cohort_a',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_a'),
         })
     })
 
@@ -124,7 +124,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         const result = runner.run(invocation, action)
         expect(result).toEqual({
             finished: true,
-            goToActionId: 'cohort_b',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })
 
@@ -134,7 +134,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         const result = runner.run(invocation, action)
         expect(result).toEqual({
             finished: true,
-            goToActionId: 'cohort_b',
+            goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })
 })

@@ -17,7 +17,7 @@ export class HogFlowActionRunnerRandomCohortBranch {
                 return {
                     finished: true,
                     // TODO: Do we error out here if not found?
-                    goToActionId: findNextAction(invocation.hogFlow, action.id, index)?.id,
+                    goToAction: findNextAction(invocation.hogFlow, action.id, index),
                 }
             }
         }
@@ -26,7 +26,7 @@ export class HogFlowActionRunnerRandomCohortBranch {
         // go to the last cohort
         return {
             finished: true,
-            goToActionId: findNextAction(invocation.hogFlow, action.id, action.config.cohorts.length - 1)?.id,
+            goToAction: findNextAction(invocation.hogFlow, action.id, action.config.cohorts.length - 1),
         }
     }
 }
