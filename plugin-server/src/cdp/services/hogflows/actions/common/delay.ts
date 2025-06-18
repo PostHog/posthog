@@ -59,6 +59,7 @@ export function calculatedScheduledAt(
     }
 
     // If a max delay seconds is provided, we will use that if smaller than the wait until time
+    // NOTE: We use `utc` here as this is about clamping the total time for the new schedule, not about a relative time from when the action started
     let scheduledAt = DateTime.utc().plus({ seconds: maxDelaySeconds })
 
     if (waitUntilTime.diff(scheduledAt).as('seconds') < 0) {
