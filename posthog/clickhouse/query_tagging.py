@@ -12,8 +12,6 @@ from typing import Any, Optional
 
 from cachetools import cached
 
-from posthog.settings import OTEL_SERVICE_NAME
-
 thread_local_storage = threading.local()
 
 
@@ -113,7 +111,7 @@ class QueryTags(BaseModel):
 @cached(cache={})
 def __get_constant_tags() -> dict[str, str]:
     # import locally to avoid circular imports
-    from posthog.settings import CONTAINER_HOSTNAME, TEST
+    from posthog.settings import CONTAINER_HOSTNAME, TEST, OTEL_SERVICE_NAME
 
     if TEST:
         return {"git_commit": "test", "container_hostname": "test", "service_name": "test"}
