@@ -53,4 +53,19 @@ export class HogFlowActionRunnerConditionalBranch {
             finished: true,
         }
     }
+
+    // NOTE: Wait until condition is a special case of conditional branch, so we reuse the same logic
+    runWaitUntilCondition(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
+    ): HogFlowActionResult {
+        return this.run(invocation, {
+            ...action,
+            type: 'conditional_branch',
+            config: {
+                conditions: [action.config.condition],
+                delay_duration: action.config.max_wait_duration,
+            },
+        })
+    }
 }

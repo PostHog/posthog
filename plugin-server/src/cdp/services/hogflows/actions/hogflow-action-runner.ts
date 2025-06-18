@@ -10,7 +10,6 @@ import { logger } from '~/utils/logger'
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
 import { HogFlowActionRunnerDelay } from './action.delay'
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
-import { HogFlowActionRunnerWaitForCondition } from './action.wait_for_condition'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
 import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
 
@@ -18,14 +17,12 @@ import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
 export class HogFlowActionRunner {
     private hogFlowActionRunnerConditionalBranch: HogFlowActionRunnerConditionalBranch
     private hogFlowActionRunnerDelay: HogFlowActionRunnerDelay
-    private hogFlowActionRunnerWaitForCondition: HogFlowActionRunnerWaitForCondition
     private hogFlowActionRunnerWaitUntilTimeWindow: HogFlowActionRunnerWaitUntilTimeWindow
     private hogFlowActionRunnerRandomCohortBranch: HogFlowActionRunnerRandomCohortBranch
 
     constructor(private hub: Hub) {
         this.hogFlowActionRunnerConditionalBranch = new HogFlowActionRunnerConditionalBranch()
         this.hogFlowActionRunnerDelay = new HogFlowActionRunnerDelay()
-        this.hogFlowActionRunnerWaitForCondition = new HogFlowActionRunnerWaitForCondition()
         this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
         this.hogFlowActionRunnerRandomCohortBranch = new HogFlowActionRunnerRandomCohortBranch()
     }
@@ -132,7 +129,7 @@ export class HogFlowActionRunner {
                     actionResult = this.hogFlowActionRunnerDelay.run(invocation, action)
                     break
                 case 'wait_until_condition':
-                    actionResult = this.hogFlowActionRunnerWaitForCondition.run(invocation, action)
+                    actionResult = this.hogFlowActionRunnerConditionalBranch.runWaitUntilCondition(invocation, action)
                     break
                 case 'wait_until_time_window':
                     actionResult = this.hogFlowActionRunnerWaitUntilTimeWindow.run(action)
