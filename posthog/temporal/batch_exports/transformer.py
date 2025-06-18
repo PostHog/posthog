@@ -219,7 +219,7 @@ class JSONLStreamTransformer(StreamTransformer):
             return
 
         max_workers = 5
-        task_queue = asyncio.Queue(max_workers)
+        task_queue: asyncio.Queue[asyncio.Future[list[bytes]]] = asyncio.Queue(max_workers)
         loop = asyncio.get_running_loop()
 
         async def producer(executor):
