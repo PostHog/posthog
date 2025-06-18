@@ -13,6 +13,7 @@ from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_r
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.models.subscription import Subscription
 from posthog.tasks.utils import CeleryQueue
 
@@ -139,25 +140,7 @@ def schedule_all_subscriptions() -> None:
     )
 
     for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
-        use_temporal = posthoganalytics.feature_enabled(
-            "use-temporal-subscriptions",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if not use_temporal:
+        if not team_use_temporal_flag(team):
             for subscription in group_subscriptions:
                 logger.info(
                     "Scheduling subscription",
@@ -189,3 +172,24 @@ def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None
 ) -> None:
     return _deliver_subscription_report(subscription_id, previous_value, invite_message)
+
+
+def team_use_temporal_flag(team: Team) -> bool:
+    return posthoganalytics.feature_enabled(
+        "use-temporal-subscriptions",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )

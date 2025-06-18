@@ -5,8 +5,6 @@ import typing
 import json
 from itertools import groupby
 
-import posthoganalytics
-
 
 import structlog
 import temporalio.activity
@@ -21,7 +19,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
-from ee.tasks.subscriptions import _deliver_subscription_report
+from ee.tasks.subscriptions import _deliver_subscription_report, team_use_temporal_flag
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
@@ -63,25 +61,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     subscription_ids = []
 
     for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
-        use_temporal = posthoganalytics.feature_enabled(
-            "use-temporal-subscriptions",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if use_temporal:
+        if team_use_temporal_flag(team):
             for subscription in group_subscriptions:
                 subscription_ids.append(subscription.id)
 

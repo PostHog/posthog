@@ -8,6 +8,8 @@ from django.http import HttpRequest, JsonResponse
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
+from ee.tasks import subscriptions
+from ee.tasks.subscriptions import team_use_temporal_flag
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -80,20 +82,23 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance: Subscription = super().create(validated_data)
 
-        temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                DeliverSubscriptionReportActivityInputs(
-                    subscription_id=instance.id,
-                    previous_value="",
-                    invite_message=invite_message,
-                ),
-                id=workflow_id,
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        if not team_use_temporal_flag(self.team):
+            subscriptions.handle_subscription_value_change.delay(instance.id, "", invite_message)
+        else:
+            temporal = sync_connect()
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    DeliverSubscriptionReportActivityInputs(
+                        subscription_id=instance.id,
+                        previous_value="",
+                        invite_message=invite_message,
+                    ),
+                    id=workflow_id,
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                )
             )
-        )
 
         return instance
 
@@ -102,20 +107,23 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
 
-        temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                DeliverSubscriptionReportActivityInputs(
-                    subscription_id=instance.id,
-                    previous_value=previous_value,
-                    invite_message=invite_message,
-                ),
-                id=workflow_id,
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        if not team_use_temporal_flag(self.team):
+            subscriptions.handle_subscription_value_change.delay(instance.id, previous_value, invite_message)
+        else:
+            temporal = sync_connect()
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    DeliverSubscriptionReportActivityInputs(
+                        subscription_id=instance.id,
+                        previous_value=previous_value,
+                        invite_message=invite_message,
+                    ),
+                    id=workflow_id,
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                )
             )
-        )
 
         return instance
 
