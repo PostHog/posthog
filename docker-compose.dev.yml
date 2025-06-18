@@ -50,11 +50,11 @@ services:
                     }
 
                     handle @capture {
-                        reverse_proxy capture:3303
+                        reverse_proxy capture:3307
                     }
 
                     handle @replay-capture {
-                        reverse_proxy replay-capture:3304
+                        reverse_proxy replay-capture:3306
                     }
 
                     handle @flags {
