@@ -198,7 +198,7 @@ export const UnsubscribeSurveyModal = ({
 
                         <FeatureLossNotice
                             product={product}
-                            isPlaformAndSupportProduct={isPlatformAndSupportAddon(product)}
+                            isPlatformAndSupportProduct={isPlatformAndSupportAddon(product)}
                         />
 
                         <LemonLabel>

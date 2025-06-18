@@ -11,17 +11,17 @@ import { billingLogic } from './billingLogic'
 
 interface FeatureLossNoticeProps {
     product: BillingProductV2Type | BillingProductV2AddonType
-    isPlaformAndSupportProduct: boolean
+    isPlatformAndSupportProduct: boolean
 }
 
 export const FeatureLossNotice = ({
     product,
-    isPlaformAndSupportProduct,
+    isPlatformAndSupportProduct,
 }: FeatureLossNoticeProps): JSX.Element | null => {
     const [isExpanded, setIsExpanded] = useState(false)
     const { billing } = useValues(billingLogic)
 
-    if (!isPlaformAndSupportProduct) {
+    if (!isPlatformAndSupportProduct) {
         return null
     }
 
