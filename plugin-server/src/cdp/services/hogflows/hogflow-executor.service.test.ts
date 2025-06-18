@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlow } from '~/schema/hogflow'
 
 import { Hub } from '../../../types'
 import { createHub } from '../../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
-import { createExampleHogFlowInvocation, createHogFlow, createHogFlowAction } from '../../_tests/fixtures-hogflows'
+import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
 describe('Hogflow Executor', () => {
@@ -24,25 +25,32 @@ describe('Hogflow Executor', () => {
         let hogFlow: HogFlow
 
         beforeEach(() => {
-            hogFlow = createHogFlow({
-                actions: [
-                    createHogFlowAction({
-                        id: '1',
-                        type: 'trigger',
-                        config: {
-                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+            hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                            },
                         },
-                    }),
-                    createHogFlowAction({
-                        id: '2',
-                        type: 'exit',
-                        config: {},
-                    }),
-                ],
-            })
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'trigger',
+                            to: 'exit',
+                            type: 'continue',
+                        },
+                    ],
+                })
+                .build()
         })
 
-        it('can execute an invocation', async () => {
+        it('can execute a hogflow', async () => {
             const invocation = createExampleHogFlowInvocation(hogFlow)
 
             const result = await executor.execute(invocation)
@@ -52,7 +60,7 @@ describe('Hogflow Executor', () => {
                     state: {
                         actionStepCount: 0,
                         currentAction: {
-                            id: '2', // exit action
+                            id: 'exit',
                             startedAtTimestamp: expect.any(Number),
                         },
                         event: {
@@ -90,7 +98,7 @@ describe('Hogflow Executor', () => {
                     {
                         team_id: hogFlow.team_id,
                         app_source_id: hogFlow.id,
-                        instance_id: '2',
+                        instance_id: 'exit',
                         metric_kind: 'success',
                         metric_name: 'succeeded',
                         count: 1,

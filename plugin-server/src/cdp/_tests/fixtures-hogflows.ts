@@ -9,26 +9,6 @@ import { UUIDT } from '../../utils/utils'
 import { CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../types'
 import { createHogExecutionGlobals } from './fixtures'
 
-export const createHogFlow = (hogFlow: Partial<HogFlow>) => {
-    const item: HogFlow = {
-        id: randomUUID(),
-        version: 1,
-        name: 'Hog Flow',
-        team_id: 1,
-        status: 'active',
-        trigger: {
-            type: 'event',
-            filters: {},
-        },
-        exit_condition: 'exit_on_conversion',
-        edges: [],
-        actions: [],
-        ...hogFlow,
-    }
-
-    return item
-}
-
 export const createHogFlowAction = <T extends HogFlowAction['type']>(
     overrides: Pick<Extract<HogFlowAction, { type: T }>, 'type' | 'config'> &
         Partial<Omit<Extract<HogFlowAction, { type: T }>, 'type' | 'config'>>
@@ -50,15 +30,15 @@ export const createHogFlowAction = <T extends HogFlowAction['type']>(
 export const insertHogFlow = async (
     postgres: PostgresRouter,
     team_id: Team['id'],
-    hogFlow: Partial<HogFlow> = {}
+    hogFlow: HogFlow
 ): Promise<HogFlow> => {
     // This is only used for testing so we need to override some values
 
     const res = await insertRow(postgres, 'posthog_hogflow', {
-        ...createHogFlow({
+        ...{
             ...hogFlow,
             team_id: team_id,
-        }),
+        },
         description: '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -80,10 +60,9 @@ export const createHogFlowInvocationContext = (
 }
 
 export const createExampleHogFlowInvocation = (
-    _hogFlow: Partial<HogFlow> = {},
+    hogFlow: HogFlow,
     _context: Partial<HogFlowInvocationContext> = {}
 ): CyclotronJobInvocationHogFlow => {
-    const hogFlow = createHogFlow(_hogFlow)
     // Add the source of the trigger to the globals
 
     const context = createHogFlowInvocationContext(_context)
