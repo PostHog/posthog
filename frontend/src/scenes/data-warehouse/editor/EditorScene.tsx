@@ -30,7 +30,6 @@ export function EditorScene(): JSX.Element {
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
     const sidebarRef = useRef(null)
-    const querySecondaryPanelRef = useRef(null)
 
     const editorSizingLogicProps = {
         editorSceneRef: ref,
@@ -50,11 +49,6 @@ export function EditorScene(): JSX.Element {
             containerRef: queryPaneRef,
             logicKey: 'query-pane',
             placement: 'bottom',
-        },
-        querySecondaryPanelResizerProps: {
-            containerRef: querySecondaryPanelRef,
-            logicKey: 'query-secondary-panel',
-            placement: 'left',
         },
     }
 

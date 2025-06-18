@@ -10,15 +10,12 @@ export interface EditorSizingLogicProps {
     sourceNavigatorResizerProps: ResizerLogicProps
     sidebarResizerProps: ResizerLogicProps
     queryPaneResizerProps: ResizerLogicProps
-    querySecondaryPanelResizerProps: ResizerLogicProps
 }
 
 const MINIMUM_NAVIGATOR_WIDTH = 100
 const NAVIGATOR_DEFAULT_WIDTH = 350
 const MINIMUM_QUERY_PANE_HEIGHT = 100
 const DEFAULT_QUERY_PANE_HEIGHT = 300
-const MINIMUM_QUERY_SECONDARY_PANEL_WIDTH = 300
-const DEFAULT_QUERY_SECONDARY_PANEL_WIDTH = 500
 const MINIMUM_SIDEBAR_WIDTH = 150
 export const SIDEBAR_DEFAULT_WIDTH = 300
 const MAXIMUM_SIDEBAR_WIDTH = 550
@@ -34,8 +31,6 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
             ['desiredSize as sidebarDesiredSize'],
             resizerLogic(props.queryPaneResizerProps),
             ['desiredSize as queryPaneDesiredSize'],
-            resizerLogic(props.querySecondaryPanelResizerProps),
-            ['desiredSize as querySecondaryPanelDesiredSize'],
         ],
         actions: [resizerLogic(props.sidebarResizerProps), ['setDesiredSize as sidebarSetDesiredSize']],
     })),
@@ -58,14 +53,6 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
             (queryPaneDesiredSize) =>
                 Math.max(queryPaneDesiredSize || DEFAULT_QUERY_PANE_HEIGHT, MINIMUM_QUERY_PANE_HEIGHT),
         ],
-        querySecondaryPanelWidth: [
-            (s) => [s.querySecondaryPanelDesiredSize],
-            (querySecondaryPanelDesiredSize) =>
-                Math.max(
-                    querySecondaryPanelDesiredSize || DEFAULT_QUERY_SECONDARY_PANEL_WIDTH,
-                    MINIMUM_QUERY_SECONDARY_PANEL_WIDTH
-                ),
-        ],
         queryTabsWidth: [(s) => [s.queryPaneDesiredSize], (desiredSize) => desiredSize || NAVIGATOR_DEFAULT_WIDTH],
         sourceNavigatorResizerProps: [
             () => [(_, props) => props.sourceNavigatorResizerProps],
@@ -74,10 +61,6 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
         queryPaneResizerProps: [
             () => [(_, props) => props.queryPaneResizerProps],
             (queryPaneResizerProps) => queryPaneResizerProps,
-        ],
-        querySecondaryPanelResizerProps: [
-            () => [(_, props) => props.querySecondaryPanelResizerProps],
-            (querySecondaryPanelResizerProps) => querySecondaryPanelResizerProps,
         ],
         sidebarWidth: [
             (s) => [s.sidebarDesiredSize],

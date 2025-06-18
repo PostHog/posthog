@@ -17,12 +17,11 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { FixErrorButton } from './components/FixErrorButton'
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { multitabEditorLogic, QuerySecondaryPanel } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
-import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -42,6 +41,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         changesToSave,
         originalQueryInput,
         suggestedQueryInput,
+        secondaryPanel,
     } = useValues(multitabEditorLogic)
     const {
         renameTab,
@@ -55,6 +55,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadataLoading,
         saveAsView,
         updateView,
+        setSecondaryPanel,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
@@ -62,7 +63,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
-    const { setActiveTab } = useActions(editorSidebarLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
@@ -75,12 +75,17 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const renderAddSQLVariablesButton = (): JSX.Element => (
         <LemonButton
-            onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
+            onClick={() =>
+                setSecondaryPanel(
+                    secondaryPanel === QuerySecondaryPanel.Variables ? null : QuerySecondaryPanel.Variables
+                )
+            }
             icon={<IconBrackets />}
             type="tertiary"
             size="xsmall"
             id="sql-editor-query-window-add-variables"
             data-attr="sql-editor-query-window-add-variables-button"
+            active={secondaryPanel === QuerySecondaryPanel.Variables}
         >
             Add SQL variables
         </LemonButton>
@@ -88,12 +93,15 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const renderMaterializeButton = (): JSX.Element => (
         <LemonButton
-            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+            onClick={() =>
+                setSecondaryPanel(secondaryPanel === QuerySecondaryPanel.Info ? null : QuerySecondaryPanel.Info)
+            }
             icon={<IconBolt />}
             type="tertiary"
             size="xsmall"
             id="sql-editor-query-window-materialize"
             data-attr="sql-editor-query-window-materialize-button"
+            active={secondaryPanel === QuerySecondaryPanel.Info}
         >
             Materialize
         </LemonButton>

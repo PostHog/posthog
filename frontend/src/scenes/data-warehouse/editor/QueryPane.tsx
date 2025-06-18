@@ -9,7 +9,8 @@ import MaxTool from 'scenes/max/MaxTool'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { multitabEditorLogic, QuerySecondaryPanel } from './multitabEditorLogic'
+import { QueryInfo } from './sidebar/QueryInfo'
 import { QueryVariables } from './sidebar/QueryVariables'
 
 interface QueryPaneProps {
@@ -22,15 +23,14 @@ interface QueryPaneProps {
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
-    const { queryPaneHeight, queryPaneResizerProps, querySecondaryPanelWidth, querySecondaryPanelResizerProps } =
-        useValues(editorSizingLogic)
+    const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
     const {
         setSuggestedQueryInput,
         onAcceptSuggestedQueryInput,
         onRejectSuggestedQueryInput,
         reportAIQueryPromptOpen,
     } = useActions(multitabEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton, secondaryPanel } = useValues(multitabEditorLogic)
 
     return (
         <>
@@ -42,7 +42,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
-                <div className="flex flex-col w-full">
+                <div className="relative flex flex-col w-full">
                     <div className="flex-1" data-attr="hogql-query-editor">
                         <AutoSizer>
                             {({ height, width }) => (
@@ -138,15 +138,14 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         </div>
                     )}
                 </div>
-                <div
-                    className="relative flex flex-row"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: `${querySecondaryPanelWidth}px` }}
-                    ref={querySecondaryPanelResizerProps.containerRef}
-                >
-                    <QueryVariables />
-                    <Resizer {...querySecondaryPanelResizerProps} />
-                </div>
+                {secondaryPanel && (
+                    <div className="relative flex flex-row w-1/2">
+                        {secondaryPanel === QuerySecondaryPanel.Info && (
+                            <QueryInfo codeEditorKey={props.codeEditorProps.queryKey} />
+                        )}
+                        {secondaryPanel === QuerySecondaryPanel.Variables && <QueryVariables />}
+                    </div>
+                )}
                 <Resizer {...queryPaneResizerProps} />
             </div>
         </>

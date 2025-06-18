@@ -192,7 +192,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             </div>
                         ) : (
                             <div>
-                                <p>
+                                <p className="text-xs">
                                     Materialized views are a way to pre-compute data in your data warehouse. This allows
                                     you to run queries faster and more efficiently. Learn more about materialization{' '}
                                     <Link
@@ -205,6 +205,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     .
                                 </p>
                                 <LemonButton
+                                    size="small"
                                     onClick={() => {
                                         if (editingView) {
                                             updateDataWarehouseSavedQuery({
@@ -233,9 +234,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     <>
                         <div>
                             <h3>Materialization Runs</h3>
-                            <p>The last runs for this materialized view. These can be scheduled or run on demand.</p>
+                            <p className="text-xs">
+                                The last runs for this materialized view. These can be scheduled or run on demand.
+                            </p>
                         </div>
                         <LemonTable
+                            size="small"
                             loading={initialDataWarehouseSavedQueryLoading}
                             dataSource={dataModelingJobs?.results || []}
                             columns={[
@@ -312,9 +316,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                 )}
                 <div>
                     <h3>Columns</h3>
-                    <p>Columns that are available in the materialized view.</p>
+                    <p className="text-xs">Columns that are available in the materialized view.</p>
                 </div>
                 <LemonTable
+                    size="small"
                     columns={[
                         {
                             key: 'name',
@@ -342,9 +347,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     <>
                         <div>
                             <h3>Dependencies</h3>
-                            <p>Dependencies are tables that this query uses.</p>
+                            <p className="text-xs">Dependencies are tables that this query uses.</p>
                         </div>
                         <LemonTable
+                            size="small"
                             columns={[
                                 {
                                     key: 'Name',
@@ -408,9 +414,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     <>
                         <div>
                             <h3>Upstream Dependencies</h3>
-                            <p>Tables and views that this query depends on.</p>
+                            <p className="text-xs">Tables and views that this query depends on.</p>
                         </div>
                         <LemonTable
+                            size="small"
                             columns={[
                                 {
                                     key: 'name',

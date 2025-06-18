@@ -63,6 +63,11 @@ export const activeModelVariablesStateKey = (key: string | number): string => `$
 
 export const NEW_QUERY = 'Untitled'
 
+export enum QuerySecondaryPanel {
+    Variables = 'variables',
+    Info = 'info',
+}
+
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     const untitledNumbers = tabs
         .filter((tab) => tab.name?.startsWith(NEW_QUERY))
@@ -230,6 +235,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 types: string[][]
             }
         ) => ({ view }),
+        setSecondaryPanel: (panel: QuerySecondaryPanel | null) => ({ panel }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -405,6 +411,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             {
                 setQueryInput: () => null,
                 fixErrorsFailure: (_, { error }) => error,
+            },
+        ],
+        secondaryPanel: [
+            null as QuerySecondaryPanel | null,
+            {
+                setSecondaryPanel: (_, { panel }) => panel,
             },
         ],
     })),

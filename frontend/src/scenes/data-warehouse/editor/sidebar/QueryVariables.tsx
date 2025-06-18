@@ -22,7 +22,7 @@ export function QueryVariables(): JSX.Element {
 
     return (
         <div
-            className="flex flex-col gap-2 py-2 h-full overflow-auto"
+            className="flex flex-col gap-2 py-2 h-full overflow-auto w-full"
             data-attr="sql-editor-sidebar-query-variables-pane"
         >
             <div className="flex flex-row items-center justify-between px-2">
