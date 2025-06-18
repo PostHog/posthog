@@ -212,13 +212,13 @@ test('merge people', async () => {
     const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
-    const [_person0, kafkaMessages0] = await hub.db.updatePerson(p0, {
+    const [_person0, kafkaMessages0, _versionDisparity0] = await hub.db.updatePerson(p0, {
         created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
     })
 
     const p1 = (await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const [_person1, kafkaMessages1] = await hub.db.updatePerson(p1, {
+    const [_person1, kafkaMessages1, _versionDisparity1] = await hub.db.updatePerson(p1, {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
     })
 
