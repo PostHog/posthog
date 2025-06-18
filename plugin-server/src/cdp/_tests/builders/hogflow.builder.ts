@@ -77,6 +77,21 @@ export class FixtureHogFlowBuilder {
         return this.hogFlow
     }
 
+    withName(name: string): this {
+        this.hogFlow.name = name
+        return this
+    }
+
+    withTeamId(teamId: number): this {
+        this.hogFlow.team_id = teamId
+        return this
+    }
+
+    withStatus(status: HogFlow['status']): this {
+        this.hogFlow.status = status
+        return this
+    }
+
     withTrigger(trigger: HogFlow['trigger']): this {
         this.hogFlow.trigger = trigger
         return this
