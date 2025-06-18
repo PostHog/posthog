@@ -1,10 +1,12 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
 import { MaxDashboardContext, MaxInsightContext } from './maxTypes'
 
 interface ContextTagsProps {
+    size?: 'small' | 'default'
     insights?: MaxInsightContext[]
     dashboards?: MaxDashboardContext[]
     useCurrentPageContext?: boolean
@@ -113,6 +115,7 @@ export function ContextSummary({
 }
 
 export function ContextTags({
+    size = 'default',
     insights,
     dashboards,
     useCurrentPageContext,
@@ -129,7 +132,7 @@ export function ContextTags({
             tags.push(
                 <LemonTag
                     key="current-page"
-                    icon={<IconPageChart />}
+                    icon={<IconPageChart className="flex-shrink-0" />}
                     closable={!!onDisableCurrentPageContext}
                     onClose={onDisableCurrentPageContext}
                     closeOnClick
@@ -144,15 +147,18 @@ export function ContextTags({
             dashboards.forEach((dashboard: MaxDashboardContext) => {
                 const name = dashboard.name || `Dashboard ${dashboard.id}`
                 tags.push(
-                    <LemonTag
-                        key={`dashboard-${dashboard.id}`}
-                        icon={<IconDashboard />}
-                        closable={!!onRemoveDashboard}
-                        onClose={onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined}
-                        closeOnClick
-                    >
-                        {name}
-                    </LemonTag>
+                    <Tooltip title={name} placement="bottom">
+                        <LemonTag
+                            key={`dashboard-${dashboard.id}`}
+                            icon={<IconDashboard className="flex-shrink-0" />}
+                            closable={!!onRemoveDashboard}
+                            onClose={onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined}
+                            closeOnClick
+                            className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                        >
+                            <span className="truncate min-w-0 flex-1">{name}</span>
+                        </LemonTag>
+                    </Tooltip>
                 )
             })
         }
@@ -162,21 +168,32 @@ export function ContextTags({
             insights.forEach((insight: MaxInsightContext) => {
                 const name = insight.name || `Insight ${insight.id}`
                 tags.push(
-                    <LemonTag
-                        key={`insight-${insight.id}`}
-                        icon={<IconGraph />}
-                        closable={!!onRemoveInsight}
-                        onClose={onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined}
-                        closeOnClick
-                    >
-                        {name}
-                    </LemonTag>
+                    <Tooltip title={name} placement="bottom">
+                        <LemonTag
+                            key={`insight-${insight.id}`}
+                            icon={<IconGraph className="flex-shrink-0" />}
+                            closable={!!onRemoveInsight}
+                            onClose={onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined}
+                            closeOnClick
+                            className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                        >
+                            <span className="truncate min-w-0 flex-1">{name}</span>
+                        </LemonTag>
+                    </Tooltip>
                 )
             })
         }
 
         return tags
-    }, [insights, dashboards, useCurrentPageContext, onRemoveInsight, onRemoveDashboard, onDisableCurrentPageContext])
+    }, [
+        useCurrentPageContext,
+        dashboards,
+        insights,
+        onDisableCurrentPageContext,
+        onRemoveDashboard,
+        size,
+        onRemoveInsight,
+    ])
 
     if (allTags.length === 0) {
         return null

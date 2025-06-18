@@ -293,10 +293,7 @@ export function SidePanelSupport(): JSX.Element {
                                             fullWidth
                                             center
                                             onClick={() => {
-                                                openSidePanel(
-                                                    SidePanelTab.Docs,
-                                                    '/docs/new-to-posthog/understand-posthog?chat=open'
-                                                )
+                                                openSidePanel(SidePanelTab.Max)
                                             }}
                                             targetBlank={false}
                                             className="mt-2"
