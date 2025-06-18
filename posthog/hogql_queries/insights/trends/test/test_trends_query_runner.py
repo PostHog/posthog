@@ -1158,7 +1158,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("current", response.results[0]["compare_label"])
         self.assertEqual("current", response.results[1]["compare_label"])
         self.assertEqual("previous", response.results[2]["compare_label"])
-        self.assertEqual("previous", response.results[2]["compare_label"])
+        self.assertEqual("previous", response.results[3]["compare_label"])
 
         assert response.results[0]["label"] == "Formula (A+B)"
         assert response.results[0]["breakdown_value"] == cohort1.pk
