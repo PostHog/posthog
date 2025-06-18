@@ -12,11 +12,11 @@ import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { FixErrorButton } from './components/FixErrorButton'
-import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic, QuerySecondaryPanel } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
@@ -43,6 +43,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         suggestedQueryInput,
         secondaryPanel,
     } = useValues(multitabEditorLogic)
+    const { activePanelIdentifier } = useValues(panelLayoutLogic)
+    const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
+
     const {
         renameTab,
         selectTab,
@@ -61,8 +64,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { sidebarWidth } = useValues(editorSizingLogic)
-    const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
@@ -126,9 +127,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
             <div className="flex flex-row overflow-x-auto">
-                {sidebarWidth === 0 && (
+                {activePanelIdentifier !== 'Database' && (
                     <LemonButton
-                        onClick={() => resetDefaultSidebarWidth()}
+                        onClick={() => setActivePanelIdentifier('Database')}
                         className="rounded-none"
                         icon={<IconSidebarClose />}
                         type="tertiary"
