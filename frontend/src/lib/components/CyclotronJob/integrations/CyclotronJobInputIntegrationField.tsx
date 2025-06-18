@@ -12,12 +12,9 @@ import {
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
-import {
-    CyclotronJobInputSchemaType,
-    CyclotronJobInputType,
-    HogFunctionConfigurationType,
-    HogFunctionMappingType,
-} from '~/types'
+import { CyclotronJobInputSchemaType } from '~/types'
+
+import { CyclotronJobInputConfiguration } from '../types'
 
 export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType
