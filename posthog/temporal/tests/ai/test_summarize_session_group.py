@@ -11,10 +11,10 @@ from pytest_mock import MockerFixture
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from posthog.temporal.ai.session_summary.shared import (
     compress_llm_input_data,
-    SingleSessionSummaryInputs,
     fetch_session_data_activity,
 )
 from posthog.temporal.ai.session_summary.summarize_session_group import (
+    SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
     SummarizeSessionGroupWorkflow,
     execute_summarize_session_group,
@@ -58,8 +58,8 @@ def mock_call_llm(mock_valid_llm_yaml_response: str) -> Callable:
 async def test_get_llm_single_session_summary_activity_standalone(
     mocker: MockerFixture,
     mock_enriched_llm_json_response: dict[str, Any],
-    mock_single_session_summary_llm_inputs: Callable[[str], Any],
-    mock_single_session_summary_inputs: Callable[[str, str], SingleSessionSummaryInputs],
+    mock_single_session_summary_llm_inputs: Callable,
+    mock_single_session_summary_inputs: Callable,
     mock_call_llm: Callable,
     redis_test_setup: RedisTestContext,
 ):
@@ -206,7 +206,7 @@ class TestSummarizeSessionGroupWorkflow:
         self,
         mock_session_group_summary_inputs: Callable,
         identifier_suffix: str,
-    ) -> tuple[str, str, SingleSessionSummaryInputs, str, str]:
+    ) -> tuple[list[str], str, SessionGroupSummaryInputs, str]:
         # Prepare test data
         session_ids = [
             f"test_workflow_session_id_{identifier_suffix}_1",
