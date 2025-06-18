@@ -875,6 +875,7 @@ class RunWorkflow(PostHogWorkflow):
     async def run(self, inputs: RunWorkflowInputs) -> Results:
         # Get the upstream DAG for the root model, the most downstream model in the DAG
         root_model_id = inputs.select[0].label
+
         upstream = await temporalio.workflow.execute_activity(
             get_upstream_dag_activity,
             args=(inputs.team_id, root_model_id),

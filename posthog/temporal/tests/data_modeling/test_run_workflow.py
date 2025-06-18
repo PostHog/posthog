@@ -10,15 +10,11 @@ import aioboto3
 import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-import temporalio.common
-import temporalio.worker
 from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from freezegun.api import freeze_time
 
-from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
@@ -28,19 +24,11 @@ from posthog.temporal.data_modeling.run_workflow import (
     CreateTableActivityInputs,
     ModelNode,
     RunDagActivityInputs,
-    RunWorkflow,
-    RunWorkflowInputs,
     Selector,
     build_dag_activity,
     create_table_activity,
-    finish_run_activity,
     materialize_model,
-    start_run_activity,
-    create_job_model_activity,
-    fail_jobs_activity,
     run_single_model_activity,
-    get_upstream_dag_activity,
-    create_jobs_for_materialized_views_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -514,21 +502,25 @@ async def saved_queries(ateam):
         team=ateam,
         name="my_model",
         query={"query": parent_query, "kind": "HogQLQuery"},
+        sync_frequency_interval=dt.timedelta(days=1),
     )
     child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
         team=ateam,
         name="my_model_child",
         query={"query": "select * from my_model where distinct_id = 'b'", "kind": "HogQLQuery"},
+        sync_frequency_interval=dt.timedelta(days=1),
     )
     child_2_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
         team=ateam,
         name="my_model_child_2",
         query={"query": "select * from my_model where distinct_id = 'a'", "kind": "HogQLQuery"},
+        sync_frequency_interval=dt.timedelta(days=1),
     )
     grand_child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
         team=ateam,
         name="my_model_grand_child",
         query={"query": "select * from my_model_child union all select * from my_model_child_2", "kind": "HogQLQuery"},
+        sync_frequency_interval=dt.timedelta(days=1),
     )
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(parent_saved_query)
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_saved_query)
@@ -734,87 +726,6 @@ async def test_build_dag_activity_select_all(activity_environment, ateam, saved_
     assert all(dag[selected].selected is True for selected in dag.keys() if selected not in {"events", "persons"})
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_run_workflow_with_minio_bucket_with_errors(
-    minio_client,
-    ateam,
-    bucket_name,
-    pageview_events,
-    saved_queries,
-    temporal_client,
-):
-    """Test run workflow end-to-end using a local MinIO bucket."""
-    parent, child, child_2, grand_child = saved_queries
-    for query in saved_queries:
-        attached_table = await DataWarehouseTable.objects.acreate(
-            name=query.name,
-            team=ateam,
-            format="Delta",
-            url_pattern=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}",
-            credential=None,
-        )
-        # link the saved query to the table
-        query.table_id = attached_table.id
-        await database_sync_to_async(query.save)()
-
-    workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(team_id=ateam.pk, select=[Selector(label=grand_child.id.hex)])
-
-    async def mock_materialize_model(model_label, team, saved_query, job, is_upstream):
-        raise Exception("testing exception")
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-        ),
-        unittest.mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        unittest.mock.patch.object(
-            AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
-        ),
-        freeze_time(TEST_TIME),
-        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", mock_materialize_model),
-    ):
-        async with temporalio.worker.Worker(
-            temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
-            workflows=[RunWorkflow],
-            activities=[
-                start_run_activity,
-                build_dag_activity,
-                finish_run_activity,
-                create_table_activity,
-                create_job_model_activity,
-                fail_jobs_activity,
-                get_upstream_dag_activity,
-                create_jobs_for_materialized_views_activity,
-                run_single_model_activity,
-            ],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            handle = await temporal_client.start_workflow(
-                RunWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(minutes=5),
-                task_timeout=dt.timedelta(minutes=5),
-            )
-            # a WorkflowFailureError will be raised, but we want to inspect the jobs
-            with pytest.raises(temporalio.client.WorkflowFailureError):
-                await handle.result()
-
-    jobs = DataModelingJob.objects.filter(team_id=ateam.pk, workflow_id=workflow_id)
-    job_count = await jobs.acount()
-    assert job_count > 0, "No jobs were created"
-    async for job in jobs:
-        assert job.status == DataModelingJob.Status.FAILED
-
-
 async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
     """Test that setting SCHEMA__NAMING=direct preserves original column casing when materializing models."""
     # Query with CamelCase and PascalCase column names, not snake_case
@@ -874,3 +785,38 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     assert "DistinctId" in table_columns, "Column 'DistinctId' should maintain its original capitalization"
     assert "TimeStamp" in table_columns, "Column 'TimeStamp' should maintain its original capitalization"
     assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
+
+
+async def test_run_single_model_activity_marks_job_as_failed_on_exception(activity_environment, ateam):
+    """Test that when run_single_model_activity fails, the DataModelingJob is marked as failed."""
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam,
+        name="test_model",
+        query={"query": "select * from events limit 10", "kind": "HogQLQuery"},
+        sync_frequency_interval=dt.timedelta(days=1),
+    )
+
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="test_workflow",
+    )
+
+    dag = {saved_query.id.hex: ModelNode(label=saved_query.id.hex, selected=True)}
+
+    inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag, job_id=str(job.id))
+
+    async def mock_materialize_model_that_fails(model_label, team, saved_query, job, is_upstream):
+        raise Exception("Simulated failure")
+
+    with unittest.mock.patch(
+        "posthog.temporal.data_modeling.run_workflow.materialize_model", mock_materialize_model_that_fails
+    ):
+        result = await activity_environment.run(run_single_model_activity, inputs, saved_query.id.hex)
+
+        assert result == "failed"
+
+        updated_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
+        assert updated_job.status == DataModelingJob.Status.FAILED
+        assert "Simulated failure" in updated_job.error
