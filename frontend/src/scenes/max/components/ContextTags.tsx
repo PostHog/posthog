@@ -147,9 +147,8 @@ export function ContextTags({
             dashboards.forEach((dashboard: MaxDashboardContext) => {
                 const name = dashboard.name || `Dashboard ${dashboard.id}`
                 tags.push(
-                    <Tooltip title={name} placement="bottom">
+                    <Tooltip key={`dashboard-${dashboard.id}`} title={name} placement="bottom">
                         <LemonTag
-                            key={`dashboard-${dashboard.id}`}
                             icon={<IconDashboard className="flex-shrink-0" />}
                             closable={!!onRemoveDashboard}
                             onClose={onRemoveDashboard ? () => onRemoveDashboard(dashboard.id) : undefined}
@@ -168,9 +167,8 @@ export function ContextTags({
             insights.forEach((insight: MaxInsightContext) => {
                 const name = insight.name || `Insight ${insight.id}`
                 tags.push(
-                    <Tooltip title={name} placement="bottom">
+                    <Tooltip key={`insight-${insight.id}`} title={name} placement="bottom">
                         <LemonTag
-                            key={`insight-${insight.id}`}
                             icon={<IconGraph className="flex-shrink-0" />}
                             closable={!!onRemoveInsight}
                             onClose={onRemoveInsight ? () => onRemoveInsight(insight.id) : undefined}

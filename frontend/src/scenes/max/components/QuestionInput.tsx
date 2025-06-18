@@ -63,7 +63,7 @@ function SuggestionsList(): JSX.Element {
         previousSuggestionGroup.current = activeSuggestionGroup
     }, [activeSuggestionGroup])
 
-    const memoizedSuggestion = activeSuggestionGroup || previousSuggestionGroup.current
+    const suggestionGroup = activeSuggestionGroup || previousSuggestionGroup.current
 
     return (
         <CSSTransition
@@ -97,7 +97,7 @@ function SuggestionsList(): JSX.Element {
                     setActiveGroup(null)
                 }}
             >
-                {memoizedSuggestion?.suggestions.map((suggestion, index) => (
+                {suggestionGroup?.suggestions.map((suggestion, index) => (
                     <ToggleGroupItem
                         key={suggestion.content}
                         value={index.toString()}
@@ -107,7 +107,6 @@ function SuggestionsList(): JSX.Element {
                     >
                         <LemonButton
                             className="QuestionInput__QuestionSuggestion text-left"
-                            role="button"
                             style={{ '--index': index } as React.CSSProperties}
                             size="small"
                             type="tertiary"

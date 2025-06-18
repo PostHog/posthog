@@ -67,7 +67,6 @@ export function HedgehogAvatar({ onExpand, waveInterval = 5000, isExpanded }: He
                             // Start with a wave
                             actor.setAnimation('wave')
                         }}
-                        onClick={onExpand}
                     />
                 </div>
             </Tooltip>

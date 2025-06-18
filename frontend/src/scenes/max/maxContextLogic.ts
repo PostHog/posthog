@@ -2,6 +2,7 @@ import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { objectsEqual } from 'lib/utils'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -164,7 +165,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             // Always reset context if pathname or search params changed
             if (
                 currentLocation.pathname !== previousLocation.location.pathname ||
-                JSON.stringify(currentSearchParams) !== JSON.stringify(previousLocation.searchParams)
+                !objectsEqual(currentSearchParams, previousLocation.searchParams)
             ) {
                 resetContext()
                 return
