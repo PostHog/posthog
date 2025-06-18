@@ -5,7 +5,7 @@ import { BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } f
 
 interface FeatureLossNoticeProps {
     product: BillingProductV2Type | BillingProductV2AddonType
-    isAddonProduct: boolean
+    isPlaformAndSupportProduct: boolean
 }
 
 interface FeatureCategoryListProps {
@@ -44,10 +44,13 @@ const FeatureCategoryList = ({ groupedFeatures }: FeatureCategoryListProps): JSX
     )
 }
 
-export const FeatureLossNotice = ({ product, isAddonProduct }: FeatureLossNoticeProps): JSX.Element | null => {
-    const featuresToLose = isAddonProduct ? product.features?.filter((feature) => !feature.entitlement_only) || [] : []
+export const FeatureLossNotice = ({
+    product,
+    isPlaformAndSupportProduct,
+}: FeatureLossNoticeProps): JSX.Element | null => {
+    const featuresToLose = product.features?.filter((feature) => !feature.entitlement_only)
 
-    if (!isAddonProduct || featuresToLose.length === 0) {
+    if (!isPlaformAndSupportProduct || !featuresToLose?.length) {
         return null
     }
 

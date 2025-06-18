@@ -21,7 +21,12 @@ import { useState } from 'react'
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'
-import { billingProductLogic, randomizeReasons, UNSUBSCRIBE_REASONS } from './billingProductLogic'
+import {
+    billingProductLogic,
+    isPlatformAndSupportAddon,
+    randomizeReasons,
+    UNSUBSCRIBE_REASONS,
+} from './billingProductLogic'
 import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 import { FeatureLossNotice } from './FeatureLossNotice'
 
@@ -191,7 +196,10 @@ export const UnsubscribeSurveyModal = ({
                             </p>
                         )}
 
-                        <FeatureLossNotice product={product} isAddonProduct={isAddonProduct} />
+                        <FeatureLossNotice
+                            product={product}
+                            isPlaformAndSupportProduct={isPlatformAndSupportAddon(product)}
+                        />
 
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'
