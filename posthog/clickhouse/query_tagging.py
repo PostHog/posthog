@@ -1,187 +1,67 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
+
 import threading
-import uuid
-from enum import StrEnum
+from typing import Any, Optional
 from collections.abc import Generator
 from contextlib import contextmanager
-from pydantic import BaseModel, ConfigDict
-from typing import Any, Optional
-
-# from posthog.clickhouse.client.connection import Workload
-# from posthog.schema import PersonsOnEventsMode
 
 from cachetools import cached
 
 thread_local_storage = threading.local()
 
 
-class AccessMethod(StrEnum):
-    PERSONAL_API_KEY = "personal_api_key"
-    OAUTH = "oauth"
-
-
-class Product(StrEnum):
-    BATCH_EXPORT = "batch_export"
-    PRODUCT_ANALYTICS = "product_analytics"
-    FEATURE_FLAGS = "feature_flags"
-    API = "api"
-
-
-class Feature(StrEnum):
-    COHORT = "cohort"
-    QUERY = "query"
-    INSIGHT = "insight"
-    DASHBOARD = "dashboard"
-
-
-class QueryTags(BaseModel):
-    team_id: Optional[int] = None
-    user_id: Optional[int] = None
-    access_method: Optional[AccessMethod] = None
-    org_id: Optional[uuid.UUID] = None
-    product: Optional[Product] = None
-    kind: Optional[str] = None
-    id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
-
-    query: Optional[object] = None
-    query_settings: Optional[object] = None
-    query_time_range_days: Optional[int] = None
-    query_type: Optional[str] = None
-
-    route_id: Optional[str] = None
-    workload: Optional[str] = None  # enum connection.Workload
-    dashboard_id: Optional[int] = None
-    insight_id: Optional[int] = None
-    chargeable: Optional[int] = None
-    name: Optional[str] = None
-
-    http_referer: Optional[str] = None
-    http_request_id: Optional[uuid.UUID] = None
-    http_user_agent: Optional[str] = None
-
-    alert_config_id: Optional[uuid.UUID] = None
-    batch_export_id: Optional[uuid.UUID] = None
-    cache_key: Optional[str] = None
-    celery_task_id: Optional[uuid.UUID] = None
-    clickhouse_exception_type: Optional[str] = None
-    client_query_id: Optional[str] = None
-    cohort_id: Optional[int] = None
-    entity_math: Optional[list[str]] = None
-
-    experiment_feature_flag_key: Optional[str] = None
-    experiment_id: Optional[int] = None
-    experiment_name: Optional[str] = None
-    experiment_is_data_warehouse_query: Optional[bool] = None
-
-    feature: Optional[Feature] = None
-    filter: Optional[object] = None
-    filter_by_type: Optional[list[str]] = None
-    breakdown_by: Optional[list[str]] = None
-
-    # data warehouse
-    trend_volume_display: Optional[str] = None
-    table_id: Optional[uuid.UUID] = None
-    warehouse_query: Optional[bool] = None
-
-    trend_volume_type: Optional[str] = None
-
-    has_joins: Optional[bool] = None
-    has_json_operations: Optional[bool] = None
-
-    modifiers: Optional[object] = None
-    number_of_entities: Optional[int] = None
-    person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
-
-    timings: Optional[dict[str, float]] = None
-    trigger: Optional[str] = None
-
-    # used by billing
-    usage_report: Optional[str] = None
-
-    user_email: Optional[str] = None
-
-    # constant query tags
-    git_commit: str
-    container_hostname: str
-    service_name: str
-
-    model_config = ConfigDict(validate_assignment=True)
-
-    def update(self, **kwargs):
-        for field, value in kwargs.items():
-            setattr(self, field, value)
-
-    def to_json(self) -> str:
-        return self.model_dump_json(exclude_none=True)
-
-
 @cached(cache={})
-def __get_constant_tags() -> dict[str, str]:
+def get_constant_tags():
     # import locally to avoid circular imports
+    from posthog.git import get_git_commit_short
     from posthog.settings import CONTAINER_HOSTNAME, TEST, OTEL_SERVICE_NAME
 
     if TEST:
-        return {"git_commit": "test", "container_hostname": "test", "service_name": "test"}
-
-    from posthog.git import get_git_commit_short
+        return {
+            "git_commit": "test",
+            "container_hostname": "test",
+            "service_name": "test",
+        }
 
     return {
-        "git_commit": get_git_commit_short() or "",
+        "git_commit": get_git_commit_short(),
         "container_hostname": CONTAINER_HOSTNAME,
-        "service_name": OTEL_SERVICE_NAME or "",
+        "service_name": OTEL_SERVICE_NAME,
     }
 
 
-def create_base_tags(**kwargs) -> QueryTags:
-    return QueryTags(**__get_constant_tags(), **kwargs)
-
-
-def get_query_tags() -> QueryTags:
+def get_query_tags():
     try:
-        return thread_local_storage.query_tags
+        tags = thread_local_storage.query_tags
     except AttributeError:
-        return create_base_tags()
+        tags = {}
+    return {**tags, **get_constant_tags()}
 
 
 def get_query_tag_value(key: str) -> Optional[Any]:
     try:
-        return getattr(thread_local_storage.query_tags, key)
+        return thread_local_storage.query_tags[key]
     except (AttributeError, KeyError):
         return None
 
 
-def update_tags(query_tags: QueryTags):
+def tag_queries(**kwargs):
+    tags = {key: value for key, value in kwargs.items() if value is not None}
     try:
-        thread_local_storage.query_tags.update(**query_tags.model_dump(exclude_none=True))
+        thread_local_storage.query_tags.update(tags)
     except AttributeError:
-        new_tags = query_tags.model_copy(deep=True)
-        new_tags.update(**__get_constant_tags())
-        thread_local_storage.query_tags = new_tags
-
-
-def tag_queries(**kwargs) -> None:
-    """
-    The purpose of tag_queries is to pass additional context for ClickHouse executed queries. The tags
-    are serialized into ClickHouse' system.query_log.log_comment column.
-
-    :param kwargs: Key->value pairs of tags to be set.
-    """
-    try:
-        thread_local_storage.query_tags.update(**kwargs)
-    except AttributeError:
-        thread_local_storage.query_tags = create_base_tags(**kwargs)
+        thread_local_storage.query_tags = tags
 
 
 def clear_tag(key):
     try:
-        setattr(thread_local_storage.query_tags, key, None)
+        thread_local_storage.query_tags.pop(key, None)
     except AttributeError:
         pass
 
 
 def reset_query_tags():
-    thread_local_storage.query_tags = create_base_tags()
+    thread_local_storage.query_tags = {}
 
 
 class QueryCounter:
@@ -217,12 +97,10 @@ def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
         # tags will be restored to original state after context
     ```
     """
-    tags_copy: Optional[QueryTags] = None
     try:
-        tags_copy = get_query_tags().model_copy(deep=True)
+        original_tags = dict(get_query_tags())  # Make a copy of current tags
         if tags_to_set:
             tag_queries(**tags_to_set)
         yield
     finally:
-        if tags_copy:
-            thread_local_storage.query_tags = tags_copy
+        thread_local_storage.query_tags = original_tags
