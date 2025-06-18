@@ -64,9 +64,7 @@ export const FeatureLossNotice = ({
         return groups
     }, {} as Record<string, BillingFeatureType[]>)
 
-    // Get 5 randomly selected features to show in summary
-    const shuffledFeatures = [...featuresToLose].sort(() => Math.random() - 0.5)
-    const keyFeatures = shuffledFeatures.slice(0, Math.min(5, featuresToLose.length))
+    const keyFeatures = featuresToLose.slice(0, Math.min(5, featuresToLose.length))
     const totalFeatureCount = featuresToLose.length
 
     const handleFeatureListToggle = (activeKey: string | null): void => {
