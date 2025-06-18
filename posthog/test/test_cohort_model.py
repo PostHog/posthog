@@ -33,6 +33,27 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
 
+    def test_insert_by_distinct_id_in_batches(self):
+        Person.objects.create(team=self.team, distinct_ids=["000"])
+        Person.objects.create(team=self.team, distinct_ids=["001"])
+        Person.objects.create(team=self.team, distinct_ids=["002", "011"])
+        Person.objects.create(team=self.team, distinct_ids=["003", "012"])
+        Person.objects.create(team=self.team, distinct_ids=["004"])
+        Person.objects.create(team=self.team, distinct_ids=["005"])
+        Person.objects.create(team=self.team, distinct_ids=["006"])
+        Person.objects.create(team=self.team, distinct_ids=["007"])
+        Person.objects.create(team=self.team, distinct_ids=["008"])
+        Person.objects.create(team=self.team, distinct_ids=["009"])
+        Person.objects.create(team=self.team, distinct_ids=["010"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(
+            ["000", "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"], batch_size=3
+        )
+        cohort = Cohort.objects.get()
+        self.assertEqual(cohort.people.count(), 11)
+        self.assertEqual(cohort.is_calculating, False)
+
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
         cohort = Cohort.objects.create(
