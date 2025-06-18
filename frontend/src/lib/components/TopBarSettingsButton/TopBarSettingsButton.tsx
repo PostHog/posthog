@@ -23,7 +23,7 @@ export function TopBarSettingsButton(): JSX.Element | null {
                 onClick={() =>
                     isOpen ? closeSettingsPanel() : openSettingsPanel({ sectionId: loadedSceneSettingsSectionId })
                 }
-                tooltip="See settings"
+                tooltip="Toggle settings"
             />
         </span>
     )
