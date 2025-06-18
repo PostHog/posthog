@@ -14,7 +14,13 @@ thread_local_storage = threading.local()
 def get_constant_tags():
     # import locally to avoid circular imports
     from posthog.git import get_git_commit_short
-    from posthog.settings import CONTAINER_HOSTNAME
+    from posthog.settings import CONTAINER_HOSTNAME, TEST
+
+    if TEST:
+        return {
+            "git_commit": "test",
+            "container_hostname": "test",
+        }
 
     return {
         "git_commit": get_git_commit_short(),
