@@ -387,15 +387,17 @@ async def materialize_model(
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team)):
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
+            schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
             if index == 0:
                 mode = "overwrite"
+                schema_mode = "overwrite"
 
             await logger.adebug(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
             )
 
             deltalake.write_deltalake(
-                table_or_uri=table_uri, storage_options=storage_options, data=batch, mode=mode, schema_mode="overwrite"
+                table_or_uri=table_uri, storage_options=storage_options, data=batch, mode=mode, schema_mode=schema_mode
             )
 
             row_count = row_count + batch.num_rows
@@ -513,6 +515,7 @@ def _get_credentials():
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
@@ -521,6 +524,7 @@ def _get_credentials():
         "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
         "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
         "region_name": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
