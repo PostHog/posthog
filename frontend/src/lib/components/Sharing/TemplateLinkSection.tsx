@@ -28,7 +28,7 @@ export function TemplateLinkSection({
 
     const handleCopyLink = async (): Promise<void> => {
         try {
-            await copyToClipboard(templateLink, templateLink)
+            await copyToClipboard(templateLink)
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
         } catch (e) {

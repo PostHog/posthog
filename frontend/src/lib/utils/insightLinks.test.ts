@@ -26,7 +26,12 @@ describe('getInsightDefinitionUrl', () => {
     })
 
     it('generates a template link for a saved insight (model)', () => {
-        const savedInsight = {
+        interface MinimalInsight {
+            query: any
+            id: number
+            name: string
+        }
+        const savedInsight: MinimalInsight = {
             query: {
                 kind: NodeKind.InsightVizNode,
                 source: {
@@ -38,7 +43,7 @@ describe('getInsightDefinitionUrl', () => {
             id: 123,
             name: 'My Funnel',
         }
-        const url = getInsightDefinitionUrl(savedInsight as any)
+        const url = getInsightDefinitionUrl(savedInsight)
         expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=FUNNELS&q=%7B.*%7D(%20)?$/)
         expect(url).not.toContain('/project/')
     })

@@ -25,8 +25,11 @@ export function getInsightDefinitionUrl(
 
     // Derive InsightType from the query where possible so the #insight=<TYPE> hash param is present
     let insightType: InsightType | undefined
+    type InsightVizNode = { kind: NodeKind.InsightVizNode; source?: { kind?: string } }
     const kind = (
-        insight.query.kind === NodeKind.InsightVizNode ? (insight.query as any).source?.kind : insight.query.kind
+        insight.query.kind === NodeKind.InsightVizNode
+            ? (insight.query as InsightVizNode).source?.kind
+            : insight.query.kind
     ) as keyof typeof nodeKindToInsightType | undefined
 
     if (kind && kind in nodeKindToInsightType) {

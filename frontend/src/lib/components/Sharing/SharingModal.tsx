@@ -263,7 +263,7 @@ export function SharingModalContent({
                 <>
                     <LemonDivider />
                     <TemplateLinkSection
-                        templateLink={getInsightDefinitionUrl({ query: insight.query as any })}
+                        templateLink={getInsightDefinitionUrl({ query: insight.query })}
                         heading={TEMPLATE_LINK_HEADING}
                         tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}
