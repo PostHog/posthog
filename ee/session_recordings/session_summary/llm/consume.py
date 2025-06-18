@@ -160,7 +160,7 @@ async def get_llm_single_session_summary(
         # The only way to raise such errors is data hallucinations and inconsistencies (like missing mapping data).
         # Such exceptions should be retried as early as possible to decrease the latency of the call.
         logger.exception(
-            f"Hallucinated data or inconsistencies in the session summary for session_id {session_id}: {err}",
+            f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (get): {err}",
             session_id=session_id,
             user_pk=user_pk,
         )
@@ -228,7 +228,7 @@ async def stream_llm_single_session_summary(
                 # The only way to raise ValueError is data hallucinations and inconsistencies (like missing mapping data).
                 # Such exceptions should be retried as early as possible to decrease the latency of the stream.
                 logger.exception(
-                    f"Hallucinated data or inconsistencies in the session summary for session_id {session_id}: {err}",
+                    f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (stream): {err}",
                     session_id=session_id,
                     user_pk=user_pk,
                 )
