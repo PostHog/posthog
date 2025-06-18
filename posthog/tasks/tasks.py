@@ -505,8 +505,9 @@ def clean_stale_partials() -> None:
 
 @shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
+    reset_stuck_cohorts()
     enqueue_cohorts_to_calculate(parallel_count)
 
 

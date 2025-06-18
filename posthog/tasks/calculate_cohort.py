@@ -49,6 +49,7 @@ logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
+MAX_STUCK_COHORTS_TO_RESET = 5
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -59,6 +60,31 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
         is_calculating=False,
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
+
+
+def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
+    return Cohort.objects.filter(
+        is_calculating=True,
+        last_calculation__lte=timezone.now() - relativedelta(hours=24),
+        last_calculation__isnull=False,
+        deleted=False,
+    ).exclude(is_static=True)
+
+
+def reset_stuck_cohorts() -> None:
+    # Reset stuck cohorts that have been stuck (is_calculating=True) for more than 24 hours
+    # These cohorts will be picked up by the next cohort calculation but we need to limit the number of
+    # stuck cohorts that are reset at once to avoid overwhelming ClickHouse with too many calculations
+    # for stuck cohorts
+    reset_cohort_ids = []
+    for cohort in get_stuck_cohort_calculation_candidates_queryset().order_by(
+        F("last_calculation").asc(nulls_first=True)
+    )[0:MAX_STUCK_COHORTS_TO_RESET]:
+        cohort.is_calculating = False
+        cohort.save(update_fields=["is_calculating"])
+        reset_cohort_ids.append(cohort.pk)
+
+    logger.warning("reset_stuck_cohorts", cohort_ids=reset_cohort_ids, count=len(reset_cohort_ids))
 
 
 def update_stale_cohort_metrics() -> None:

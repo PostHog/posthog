@@ -12,6 +12,8 @@ from posthog.tasks.calculate_cohort import (
     enqueue_cohorts_to_calculate,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
+    MAX_STUCK_COHORTS_TO_RESET,
+    reset_stuck_cohorts,
     update_stale_cohort_metrics,
     COHORTS_STALE_COUNT_GAUGE,
     COHORT_STUCK_COUNT_GAUGE,
@@ -252,6 +254,152 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             update_stale_cohort_metrics()
             mock_set.assert_called_with(2)
+
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_cohorts(self, mock_logger: MagicMock) -> None:
+            now = timezone.now()
+
+            # Create stuck cohorts that should be reset (is_calculating=True, last_calculation > 24 hours ago)
+            stuck_cohort_1 = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort_1",
+                last_calculation=now - relativedelta(hours=25),  # Stuck for 25 hours
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=2,
+                is_static=False,
+            )
+
+            stuck_cohort_2 = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort_2",
+                last_calculation=now - relativedelta(hours=48),  # Stuck for 48 hours
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=1,
+                is_static=False,
+            )
+
+            # Create cohorts that should NOT be reset
+            # Not stuck (recent calculation)
+            not_stuck_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="not_stuck_cohort",
+                last_calculation=now - relativedelta(hours=1),  # Recent calculation
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Static cohort (should be excluded)
+            static_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="static_cohort",
+                last_calculation=now - relativedelta(hours=48),
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=True,  # Static cohorts are excluded
+            )
+
+            # Deleted cohort (should be excluded)
+            deleted_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="deleted_cohort",
+                last_calculation=now - relativedelta(hours=48),
+                deleted=True,  # Deleted cohorts are excluded
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Cohort with null last_calculation (should be excluded)
+            null_last_calc_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="null_last_calc_cohort",
+                last_calculation=None,  # Null last_calculation is excluded
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Not calculating cohort (should be excluded)
+            not_calculating_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="not_calculating_cohort",
+                last_calculation=now - relativedelta(hours=48),
+                deleted=False,
+                is_calculating=False,  # Not calculating
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Run the function
+            reset_stuck_cohorts()
+
+            # Verify that stuck cohorts were reset
+            stuck_cohort_1.refresh_from_db()
+            stuck_cohort_2.refresh_from_db()
+            self.assertFalse(stuck_cohort_1.is_calculating)
+            self.assertFalse(stuck_cohort_2.is_calculating)
+
+            # Verify that non-stuck cohorts were NOT reset
+            not_stuck_cohort.refresh_from_db()
+            static_cohort.refresh_from_db()
+            deleted_cohort.refresh_from_db()
+            null_last_calc_cohort.refresh_from_db()
+            not_calculating_cohort.refresh_from_db()
+
+            self.assertTrue(not_stuck_cohort.is_calculating)  # Should still be calculating
+            self.assertTrue(static_cohort.is_calculating)  # Should still be calculating
+            self.assertTrue(deleted_cohort.is_calculating)  # Should still be calculating
+            self.assertTrue(null_last_calc_cohort.is_calculating)  # Should still be calculating
+            self.assertFalse(not_calculating_cohort.is_calculating)  # Should remain not calculating
+
+            # Verify logging
+            mock_logger.warning.assert_called_once()
+            args, kwargs = mock_logger.warning.call_args
+            self.assertEqual(args[0], "reset_stuck_cohorts")
+            self.assertEqual(set(kwargs["cohort_ids"]), {stuck_cohort_1.pk, stuck_cohort_2.pk})
+            self.assertEqual(kwargs["count"], 2)
+
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_cohorts_respects_limit(self, mock_logger: MagicMock) -> None:
+            now = timezone.now()
+
+            # Create more stuck cohorts than the limit (MAX_STUCK_COHORTS_TO_RESET = 5)
+            stuck_cohorts = []
+            for i in range(MAX_STUCK_COHORTS_TO_RESET + 3):  # Create 8 stuck cohorts
+                cohort = Cohort.objects.create(
+                    team_id=self.team.pk,
+                    name=f"stuck_cohort_{i}",
+                    last_calculation=now - relativedelta(hours=25, minutes=i),  # Different times for ordering
+                    deleted=False,
+                    is_calculating=True,
+                    errors_calculating=0,
+                    is_static=False,
+                )
+                stuck_cohorts.append(cohort)
+
+            reset_stuck_cohorts()
+
+            # Count how many were actually reset
+            reset_count = 0
+            for cohort in stuck_cohorts:
+                cohort.refresh_from_db()
+                if not cohort.is_calculating:
+                    reset_count += 1
+
+            self.assertEqual(reset_count, MAX_STUCK_COHORTS_TO_RESET)
+
+            # Verify logging
+            mock_logger.warning.assert_called_once()
+            args, kwargs = mock_logger.warning.call_args
+            self.assertEqual(args[0], "reset_stuck_cohorts")
+            self.assertEqual(len(kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
+            self.assertEqual(kwargs["count"], MAX_STUCK_COHORTS_TO_RESET)
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
