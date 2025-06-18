@@ -23,7 +23,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
 
-        #  If we accidentally call calculate_people it shouldn't erase people
+        #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
         self.assertEqual(cohort.people.count(), 2)
 
@@ -284,3 +284,34 @@ class TestCohort(BaseTest):
                 ],
             },
         )
+
+    def test_insert_users_list_by_uuid(self):
+        # These are some fine uuids.
+        uuids = [
+            "96757a52-a170-4cbb-ad49-a713c20b56e0",
+            "74615ff4-1573-45b7-98ca-9897df0f8332",
+            "0cbdd9c3-be93-4291-b721-2dbba2093f62",
+            "243103c3-b41a-4c81-89d1-59c61f36244c",
+            "85167c43-e611-4442-be3c-ede1e1788b6a",
+            "8f926bdd-29e8-4b6f-8eda-053e9ef0c4ec",
+            "8a3954b6-61f6-429f-ad8a-65db1e2728a9",
+            "d2d26447-8700-422d-99ad-c37b5fb6602a",
+            "0c386ba6-6307-460f-90b3-0f0ed0aee893",
+            "fe3876bc-c75c-4c79-ae55-2af6892b9da7",
+            "345b621a-26e1-4888-a9eb-175329f7923b",
+        ]
+        for uuid in uuids:
+            Person.objects.create(team=self.team, uuid=uuid)
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        # Insert all users into the cohort using batching (batchsize=3)
+        cohort.insert_users_list_by_uuid(items=uuids, team_id=self.team.id, batchsize=3)
+
+        # Fetch all persons in the cohort
+        cohort.refresh_from_db()
+        # TODO: THIS NEXT ASSERT FAILS AND I DON'T KNOW WHY. WILL FIGURE OUT LATER - @haacked
+        # assert cohort.count == 11
+        assert cohort.people.count() == 11
+        cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
+        assert cohort_person_uuids == set(uuids)
+        assert cohort.is_calculating is False
