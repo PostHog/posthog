@@ -47,7 +47,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.Variants })
             })
 
-            expect(setFeatureFlagsFiltersSpy).toHaveBeenCalledWith({ type: 'multivariant' }, false)
+            expect(setFeatureFlagsFiltersSpy).toHaveBeenCalledWith({ type: 'multivariant', page: 1 }, undefined)
         })
 
         it('should pass active filter to featureFlagsLogic', async () => {
@@ -57,7 +57,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ active: 'true' })
             })
 
-            expect(setFeatureFlagsFiltersSpy).toHaveBeenCalledWith({ active: 'true' }, false)
+            expect(setFeatureFlagsFiltersSpy).toHaveBeenCalledWith({ active: 'true', page: 1 }, undefined)
         })
 
         it('should clear filters when user selects "all"', async () => {
@@ -71,7 +71,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ active: 'true' }, true)
             })
 
-            expect(setFeatureFlagsFiltersSpy).toHaveBeenLastCalledWith({ active: 'true', type: undefined }, true)
+            expect(setFeatureFlagsFiltersSpy).toHaveBeenLastCalledWith({ active: 'true', page: 1 }, true)
         })
 
         it('should pass release toggle type filter correctly', async () => {
@@ -81,7 +81,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.ReleaseToggle })
             })
 
-            expect(setFeatureFlagsFiltersSpy).toHaveBeenCalledWith({ type: 'boolean' }, false)
+            expect(setFeatureFlagsFiltersSpy).toHaveBeenCalledWith({ type: 'boolean', page: 1 }, undefined)
         })
     })
 })
