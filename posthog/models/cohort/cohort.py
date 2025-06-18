@@ -12,6 +12,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
+from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
@@ -401,12 +402,28 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
         """
+
+        batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
+        self.insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
+
+    def insert_users_list_with_batching(
+        self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
+    ) -> None:
+        """
+        Insert a list of users identified by their UUID into the cohort, for the given team.
+
+        Args:
+            batch_iterator: BatchIterator of user UUIDs to be inserted into the cohort.
+            insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
+            batchsize: Number of UUIDs to process in each batch.
+            team_id: The ID of the team to which the cohort belongs.
+        """
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:
             cursor = connection.cursor()
-            for i in range(0, len(items), batchsize):
-                batch = items[i : i + batchsize]
+            # TODO: We should include the batch index in the exception message.
+            for _, batch in batch_iterator:
                 persons_query = (
                     Person.objects.db_manager(READ_DB_FOR_PERSONS)
                     .filter(team_id=team_id)
