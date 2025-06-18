@@ -433,7 +433,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
-    scope_object_write_actions = ["start_upload", "finish_upload"]
+    scope_object_write_actions = ["start_upload", "finish_upload", "destroy", "update", "create"]
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(team_id=self.team.id)

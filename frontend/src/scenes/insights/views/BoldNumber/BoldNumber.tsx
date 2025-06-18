@@ -58,6 +58,7 @@ function useBoldNumberTooltip({
                         dataIndex: 1,
                         datasetIndex: 1,
                         id: 1,
+                        order: 1,
                         label: seriesResult?.label,
                         count: seriesResult?.aggregated_value,
                     },
