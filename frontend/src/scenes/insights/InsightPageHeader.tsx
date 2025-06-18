@@ -140,7 +140,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
 
-                    {!!alertId && (
+                    {!!alertId && insight.id && (
                         <EditAlertModal
                             onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                             isOpen={!!alertId}
