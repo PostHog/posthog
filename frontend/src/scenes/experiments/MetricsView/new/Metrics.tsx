@@ -2,8 +2,6 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
-import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
@@ -12,6 +10,7 @@ import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { MAX_PRIMARY_METRICS } from '../shared/const'
 import { ConfidenceIntervalAxis } from './ConfidenceIntervalAxis'
 import { MetricRow } from './MetricRow'
+import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
@@ -21,6 +20,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         secondaryMetricResultsNew,
         secondaryMetricsResultErrors,
         primaryMetricsResultErrors,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
@@ -98,6 +98,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                             <div className="rounded bg-[var(--bg-table)]">
                                 <ConfidenceIntervalAxis chartRadius={chartRadius} />
                                 {metrics.map((metric, metricIndex) => {
+                                    const result = results[metricIndex]
+
                                     return (
                                         <>
                                             <MetricRow
@@ -111,28 +113,16 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                                 chartRadius={chartRadius}
                                                 error={errors[metricIndex]}
                                             />
-                                            {metrics.length === 1 && (
+                                            {metrics.length === 1 && result && hasMinimumExposureForResults && (
                                                 <div className="mt-2">
-                                                    <ResultsBreakdown
+                                                    <ResultDetails
+                                                        metric={metric as ExperimentMetric}
                                                         result={{
                                                             ...results[metricIndex],
                                                             metric: metric as ExperimentMetric,
                                                         }}
                                                         experiment={experiment}
-                                                    >
-                                                        {({ query, breakdownResults }) => {
-                                                            return (
-                                                                <>
-                                                                    {query && breakdownResults && (
-                                                                        <ResultsQuery
-                                                                            query={query}
-                                                                            breakdownResults={breakdownResults}
-                                                                        />
-                                                                    )}
-                                                                </>
-                                                            )
-                                                        }}
-                                                    </ResultsBreakdown>
+                                                    />
                                                 </div>
                                             )}
                                         </>
