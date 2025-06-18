@@ -274,7 +274,7 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse
+    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -560,7 +560,7 @@ export function OutputPane(): JSX.Element {
                 isOpen={!!selectedRow}
                 onClose={() => setSelectedRow(null)}
                 row={selectedRow}
-                columns={response.columns || []}
+                columns={response?.columns || []}
             />
         </div>
     )
