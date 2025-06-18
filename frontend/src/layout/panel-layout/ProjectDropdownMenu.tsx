@@ -150,6 +150,839 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                         </Combobox.Group>
                                     )
                                 })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
 
                         {preflight?.can_create_org && (
                             <Combobox.Item
@@ -160,7 +993,6 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                         showCreateProjectModal()
                                     })
                                 }
-                                className="sticky bottom-0"
                             >
                                 <ButtonPrimitive
                                     menuItem
