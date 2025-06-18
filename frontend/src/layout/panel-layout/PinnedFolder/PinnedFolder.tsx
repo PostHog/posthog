@@ -1,6 +1,6 @@
-import { IconCheck, IconGear } from '@posthog/icons'
+import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { FolderSelect } from 'lib/components/FolderSelect/FolderSelect'
+import { FolderSelect } from 'lib/components/FileSystem/FolderSelect/FolderSelect'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -29,7 +29,12 @@ export function PinnedFolder(): JSX.Element {
     const configMenu = (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive iconOnly data-attr="tree-navbar-pinned-folder-change-button">
+                <ButtonPrimitive
+                    iconOnly
+                    data-attr="tree-navbar-pinned-folder-change-button"
+                    tooltip="Change pinned folder"
+                    tooltipPlacement="top"
+                >
                     <IconGear className="size-3 text-secondary" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
@@ -70,13 +75,25 @@ export function PinnedFolder(): JSX.Element {
         <>
             {!isLayoutNavCollapsed &&
                 (showDefaultHeader ? (
-                    <div className="flex justify-between items-center pl-3 pr-1 relative">
+                    <div className="flex justify-between items-center pl-3 pr-1 -mt-1 relative">
                         <div className="flex items-center gap-1">
                             <span className="text-xs font-semibold text-quaternary">
                                 {formatUrlAsName(pinnedFolder)}
                             </span>
                         </div>
-                        {configMenu}
+                        <div className="flex items-center gap-px">
+                            {pinnedFolder === 'shortcuts://' ? (
+                                <ButtonPrimitive
+                                    iconOnly
+                                    data-attr="tree-navbar-pinned-folder-add-button"
+                                    tooltip="Add shortcut"
+                                    tooltipPlacement="top"
+                                >
+                                    <IconPlusSmall className="size-4 text-secondary" />
+                                </ButtonPrimitive>
+                            ) : null}
+                            {configMenu}
+                        </div>
                     </div>
                 ) : (
                     <div className="absolute right-1 z-10">{configMenu}</div>
