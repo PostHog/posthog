@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -13,6 +14,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
@@ -252,6 +254,14 @@ export function SharingModalContent({
                                         </div>
                                     )}
                                 </Form>
+                                {insight && insight.query && (
+                                    <>
+                                        <LemonDivider />
+                                        <TemplateLinkSection
+                                            templateLink={getInsightDefinitionUrl({ query: insight.query as any })}
+                                        />
+                                    </>
+                                )}
                             </>
                         ) : null}
                     </>

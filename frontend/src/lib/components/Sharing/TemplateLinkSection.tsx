@@ -30,7 +30,7 @@ export function TemplateLinkSection({
 
     return (
         <div className="deprecated-space-y-2">
-            <h3>Template link</h3>
+            <h3>Share as template</h3>
             <p className="text-muted">
                 Share this link to let others create a copy of this insight with the same configuration.
             </p>
