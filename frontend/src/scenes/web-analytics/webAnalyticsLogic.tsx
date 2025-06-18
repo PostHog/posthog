@@ -868,7 +868,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         } 
                         WHERE ${
                             conversionGoal.type === EntityTypes.EVENTS && conversionGoal.id
-                                ? `event = ${typeof conversionGoal.id === 'string' ? `'${conversionGoal.id}'` : conversionGoal.id}`
+                                ? `event = ${
+                                      typeof conversionGoal.id === 'string'
+                                          ? `'${conversionGoal.id}'`
+                                          : conversionGoal.id
+                                  }`
                                 : '1=1'
                         }
                             AND campaign_name IS NOT NULL
