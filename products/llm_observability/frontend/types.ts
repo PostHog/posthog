@@ -39,6 +39,12 @@ export interface AnthropicToolCallMessage {
     input: Record<string, any>
 }
 
+export interface AnthropicThinkingMessage {
+    type: 'thinking'
+    thinking: string
+    signature: string
+}
+
 export interface AnthropicToolResultMessage {
     type: 'tool_result'
     tool_use_id: string

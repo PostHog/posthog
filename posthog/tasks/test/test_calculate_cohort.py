@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
@@ -12,8 +12,6 @@ from posthog.tasks.calculate_cohort import (
     enqueue_cohorts_to_calculate,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
-    MAX_STUCK_COHORTS_TO_RESET,
-    calculate_stuck_cohorts,
     update_stale_cohort_metrics,
     COHORTS_STALE_COUNT_GAUGE,
     COHORT_STUCK_COUNT_GAUGE,
@@ -281,17 +279,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             enqueue_cohorts_to_calculate(2)
 
-            # Verify the log was called for both cohorts
-            self.assertEqual(mock_logger.info.call_count, 2)
-
-            # Check the log calls have the expected format
-            self.assertCountEqual(
-                mock_logger.info.call_args_list,
-                [
-                    call("Enqueuing cohort calculation", cohort_id=cohort2.pk, last_calculation=None),
-                    call("Enqueuing cohort calculation", cohort_id=cohort1.pk, last_calculation=last_calc_time),
-                ],
-            )
+            self.assertEqual(mock_logger.warning.call_count, 1)
+            args, kwargs = mock_logger.warning.call_args
+            assert args[0] == "enqueued_cohort_calculation"
+            assert set(kwargs["cohort_ids"]) == {cohort1.pk, cohort2.pk}
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -610,36 +601,5 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
-
-        @patch("posthog.tasks.calculate_cohort.logger")
-        def test_reset_stuck_cohorts_respects_max_limit(self, mock_logger: MagicMock) -> None:
-            now = timezone.now()
-
-            # Create more stuck cohorts than the limit
-            stuck_cohorts = []
-            for i in range(MAX_STUCK_COHORTS_TO_RESET + 5):  # Create 5 more than the limit
-                cohort = Cohort.objects.create(
-                    team_id=self.team.pk,
-                    name=f"Stuck Cohort {i}",
-                    is_calculating=True,
-                    last_calculation=now - relativedelta(hours=2, minutes=i),  # Different times for ordering
-                    deleted=False,
-                    is_static=False,
-                )
-                stuck_cohorts.append(cohort)
-
-            calculate_stuck_cohorts()
-
-            # Count how many were actually reset
-            reset_count = Cohort.objects.filter(id__in=[c.id for c in stuck_cohorts], is_calculating=False).count()
-
-            # Should only reset up to the limit
-            self.assertEqual(reset_count, MAX_STUCK_COHORTS_TO_RESET)
-
-            mock_logger.warning.assert_called_once()
-            log_call_args, log_kwargs = mock_logger.warning.call_args
-
-            self.assertEqual(log_call_args[0], "enqueued_stuck_cohorts")
-            self.assertEqual(len(log_kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
 
     return TestCalculateCohort
