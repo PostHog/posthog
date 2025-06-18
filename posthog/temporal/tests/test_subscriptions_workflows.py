@@ -95,14 +95,22 @@ async def test_subscription_delivery_scheduling(
     subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(subscriptions[2].save)()
 
-    # Run workflow with default 15-minute buffer
-    wf_handle = await temporal_client.start_workflow(
-        ScheduleAllSubscriptionsWorkflow.run,
-        ScheduleAllSubscriptionsWorkflowInputs(),
-        id=str(uuid.uuid4()),
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-    )
-    await wf_handle.result()
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow],
+            activities=[deliver_subscription_report_activity, fetch_due_subscriptions_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,  # turn off sandbox/deadlock detector
+        ):
+            await activity_environment.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     # Each subscription has 2 recipients -> 4 emails expected (only first two subs)
     assert mock_send_email.call_count == 4
@@ -149,13 +157,22 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     await sync_to_async(insight.save)()
     await sync_to_async(dashboard.save)()
 
-    wf_handle = await temporal_client.start_workflow(
-        ScheduleAllSubscriptionsWorkflow.run,
-        ScheduleAllSubscriptionsWorkflowInputs(),
-        id=str(uuid.uuid4()),
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-    )
-    await wf_handle.result()
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow],
+            activities=[deliver_subscription_report_activity, fetch_due_subscriptions_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,  # turn off sandbox/deadlock detector
+        ):
+            await activity_environment.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     assert mock_send_email.call_count == 0 and mock_send_slack.call_count == 0
 
@@ -245,14 +262,22 @@ async def test_deliver_subscription_report_slack(
 
     mock_gen_assets.return_value = [insight], [asset]
 
-    # Easiest way to trigger delivery is via HandleSubscriptionValueChangeWorkflow with no previous_value
-    wf_handle = await temporal_client.start_workflow(
-        HandleSubscriptionValueChangeWorkflow.run,
-        DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
-        id=str(uuid.uuid4()),
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-    )
-    await wf_handle.result()
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow],
+            activities=[deliver_subscription_report_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,  # turn off sandbox/deadlock detector
+        ):
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     assert mock_send_slack.call_count == 1
     assert mock_send_slack.call_args_list == [
