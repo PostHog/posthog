@@ -585,7 +585,7 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? (response as any).error
+                                                    ? response.error
                                                     : responseError
                                             }
                                         />

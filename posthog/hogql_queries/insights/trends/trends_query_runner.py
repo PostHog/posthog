@@ -416,22 +416,36 @@ class TrendsQueryRunner(QueryRunner):
                     previous_results = returned_results[len(returned_results) // 2 :]
 
                     final_result = []
-                    for formula_node in formula_nodes:
+                    for formula_idx, formula_node in enumerate(formula_nodes):
                         current_formula_results = self.apply_formula(formula_node, current_results)
                         previous_formula_results = self.apply_formula(formula_node, previous_results)
                         # Create a new list for each formula's results
                         formula_results = []
                         formula_results.extend(current_formula_results)
                         formula_results.extend(previous_formula_results)
+
+                        # Set the order based on the formula index
+                        for result in formula_results:
+                            result["order"] = formula_idx
+
                         final_result.extend(formula_results)
                 else:
-                    for formula_node in formula_nodes:
+                    for formula_idx, formula_node in enumerate(formula_nodes):
                         formula_results = self.apply_formula(formula_node, returned_results)
+
+                        # Set the order based on the formula index
+                        for result in formula_results:
+                            result["order"] = formula_idx
+
                         # Create a new list for each formula's results
                         final_result.extend(formula_results)
         else:
             for result in returned_results:
                 if isinstance(result, list):
+                    for item in result:
+                        # Set the order for each item based on the action order
+                        item["order"] = item.get("action", {}).get("order", 0)
+
                     final_result.extend(result)
                 elif isinstance(result, dict):  # type: ignore [unreachable]
                     raise ValueError("This should not happen")

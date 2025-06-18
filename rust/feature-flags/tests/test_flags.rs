@@ -3984,12 +3984,6 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn test_super_condition_with_cohort_filters() -> Result<()> {
-    // This test specifically addresses the scenario you described:
-    // A flag that has BOTH super condition properties AND cohort filters.
-    // The bug was that super condition evaluation would fail because it looked at ALL flag properties
-    // (including cohort filters) when deciding if it could use overrides, instead of just
-    // checking the super condition properties.
-
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "super_condition_cohort_user".to_string();
 

@@ -68,7 +68,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 </PopoverPrimitiveTrigger>
                 <PopoverPrimitiveContent
                     align="start"
-                    className="min-w-[200px] max-w-[var(--project-panel-inner-width)]"
+                    className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)]"
                 >
                     <Combobox>
                         <Combobox.Search placeholder="Search organizations..." />
@@ -97,7 +97,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                                 entityId={currentOrganization.id}
                                                 mediaId={currentOrganization.logo_media_id}
                                             />
-                                            <span className="truncate">{currentOrganization.name}</span>
+                                            <span className="truncate max-w-full">{currentOrganization.name}</span>
                                             <div className="ml-auto">
                                                 <AccessLevelIndicator organization={currentOrganization} />
                                             </div>
@@ -123,7 +123,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                                 entityId={otherOrganization.id}
                                                 mediaId={otherOrganization.logo_media_id}
                                             />
-                                            {otherOrganization.name}
+                                            <span className="truncate max-w-full">{otherOrganization.name}</span>
                                             <div className="ml-auto">
                                                 <AccessLevelIndicator organization={otherOrganization} />
                                             </div>
