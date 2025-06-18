@@ -101,9 +101,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                     const result = results[metricIndex]
 
                                     return (
-                                        <>
+                                        <div key={metricIndex}>
                                             <MetricRow
-                                                key={metricIndex}
                                                 metrics={metrics}
                                                 metricIndex={metricIndex}
                                                 result={results[metricIndex]}
@@ -125,7 +124,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                                     />
                                                 </div>
                                             )}
-                                        </>
+                                        </div>
                                     )
                                 })}
                             </div>
