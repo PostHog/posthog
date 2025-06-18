@@ -369,13 +369,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
         def test_reset_stuck_cohorts_respects_limit(self, mock_logger: MagicMock) -> None:
             now = timezone.now()
 
-            # Create more stuck cohorts than the limit (MAX_STUCK_COHORTS_TO_RESET = 5)
+            # Create more stuck cohorts than the limit (MAX_STUCK_COHORTS_TO_RESET)
             stuck_cohorts = []
-            for i in range(MAX_STUCK_COHORTS_TO_RESET + 3):  # Create 8 stuck cohorts
+            for i in range(MAX_STUCK_COHORTS_TO_RESET + 3):
                 cohort = Cohort.objects.create(
                     team_id=self.team.pk,
                     name=f"stuck_cohort_{i}",
-                    last_calculation=now - relativedelta(hours=25, minutes=i),  # Different times for ordering
+                    last_calculation=now - relativedelta(hours=25),
                     deleted=False,
                     is_calculating=True,
                     errors_calculating=0,
