@@ -112,12 +112,34 @@ async def test_subscription_delivery_scheduling(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
+    assert mock_send_email.call_count == 0
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow],
+            activities=[deliver_subscription_report_activity, fetch_due_subscriptions_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,  # turn off sandbox/deadlock detector
+        ):
+            # Enable Temporal subscriptions for this team's organization
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                await activity_environment.client.execute_workflow(
+                    ScheduleAllSubscriptionsWorkflow.run,
+                    ScheduleAllSubscriptionsWorkflowInputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+
     # Each subscription has 2 recipients -> 4 emails expected (only first two subs)
     assert mock_send_email.call_count == 4
     delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list[::2]}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
+@patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
@@ -177,6 +199,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     assert mock_send_email.call_count == 0 and mock_send_slack.call_count == 0
 
 
+@patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
 @pytest.mark.asyncio
@@ -236,6 +259,7 @@ async def test_handle_subscription_value_change_email(
     ]
 
 
+@patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets")
 @pytest.mark.asyncio
