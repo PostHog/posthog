@@ -98,30 +98,6 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/**/migrations/*.py'
 
-    backend-code-quality:
-        needs: changes
-        timeout-minutes: 30
-
-        name: Python code quality checks
-        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
-
-        steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
-            # there are backend changes, cancel previous runs
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot' && needs.changes.outputs.backend == 'true'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-              with:
-                  fetch-depth: 1
-
-            - uses: ./.github/actions/python-code-quality
-              with:
-                  python-version: 3.11.9
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
     check-migrations:
         needs: changes
         if: needs.changes.outputs.backend == 'true'

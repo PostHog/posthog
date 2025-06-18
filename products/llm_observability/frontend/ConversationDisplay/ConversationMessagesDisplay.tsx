@@ -178,13 +178,15 @@ export const LLMMessageDisplay = React.memo(
                         const escapedContent = content.replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
                         try {
-                            return <LemonMarkdown>{escapedContent}</LemonMarkdown>
+                            // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
+                            return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                         } catch {
                             // If markdown still fails, fall back to plain text
                             return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
                         }
                     } else {
-                        return <LemonMarkdown>{content}</LemonMarkdown>
+                        // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
+                        return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
                     return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>

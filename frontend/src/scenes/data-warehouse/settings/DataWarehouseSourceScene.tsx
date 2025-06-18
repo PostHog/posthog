@@ -104,7 +104,7 @@ export function DataWarehouseSourceScene(): JSX.Element {
         return <NotFound object="Data warehouse source" />
     }
 
-    const cleanId = id.replace('managed-', '').replace('self-managed-', '')
+    const cleanId = id.replace('self-managed-', '').replace('managed-', '')
 
     const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = id.startsWith('managed-')
         ? [

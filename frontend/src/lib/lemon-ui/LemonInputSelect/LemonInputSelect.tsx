@@ -13,6 +13,7 @@ import { LemonButton, LemonButtonPropsBase, SideAction } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
+import { TooltipTitle } from '../Tooltip/Tooltip'
 
 const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
 
@@ -20,6 +21,7 @@ export interface LemonInputSelectOption {
     key: string
     label: string
     labelComponent?: React.ReactNode
+    tooltip?: TooltipTitle
     /** @internal */
     __isInput?: boolean
 }
@@ -484,6 +486,7 @@ export function LemonInputSelect({
                                     onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
                                     onMouseEnter={() => setSelectedIndex(index)}
                                     disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
+                                    tooltip={option.tooltip}
                                     icon={
                                         mode === 'multiple' && !option.__isInput ? (
                                             // No pointer events, since it's only for visual feedback
