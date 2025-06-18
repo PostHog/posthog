@@ -1,4 +1,5 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from unittest.mock import MagicMock, call, patch
@@ -8,6 +9,7 @@ from asgiref.sync import sync_to_async
 import pytest
 from freezegun import freeze_time
 from temporalio.client import Client
+from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -183,17 +185,26 @@ async def test_handle_subscription_value_change_email(
 
     mock_gen_assets.return_value = [insight], [asset]
 
-    wf_handle = await temporal_client.start_workflow(
-        HandleSubscriptionValueChangeWorkflow.run,
-        DeliverSubscriptionReportActivityInputs(
-            subscription_id=subscription.id,
-            previous_value="test_existing@posthog.com",
-            invite_message="My invite message",
-        ),
-        id=str(uuid.uuid4()),
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-    )
-    await wf_handle.result()
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow],
+            activities=[deliver_subscription_report_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,  # turn off sandbox/deadlock detector
+        ):
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                DeliverSubscriptionReportActivityInputs(
+                    subscription_id=subscription.id,
+                    previous_value="test_existing@posthog.com",
+                    invite_message="My invite message",
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
     # Only new address should be emailed
     assert mock_send_email.call_count == 1

@@ -18,6 +18,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
 from ee.tasks.subscriptions import _deliver_subscription_report
+from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -79,14 +80,14 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
     async with Heartbeater():
         logger = get_internal_logger()
 
-        deliver_subscription = sync_to_async(_deliver_subscription_report)
+        # deliver_subscription = sync_to_async(_deliver_subscription_report)
 
         await logger.ainfo(
             "Delivering subscription report",
             subscription_id=inputs.subscription_id,
         )
 
-        await deliver_subscription(
+        await database_sync_to_async(_deliver_subscription_report)(
             subscription_id=inputs.subscription_id,
             previous_value=inputs.previous_value,
             invite_message=inputs.invite_message,
@@ -160,15 +161,19 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="handle-subscription-value-change")
 class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> DeliverSubscriptionReportActivityInputs:
+        if not inputs:
+            return DeliverSubscriptionReportActivityInputs()
+
+        loaded = json.loads(inputs[0])
+        return DeliverSubscriptionReportActivityInputs(**loaded)
+
     @temporalio.workflow.run
     async def run(self, inputs: DeliverSubscriptionReportActivityInputs) -> None:
         await temporalio.workflow.execute_activity(
             deliver_subscription_report_activity,
-            DeliverSubscriptionReportActivityInputs(
-                subscription_id=inputs.subscription_id,
-                previous_value=inputs.previous_value,
-                invite_message=inputs.invite_message,
-            ),
+            inputs,
             start_to_close_timeout=dt.timedelta(minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),
