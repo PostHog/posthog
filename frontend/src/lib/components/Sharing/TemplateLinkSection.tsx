@@ -75,7 +75,7 @@ export function TemplateLinkSection({
                 </LemonButton>
             </div>
 
-            {showShortenButton && (
+            {!showShortenButton && (
                 <>
                     <div className="flex items-center justify-between">
                         <div>
@@ -83,11 +83,6 @@ export function TemplateLinkSection({
                                 <LemonButton type="secondary" onClick={onShortenLink} disabled={!onShortenLink}>
                                     Shorten URL
                                 </LemonButton>
-                                {!onShortenLink && (
-                                    <Tooltip title="Shortlink creation coming soon">
-                                        <span className="text-muted text-sm">(Coming soon!)</span>
-                                    </Tooltip>
-                                )}
                             </div>
                         </div>
                     </div>
