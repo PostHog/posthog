@@ -5,20 +5,36 @@ import { HogFlowAction } from '~/schema/hogflow'
 // Opinionated version of the CyclotronJobInvocationResult limiting what an action can do
 export type HogFlowActionRunnerResult = {
     action: HogFlowAction
-    error?: unknown
-    finished: boolean
-    scheduledAt?: DateTime
-    goToAction?: HogFlowAction
-}
+} & (
+    | {
+          // Indicates the workflow hit an exit and it is done (with optional error if one occurred)
+          exited: true
+          error?: unknown
+      }
+    | {
+          // Indicates the workflow should continue to the next action
+          exited: false
+          goToAction: HogFlowAction
+          scheduledAt?: DateTime
+      }
+    | {
+          // Indicates the workflow should be scheduled for later but isn't moving on
+          exited: false
+          scheduledAt: DateTime
+      }
+)
 
-// TODO: Improve the type above so it is super clear what the outcome is
-export type HogFlowActionRunnerResultOutcome = 'exited' | 'continued' | 'scheduled' | 'errored'
-
-export type HogFlowActionResult = {
-    // Indicates there is nothing more for the action to do
-    finished: boolean
-    // Indicates the flow should be scheduled for later
-    scheduledAt?: DateTime
-    // Indicates the next action to go to (and assumes it is finished)
-    goToAction?: HogFlowAction
-}
+export type HogFlowActionResult =
+    | {
+          // Indicates this action is complete
+          done: true
+          // Optionally can specify a go to action to move to
+          goToAction?: HogFlowAction
+          // Optionally can specify a scheduledAt to schedule for later
+          scheduledAt?: DateTime
+      }
+    | {
+          // Indicates that it should be scheduled for later without moving on
+          done: false
+          scheduledAt: DateTime
+      }

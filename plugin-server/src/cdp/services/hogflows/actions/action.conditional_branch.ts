@@ -31,7 +31,7 @@ export class HogFlowActionRunnerConditionalBranch {
 
             if (filterResults.match) {
                 return {
-                    finished: true,
+                    done: true,
                     // TODO: Should we throw if not found - or at least log something?
                     goToAction: findNextAction(invocation.hogFlow, action.id, index),
                 }
@@ -47,13 +47,13 @@ export class HogFlowActionRunnerConditionalBranch {
             )
 
             return {
-                finished: !scheduledAt,
+                done: !scheduledAt,
                 scheduledAt: scheduledAt ?? undefined,
             }
         }
 
         return {
-            finished: true,
+            done: true,
         }
     }
 

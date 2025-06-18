@@ -15,7 +15,7 @@ export class HogFlowActionRunnerRandomCohortBranch {
             cumulativePercentage += cohort.percentage
             if (random <= cumulativePercentage) {
                 return {
-                    finished: true,
+                    done: true,
                     // TODO: Do we error out here if not found?
                     goToAction: findNextAction(invocation.hogFlow, action.id, index),
                 }
@@ -25,7 +25,7 @@ export class HogFlowActionRunnerRandomCohortBranch {
         // If we somehow get here (shouldn't happen if percentages add up to 100),
         // go to the last cohort
         return {
-            finished: true,
+            done: true,
             goToAction: findNextAction(invocation.hogFlow, action.id, action.config.cohorts.length - 1),
         }
     }

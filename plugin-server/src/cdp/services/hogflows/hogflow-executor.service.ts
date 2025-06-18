@@ -150,7 +150,7 @@ export class HogFlowExecutorService {
                 // 2. If the action has a scheduledAt then we need to save it and return finished false so that it goes back to the queue
                 // 3. Finally if the action is finished then we need to set finished to true and break out of the loop
 
-                if (!actionResult.finished) {
+                if (!actionResult.exited) {
                     // If the result isn't finished we _require_ that there is a `scheduledAt` param in order to delay the result
                     if (!actionResult.scheduledAt) {
                         throw new Error('Action result is not finished and no scheduledAt param is provided')

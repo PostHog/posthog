@@ -8,7 +8,6 @@ import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 
 import { HogFlowActionRunner } from './hogflow-action-runner'
-import { HogFlowActionRunnerResult } from './types'
 import { findActionById } from './utils'
 
 describe('HogFlowActionRunner', () => {
@@ -63,11 +62,7 @@ describe('HogFlowActionRunner', () => {
 
     describe('per action runner tests', () => {
         // NOTE: We test one case of each action to ensure it works as expected, the rest is handles as per-action unit test
-        const cases: [
-            string,
-            SimpleHogFlowRepresentation,
-            Partial<Omit<HogFlowActionRunnerResult, 'goToAction'> & { goToActionId: string }>
-        ][] = [
+        const cases: [string, SimpleHogFlowRepresentation, any][] = [
             [
                 'wait_until_condition',
                 {
@@ -92,7 +87,7 @@ describe('HogFlowActionRunner', () => {
                     ],
                 },
                 {
-                    finished: false,
+                    exited: false,
                     scheduledAt: DateTime.fromISO('2025-01-01T00:10:00.000Z').toUTC(),
                 },
             ],
@@ -132,7 +127,7 @@ describe('HogFlowActionRunner', () => {
                 },
 
                 {
-                    finished: true,
+                    exited: true,
                     goToActionId: 'delay',
                 },
             ],
@@ -156,7 +151,7 @@ describe('HogFlowActionRunner', () => {
                     ],
                 },
                 {
-                    finished: false,
+                    exited: false,
                     scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
                 },
             ],
@@ -194,7 +189,7 @@ describe('HogFlowActionRunner', () => {
                     ],
                 },
                 {
-                    finished: true,
+                    exited: false,
                     goToActionId: 'delay',
                 },
             ],
@@ -215,7 +210,7 @@ describe('HogFlowActionRunner', () => {
                         },
                     ],
                 },
-                { finished: true },
+                { exited: true },
             ],
         ]
 
@@ -294,7 +289,7 @@ describe('HogFlowActionRunner', () => {
             const result = await runner.runCurrentAction(invocation)
             expect(result).toEqual({
                 action,
-                finished: false,
+                exited: false,
                 scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
             })
         })
@@ -304,7 +299,7 @@ describe('HogFlowActionRunner', () => {
             const result = await runner.runCurrentAction(invocation)
             expect(result).toEqual({
                 action,
-                finished: true,
+                exited: false,
                 goToAction: findActionById(invocation.hogFlow, 'delay_2'),
             })
         })

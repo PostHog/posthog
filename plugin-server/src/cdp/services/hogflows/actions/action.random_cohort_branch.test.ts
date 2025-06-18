@@ -70,7 +70,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.2) // 20% - in first cohort range
         const result = runner.run(invocation, action)
         expect(result).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_a'),
         })
     })
@@ -79,7 +79,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.4) // 40% - in second cohort range
         const result = runner.run(invocation, action)
         expect(result).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })
@@ -88,7 +88,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.8) // 80% - in third cohort range
         const result = runner.run(invocation, action)
         expect(result).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_c'),
         })
     })
@@ -97,13 +97,13 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.3) // Exactly at first boundary
         const result = runner.run(invocation, action)
         expect(result).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_a'),
         })
         ;(Math.random as jest.Mock).mockReturnValue(0.7) // Exactly at second boundary
         const result2 = runner.run(invocation, action)
         expect(result2).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })
@@ -113,7 +113,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.9)
         const result = runner.run(invocation, action)
         expect(result).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_a'),
         })
     })
@@ -123,7 +123,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.5) // 50% - in second cohort range
         const result = runner.run(invocation, action)
         expect(result).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })
@@ -133,7 +133,7 @@ describe('HogFlowActionRunnerRandomCohortBranch', () => {
         ;(Math.random as jest.Mock).mockReturnValue(0.9) // 90% - beyond all defined ranges
         const result = runner.run(invocation, action)
         expect(result).toEqual({
-            finished: true,
+            done: true,
             goToAction: findActionById(invocation.hogFlow, 'cohort_b'),
         })
     })

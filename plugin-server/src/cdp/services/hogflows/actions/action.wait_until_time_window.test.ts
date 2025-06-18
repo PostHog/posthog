@@ -160,7 +160,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 `"2025-01-01T07:00:00.000-05:00"`
             )
             expect(result.scheduledAt!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000-05:00"`)
-            expect(result.finished).toBe(true)
+            expect(result.done).toBe(true)
         })
 
         it('should handle timezone with DST', () => {
@@ -172,7 +172,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 `"2025-07-01T08:00:00.000-04:00"`
             )
             expect(result.scheduledAt!.toISO()).toMatchInlineSnapshot(`"2025-07-01T14:00:00.000-04:00"`)
-            expect(result.finished).toBe(true)
+            expect(result.done).toBe(true)
         })
 
         it('should handle timezone with negative offset', () => {
@@ -184,7 +184,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 `"2025-01-01T21:00:00.000+09:00"`
             )
             expect(result.scheduledAt!.toISO()).toMatchInlineSnapshot(`"2025-01-02T14:00:00.000+09:00"`)
-            expect(result.finished).toBe(true)
+            expect(result.done).toBe(true)
         })
     })
 })

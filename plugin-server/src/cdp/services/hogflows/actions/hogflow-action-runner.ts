@@ -28,13 +28,18 @@ export class HogFlowActionRunner {
         this.hogFlowActionRunnerRandomCohortBranch = new HogFlowActionRunnerRandomCohortBranch()
     }
 
-    private findContinueAction(invocation: CyclotronJobInvocationHogFlow): HogFlowAction | undefined {
+    private findContinueAction(invocation: CyclotronJobInvocationHogFlow): HogFlowAction {
         const currentActionId = invocation.state.currentAction?.id
         if (!currentActionId) {
             throw new Error('Cannot find continue action without a current action')
         }
 
-        return findNextAction(invocation.hogFlow, currentActionId)
+        const nextAction = findNextAction(invocation.hogFlow, currentActionId)
+        if (!nextAction) {
+            throw new Error(`Next action with id '${currentActionId}' not found`)
+        }
+
+        return nextAction
     }
 
     private shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): boolean {
@@ -61,7 +66,10 @@ export class HogFlowActionRunner {
     }
 
     // NOTE: Keeping as a promise response for now as we will be adding async work later
-    runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
+    async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
+        // HACK: Just keeping this async for now as we will definitely have async stuff here later
+        await Promise.resolve()
+
         if (!invocation.state.currentAction) {
             const triggerAction = invocation.hogFlow.actions.find((action) => action.type === 'trigger')
             if (!triggerAction) {
@@ -88,11 +96,18 @@ export class HogFlowActionRunner {
         const currentActionId = invocation.state.currentAction?.id
         const action = findActionById(invocation.hogFlow, currentActionId)
 
+        if (action.type === 'exit') {
+            return {
+                action,
+                exited: true,
+            }
+        }
+
         if (this.shouldSkipAction(invocation, action)) {
             // Before we do anything check for filter conditions on the user
             return Promise.resolve({
                 action,
-                finished: true,
+                exited: false,
                 goToAction: this.findContinueAction(invocation),
             })
         }
@@ -101,11 +116,6 @@ export class HogFlowActionRunner {
             action,
             invocation,
         })
-
-        let result: HogFlowActionRunnerResult = {
-            action,
-            finished: true,
-        }
 
         try {
             let actionResult: HogFlowActionResult
@@ -125,45 +135,44 @@ export class HogFlowActionRunner {
                 case 'random_cohort_branch':
                     actionResult = this.hogFlowActionRunnerRandomCohortBranch.run(invocation, action)
                     break
-                case 'exit':
-                    actionResult = {
-                        finished: true,
-                    }
-                    break
                 default:
                     throw new Error(`Action type ${action.type} not supported`)
             }
 
-            if (actionResult.scheduledAt) {
-                // All scheduled actions outcomes are set on the main result
-                result.scheduledAt = actionResult.scheduledAt
-            }
+            // If we reach this point there is no way we are exiting
 
             if (actionResult.goToAction) {
-                // If the action is going to a specific action we need to find it and set it
-                result.goToAction = actionResult.goToAction
+                return {
+                    action,
+                    exited: false,
+                    goToAction: actionResult.goToAction,
+                    scheduledAt: actionResult.scheduledAt, // Optionally the action could have scheduled for the future (such as a delay)
+                }
             }
 
-            if (!actionResult.finished) {
-                // if the action result is _not_ finished then we set that to be the case on the main result
-                // this indicates we shouldn't move forward to the next action
-                result.finished = false
+            if (actionResult.scheduledAt) {
+                // This is the case where the action isn't moving but wants to pause hence scheduling for later
+                return {
+                    action,
+                    exited: false,
+                    scheduledAt: actionResult.scheduledAt,
+                }
             }
 
-            if (result.finished && !result.goToAction && result.action.type !== 'exit') {
-                // Finally if the action  finished but didn't go to a specific action then we need to find the default next action to run to
-                result.goToAction = this.findContinueAction(invocation)
-                // and set the finished flag to false to indicate we should continue to the next action
-                result.finished = false
+            // If we aren't moving forward, or pausing then we are just continuing to the next action
+            const nextAction = this.findContinueAction(invocation)
+
+            return {
+                action,
+                exited: false,
+                goToAction: nextAction,
             }
         } catch (error) {
-            result = {
-                ...result,
+            return {
+                action,
                 error,
-                finished: true,
+                exited: true,
             }
         }
-
-        return Promise.resolve(result)
     }
 }

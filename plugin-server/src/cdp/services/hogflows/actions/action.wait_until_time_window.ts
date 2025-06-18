@@ -14,7 +14,7 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
         const nextTime = this.getNextValidTime(now, action.config)
 
         return {
-            finished: true,
+            done: true,
             scheduledAt: nextTime ?? undefined,
         }
     }

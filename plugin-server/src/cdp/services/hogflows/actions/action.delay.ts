@@ -15,7 +15,7 @@ export class HogFlowActionRunnerDelay {
         )
 
         return {
-            finished: !scheduledAt,
+            done: !scheduledAt,
             scheduledAt: scheduledAt ?? undefined,
         }
     }

@@ -87,7 +87,7 @@ describe('HogFlowActionRunnerCondition', () => {
                 action.config.delay_duration = '2h'
                 const result = runner.run(invocation, action)
                 expect(result).toEqual({
-                    finished: false,
+                    done: false,
                     // Should schedule for 10 minutes from now
                     scheduledAt: DateTime.utc().plus({ minutes: 10 }),
                 })
@@ -97,7 +97,7 @@ describe('HogFlowActionRunnerCondition', () => {
                 action.config.delay_duration = '5m'
                 const result = runner.run(invocation, action)
                 expect(result).toEqual({
-                    finished: false,
+                    done: false,
                     // Should schedule for 5 minutes from now
                     scheduledAt: DateTime.utc().plus({ minutes: 5 }),
                 })
