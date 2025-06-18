@@ -1,8 +1,9 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { ConversionGoalSchema, MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
+    ActionFilter,
     AnyFilterLike,
     AnyGroupScopeFilter,
     AnyPersonScopeFilter,
@@ -3228,6 +3229,15 @@ export interface EventsHeatMapStructuredResult {
 
 export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
 
+export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
+
+export type ConversionGoalFilter = ActionFilter & {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    schema: SchemaMap
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
+    conversion_goals?: ConversionGoalFilter[]
 }
