@@ -83,21 +83,21 @@ function MaxFloatingInputWithLogic(): JSX.Element {
     }, [activeStreamingThreads, openSidePanel])
 
     // Trigger wave animation periodically when collapsed
-useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null
-    
-    if (!isFloatingMaxExpanded && hedgehogActorRef.current) {
-        interval = setInterval(() => {
-            hedgehogActorRef.current?.setAnimation('wave')
-        }, WAVE_INTERVAL_MS)
-    }
-    
-    return () => {
-        if (interval) {
-            clearInterval(interval)
+    useEffect(() => {
+        let interval: ReturnType<typeof setInterval> | null = null
+
+        if (!isFloatingMaxExpanded && hedgehogActorRef.current) {
+            interval = setInterval(() => {
+                hedgehogActorRef.current?.setAnimation('wave')
+            }, WAVE_INTERVAL_MS)
         }
-    }
-}, [isFloatingMaxExpanded])
+
+        return () => {
+            if (interval) {
+                clearInterval(interval)
+            }
+        }
+    }, [isFloatingMaxExpanded])
 
     if (!isFloatingMaxExpanded) {
         // Collapsed state - animated hedgehog in a circle
