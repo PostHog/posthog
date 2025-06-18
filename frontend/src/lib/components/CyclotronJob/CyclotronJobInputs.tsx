@@ -36,7 +36,6 @@ import { CyclotronJobInputConfiguration } from './types'
 
 export type CyclotronJobInputsProps = {
     configuration: CyclotronJobInputConfiguration
-    parentConfiguration: CyclotronJobInputConfiguration
     onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
     onInputChange: (key: string, input: CyclotronJobInputType) => void
     showSource: boolean
@@ -44,7 +43,6 @@ export type CyclotronJobInputsProps = {
 
 export function CyclotronJobInputs({
     configuration,
-    parentConfiguration,
     onInputSchemaChange,
     onInputChange,
     showSource,
@@ -78,7 +76,6 @@ export function CyclotronJobInputs({
                                     key={schema.key}
                                     schema={schema}
                                     configuration={configuration}
-                                    parentConfiguration={parentConfiguration}
                                     onInputSchemaChange={onInputSchemaChange}
                                     onInputChange={onInputChange}
                                     showSource={showSource}
@@ -307,7 +304,6 @@ type CyclotronJobInputProps = {
     onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
-    parentConfiguration: CyclotronJobInputConfiguration
 }
 
 function CyclotronJobInputRenderer({
@@ -316,7 +312,6 @@ function CyclotronJobInputRenderer({
     disabled,
     input,
     configuration,
-    parentConfiguration,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -362,7 +357,6 @@ function CyclotronJobInputRenderer({
                     schema={schema}
                     value={input.value}
                     onChange={onValueChange}
-                    parentConfiguration={parentConfiguration}
                     configuration={configuration}
                 />
             )
@@ -382,7 +376,6 @@ type CyclotronJobInputSchemaControlsProps = {
     onChange: (value: CyclotronJobInputSchemaType | null) => void
     onDone: () => void
     configuration: CyclotronJobInputConfiguration
-    parentConfiguration: CyclotronJobInputConfiguration
 }
 
 function CyclotronJobInputSchemaControls({
@@ -390,7 +383,6 @@ function CyclotronJobInputSchemaControls({
     onChange,
     onDone,
     configuration,
-    parentConfiguration,
 }: CyclotronJobInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<CyclotronJobInputSchemaType> | null): void => {
         if (data?.key?.length === 0) {
@@ -502,7 +494,6 @@ function CyclotronJobInputSchemaControls({
                     input={{ value: value.default }}
                     onChange={(val) => _onChange({ default: val.value })}
                     configuration={configuration}
-                    parentConfiguration={parentConfiguration}
                 />
             </LemonField.Pure>
         </div>
@@ -516,7 +507,6 @@ type CyclotronJobInputWithSchemaProps = CyclotronJobInputsProps & {
 function CyclotronJobInputWithSchema({
     schema,
     configuration,
-    parentConfiguration,
     onInputSchemaChange,
     onInputChange,
     showSource,
@@ -632,7 +622,6 @@ function CyclotronJobInputWithSchema({
                                         input={value ?? { value: '' }}
                                         onChange={onChange}
                                         configuration={configuration}
-                                        parentConfiguration={parentConfiguration}
                                     />
                                 )}
                             </>
@@ -646,7 +635,6 @@ function CyclotronJobInputWithSchema({
                         onChange={onSchemaChange}
                         onDone={() => setEditing(false)}
                         configuration={configuration}
-                        parentConfiguration={parentConfiguration}
                     />
                 </div>
             )}

@@ -139,12 +139,14 @@ export function HogFunctionMapping({
                 <Group name={['mappings', index]}>
                     <CyclotronJobInputs
                         configuration={{
-                            inputs_schema: mapping.inputs_schema ?? [],
-                            inputs: mapping.inputs ?? {},
-                        }}
-                        parentConfiguration={{
-                            inputs_schema: parentConfiguration.inputs_schema ?? [],
-                            inputs: parentConfiguration.inputs ?? {},
+                            inputs_schema: [
+                                ...(mapping.inputs_schema ?? []),
+                                ...(parentConfiguration.inputs_schema ?? []),
+                            ],
+                            inputs: {
+                                ...(mapping.inputs ?? {}),
+                                ...(parentConfiguration.inputs ?? {}),
+                            },
                         }}
                         onInputSchemaChange={(schema) => {
                             onChange({ ...mapping, inputs_schema: schema })
@@ -347,7 +349,6 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                 className: 'p-0 bg-accent-light',
                                                 content: (
                                                     <HogFunctionMapping
-                                                        parentConfiguration={configuration}
                                                         key={index}
                                                         index={index}
                                                         mapping={mapping}
@@ -360,6 +361,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                                 )
                                                             }
                                                         }}
+                                                        parentConfiguration={configuration}
                                                     />
                                                 ),
                                             })
