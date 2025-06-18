@@ -39,7 +39,7 @@ const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 
 export type CyclotronJobInputsProps = {
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
-    onInputSchemaChange: (schema: CyclotronJobInputSchemaType[]) => void
+    onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     onInputChange: (key: string, input: CyclotronJobInputType) => void
     showSource: boolean
 }
