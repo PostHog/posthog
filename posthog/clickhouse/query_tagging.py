@@ -17,6 +17,7 @@ thread_local_storage = threading.local()
 
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
+    OAUTH = "oauth"
 
 
 class Product(StrEnum):
