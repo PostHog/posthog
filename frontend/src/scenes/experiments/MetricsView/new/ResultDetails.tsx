@@ -1,10 +1,17 @@
+import { IconRewindPlay } from '@posthog/icons'
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
 import { humanFriendlyNumber } from 'lib/utils'
+import posthog from 'posthog-js'
 import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
 import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
+import { getViewRecordingFilters } from 'scenes/experiments/utils'
+import { urls } from 'scenes/urls'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 import { Experiment } from '~/types'
 
 import { formatPValue } from '../shared/utils'
@@ -72,6 +79,46 @@ export function ResultDetails({
                     return '—'
                 }
                 return `[${(interval[0] * 100).toFixed(2)}%, ${(interval[1] * 100).toFixed(2)}%]`
+            },
+        },
+        {
+            key: 'recordings',
+            title: '',
+            render: (_, item) => {
+                const variantKey = item.key
+                const filters = getViewRecordingFilters(experiment, metric, variantKey)
+
+                return (
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconRewindPlay />}
+                        tooltip="Watch recordings of people who were exposed to this variant."
+                        disabledReason={
+                            filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined
+                        }
+                        type="secondary"
+                        onClick={() => {
+                            const filterGroup: Partial<RecordingUniversalFilters> = {
+                                filter_group: {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            type: FilterLogicalOperator.And,
+                                            values: filters,
+                                        },
+                                    ],
+                                },
+                                date_from: experiment?.start_date,
+                                date_to: experiment?.end_date,
+                                filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+                            }
+                            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
+                            posthog.capture('viewed recordings from experiment', { variant: variantKey })
+                        }}
+                    >
+                        View recordings
+                    </LemonButton>
+                )
             },
         },
     ]
