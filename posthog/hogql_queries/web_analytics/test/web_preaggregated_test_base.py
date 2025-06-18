@@ -74,14 +74,12 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         event: str = "$pageview",
         extra_properties: Optional[dict] = None,
     ) -> None:
+        parsed_url = urlparse(url)
+        hostname = parsed_url.hostname or ""
         properties = {
             "$session_id": session_id,
             "$current_url": url,
-            "$pathname": (
-                url.split(urlparse(url).hostname)[-1]
-                if urlparse(url).hostname and urlparse(url).hostname.endswith(".example.com")
-                else "/"
-            ),
+            "$pathname": (url.split(hostname)[-1] if hostname and hostname.endswith(".example.com") else "/"),
             **self.STANDARD_EVENT_PROPERTIES,
             **(extra_properties or {}),
         }
