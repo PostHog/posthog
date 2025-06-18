@@ -35,10 +35,10 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                     className="flex items-center gap-2 hover:opacity-70 transition-opacity cursor-pointer"
                     title={storiesCollapsed ? 'Show stories' : 'Hide stories'}
                 >
-                    <IconChevronRight
-                        className={`w-4 h-4 opacity-80 transition-transform ${storiesCollapsed ? '' : 'rotate-90'}`}
-                    />
                     <span className="text-sm font-medium text-text-3000">Video updates</span>
+                    <IconChevronRight
+                        className={`w-3 h-3 opacity-80 transition-transform ${storiesCollapsed ? '' : 'rotate-90'}`}
+                    />
                 </button>
             </div>
             {!storiesCollapsed && (
