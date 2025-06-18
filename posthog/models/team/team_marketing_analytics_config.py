@@ -37,7 +37,6 @@ def validate_conversion_goals(conversion_goals: list) -> None:
     """Validate conversion goals structure: list of dicts with name, event, and properties."""
     if not isinstance(conversion_goals, list):
         raise ValidationError("conversion_goals must be a list")
-
     for goal in conversion_goals:
         if not isinstance(goal, dict):
             raise ValidationError(f"Conversion goal must be a dictionary, got {type(goal)}")
@@ -47,6 +46,8 @@ def validate_conversion_goals(conversion_goals: list) -> None:
             raise ValidationError(f"Conversion goal id must be a string or integer, got {type(goal.get('id'))}")
         if not isinstance(goal.get("type"), str):
             raise ValidationError(f"Conversion goal type must be a string, got {type(goal.get('type'))}")
+        if not isinstance(goal.get("schema"), dict):
+            raise ValidationError(f"Conversion goal schema must be a dictionary, got {type(goal.get('schema'))}")
         if goal.get("type") == "events":
             if goal.get("id") and not isinstance(goal.get("id"), str):
                 raise ValidationError(f"Conversion goal id must be a string, got {type(goal.get('id'))}")
