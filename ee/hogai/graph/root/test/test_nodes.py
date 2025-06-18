@@ -850,7 +850,7 @@ Query results: 42 events
 
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
-        self.assertIn("Dashboard Insights", result)
+        self.assertIn("### Dashboard insights", result)
         self.assertIn("Insight: Dashboard Insight", result)
         self.assertNotIn("# Insights", result)
 

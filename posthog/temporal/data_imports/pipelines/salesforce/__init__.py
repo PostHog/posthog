@@ -11,7 +11,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from posthog.temporal.common.logger import get_temporal_context
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
-from posthog.temporal.data_imports.pipelines.salesforce.auth import SalseforceAuth
+from posthog.temporal.data_imports.pipelines.salesforce.auth import SalesforceAuth
 
 LOGGER = structlog.get_logger()
 
@@ -409,6 +409,9 @@ class SalesforceEndpointPaginator(BasePaginator):
         self._model_name = model_name
 
     def update_request(self, request: Request) -> None:
+        if not self._has_next_page:
+            return
+
         if self.is_incremental:
             # Cludge: Need to get initial value for date filter
             query = request.params.get("q", "")
@@ -456,7 +459,7 @@ def salesforce_source(
     config: RESTAPIConfig = {
         "client": {
             "base_url": instance_url,
-            "auth": SalseforceAuth(refresh_token, access_token),
+            "auth": SalesforceAuth(refresh_token, access_token, instance_url),
             "paginator": SalesforceEndpointPaginator(instance_url=instance_url, is_incremental=is_incremental),
         },
         "resource_defaults": {

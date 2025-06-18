@@ -7,22 +7,30 @@ import React, {
     ReactNode,
     useContext,
     useEffect,
+    useImperativeHandle,
     useRef,
     useState,
 } from 'react'
 
+/** Imperative API handle for Combobox to call focusFirstItem() etc */
+export interface ListBoxHandle {
+    recalculateFocusableElements: () => void
+    focusFirstItem: () => void
+    getFocusableElementsCount: () => number
+}
+
+/** Context to expose container ref to child Items */
 interface ListBoxContextType {
     containerRef: React.RefObject<HTMLDivElement> | null
 }
 
 const ListBoxContext = createContext<ListBoxContextType>({ containerRef: null })
 
+/** Props for ListBox */
 interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
     className?: string
     focusedElement?: HTMLElement | null
-    // If true, the listbox will use virtual focus instead of the default browser focus
-    // Useful for when you need to keep focus, but allow keyboard navigation in lists
     virtualFocus?: boolean
     onFinishedKeyDown?: ({
         e,
@@ -37,19 +45,15 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     }) => void
 }
 
-export const ListBox = ({
-    children,
-    className,
-    onFinishedKeyDown,
-    focusedElement,
-    virtualFocus = false,
-    ...props
-}: ListBoxProps): JSX.Element => {
+/** Root ListBox implementation */
+const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
+    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, ...props },
+    ref
+) {
     const containerRef = useRef<HTMLDivElement>(null)
     const focusableElements = useRef<HTMLElement[]>([])
     const [virtualFocusedElement, setVirtualFocusedElement] = useState<HTMLElement | null>(null)
 
-    /** Fetches all valid focusable elements inside ListBox */
     function recalculateFocusableElements(): void {
         focusableElements.current = Array.from(
             containerRef.current?.querySelectorAll<HTMLElement>('[data-listbox-item]') || []
@@ -61,27 +65,49 @@ export const ListBox = ({
         )
     }
 
-    /** Handle Arrow navigation */
+    useImperativeHandle(ref, () => ({
+        recalculateFocusableElements,
+        focusFirstItem() {
+            recalculateFocusableElements()
+            const elements = focusableElements.current
+            if (!elements.length) {
+                return
+            }
+
+            elements.forEach((el) => el.removeAttribute('data-focused'))
+
+            if (virtualFocus) {
+                setVirtualFocusedElement(elements[0])
+                elements[0].setAttribute('data-focused', 'true')
+            } else {
+                elements[0].focus()
+            }
+        },
+        getFocusableElementsCount() {
+            recalculateFocusableElements()
+            const elements = focusableElements.current
+            if (!elements.length) {
+                return 0
+            }
+            return elements.length
+        },
+    }))
+
     const handleKeyDown = (e: React.KeyboardEvent): void => {
-        // Only handle keyboard navigation if the ListBox or one of its children has focus
         if (!containerRef.current?.contains(document.activeElement)) {
             return
         }
 
         recalculateFocusableElements()
         const elements = focusableElements.current
-
         if (!elements.length) {
             return
         }
 
-        const activeElement = virtualFocus
-            ? (virtualFocusedElement as HTMLElement)
-            : (document.activeElement as HTMLElement)
-        const currentIndex = elements.indexOf(activeElement)
+        const activeElement = virtualFocus ? virtualFocusedElement : (document.activeElement as HTMLElement)
+        const currentIndex = elements.indexOf(activeElement!)
         let nextIndex = currentIndex
 
-        // If virtual focus is enabled, remove the data-focused attribute from all elements
         if (virtualFocus) {
             elements.forEach((el) => el.removeAttribute('data-focused'))
         }
@@ -101,17 +127,21 @@ export const ListBox = ({
             elements[nextIndex]?.focus()
         }
 
+        elements[nextIndex]?.scrollIntoView({ block: 'nearest' })
+
         if (e.key === 'Enter') {
             e.preventDefault()
             activeElement?.click()
         }
 
-        if (onFinishedKeyDown) {
-            onFinishedKeyDown({ e, activeElement, nextFocusedElement: elements[nextIndex], allElements: elements })
-        }
+        onFinishedKeyDown?.({
+            e,
+            activeElement,
+            nextFocusedElement: elements[nextIndex],
+            allElements: elements,
+        })
     }
 
-    /** Recalculate focusable elements whenever the DOM updates */
     useEffect(() => {
         recalculateFocusableElements()
     }, [children])
@@ -137,23 +167,24 @@ export const ListBox = ({
             </div>
         </ListBoxContext.Provider>
     )
-}
+})
 
-ListBox.displayName = 'ListBox'
+InnerListBox.displayName = 'ListBox'
 
-interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
+/** ListBox.Item */
+
+export interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
     children: ReactNode
     asChild?: boolean
     virtualFocusIgnore?: boolean
 }
 
-ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
+const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
     ({ children, asChild, onClick, virtualFocusIgnore, ...props }, ref): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
             e.currentTarget.setAttribute('data-focused', 'true')
-
             containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
                 if (el !== e.currentTarget) {
                     el.setAttribute('data-focused', 'false')
@@ -166,7 +197,6 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
         }
 
         const handleItemClick = (e: React.MouseEvent): void => {
-            // Set `aria-current` on the clicked item
             e.currentTarget.setAttribute('aria-current', 'true')
             containerRef?.current?.querySelectorAll('[data-listbox-item]').forEach((el: Element) => {
                 if (el !== e.currentTarget) {
@@ -174,7 +204,6 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 }
             })
 
-            // Ensure `onClick` is forwarded when `asChild` is used
             if (onClick) {
                 onClick(e as React.MouseEvent<HTMLLIElement, MouseEvent>)
             }
@@ -213,4 +242,8 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
     }
 )
 
-ListBox.Item.displayName = 'ListBox.Item'
+ListBoxItem.displayName = 'ListBox.Item'
+
+export const ListBox = Object.assign(InnerListBox, {
+    Item: ListBoxItem,
+})
