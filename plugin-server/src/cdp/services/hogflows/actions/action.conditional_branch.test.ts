@@ -78,7 +78,7 @@ describe('HogFlowActionRunnerCondition', () => {
             invocation.state.event!.event = 'no-match'
             const result = runner.run(invocation, action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
             })
         })
 
@@ -123,7 +123,7 @@ describe('HogFlowActionRunnerCondition', () => {
         it('should match condition and go to action', () => {
             const result = runner.run(invocation, action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 goToAction: findActionById(invocation.hogFlow, 'condition_1'),
             })
         })
@@ -140,7 +140,7 @@ describe('HogFlowActionRunnerCondition', () => {
 
             const result = runner.run(invocation, action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 goToAction: findActionById(invocation.hogFlow, 'condition_2'),
             })
         })

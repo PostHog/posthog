@@ -37,7 +37,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         it('should schedule for today if time window is in the future', () => {
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().set({ hour: 14, minute: 0, second: 0, millisecond: 0 }),
             })
         })
@@ -46,7 +46,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T15:00:00.000Z')) // Middle of window
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: undefined,
             })
         })
@@ -55,7 +55,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // After time window
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().plus({ days: 1 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 }),
             })
         })
@@ -64,7 +64,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             action.config.time = 'any'
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().plus({ days: 1 }).startOf('day'),
             })
         })
@@ -74,7 +74,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T22:00:00.000Z')) // Before window
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().set({ hour: 23, minute: 0, second: 0, millisecond: 0 }),
             })
         })
@@ -83,7 +83,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             action.config.time = ['14:30', '15:45']
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().set({ hour: 14, minute: 30, second: 0, millisecond: 0 }),
             })
         })
@@ -93,7 +93,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T15:00:00.000Z')) // Middle of window
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: undefined,
             })
         })
@@ -105,7 +105,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-04T17:00:00.000Z')) // Saturday
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().plus({ days: 2 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 }), // Monday
             })
         })
@@ -115,7 +115,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().plus({ days: 3 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 }), // Saturday
             })
         })
@@ -125,7 +125,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().plus({ days: 2 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 }), // Friday
             })
         })
@@ -135,7 +135,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 }), // Monday
             })
         })
@@ -145,7 +145,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = runner.run(action)
             expect(result).toEqual({
-                finished: true,
+                done: true,
                 scheduledAt: DateTime.utc().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 }), // Monday
             })
         })

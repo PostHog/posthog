@@ -127,7 +127,7 @@ describe('HogFlowActionRunner', () => {
                 },
 
                 {
-                    exited: true,
+                    exited: false,
                     goToActionId: 'delay',
                 },
             ],

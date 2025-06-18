@@ -46,9 +46,11 @@ export class HogFlowActionRunnerConditionalBranch {
                 DEFAULT_WAIT_DURATION_SECONDS
             )
 
-            return {
-                done: !scheduledAt,
-                scheduledAt: scheduledAt ?? undefined,
+            if (scheduledAt) {
+                return {
+                    done: false,
+                    scheduledAt,
+                }
             }
         }
 
