@@ -41,7 +41,7 @@ MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
-CSV_EXPORT_LIMIT = MAX_SELECT_RETURNED_ROWS
+CSV_EXPORT_LIMIT = 300000
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
 CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
