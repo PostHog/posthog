@@ -841,12 +841,22 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
     @classmethod
-    def empty(cls) -> "SelectQuery":
+    def empty(cls, columns: Optional[list[str]] = None) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects constant 1 with a WHERE clause that is always false,
         effectively returning zero rows while maintaining valid SQL syntax.
+
+        If columns are provided, the query will select the columns and return no rows.
+        This is useful when you want the query to be valid and include the columns in the SELECT clause
+        when inspecting the AST.
         """
+        if columns is not None and len(columns) > 0:
+            return SelectQuery(
+                select=[Alias(alias=column, expr=Constant(value=None)) for column in columns],
+                where=Constant(value=False),
+            )
+
         return SelectQuery(select=[Constant(value=1)], where=Constant(value=False))
 
 

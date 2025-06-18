@@ -51,6 +51,10 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
     join_with_error_tracking_issue_fingerprint_overrides_table,
 )
+from posthog.hogql.database.schema.revenue_analytics import (
+    RawRevenueAnalyticsTable,
+    join_with_revenue_analytics_table,
+)
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -174,6 +178,7 @@ class Database(BaseModel):
     raw_error_tracking_issue_fingerprint_overrides: RawErrorTrackingIssueFingerprintOverridesTable = (
         RawErrorTrackingIssueFingerprintOverridesTable()
     )
+    raw_revenue_analytics: RawRevenueAnalyticsTable = RawRevenueAnalyticsTable()
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
     raw_query_log: RawQueryLogTable = RawQueryLogTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
@@ -460,26 +465,6 @@ def create_hogql_database(
                 join_function=join_replay_table_to_sessions_table_v2,
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
-
-    with timings.measure("initial_domain_type"):
-        database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            name="$virt_initial_referring_domain_type", timings=timings
-        )
-        poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            name="$virt_initial_referring_domain_type",
-            timings=timings,
-            properties_path=["poe", "properties"],
-        )
-    with timings.measure("initial_channel_type"):
-        database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
-        )
-        poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            name="$virt_initial_channel_type",
-            custom_rules=modifiers.customChannelTypeRules,
-            timings=timings,
-            properties_path=["poe", "properties"],
-        )
 
     with timings.measure("group_type_mapping"):
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
@@ -810,6 +795,42 @@ def create_hogql_database(
 
             except Exception as e:
                 capture_exception(e)
+
+    with timings.measure("revenue_analytics_tables"):
+        database.persons.fields["revenue_analytics"] = LazyJoin(
+            from_field=["pdi", "distinct_id"],
+            join_table=database.raw_revenue_analytics,
+            join_function=join_with_revenue_analytics_table,
+        )
+
+    with timings.measure("virtual_properties"):
+        with timings.measure("initial_domain_type"):
+            field_name = "$virt_initial_referring_domain_type"
+            database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
+            poe.fields[field_name] = create_initial_domain_type(
+                name=field_name,
+                timings=timings,
+                properties_path=["poe", "properties"],
+            )
+        with timings.measure("initial_channel_type"):
+            field_name = "$virt_initial_channel_type"
+            database.persons.fields[field_name] = create_initial_channel_type(
+                name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
+            )
+            poe.fields[field_name] = create_initial_channel_type(
+                name=field_name,
+                custom_rules=modifiers.customChannelTypeRules,
+                timings=timings,
+                properties_path=["poe", "properties"],
+            )
+        with timings.measure("revenue"):
+            field_name = "$virt_revenue"
+            database.persons.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue"])
+            poe.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue"])
+        with timings.measure("revenue_last_30_days"):
+            field_name = "$virt_revenue_last_30_days"
+            database.persons.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+            poe.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
 
     return database
 

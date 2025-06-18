@@ -594,26 +594,6 @@
                     "table": "person_distinct_ids",
                     "type": "lazy_table"
                 },
-                "$virt_initial_referring_domain_type": {
-                    "chain": null,
-                    "fields": null,
-                    "hogql_value": "`$virt_initial_referring_domain_type`",
-                    "id": null,
-                    "name": "$virt_initial_referring_domain_type",
-                    "schema_valid": true,
-                    "table": null,
-                    "type": "expression"
-                },
-                "$virt_initial_channel_type": {
-                    "chain": null,
-                    "fields": null,
-                    "hogql_value": "`$virt_initial_channel_type`",
-                    "id": null,
-                    "name": "$virt_initial_channel_type",
-                    "schema_valid": true,
-                    "table": null,
-                    "type": "expression"
-                },
                 "production_stripe_customer": {
                     "chain": null,
                     "fields": [

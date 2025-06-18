@@ -32,7 +32,7 @@ from posthog.hogql.database.schema.exchange_rate import (
 )
 
 SOURCE_VIEW_SUFFIX = "invoice_item_revenue_view"
-EVENTS_VIEW_SUFFIX = "invoice_item_revenue_view_events"
+EVENTS_VIEW_SUFFIX = "invoice_item_events_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),

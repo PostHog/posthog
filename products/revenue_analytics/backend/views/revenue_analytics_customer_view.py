@@ -39,6 +39,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "cohort": StringDatabaseField(name="cohort"),
     "initial_coupon": StringDatabaseField(name="initial_coupon"),
     "initial_coupon_id": StringDatabaseField(name="initial_coupon_id"),
+    "person_id": StringDatabaseField(name="person_id"),
 }
 
 
@@ -78,6 +79,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="cohort", expr=get_cohort_expr("created_at")),
                     ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
                     ast.Alias(alias="initial_coupon_id", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="person_id", expr=ast.Field(chain=["id"])),
                 ],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["persons"]),
