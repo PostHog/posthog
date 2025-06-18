@@ -1363,6 +1363,13 @@ function getSessionId(): string | undefined {
     return posthog.get_session_id()
 }
 
+function getDistinctId(): string | undefined {
+    if (typeof posthog?.get_distinct_id !== 'function') {
+        return undefined
+    }
+    return posthog.get_distinct_id()
+}
+
 const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
@@ -3573,6 +3580,7 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...(getDistinctId() ? { 'X-POSTHOG-DISTINCT-ID': getDistinctId() } : {}),
                 },
             })
         })
