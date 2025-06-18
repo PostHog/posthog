@@ -420,7 +420,6 @@ mod tests {
                 cycle_ids.contains(&16),
                 "Expected cycle starting at node 16"
             );
-            println!("Graph: {:?}", graph);
             assert_eq!(
                 graph.node_count(),
                 6,
@@ -460,13 +459,6 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            println!(
-                "Remaining node IDs: {:?}",
-                (0..10)
-                    .filter(|id| graph.contains_node(*id))
-                    .collect::<Vec<_>>()
-            );
-            println!("Errors: {:?}", errors);
             assert_eq!(
                 graph.node_count(),
                 1,
