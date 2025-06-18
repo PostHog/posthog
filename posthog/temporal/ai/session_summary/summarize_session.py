@@ -177,6 +177,7 @@ def execute_summarize_session_stream(
     last_summary_state = ""
     while True:
         try:
+            # TODO: Rework to rely on Redis overly or reuse the loop to avoid creating new loops for each iteration
             status, final_result = asyncio.run(_check_handle_data(handle))
             # If no status yet, wait a bit
             if status is None:
