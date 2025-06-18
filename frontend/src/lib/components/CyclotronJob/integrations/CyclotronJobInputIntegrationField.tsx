@@ -23,10 +23,7 @@ export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType
     value?: any
     onChange?: (value: any) => void
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
+    configuration: CyclotronJobInputConfiguration
 }
 
 export function CyclotronJobInputIntegrationField({

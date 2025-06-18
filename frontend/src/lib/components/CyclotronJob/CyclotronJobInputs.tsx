@@ -25,13 +25,7 @@ import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import {
-    CyclotronJobInputSchemaType,
-    CyclotronJobInputType,
-    CyclotronJobInvocationGlobalsWithInputs,
-    HogFunctionConfigurationType,
-    HogFunctionMappingType,
-} from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
@@ -312,7 +306,7 @@ type CyclotronJobInputProps = {
     configuration: CyclotronJobInputConfiguration
 }
 
-export function CyclotronJobInputRenderer({
+function CyclotronJobInputRenderer({
     onChange,
     schema,
     disabled,
@@ -381,10 +375,7 @@ type CyclotronJobInputSchemaControlsProps = {
     value: CyclotronJobInputSchemaType
     onChange: (value: CyclotronJobInputSchemaType | null) => void
     onDone: () => void
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
+    configuration: CyclotronJobInputConfiguration
 }
 
 function CyclotronJobInputSchemaControls({
@@ -513,7 +504,7 @@ type CyclotronJobInputWithSchemaProps = CyclotronJobInputsProps & {
     schema: CyclotronJobInputSchemaType
 }
 
-export function CyclotronJobInputWithSchema({
+function CyclotronJobInputWithSchema({
     schema,
     configuration,
     onInputSchemaChange,
