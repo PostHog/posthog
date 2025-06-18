@@ -1,5 +1,6 @@
 from openai import AsyncOpenAI, AsyncStream
 import structlog
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL, SESSION_SUMMARIES_TEMPERATURE
 from posthog.utils import get_instance_region
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
@@ -40,8 +41,7 @@ async def stream_llm(
     session_id: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    # TODO Make model/reasoning_effort/temperature/top_p/max_tokens configurable through input instead of hardcoding
-    model: str = "gpt-4.1-2025-04-14",
+    model: str = SESSION_SUMMARIES_MODEL,
 ) -> AsyncStream[ChatCompletionChunk]:
     """
     LLM streaming call.
@@ -52,7 +52,7 @@ async def stream_llm(
     client = AsyncOpenAI()
     stream = await client.chat.completions.create(
         model=model,
-        temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
+        temperature=SESSION_SUMMARIES_TEMPERATURE,
         messages=messages,
         user=user_param,
         stream=True,
@@ -66,7 +66,7 @@ async def call_llm(
     session_id: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    model: str = "gpt-4.1-2025-04-14",
+    model: str = SESSION_SUMMARIES_MODEL,
 ) -> ChatCompletion:
     """
     LLM non-streaming call.
@@ -77,7 +77,7 @@ async def call_llm(
     client = AsyncOpenAI()
     result = await client.chat.completions.create(
         model=model,
-        temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
+        temperature=SESSION_SUMMARIES_TEMPERATURE,
         messages=messages,
         user=user_param,
     )

@@ -16,6 +16,7 @@ from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.shared import (
+    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
     SingleSessionSummaryInputs,
     get_single_session_summary_llm_input_from_redis,
     fetch_session_data_activity,
@@ -26,6 +27,9 @@ from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
+
+# How often to poll for new chunks from the LLM stream
+SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 
 
 @temporalio.activity.defn
@@ -70,7 +74,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         # The size of the output is limited to <20kb, so compressing is excessive
         redis_client.setex(
             inputs.redis_output_key,
-            900,  # 15 minutes TTL to keep alive for retries
+            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
             json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
         )
         # Heartbeat to avoid workflow timeout, throttle to 5 seconds to avoid sending too many
@@ -228,5 +232,5 @@ def execute_summarize_session_stream(
             raise
         # Pause at finally to avoid querying instantly if no data stored yet or the state haven't changed
         finally:
-            # Wait a bit (50ms) to let new chunks come in from the stream
-            time.sleep(0.05)
+            # Wait a bit to let new chunks come in from the stream
+            time.sleep(SESSION_SUMMARIES_STREAM_INTERVAL)

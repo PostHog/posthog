@@ -14,6 +14,9 @@ from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
 
+# How long to store the DB data in Redis within Temporal session summaries jobs
+SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 900  # 15 minutes to keep alive for retries
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SingleSessionSummaryInputs:
@@ -56,7 +59,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
     compressed_llm_input_data = compress_llm_input_data(input_data)
     redis_client.setex(
         inputs.redis_input_key,
-        900,  # 15 minutes TTL to keep alive for retries
+        SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
         compressed_llm_input_data,
     )
     # Nothing to return if the fetch was successful, as the data is stored in Redis
