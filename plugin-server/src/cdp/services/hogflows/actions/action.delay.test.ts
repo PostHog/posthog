@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { createExampleHogFlowInvocation, createHogFlowAction } from '~/cdp/_tests/fixtures-hogflows'
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerDelay } from './action.delay'
+import { findActionByType } from './utils'
 
 describe('HogFlowActionRunnerDelay', () => {
     let runner: HogFlowActionRunnerDelay
@@ -16,23 +18,28 @@ describe('HogFlowActionRunnerDelay', () => {
         jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
 
         runner = new HogFlowActionRunnerDelay()
-        action = createHogFlowAction({
-            type: 'delay',
-            config: {
-                delay_duration: '10m',
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withWorkflow({
+                actions: {
+                    delay: {
+                        type: 'delay',
+                        config: {
+                            delay_duration: '10m',
+                        },
+                    },
+                },
+                edges: [],
+            })
+            .build()
+
+        action = findActionByType(hogFlow, 'delay')!
+        invocation = createExampleHogFlowInvocation(hogFlow, {
+            currentAction: {
+                id: action.id,
+                startedAtTimestamp: DateTime.utc().toMillis(),
             },
         })
-        invocation = createExampleHogFlowInvocation(
-            {
-                actions: [action],
-            },
-            {
-                currentAction: {
-                    id: action.id,
-                    startedAtTimestamp: DateTime.utc().toMillis(),
-                },
-            }
-        )
     })
 
     // NOTE: Most tests are covered in the common delay test file

@@ -5,6 +5,7 @@ import { HogFlowAction } from '~/schema/hogflow'
 
 import { calculatedScheduledAt } from './common/delay'
 import { HogFlowActionResult } from './types'
+import { findNextAction } from './utils'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
@@ -18,7 +19,8 @@ export class HogFlowActionRunnerConditionalBranch {
             groups: {},
         })
 
-        for (const condition of action.config.conditions) {
+        // the index is used to find the right edge
+        for (const [index, condition] of action.config.conditions.entries()) {
             // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
             const filterResults = filterFunctionInstrumented({
                 fn: invocation.hogFlow,
@@ -30,7 +32,8 @@ export class HogFlowActionRunnerConditionalBranch {
             if (filterResults.match) {
                 return {
                     finished: true,
-                    goToActionId: condition.on_match,
+                    // TODO: Should we throw if not found - or at least log something?
+                    goToActionId: findNextAction(invocation.hogFlow, action.id, index)?.id,
                 }
             }
         }

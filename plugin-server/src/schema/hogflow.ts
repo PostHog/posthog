@@ -27,7 +27,6 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filter: z.any(), // type this stronger
-                    on_match: z.string(), // TODO: Can we type this more directly to an edge?
                 })
             ),
             delay_duration: z.string().optional(),
@@ -40,7 +39,6 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
-                    on_match: z.string(), // TODO: Can we type this more directly to an edge?
                 })
             ),
         }),
@@ -60,7 +58,6 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filter: z.any(), // type this stronger
-                on_match: z.string(), // TODO: Can we type this more directly to an edge?
             }),
             max_wait_duration: z.string(),
         }),
@@ -134,7 +131,7 @@ export const HogFlowSchema = z.object({
             from: z.string(),
             to: z.string(),
             type: z.enum(['continue', 'branch']),
-            index: z.number(),
+            index: z.number().optional(),
         })
     ),
     actions: z.array(HogFlowActionSchema),

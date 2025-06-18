@@ -12,6 +12,7 @@ import { HogFlowActionRunnerDelay } from './action.delay'
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
 import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
+import { findNextAction } from './utils'
 
 // TODO: Add a bunch of tests for this class!
 export class HogFlowActionRunner {
@@ -27,20 +28,16 @@ export class HogFlowActionRunner {
         this.hogFlowActionRunnerRandomCohortBranch = new HogFlowActionRunnerRandomCohortBranch()
     }
 
-    private findNextActionToRun(_invocation: CyclotronJobInvocationHogFlow): HogFlowAction | undefined {
-        // Finds the next action to be run
-        // TODO: Implement this!
-
-        // Hack for now returns the exit action if it exists
-        const exitAction = _invocation.hogFlow.actions.find((action) => action.type === 'exit')
-        if (exitAction) {
-            return exitAction
+    private findContinueAction(invocation: CyclotronJobInvocationHogFlow): HogFlowAction | undefined {
+        const currentActionId = invocation.state.currentAction?.id
+        if (!currentActionId) {
+            throw new Error('Cannot find continue action without a current action')
         }
 
-        return undefined
+        return findNextAction(invocation.hogFlow, currentActionId)
     }
 
-    private findActionById(invocation: CyclotronJobInvocationHogFlow, id: string): HogFlowAction {
+    findActionById(invocation: CyclotronJobInvocationHogFlow, id: string): HogFlowAction {
         const action = invocation.hogFlow.actions.find((action) => action.id === id)
         if (!action) {
             throw new Error(`Action ${id} not found`)
@@ -86,7 +83,7 @@ export class HogFlowActionRunner {
                 startedAtTimestamp: DateTime.now().toMillis(),
             }
 
-            const nextAction = this.findNextActionToRun(invocation)
+            const nextAction = this.findContinueAction(invocation)
             if (!nextAction) {
                 throw new Error('No next action found')
             }
@@ -105,7 +102,7 @@ export class HogFlowActionRunner {
             return Promise.resolve({
                 action,
                 finished: true,
-                goToActionId: this.findNextActionToRun(invocation),
+                goToActionId: this.findContinueAction(invocation),
             })
         }
 
@@ -135,7 +132,7 @@ export class HogFlowActionRunner {
                     actionResult = this.hogFlowActionRunnerWaitUntilTimeWindow.run(action)
                     break
                 case 'random_cohort_branch':
-                    actionResult = this.hogFlowActionRunnerRandomCohortBranch.run(action)
+                    actionResult = this.hogFlowActionRunnerRandomCohortBranch.run(invocation, action)
                     break
                 case 'exit':
                     actionResult = {
@@ -164,7 +161,7 @@ export class HogFlowActionRunner {
 
             if (result.finished && !result.goToAction && result.action.type !== 'exit') {
                 // Finally if the action  finished but didn't go to a specific action then we need to find the default next action to run to
-                result.goToAction = this.findNextActionToRun(invocation)
+                result.goToAction = this.findContinueAction(invocation)
                 // and set the finished flag to false to indicate we should continue to the next action
                 result.finished = false
             }

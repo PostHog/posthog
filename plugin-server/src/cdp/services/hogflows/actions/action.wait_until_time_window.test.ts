@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { createHogFlowAction } from '~/cdp/_tests/fixtures-hogflows'
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
+import { findActionByType } from './utils'
 
 describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
     let runner: HogFlowActionRunnerWaitUntilTimeWindow
@@ -14,14 +15,22 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         jest.setSystemTime(new Date('2025-01-01T12:00:00.000Z')) // Wednesday at noon UTC
 
         runner = new HogFlowActionRunnerWaitUntilTimeWindow()
-        action = createHogFlowAction({
-            type: 'wait_until_time_window',
-            config: {
-                timezone: 'UTC',
-                date: 'any',
-                time: ['14:00', '16:00'],
-            },
-        })
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withWorkflow({
+                actions: {
+                    wait_until_time_window: {
+                        type: 'wait_until_time_window',
+                        config: {
+                            timezone: 'UTC',
+                            date: 'any',
+                            time: ['14:00', '16:00'],
+                        },
+                    },
+                },
+                edges: [],
+            })
+            .build()
+        action = findActionByType(hogFlow, 'wait_until_time_window')!
     })
 
     describe('time window scheduling', () => {
