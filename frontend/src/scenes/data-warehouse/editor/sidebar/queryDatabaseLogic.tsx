@@ -207,7 +207,16 @@ const createTopLevelFolderNode = (
     record: {
         type,
     },
-    children,
+    children:
+        children.length > 0
+            ? children
+            : [
+                  {
+                      id: `empty-folder-${type}`,
+                      name: 'Empty folder',
+                      type: 'empty-folder',
+                  },
+              ],
 })
 
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
