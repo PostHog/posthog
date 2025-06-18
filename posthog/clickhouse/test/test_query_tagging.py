@@ -36,8 +36,8 @@ def test_simple_query_tags():
 
     data = qt.to_json()
     assert (
-        '{"team_id":1,"product":"api","name":"my name","http_request_id":"f3065cb7-10a5-4707-8910-a7c777896ac8","git_commit":"","container_hostname":"", "service_name": ""}'
-        == data
+        data
+        == '{"team_id":1,"product":"api","name":"my name","http_request_id":"f3065cb7-10a5-4707-8910-a7c777896ac8","git_commit":"","container_hostname":"","service_name":""}'
     )
 
 
