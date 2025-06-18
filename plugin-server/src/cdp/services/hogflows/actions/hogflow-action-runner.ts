@@ -141,6 +141,14 @@ export class HogFlowActionRunner {
 
             // If we reach this point there is no way we are exiting
 
+            if (!actionResult.done) {
+                return {
+                    action,
+                    exited: false,
+                    scheduledAt: actionResult.scheduledAt,
+                }
+            }
+
             if (actionResult.goToAction) {
                 return {
                     action,

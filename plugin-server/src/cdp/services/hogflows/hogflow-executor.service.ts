@@ -126,7 +126,16 @@ export class HogFlowExecutorService {
                 const actionResult = await this.hogFlowActionRunner.runCurrentAction(result.invocation)
 
                 // Track a metric for the outcome of the action result
-                if (actionResult.error) {
+                result.metrics.push({
+                    team_id: invocation.hogFlow.team_id,
+                    app_source_id: invocation.hogFlow.id,
+                    instance_id: actionResult.action.id,
+                    metric_kind: 'error' in actionResult ? 'failure' : 'success',
+                    metric_name: 'error' in actionResult ? 'failed' : 'succeeded',
+                    count: 1,
+                })
+
+                if ('error' in actionResult) {
                     result.logs.push({
                         level: 'error',
                         timestamp: DateTime.now(),
@@ -134,42 +143,30 @@ export class HogFlowExecutorService {
                     })
                 }
 
-                // Special metric dedicated for the individual action for the generic workflow - used to show per-path metrics
-                // The rest is done by the parent
-                result.metrics.push({
-                    team_id: invocation.hogFlow.team_id,
-                    app_source_id: invocation.hogFlow.id,
-                    instance_id: actionResult.action.id,
-                    metric_kind: actionResult.error ? 'failure' : 'success',
-                    metric_name: actionResult.error ? 'failed' : 'succeeded',
-                    count: 1,
-                })
+                if (actionResult.exited) {
+                    result.finished = true
 
-                // TODO: The below is not quite right... We need to do this
-                // 1. If the action has a goToAction we need to update the state so that the next action is selected
-                // 2. If the action has a scheduledAt then we need to save it and return finished false so that it goes back to the queue
-                // 3. Finally if the action is finished then we need to set finished to true and break out of the loop
+                    result.logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Workflow completed`,
+                    })
+                    break
+                }
 
-                if (!actionResult.exited) {
-                    // If the result isn't finished we _require_ that there is a `scheduledAt` param in order to delay the result
-                    if (!actionResult.scheduledAt) {
-                        throw new Error('Action result is not finished and no scheduledAt param is provided')
-                    }
-
-                    result.finished = false
+                if (actionResult.scheduledAt) {
+                    // If the result has scheduled for the future then we return that triggering a push back to the queue
                     result.invocation.queueScheduledAt = actionResult.scheduledAt
-                    // TODO: Do we also want to increment some meta context?
-                    // TODO: Add a log here to indicate it is scheduled for later
-
+                    result.finished = false
                     result.logs.push({
                         level: 'info',
                         timestamp: DateTime.now(),
                         message: `Workflow will pause until ${actionResult.scheduledAt.toISO()}`,
                     })
-                    break
                 }
 
-                if (actionResult.goToAction) {
+                if ('goToAction' in actionResult) {
+                    // Increment the action step count
                     result.invocation.state.actionStepCount = (result.invocation.state.actionStepCount ?? 0) + 1
                     // Update the state to be going to the next action
                     result.invocation.state.currentAction = {
@@ -183,17 +180,10 @@ export class HogFlowExecutorService {
                         timestamp: DateTime.now(),
                         message: `Workflow moved to action '${actionResult.goToAction.name} (${actionResult.goToAction.id})'`,
                     })
-
                     continue
                 }
 
-                result.finished = true
-
-                result.logs.push({
-                    level: 'info',
-                    timestamp: DateTime.now(),
-                    message: `Workflow completed`,
-                })
+                // This indicates that there is nothing more to be done in this execution so we should exit just in case
                 break
             }
 

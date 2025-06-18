@@ -16,6 +16,7 @@ export type HogFlowActionRunnerResult = {
           exited: false
           goToAction: HogFlowAction
           scheduledAt?: DateTime
+          error?: unknown // Error can still be added (for example if on_error is set to continue)
       }
     | {
           // Indicates the workflow should be scheduled for later but isn't moving on

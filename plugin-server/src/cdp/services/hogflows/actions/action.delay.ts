@@ -14,9 +14,15 @@ export class HogFlowActionRunnerDelay {
             invocation.state.currentAction?.startedAtTimestamp
         )
 
+        if (scheduledAt) {
+            return {
+                done: false,
+                scheduledAt,
+            }
+        }
+
         return {
-            done: !scheduledAt,
-            scheduledAt: scheduledAt ?? undefined,
+            done: true,
         }
     }
 }
