@@ -42,6 +42,8 @@ INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id", "version")
 ON CONFLICT DO NOTHING
 """
 
+DEFAULT_COHORT_INSERT_BATCH_SIZE = 1000
+
 
 class Group:
     def __init__(
@@ -321,13 +323,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-    def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
+    def insert_users_by_list(
+        self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
+    ) -> None:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
 
         Args:
             items: List of distinct IDs of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
+            batch_size: Number of records to process in each batch. Defaults to 1000.
         """
         if team_id is None:
             team_id = self.team_id
@@ -352,13 +357,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         # Use DBBatchIterator to stream UUIDs in batches
-        batch_iterator = DBBatchIterator(persons_queryset, batch_size=1000, values_list_field="uuid")
+        batch_iterator = DBBatchIterator(persons_queryset, batch_size=batch_size, values_list_field="uuid")
 
         # Call the batching method with ClickHouse insertion enabled
         self.insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(
-        self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000, *, team_id: int
+        self,
+        items: list[str],
+        insert_in_clickhouse: bool = False,
+        batchsize=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        *,
+        team_id: int,
     ) -> None:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
