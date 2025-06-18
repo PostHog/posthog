@@ -99,12 +99,7 @@ export class FixtureHogFlowBuilder {
             ...action,
         }))
 
-        this.hogFlow.edges = Object.values(workflow.edges).map((edge) => ({
-            from: edge.from,
-            to: edge.to,
-            type: edge.type,
-            index: 0,
-        }))
+        this.hogFlow.edges = workflow.edges
 
         return this
     }

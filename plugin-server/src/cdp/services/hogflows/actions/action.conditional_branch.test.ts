@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation, createHogFlowAction } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
@@ -17,28 +18,58 @@ describe('HogFlowActionRunnerCondition', () => {
         jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
 
         runner = new HogFlowActionRunnerConditionalBranch()
-        action = createHogFlowAction({
-            type: 'conditional_branch',
-            config: {
-                conditions: [
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withWorkflow({
+                actions: {
+                    conditional_branch: {
+                        type: 'conditional_branch',
+                        config: {
+                            conditions: [
+                                {
+                                    filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // Match for pageviews
+                                    on_match: 'condition_1',
+                                },
+                            ], // Filled by tests
+                        },
+                    },
+                    condition_1: {
+                        type: 'delay',
+                        config: {
+                            delay_duration: '2h',
+                        },
+                    },
+                    condition_2: {
+                        type: 'delay',
+                        config: {
+                            delay_duration: '2h',
+                        },
+                    },
+                },
+                edges: [
                     {
-                        filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-                        on_match: 'next-action',
+                        from: 'conditional_branch',
+                        to: 'condition_2',
+                        type: 'branch',
+                        index: 1,
+                    },
+                    {
+                        from: 'conditional_branch',
+                        to: 'condition_1',
+                        type: 'branch',
+                        index: 0,
                     },
                 ],
-            },
-        })
-        invocation = createExampleHogFlowInvocation(
-            {
-                actions: [action],
-            },
-            {
-                currentAction: {
-                    id: action.id,
-                    startedAtTimestamp: DateTime.utc().toMillis(),
-                },
-            }
-        )
+            })
+            .build()
+
+        action = hogFlow.actions.find((action) => action.type === 'conditional_branch')!
+        invocation = createExampleHogFlowInvocation(hogFlow)
+
+        invocation.state.currentAction = {
+            id: action.id,
+            startedAtTimestamp: DateTime.utc().toMillis(),
+        }
     })
 
     describe('no matching events', () => {
@@ -92,7 +123,7 @@ describe('HogFlowActionRunnerCondition', () => {
             const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: true,
-                goToActionId: 'next-action',
+                goToActionId: 'condition_1',
             })
         })
 
@@ -100,21 +131,16 @@ describe('HogFlowActionRunnerCondition', () => {
             action.config.conditions = [
                 {
                     filter: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // No match
-                    on_match: 'action-1',
                 },
                 {
-                    filter: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // No match
-                    on_match: 'action-2',
-                },
-                {
-                    filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // Match
-                    on_match: 'action-3',
+                    filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // No match
                 },
             ]
+
             const result = runner.run(invocation, action)
             expect(result).toEqual({
                 finished: true,
-                goToActionId: 'action-3',
+                goToActionId: 'condition_2',
             })
         })
     })
