@@ -38,18 +38,63 @@ import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogi
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
+import { CyclotronJobInputConfiguration } from './types'
+
+const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 export type CyclotronJobInputsProps = {
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
+    configuration: CyclotronJobInputConfiguration
     onInputChange: (key: string, input: CyclotronJobInputType) => void
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
 }
 
-const typeList = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+export function CyclotronJobInputs({
+    configuration,
+    onInputSchemaChange,
+    onInputChange,
+    showSource,
+}: CyclotronJobInputsProps): JSX.Element | null {
+    if (!configuration.inputs_schema?.length) {
+        return <span className="italic text-secondary">This function does not require any input variables.</span>
+    }
+
+    const inputSchemas = configuration.inputs_schema
+    const inputSchemaIds = inputSchemas.map((schema: CyclotronJobInputSchemaType) => schema.key)
+
+    return (
+        <>
+            <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={({ active, over }) => {
+                    if (over && active.id !== over.id) {
+                        const oldIndex = inputSchemaIds.indexOf(active.id as string)
+                        const newIndex = inputSchemaIds.indexOf(over.id as string)
+
+                        onInputSchemaChange?.(arrayMove(inputSchemas, oldIndex, newIndex))
+                    }
+                }}
+            >
+                <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
+                    {configuration.inputs_schema
+                        ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
+                        .map((schema: CyclotronJobInputSchemaType) => {
+                            return (
+                                <CyclotronJobInputWithSchema
+                                    key={schema.key}
+                                    schema={schema}
+                                    configuration={configuration}
+                                    onInputSchemaChange={onInputSchemaChange}
+                                    onInputChange={onInputChange}
+                                    showSource={showSource}
+                                />
+                            )
+                        })}
+                </SortableContext>
+            </DndContext>
+        </>
+    )
+}
 
 function JsonConfigField(props: {
     input: CyclotronJobInputType
@@ -264,10 +309,7 @@ type CyclotronJobInputProps = {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     disabled?: boolean
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
+    configuration: CyclotronJobInputConfiguration
 }
 
 export function CyclotronJobInputRenderer({
@@ -367,7 +409,7 @@ function CyclotronJobInputSchemaControls({
             <div className="flex flex-wrap flex-1 gap-2 items-center">
                 <LemonSelect
                     size="small"
-                    options={typeList.map((type) => ({
+                    options={INPUT_TYPE_LIST.map((type) => ({
                         label: capitalizeFirstLetter(type),
                         value: type,
                     }))}
@@ -606,58 +648,5 @@ export function CyclotronJobInputWithSchema({
                 </div>
             )}
         </div>
-    )
-}
-
-export function CyclotronJobInputs({
-    configuration,
-    onInputSchemaChange,
-    onInputChange,
-    showSource,
-}: CyclotronJobInputsProps): JSX.Element | null {
-    const config = configuration
-
-    if (!config.inputs_schema?.length) {
-        if (!('type' in config)) {
-            // If this is a mapping, don't show any error message.
-            return null
-        }
-        return <span className="italic text-secondary">This does not require any input variables.</span>
-    }
-
-    const inputSchemas = config.inputs_schema
-    const inputSchemaIds = inputSchemas.map((schema: CyclotronJobInputSchemaType) => schema.key)
-
-    return (
-        <>
-            <DndContext
-                collisionDetection={closestCenter}
-                onDragEnd={({ active, over }) => {
-                    if (over && active.id !== over.id) {
-                        const oldIndex = inputSchemaIds.indexOf(active.id as string)
-                        const newIndex = inputSchemaIds.indexOf(over.id as string)
-
-                        onInputSchemaChange?.(arrayMove(inputSchemas, oldIndex, newIndex))
-                    }
-                }}
-            >
-                <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {config.inputs_schema
-                        ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
-                        .map((schema: CyclotronJobInputSchemaType) => {
-                            return (
-                                <CyclotronJobInputWithSchema
-                                    key={schema.key}
-                                    schema={schema}
-                                    configuration={configuration}
-                                    onInputSchemaChange={onInputSchemaChange}
-                                    onInputChange={onInputChange}
-                                    showSource={showSource}
-                                />
-                            )
-                        })}
-                </SortableContext>
-            </DndContext>
-        </>
     )
 }
