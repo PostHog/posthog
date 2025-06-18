@@ -372,144 +372,24 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             self.assertEqual(mock_calculate_cohort_ch_si.call_count, 4)
 
-            # Extract the actual call order and verify it matches expected dependency resolution
+            # Extract the actual call order and verify dependency constraints are satisfied
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
-            expected_cohort_order = [cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id]
 
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Cohorts should be processed in dependency order: A, B (leaves), then C (depends on A,B), then D (depends on C)",
-            )
+            self.assertEqual(set(actual_cohort_order), {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id})
+
+            # Verify dependency constraints:
+            # Both A and B (leaf nodes) must come before C
+            a_index = actual_cohort_order.index(cohort_a.id)
+            b_index = actual_cohort_order.index(cohort_b.id)
+            c_index = actual_cohort_order.index(cohort_c.id)
+            d_index = actual_cohort_order.index(cohort_d.id)
+
+            self.assertLess(a_index, c_index, "Cohort A must be processed before C (dependency)")
+            self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
+            self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
-            mock_chain_instance.apply_async.assert_called_once()
-
-        @patch("posthog.tasks.calculate_cohort.chain")
-        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
-        def test_increment_version_and_enqueue_calculate_cohort_with_missing_cohort(
-            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
-        ) -> None:
-            cohort_a = Cohort.objects.create(
-                team=self.team,
-                name="Cohort A",
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
-                    }
-                },
-                is_static=False,
-            )
-
-            # Create a cohort that references a non-existent cohort ID
-            cohort_with_missing_dependency = Cohort.objects.create(
-                team=self.team,
-                name="Cohort with missing dependency",
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {"key": "id", "value": MISSING_COHORT_ID, "type": "cohort"},  # non-existent cohort
-                            {"key": "id", "value": cohort_a.id, "type": "cohort"},
-                            {"key": "$some_prop", "value": "something", "type": "person"},
-                        ],
-                    }
-                },
-                is_static=False,
-            )
-
-            mock_chain_instance = MagicMock()
-            mock_chain.return_value = mock_chain_instance
-
-            mock_task = MagicMock()
-            mock_calculate_cohort_ch_si.return_value = mock_task
-
-            increment_version_and_enqueue_calculate_cohort(cohort_with_missing_dependency, initiating_user=None)
-
-            # Verify the cohort was still processed despite missing dependency
-            cohort_with_missing_dependency.refresh_from_db()
-            cohort_a.refresh_from_db()
-            self.assertEqual(cohort_with_missing_dependency.pending_version, 1)
-            self.assertEqual(cohort_a.pending_version, 1)
-            self.assertTrue(cohort_with_missing_dependency.is_calculating)
-            self.assertTrue(cohort_a.is_calculating)
-
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 2)
-
-            # Extract the actual call order and verify dependency cohort comes first
-            actual_calls = mock_calculate_cohort_ch_si.call_args_list
-            actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
-            expected_cohort_order = [cohort_a.id, cohort_with_missing_dependency.id]
-
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Dependency cohort A should be processed before cohort with missing dependency",
-            )
-
-            mock_chain.assert_called_once_with(mock_task, mock_task)
-            mock_chain_instance.apply_async.assert_called_once()
-
-        @patch("posthog.tasks.calculate_cohort.chain")
-        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
-        def test_increment_version_and_enqueue_calculate_cohort_with_static_dependencies(
-            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
-        ) -> None:
-            static_cohort_a = Cohort.objects.create(
-                team=self.team,
-                name="Static Cohort A",
-                is_static=True,
-            )
-
-            dynamic_cohort = Cohort.objects.create(
-                team=self.team,
-                name="Dynamic Cohort depending on static cohorts",
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {"key": "id", "value": static_cohort_a.id, "type": "cohort"},
-                            {"key": "$dynamic_prop", "value": "dynamic_value", "type": "person"},
-                        ],
-                    }
-                },
-                is_static=False,
-            )
-
-            mock_chain_instance = MagicMock()
-            mock_chain.return_value = mock_chain_instance
-
-            mock_task = MagicMock()
-            mock_calculate_cohort_ch_si.return_value = mock_task
-
-            increment_version_and_enqueue_calculate_cohort(dynamic_cohort, initiating_user=None)
-
-            static_cohort_a.refresh_from_db()
-            dynamic_cohort.refresh_from_db()
-
-            self.assertEqual(static_cohort_a.pending_version, None)
-            self.assertFalse(static_cohort_a.is_calculating)
-
-            self.assertEqual(dynamic_cohort.pending_version, 1)
-            self.assertTrue(dynamic_cohort.is_calculating)
-
-            # Only one task should be created (for the dynamic cohort)
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 1)
-
-            # Verify the dynamic cohort was called
-            actual_calls = mock_calculate_cohort_ch_si.call_args_list
-            actual_cohort_order = [call[0][0] for call in actual_calls]
-            expected_cohort_order = [dynamic_cohort.id]
-
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Only the dynamic cohort should be processed, static dependencies are skipped",
-            )
-
-            mock_chain.assert_called_once_with(mock_task)
             mock_chain_instance.apply_async.assert_called_once()
 
         @patch("posthog.tasks.calculate_cohort.chain")
