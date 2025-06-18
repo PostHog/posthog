@@ -78,23 +78,25 @@ class StreamTransformer:
 
     async def iter_transformed_record_batches(
         self, record_batches: collections.abc.AsyncIterator[pa.RecordBatch], max_file_size_bytes: int = 0
-    ) -> collections.abc.AsyncIterator[bytes]:
+    ) -> collections.abc.AsyncIterator[tuple[bytes, bool]]:
         """Iterate over record batches transforming them into chunks."""
         current_file_size = 0
 
         async for record_batch in record_batches:
             for chunk in self.transform_batch(record_batch):
-                yield chunk
+                yield (chunk, False)
 
                 current_file_size += len(chunk)
 
                 if max_file_size_bytes and current_file_size > max_file_size_bytes:
                     for chunk in self.finalize():
-                        yield chunk
+                        yield (chunk, False)
+
+                    yield (b"", True)
                     current_file_size = 0
 
         for chunk in self.finalize():
-            yield chunk
+            yield (chunk, False)
 
     def finalize(self) -> typing.Generator[bytes, None, None]:
         """Finalize and yield any remaining data"""

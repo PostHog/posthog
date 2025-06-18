@@ -1253,18 +1253,16 @@ class ConsumerFromStage:
 
                 yield record_batch
 
-        current_file_size = 0
         try:
-            async for chunk in transformer.iter_transformed_record_batches(
+            async for chunk, is_eof in transformer.iter_transformed_record_batches(
                 track_iteration_of_record_batches(),
                 max_file_size_bytes,
             ):
-                await self.consume_chunk(data=chunk)
-                current_file_size += len(chunk)
-
-                if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                if is_eof and not chunk:
                     await self.finalize_file()
-                    current_file_size = 0
+                    continue
+
+                await self.consume_chunk(data=chunk)
 
             # Finalize upload
             await self.finalize()
