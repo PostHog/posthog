@@ -24,6 +24,7 @@ import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
@@ -82,6 +83,8 @@ export function SharingModalContent({
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { preflight } = useValues(preflightLogic)
+    const siteUrl = preflight?.site_url || window.location.origin
 
     const { push } = useActions(router)
 
@@ -268,7 +271,7 @@ export function SharingModalContent({
                 <>
                     <LemonDivider />
                     <TemplateLinkSection
-                        templateLink={getInsightDefinitionUrl({ query: insight.query })}
+                        templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
                         heading={TEMPLATE_LINK_HEADING}
                         tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}

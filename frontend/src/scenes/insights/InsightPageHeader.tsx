@@ -115,6 +115,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
+    const siteUrl = preflight?.site_url || window.location.origin
+
     return (
         <>
             {hasDashboardItemId && (
@@ -344,7 +346,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {!insight.short_id && (
                                         <LemonButton
                                             onClick={() => {
-                                                const templateLink = getInsightDefinitionUrl({ query })
+                                                const templateLink = getInsightDefinitionUrl({ query }, siteUrl)
                                                 LemonDialog.open({
                                                     title: (
                                                         <span className="flex items-center gap-2">
