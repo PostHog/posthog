@@ -6,7 +6,12 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import (
+    HogQLGlobalSettings,
+    LimitContext,
+    MAX_SELECT_RETURNED_ROWS,
+    get_default_limit_for_context,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
@@ -118,7 +123,14 @@ class HogQLQueryExecutor:
 
         with self.timings.measure("max_limit"):
             for one_query in extract_select_queries(self.select_query):
-                if one_query.limit is None:
+                # clamp max limit for queries
+                if (
+                    self.limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC)
+                    and one_query.limit.value > MAX_SELECT_RETURNED_ROWS
+                ):
+                    one_query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+                # set default limit for queries
+                elif one_query.limit is None:
                     one_query.limit = ast.Constant(
                         value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
                     )

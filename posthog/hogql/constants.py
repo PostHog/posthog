@@ -60,11 +60,12 @@ class LimitContext(StrEnum):
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context in (
-        LimitContext.EXPORT,
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
+    elif limit_context == LimitContext.EXPORT:
+        return CSV_EXPORT_LIMIT  # 300k
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
@@ -78,7 +79,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
 def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
-        return MAX_SELECT_RETURNED_ROWS  # 50k
+        return CSV_EXPORT_LIMIT  # 300k
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:

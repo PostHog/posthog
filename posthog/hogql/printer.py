@@ -448,9 +448,7 @@ class _Printer(Visitor):
         limit = node.limit
         if self.context.limit_top_select and is_top_level_query:
             if limit is not None:
-                if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
-                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
-                else:
+                if not isinstance(limit, ast.Constant) or not isinstance(limit.value, int):
                     limit = ast.Call(
                         name="min2",
                         args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit],
