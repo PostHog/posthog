@@ -7,7 +7,6 @@ use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::instrument;
 
 impl PropertyFilter {
     /// Checks if the filter is a cohort filter
@@ -113,12 +112,11 @@ impl DependencyProvider for FeatureFlag {
 
 impl FeatureFlagList {
     /// Returns feature flags from redis given a project_id
-    #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
-        tracing::info!(
+        tracing::debug!(
             "Attempting to read flags from Redis at key '{}{}'",
             TEAM_FLAGS_CACHE_PREFIX,
             project_id
@@ -138,7 +136,7 @@ impl FeatureFlagList {
                 FlagError::RedisDataParsingError
             })?;
 
-        tracing::info!(
+        tracing::debug!(
             "Successfully read {} flags from Redis at key '{}{}'",
             flags_list.len(),
             TEAM_FLAGS_CACHE_PREFIX,
@@ -149,7 +147,6 @@ impl FeatureFlagList {
     }
 
     /// Returns feature flags from postgres given a project_id
-    #[instrument(skip_all)]
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
         project_id: i64,
