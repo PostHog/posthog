@@ -356,5 +356,35 @@ describe('maxContextLogic', () => {
                 useCurrentPageContext: true,
             })
         })
+
+        it('preserves context when only panel parameter changes (side panel opening/closing)', async () => {
+            logic.actions.addOrUpdateContextInsight(mockInsight)
+            logic.actions.addOrUpdateContextDashboard(mockDashboard)
+
+            await expectLogic(logic).toMatchValues({
+                contextInsights: [expectedTransformedInsight],
+                contextDashboards: [expectedTransformedDashboard],
+            })
+
+            // Simulate opening side panel by changing only the panel hash parameter
+            await expectLogic(logic, () => {
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, {
+                    ...router.values.hashParams,
+                    panel: 'max',
+                })
+            }).toMatchValues({
+                contextInsights: [expectedTransformedInsight],
+                contextDashboards: [expectedTransformedDashboard],
+            })
+
+            // Simulate closing side panel by removing the panel hash parameter
+            await expectLogic(logic, () => {
+                const { panel, ...otherHashParams } = router.values.hashParams
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, otherHashParams)
+            }).toMatchValues({
+                contextInsights: [expectedTransformedInsight],
+                contextDashboards: [expectedTransformedDashboard],
+            })
+        })
     })
 })

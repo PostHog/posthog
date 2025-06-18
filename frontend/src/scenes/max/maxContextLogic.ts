@@ -1,5 +1,5 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
@@ -136,11 +136,64 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         locationChanged: () => {
-            actions.resetContext()
-            actions.clearActiveInsights()
-            actions.clearActiveDashboard()
+            // Don't reset context if the only change is the side panel opening/closing
+            // This happens when only the 'panel' hash parameter changes
+            const currentLocation = router.values.location
+            const currentHashParams = router.values.hashParams
+            const currentSearchParams = router.values.searchParams
+            const previousLocation = cache.previousLocation
+
+            cache.previousLocation = {
+                location: currentLocation,
+                hashParams: currentHashParams,
+                searchParams: currentSearchParams,
+            }
+
+            if (!previousLocation) {
+                return
+            }
+
+            const resetContext = (): void => {
+                actions.resetContext()
+                actions.clearActiveInsights()
+                actions.clearActiveDashboard()
+            }
+
+            // Always reset context if pathname or search params changed
+            if (
+                currentLocation.pathname !== previousLocation.location.pathname ||
+                JSON.stringify(currentSearchParams) !== JSON.stringify(previousLocation.searchParams)
+            ) {
+                resetContext()
+                return
+            }
+
+            // At this point, pathname and search params are the same
+            // Check if only panel parameter changed in hash params
+            const currentHashKeys = Object.keys(currentHashParams)
+            const previousHashKeys = Object.keys(previousLocation.hashParams)
+
+            // Get all keys except 'panel'
+            const currentNonPanelKeys = currentHashKeys.filter((key) => key !== 'panel')
+            const previousNonPanelKeys = previousHashKeys.filter((key) => key !== 'panel')
+
+            // Check if non-panel keys are the same
+            const sameNonPanelKeys =
+                currentNonPanelKeys.length === previousNonPanelKeys.length &&
+                currentNonPanelKeys.every(
+                    (key) =>
+                        previousNonPanelKeys.includes(key) &&
+                        currentHashParams[key] === previousLocation.hashParams[key]
+                )
+
+            // If only the panel parameter changed and nothing else, don't reset context
+            if (sameNonPanelKeys) {
+                return
+            }
+
+            resetContext()
         },
         handleTaxonomicFilterChange: async (
             {
@@ -445,5 +498,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 )
             },
         ],
+    }),
+    afterMount(({ cache }) => {
+        cache.previousLocation = {
+            location: router.values.location,
+            hashParams: router.values.hashParams,
+            searchParams: router.values.searchParams,
+        }
     }),
 ])
