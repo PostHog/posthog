@@ -199,7 +199,7 @@ class JSONLStreamTransformer(StreamTransformer):
 
     async def iter_transformed_record_batches(
         self, record_batches: collections.abc.AsyncIterator[pa.RecordBatch], max_file_size_bytes: int = 0
-    ) -> collections.abc.AsyncIterator[bytes]:
+    ) -> collections.abc.AsyncIterator[tuple[bytes, bool]]:
         """Distribute transformation of record batches into multiple processes.
 
         This is only supported for non-brotli compressed batch exports, so we
@@ -216,8 +216,8 @@ class JSONLStreamTransformer(StreamTransformer):
            their result before yielding chunks along.
         """
         if self.compression == "brotli":
-            async for chunk in super().iter_transformed_record_batches(record_batches, max_file_size_bytes):
-                yield chunk
+            async for t in super().iter_transformed_record_batches(record_batches, max_file_size_bytes):
+                yield t
             return
 
         max_workers = 5
@@ -252,6 +252,7 @@ class JSONLStreamTransformer(StreamTransformer):
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
             producer_task = asyncio.create_task(producer(executor))
 
+            current_file_size = 0
             while True:
                 try:
                     future = task_queue.get_nowait()
@@ -269,7 +270,13 @@ class JSONLStreamTransformer(StreamTransformer):
                 task_queue.task_done()
 
                 for chunk in chunks:
-                    yield chunk
+                    yield (chunk, False)
+                    current_file_size += len(chunk)
+
+                    if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                        # Nothing to finalize for JSONL. We just inform caller.
+                        yield (b"", True)
+                        current_file_size = 0
 
             await producer_task
 
