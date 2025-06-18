@@ -344,6 +344,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                         <TemplateLinkSection
                                                             templateLink={templateLink}
                                                             showShortenButton={false}
+                                                            heading="Share as template"
+                                                            tooltip="Share this link to let others create a copy of this insight with the same configuration."
+                                                            piiWarning="Be aware that you may be sharing sensitive data if contained in your event, property names or filters."
                                                         />
                                                     ),
                                                     width: 600,

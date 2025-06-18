@@ -257,16 +257,12 @@ export function SharingModalContent({
             {insight && insight.query && (
                 <>
                     <LemonDivider />
-                    <TitleWithIcon
-                        icon={
-                            <Tooltip title="Share this link to let others create a copy of this insight with the same configuration.">
-                                <IconInfo />
-                            </Tooltip>
-                        }
-                    >
-                        <b>Share as template</b>
-                    </TitleWithIcon>
-                    <TemplateLinkSection templateLink={getInsightDefinitionUrl({ query: insight.query as any })} />
+                    <TemplateLinkSection
+                        templateLink={getInsightDefinitionUrl({ query: insight.query as any })}
+                        heading="Share as template"
+                        tooltip="Share this link to let others create a copy of this insight with the same configuration."
+                        piiWarning="Be aware that you may be sharing sensitive data if contained in your event, property names or filters."
+                    />
                 </>
             )}
         </div>

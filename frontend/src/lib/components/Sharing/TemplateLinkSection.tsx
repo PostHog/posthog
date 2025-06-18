@@ -1,4 +1,6 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -9,12 +11,18 @@ interface TemplateLinkSectionProps {
     templateLink: string
     onShortenLink?: () => void
     showShortenButton?: boolean
+    heading?: string
+    tooltip?: string
+    piiWarning?: string
 }
 
 export function TemplateLinkSection({
     templateLink,
     onShortenLink,
     showShortenButton = true,
+    heading = 'Share as template',
+    tooltip = 'Share this link to let others create a copy of this insight with the same configuration.',
+    piiWarning = 'Be aware that you may be sharing sensitive data if contained in your event, property names or filters.',
 }: TemplateLinkSectionProps): JSX.Element {
     const [copied, setCopied] = useState(false)
 
@@ -30,11 +38,22 @@ export function TemplateLinkSection({
 
     return (
         <div className="deprecated-space-y-2">
-            <p className="text-muted">
-                This link shares the full insight definition, including event and property names and filters. If any of
-                these are sensitive, consider editing before sharing.
-            </p>
-
+            {heading && (
+                <TitleWithIcon
+                    icon={
+                        tooltip ? (
+                            <Tooltip title={tooltip}>
+                                <IconInfo />
+                            </Tooltip>
+                        ) : (
+                            <span />
+                        )
+                    }
+                >
+                    <b>{heading}</b>
+                </TitleWithIcon>
+            )}
+            {piiWarning && <p className="text-muted text-xs mb-1">{piiWarning}</p>}
             <div className="flex gap-2">
                 <div className="flex-1">
                     <input
