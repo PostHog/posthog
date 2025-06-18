@@ -557,7 +557,7 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
         return null
     }
 
-    const { modifiers, git_commit, service_name, container_hostname } = logComment
+    const { container_hostname, git_commit, modifiers, service_name } = logComment
 
     return (
         <div>
