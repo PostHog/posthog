@@ -1,7 +1,5 @@
-import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
-
 import { useChartColors } from '../shared/colors'
-import { valueToXCoordinate } from '../shared/utils'
+import { type ExperimentVariantResult, getVariantInterval, valueToXCoordinate } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
 export function VariantBar({
@@ -15,7 +13,7 @@ export function VariantBar({
     chartHeight,
     totalBars,
 }: {
-    variantResult: ExperimentVariantResultFrequentist
+    variantResult: ExperimentVariantResult
     index: number
     chartRadius: number
     metricIndex: number
@@ -25,7 +23,7 @@ export function VariantBar({
     chartHeight: number
     totalBars: number
 }): JSX.Element {
-    const interval = variantResult.confidence_interval
+    const interval = getVariantInterval(variantResult)
 
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
 

@@ -5,7 +5,7 @@ import {
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { ExperimentIdType } from '~/types'
+import { ExperimentIdType, ExperimentStatsMethod } from '~/types'
 
 import { getHighestProbabilityVariant, getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
@@ -21,21 +21,24 @@ export function WinningVariantText({
         | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
-    const { getInsightType, experiment } = useValues(experimentLogic)
+    const { getInsightType, experiment, statsMethod } = useValues(experimentLogic)
 
     const highestProbabilityVariant = getHighestProbabilityVariant(result)
     const index = getIndexForVariant(result, highestProbabilityVariant || '', getInsightType(experiment.metrics[0]))
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result
+        const percentage = (probability[highestProbabilityVariant] * 100).toFixed(2)
+
+        const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
 
         return (
             <div className="items-center inline-flex flex-wrap">
                 <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
                 <span>&nbsp;is winning with a&nbsp;</span>
                 <span className="font-semibold items-center">
-                    {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
+                    {isBayesian ? `${percentage}% chance to win` : `${percentage}% probability`}&nbsp;
                 </span>
-                <span>of being best.&nbsp;</span>
+                <span>{isBayesian ? '' : 'of being best.'}&nbsp;</span>
             </div>
         )
     }
