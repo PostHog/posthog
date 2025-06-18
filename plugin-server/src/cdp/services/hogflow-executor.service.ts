@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '../../schema/hogflow'
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
@@ -93,6 +95,29 @@ export class HogFlowExecutorService {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hogflow',
         })
+
+        // If the flow is archived, check the stop_type
+        if (invocation.hogFlow.status === 'archived') {
+            if (invocation.hogFlow.stop_type === 'trigger') {
+                // Only stop new events from triggering
+                result.finished = false
+                result.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: 'Flow archived: new events will not trigger this flow',
+                })
+                return result
+            } else if (invocation.hogFlow.stop_type === 'all') {
+                // Stop all customer movement
+                result.finished = true
+                result.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: 'Flow archived: all customer movement is halted',
+                })
+                return result
+            }
+        }
 
         // TODO: Implement!
 

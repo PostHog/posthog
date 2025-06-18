@@ -31,6 +31,10 @@ class HogFlow(UUIDModel):
         ACTIVE = "active"
         ARCHIVED = "archived"
 
+    class StopType(models.TextChoices):
+        TRIGGER = "trigger"
+        ALL = "all"
+
     class ExitCondition(models.TextChoices):
         CONVERSION = "exit_on_conversion"
         TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
@@ -42,6 +46,7 @@ class HogFlow(UUIDModel):
     version = models.IntegerField(default=1)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=State.choices, default=State.DRAFT)
+    stop_type = models.CharField(max_length=20, choices=StopType.choices, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)

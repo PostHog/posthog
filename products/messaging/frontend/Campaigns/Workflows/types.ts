@@ -13,6 +13,7 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
+    stop_type: z.enum(['trigger', 'all']).optional(),
     trigger: z.object({
         type: z.literal('event'),
         filters: z.any(),

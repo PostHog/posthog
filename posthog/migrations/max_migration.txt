@@ -1,1 +1,1 @@
-0772_alter_externaldataschema_sync_type
+0773_hogflow_stop_type

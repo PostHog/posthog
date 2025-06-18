@@ -32,6 +32,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "description",
             "version",
             "status",
+            "stop_type",
             "created_at",
             "created_by",
             "trigger",
@@ -54,6 +55,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "description",
             "version",
             "status",
+            "stop_type",
             "created_at",
             "created_by",
             "trigger",
@@ -139,14 +141,24 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         )
 
     def perform_update(self, serializer):
-        # TODO(team-messaging): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
+        current_version = serializer.instance.version
 
         try:
             before_update = HogFlow.objects.get(pk=instance_id)
         except HogFlow.DoesNotExist:
             before_update = None
 
+        # Check if the version matches
+        if before_update and before_update.version != current_version:
+            raise exceptions.ValidationError(
+                {
+                    "version": "This flow has been modified by another user. Please refresh the page to get the latest version."
+                }
+            )
+
+        # Increment version atomically
+        serializer.instance.version = current_version + 1
         serializer.save()
 
         changes = changes_between("HogFlow", previous=before_update, current=serializer.instance)
