@@ -1,4 +1,4 @@
-import { LemonButtonProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -39,7 +39,7 @@ export interface OperatorValueSelectProps {
     defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
-    size?: LemonButtonProps['size']
+    size?: 'xsmall' | 'small' | 'medium'
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
