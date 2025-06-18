@@ -611,7 +611,8 @@ function Timing({ item }: { item: Query }): JSX.Element | null {
 
         let slowestSpan = { name: '', duration: 0 }
         const entries = Object.entries(timings)
-        // find the entries where the key is not a prefix of another key. This is quadratic, but the number of entries is small, do something smart if this becomes a problem
+        // Find the entries where the key is not a prefix of another key (with / as the separator).
+        // This is quadratic, but the number of entries is small, do something smart if this becomes a problem
         const leafEntries = entries.filter(
             ([key]) => !entries.some(([otherKey]) => otherKey.startsWith(key + '/') && otherKey !== key)
         )
