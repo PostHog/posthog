@@ -1890,12 +1890,20 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort' | 'country'
+export enum RevenueAnalyticsInsightsQueryGroupBy {
+    COHORT = 'cohort',
+    COUNTRY = 'country',
+    COUPON = 'coupon',
+    COUPON_ID = 'coupon_id',
+    INITIAL_COUPON = 'initial_coupon',
+    INITIAL_COUPON_ID = 'initial_coupon_id',
+    PRODUCT = 'product',
+}
 
 export interface RevenueAnalyticsInsightsQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
     kind: NodeKind.RevenueAnalyticsInsightsQuery
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    groupBy: RevenueAnalyticsInsightsQueryGroupBy[]
     interval: IntervalType
 }
 
@@ -3138,6 +3146,11 @@ export interface RevenueAnalyticsConfig {
      * @default []
      */
     goals: RevenueAnalyticsGoal[]
+
+    /**
+     * @default false
+     */
+    filter_test_accounts: boolean
 }
 
 export interface PageURL {

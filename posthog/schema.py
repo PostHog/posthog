@@ -1831,10 +1831,13 @@ class RevenueAnalyticsGoal(BaseModel):
 
 
 class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
-    ALL = "all"
-    PRODUCT = "product"
     COHORT = "cohort"
     COUNTRY = "country"
+    COUPON = "coupon"
+    COUPON_ID = "coupon_id"
+    INITIAL_COUPON = "initial_coupon"
+    INITIAL_COUPON_ID = "initial_coupon_id"
+    PRODUCT = "product"
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
@@ -7464,6 +7467,7 @@ class RevenueAnalyticsConfig(BaseModel):
         extra="forbid",
     )
     events: Optional[list[RevenueAnalyticsEventItem]] = []
+    filter_test_accounts: Optional[bool] = False
     goals: Optional[list[RevenueAnalyticsGoal]] = []
 
 
@@ -7486,7 +7490,7 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    groupBy: list[RevenueAnalyticsInsightsQueryGroupBy]
     interval: IntervalType
     kind: Literal["RevenueAnalyticsInsightsQuery"] = "RevenueAnalyticsInsightsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(

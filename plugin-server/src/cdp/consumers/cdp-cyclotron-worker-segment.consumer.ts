@@ -1,4 +1,4 @@
-import { Hub } from '~/src/types'
+import { Hub } from '~/types'
 
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
