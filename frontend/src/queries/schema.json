@@ -370,7 +370,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+            "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
         "AggregationAxisFormat": {
@@ -2474,8 +2474,7 @@
                 "next_allowed_client_refresh",
                 "offset",
                 "results",
-                "timezone",
-                "types"
+                "timezone"
             ],
             "type": "object"
         },
@@ -6574,7 +6573,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                            "required": ["columns", "hogql", "limit", "offset", "results"],
                             "type": "object"
                         },
                         {
@@ -10299,7 +10298,8 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL"
+                "insightHogQL",
+                "insightCalendarHeatmap"
             ],
             "type": "string"
         },
@@ -14359,7 +14359,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": ["columns", "hogql", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
@@ -15738,7 +15738,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": ["columns", "hogql", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
@@ -18164,6 +18164,10 @@
                     },
                     "type": "array"
                 },
+                "filter_test_accounts": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "goals": {
                     "default": [],
                     "items": {
@@ -18172,7 +18176,7 @@
                     "type": "array"
                 }
             },
-            "required": ["events", "goals"],
+            "required": ["events", "goals", "filter_test_accounts"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -18287,7 +18291,10 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "groupBy": {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    },
+                    "type": "array"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType"
@@ -18315,7 +18322,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort", "country"],
+            "enum": ["cohort", "country", "coupon", "coupon_id", "initial_coupon", "initial_coupon_id", "product"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {

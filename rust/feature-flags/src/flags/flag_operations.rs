@@ -27,15 +27,15 @@ impl PropertyFilter {
             .map(|id| id as CohortId)
     }
 
-    /// Checks if the filter is a feature flag filter
-    pub fn is_feature_flag(&self) -> bool {
+    /// Checks if the filter depends on a feature flag
+    pub fn depends_on_feature_flag(&self) -> bool {
         self.prop_type == PropertyType::Flag
     }
 
-    /// Returns the feature flag id if the filter is a feature flag filter, or None if it's not a feature flag filter
+    /// Returns the feature flag id if the filter depends on a feature flag, or None if it's not a feature flag filter
     /// or if the value cannot be parsed as a feature flag id
     pub fn get_feature_flag_id(&self) -> Option<FeatureFlagId> {
-        if !self.is_feature_flag() {
+        if !self.depends_on_feature_flag() {
             return None;
         }
         self.key.parse::<FeatureFlagId>().ok()
@@ -43,7 +43,7 @@ impl PropertyFilter {
 }
 
 fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
-    if filter.is_feature_flag() {
+    if filter.depends_on_feature_flag() {
         filter.get_feature_flag_id()
     } else {
         None
