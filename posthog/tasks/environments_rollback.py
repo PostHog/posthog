@@ -1,7 +1,39 @@
 import json
+from dataclasses import dataclass
 from structlog import get_logger
+import posthoganalytics
+from posthog.event_usage import groups
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class RollbackEventContext:
+    user: object
+    organization: object
+    membership: object
+    environment_mappings: dict[str, int]
+
+
+def _capture_environments_rollback_event(
+    event_name: str, context: RollbackEventContext, additional_properties: dict | None = None
+) -> None:
+    properties = {
+        "environment_mappings": json.dumps(context.environment_mappings),
+        "organization_id": str(context.organization.id),
+        "organization_name": context.organization.name,
+        "user_role": context.membership.level,
+    }
+
+    if additional_properties:
+        properties.update(additional_properties)
+
+    posthoganalytics.capture(
+        str(context.user.distinct_id),
+        event_name,
+        properties=properties,
+        groups=groups(context.organization),
+    )
 
 
 def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
@@ -25,14 +57,15 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
         EarlyAccessFeature,
         Notebook,
     )
-    from posthog.event_usage import groups
     from django.db import transaction, IntegrityError
-    import posthoganalytics
 
     try:
         organization = Organization.objects.get(id=organization_id)
         user = User.objects.get(id=user_id)
         membership = user.organization_memberships.get(organization=organization)
+        context = RollbackEventContext(
+            user=user, organization=organization, membership=membership, environment_mappings=environment_mappings
+        )
 
         # Get all teams for this organization
         all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
@@ -91,23 +124,21 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                         id=source_team.id, name=new_project_name, organization=organization
                     )
                 except IntegrityError:
-                    # If the project ID already exists, create with auto-incremented ID
-                    new_project = Project.objects.create(name=new_project_name, organization=organization)
+                    _capture_environments_rollback_event(
+                        "organization environments rollback project id conflict",
+                        context,
+                        {
+                            "conflicting_project_id": source_team.id,
+                            "source_team_name": source_team.name,
+                        },
+                    )
+                    raise IntegrityError(f"Project ID {source_team.id} already exists, cannot create new project.")
 
                 source_team.project = new_project
                 source_team.save()
 
-        posthoganalytics.capture(
-            str(user.distinct_id),
-            "organization environments rollback completed",
-            properties={
-                "environment_mappings": json.dumps(environment_mappings),
-                "organization_id": str(organization.id),
-                "organization_name": organization.name,
-                "user_role": membership.level,
-            },
-            groups=groups(organization),
-        )
+        _capture_environments_rollback_event("organization environments rollback completed", context)
+
         logger.info(
             "Environments rollback migration completed successfully",
             organization_id=organization_id,
