@@ -1,11 +1,13 @@
 import { LemonBanner } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, ProductKey } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
+import { billingLogic } from './billingLogic'
 
 interface FeatureLossNoticeProps {
     product: BillingProductV2Type | BillingProductV2AddonType
@@ -17,9 +19,21 @@ export const FeatureLossNotice = ({
     isPlaformAndSupportProduct,
 }: FeatureLossNoticeProps): JSX.Element | null => {
     const [isExpanded, setIsExpanded] = useState(false)
-    const featuresToLose = product.features?.filter((feature) => !feature.entitlement_only)
+    const { billing } = useValues(billingLogic)
 
-    if (!isPlaformAndSupportProduct || !featuresToLose?.length) {
+    if (!isPlaformAndSupportProduct) {
+        return null
+    }
+
+    const platformAndSupportProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
+    const currentPlatformPlan = platformAndSupportProduct?.plans?.find((plan) => plan.current_plan)
+    const addonFeatures = product.features?.filter((feature) => !feature.entitlement_only) || []
+    const currentPlanFeatures = currentPlatformPlan?.features?.filter((feature) => !feature.entitlement_only) || []
+    const featuresToLose = addonFeatures.filter(
+        (addonFeature) => !currentPlanFeatures.some((planFeature) => planFeature.key === addonFeature.key)
+    )
+
+    if (!featuresToLose?.length) {
         return null
     }
 
