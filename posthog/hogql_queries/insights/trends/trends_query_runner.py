@@ -98,6 +98,7 @@ class TrendsQueryRunner(QueryRunner):
 
         if query.trendsFilter and query.trendsFilter.formula and not query.trendsFilter.formulaNodes:
             query.trendsFilter.formulaNodes = [TrendsFormulaNode(formula=query.trendsFilter.formula)]
+            query.trendsFilter.formula = None
 
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
