@@ -31,7 +31,8 @@ export function TemplateLinkSection({
     return (
         <div className="deprecated-space-y-2">
             <p className="text-muted">
-                Be aware that you may be sharing PII if your events, properties or filters contain sensitive data.
+                This link shares the full insight definition, including event and property names and filters. If any of
+                these are sensitive, consider editing before sharing.
             </p>
 
             <div className="flex gap-2">
