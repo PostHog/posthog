@@ -30,9 +30,8 @@ export function TemplateLinkSection({
 
     return (
         <div className="deprecated-space-y-2">
-            <h3>Share as template</h3>
             <p className="text-muted">
-                Share this link to let others create a copy of this insight with the same configuration.
+                Be aware that you may be sharing PII if your events, properties or filters contain sensitive data.
             </p>
 
             <div className="flex gap-2">
