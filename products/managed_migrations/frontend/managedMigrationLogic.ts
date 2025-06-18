@@ -121,7 +121,9 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             router.actions.push(urls.managedMigration())
         },
         loadMigrationsSuccess: () => {
-            const hasRunningMigrations = values.migrations.some((migration) => migration.status === 'running')
+            const hasRunningMigrations = values.migrations.some(
+                (migration: ManagedMigration) => migration.status === 'running'
+            )
             if (hasRunningMigrations && !values.isPolling) {
                 actions.startPolling()
             } else if (!hasRunningMigrations && values.isPolling) {
@@ -149,7 +151,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     selectors({
         breadcrumbs: [
             (_, p) => [p.managedMigrationId],
-            (managedMigrationId): Breadcrumb[] => [
+            (managedMigrationId: string | null): Breadcrumb[] => [
                 {
                     key: 'managed-migrations',
                     name: 'Managed Migrations',
@@ -168,7 +170,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         ],
         projectTreeRef: [
             (_, p) => [p.managedMigrationId],
-            (managedMigrationId): ProjectTreeRef => ({
+            (managedMigrationId: string | null): ProjectTreeRef => ({
                 type: 'managed-migration',
                 ref: managedMigrationId,
             }),

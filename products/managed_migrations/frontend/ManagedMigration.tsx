@@ -185,7 +185,7 @@ export function ManagedMigrations(): JSX.Element {
                     {
                         title: 'Source',
                         dataIndex: 'source_type',
-                        render: (_, migration) => {
+                        render: (_: any, migration: ManagedMigration) => {
                             let sourceType: string = migration.source_type
                             if (migration.source_type === 'date_range_export') {
                                 sourceType = migration.content_type
@@ -225,7 +225,7 @@ export function ManagedMigrations(): JSX.Element {
                     {
                         title: 'Content Type',
                         dataIndex: 'content_type',
-                        render: (_, migration) => {
+                        render: (_: any, migration: ManagedMigration) => {
                             const contentTypeConfig = {
                                 captured: {
                                     icon: '/static/icons/favicon.ico?v=2023-07-07',
@@ -257,12 +257,12 @@ export function ManagedMigrations(): JSX.Element {
                     {
                         title: 'Status',
                         dataIndex: 'status',
-                        render: (_, migration) => <StatusTag status={migration.status} />,
+                        render: (_: any, migration: ManagedMigration) => <StatusTag status={migration.status} />,
                     },
                     {
                         title: 'Progress',
                         key: 'progress',
-                        render: (_, migration) => {
+                        render: (_: any, migration: ManagedMigration) => {
                             const { progress, completed, total } = calculateProgress(migration)
                             return (
                                 <div className="flex flex-col gap-1">
@@ -284,7 +284,7 @@ export function ManagedMigrations(): JSX.Element {
                     {
                         title: 'Created by',
                         dataIndex: 'created_by',
-                        render: function Render(_: any, migration) {
+                        render: function Render(_: any, migration: ManagedMigration) {
                             return (
                                 <div className="flex flex-row items-center flex-nowrap">
                                     {migration.created_by && (
@@ -312,7 +312,7 @@ export function ManagedMigrations(): JSX.Element {
                     {
                         title: 'Error',
                         dataIndex: 'error',
-                        render: (_, migration) => migration.error || '-',
+                        render: (_: any, migration: ManagedMigration) => migration.error || '-',
                     },
                 ]}
                 emptyState="No migrations found. Create a new migration to get started."
