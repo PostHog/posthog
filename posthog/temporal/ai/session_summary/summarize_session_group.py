@@ -138,11 +138,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             res = task.result()
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
-                    "Session data fetch failed for group summary",
-                    session_id=session_id,
-                    team_id=inputs.team_id,
-                    user_pk=inputs.user_pk,
-                    exc_info=res,
+                    f"Session data fetch failed for group summary for session {session_id} "
+                    f"in team {inputs.team_id} for user {inputs.user_pk}: {res}"
                 )
             else:
                 # Store only successful fetches
@@ -153,12 +150,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"Too many sessions failed to fetch data from DB, when summarizing {len(inputs.session_ids)} "
                 f"sessions ({inputs.session_ids}) for user {inputs.user_pk} in team {inputs.team_id}"
             )
-            temporalio.workflow.logger.error(
-                exception_message,
-                session_ids=inputs.session_ids,
-                team_id=inputs.team_id,
-                user_pk=inputs.user_pk,
-            )
+            temporalio.workflow.logger.error(exception_message)
             raise ApplicationError(exception_message)
         return session_inputs
 
@@ -194,12 +186,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             res = task.result()
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
-                    "Session summary failed for group summary",
-                    session_id=session_id,
-                    # Assuming all the sessions are from the same project and called by the same user
-                    team_id=inputs[0].team_id,
-                    user_pk=inputs[0].user_pk,
-                    exc_info=res,
+                    f"Session summary failed for group summary for session {session_id} "
+                    f"for user {inputs[0].user_pk} in team {inputs[0].team_id}: {res}"
                 )
             else:
                 summaries[session_id] = res
@@ -211,12 +199,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"({session_ids}) "
                 f"for user {inputs[0].user_pk} in team {inputs[0].team_id}"
             )
-            temporalio.workflow.logger.error(
-                exception_message,
-                session_ids=session_ids,
-                team_id=inputs[0].team_id,
-                user_pk=inputs[0].user_pk,
-            )
+            temporalio.workflow.logger.error(exception_message)
             raise ApplicationError(exception_message)
         return summaries
 
@@ -234,9 +217,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        temporalio.workflow.logger.info(
-            f"Successfully executed summarize-session-group workflow with id {temporalio.workflow.info().workflow_id}"
         )
         return summary_of_summaries
 
