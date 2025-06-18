@@ -6,6 +6,11 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import {
+    TEMPLATE_LINK_HEADING,
+    TEMPLATE_LINK_PII_WARNING,
+    TEMPLATE_LINK_TOOLTIP,
+} from 'lib/components/Sharing/templateLinkMessages'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -259,9 +264,9 @@ export function SharingModalContent({
                     <LemonDivider />
                     <TemplateLinkSection
                         templateLink={getInsightDefinitionUrl({ query: insight.query as any })}
-                        heading="Share as template"
-                        tooltip="Share this link to let others create a copy of this insight with the same configuration."
-                        piiWarning="Be aware that you may be sharing sensitive data if contained in your event, property names or filters."
+                        heading={TEMPLATE_LINK_HEADING}
+                        tooltip={TEMPLATE_LINK_TOOLTIP}
+                        piiWarning={TEMPLATE_LINK_PII_WARNING}
                     />
                 </>
             )}

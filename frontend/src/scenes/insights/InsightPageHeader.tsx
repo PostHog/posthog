@@ -16,6 +16,11 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import {
+    TEMPLATE_LINK_HEADING,
+    TEMPLATE_LINK_PII_WARNING,
+    TEMPLATE_LINK_TOOLTIP,
+} from 'lib/components/Sharing/templateLinkMessages'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
@@ -345,12 +350,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                         <span className="flex items-center gap-2">
                                                             <TitleWithIcon
                                                                 icon={
-                                                                    <Tooltip title="Share this link to let others create a copy of this insight with the same configuration.">
+                                                                    <Tooltip title={TEMPLATE_LINK_TOOLTIP}>
                                                                         <IconInfo />
                                                                     </Tooltip>
                                                                 }
                                                             >
-                                                                <b>Share as template</b>
+                                                                <b>{TEMPLATE_LINK_HEADING}</b>
                                                             </TitleWithIcon>
                                                         </span>
                                                     ),
@@ -360,7 +365,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             showShortenButton={false}
                                                             heading={undefined}
                                                             tooltip={undefined}
-                                                            piiWarning="Be aware that you may be sharing sensitive data if contained in your event, property names or filters."
+                                                            piiWarning={TEMPLATE_LINK_PII_WARNING}
                                                         />
                                                     ),
                                                     width: 600,
