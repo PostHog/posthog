@@ -202,16 +202,27 @@ class JSONLStreamTransformer(StreamTransformer):
 
         This is only supported for non-brotli compressed batch exports, so we
         default to the parent implementation when using brotli compression.
+
+        The multiprocess pipeline works as follows:
+        1. Start a `ProcessPoolExecutor` with a number of workers to distribute
+           the workload. This is hardcoded to 5 at the moment, but should be
+           configurable later.
+        2. Spawn a producer asyncio task to iterate through record batches,
+           spawn multiprocessing tasks for the workers, and pass the futures
+           along to the consumer main thread using a queue.
+        3. The consumer main thread reads the futures from the queue and awaits
+           their result before yielding chunks along.
         """
         if self.compression == "brotli":
             async for chunk in super().iter_transformed_record_batches(record_batches, max_file_size_bytes):
                 yield chunk
             return
 
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            loop = asyncio.get_running_loop()
-            tasks = []
+        max_workers = 5
+        task_queue = asyncio.Queue(max_workers)
+        loop = asyncio.get_running_loop()
 
+        async def producer(executor):
             async for record_batch in record_batches:
                 sink = pa.MockOutputStream()
                 with pa.ipc.new_stream(sink, record_batch.schema) as writer:
@@ -225,9 +236,8 @@ class JSONLStreamTransformer(StreamTransformer):
                     with pa.RecordBatchStreamWriter(stream, record_batch.schema) as writer:
                         writer.write_batch(record_batch)
 
-                    tasks.append(
-                        loop.run_in_executor(executor, transform_record_batch_from_shared_memory, shm.name, self)
-                    )
+                    future = loop.run_in_executor(executor, transform_record_batch_from_shared_memory, shm.name, self)
+                    await task_queue.put(future)
 
                     del stream
                     del writer
@@ -237,11 +247,29 @@ class JSONLStreamTransformer(StreamTransformer):
                 finally:
                     shm.close()
 
-            for task in asyncio.as_completed(tasks):
-                result = await task
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            producer_task = asyncio.create_task(producer(executor))
 
-                for chunk in result:
+            while True:
+                try:
+                    future = task_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    if producer_task.done():
+                        if exception := producer_task.exception():
+                            raise exception
+                        else:
+                            break
+
+                    await asyncio.sleep(0.0)
+                    continue
+
+                chunks = await future
+                task_queue.task_done()
+
+                for chunk in chunks:
                     yield chunk
+
+            await producer_task
 
 
 class ParquetStreamTransformer(StreamTransformer):
