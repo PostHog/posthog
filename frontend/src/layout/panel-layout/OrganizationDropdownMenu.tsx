@@ -37,7 +37,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
             <PopoverPrimitive>
                 <PopoverPrimitiveTrigger asChild>
                     <ButtonPrimitive
-                        className="w-[210px] max-w-[210px]"
+                        className="max-w-[210px]"
                         iconOnly={isLayoutNavCollapsed ? true : false}
                         data-attr="tree-navbar-organization-dropdown-button"
                     >
