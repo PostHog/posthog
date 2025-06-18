@@ -82,7 +82,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance: Subscription = super().create(validated_data)
 
-        if not team_use_temporal_flag(self.team):
+        if not team_use_temporal_flag(instance.team):
             subscriptions.handle_subscription_value_change.delay(instance.id, "", invite_message)
         else:
             temporal = sync_connect()
@@ -107,7 +107,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
 
-        if not team_use_temporal_flag(self.team):
+        if not team_use_temporal_flag(instance.team):
             subscriptions.handle_subscription_value_change.delay(instance.id, previous_value, invite_message)
         else:
             temporal = sync_connect()
