@@ -1,5 +1,4 @@
 pub mod api;
-pub mod circuit_breaker;
 pub mod cohorts;
 pub mod config;
 pub mod db_monitor;
