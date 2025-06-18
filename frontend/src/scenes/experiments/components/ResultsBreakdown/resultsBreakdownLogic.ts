@@ -12,7 +12,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -105,7 +105,9 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         funnelsFilter: {
                             layout: FunnelLayout.vertical,
                             breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                            funnelOrderType: StepOrderValue.ORDERED,
+                            funnelOrderType:
+                                (isExperimentFunnelMetric(metric) && metric.funnel_order_type) ||
+                                StepOrderValue.ORDERED,
                             funnelStepReference: FunnelStepReference.total,
                             funnelVizType: FunnelVizType.Steps,
                             funnelWindowInterval: 14,

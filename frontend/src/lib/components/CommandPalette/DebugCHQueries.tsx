@@ -557,16 +557,28 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
         return null
     }
 
-    const { modifiers, git_commit, container_hostname } = logComment
+    const { container_hostname, git_commit, modifiers, service_name } = logComment
 
     return (
         <div>
             <table className="w-80">
                 <tbody>
-                    <tr>
-                        <td>Git commit SHA</td>
-                        <td>{git_commit}</td>
-                    </tr>
+                    {git_commit && typeof git_commit === 'string' ? (
+                        <tr>
+                            <td>Git commit SHA</td>
+                            <td>
+                                <LinkPosthogCommit commit={git_commit} />
+                            </td>
+                        </tr>
+                    ) : null}
+                    {service_name && typeof service_name === 'string' ? (
+                        <tr>
+                            <td>Service name</td>
+                            <td>
+                                <LinkPosthogService service={service_name} />
+                            </td>
+                        </tr>
+                    ) : null}
                     <tr>
                         <td>Container hostname</td>
                         <td>{container_hostname}</td>
@@ -683,5 +695,28 @@ function Timing({ item }: { item: Query }): JSX.Element | null {
                 {showFullTiming ? 'Show slowest span only' : 'Show full timing'}
             </LemonButton>
         </div>
+    )
+}
+
+function LinkPosthogCommit({ commit }: { commit: string }): JSX.Element {
+    return (
+        <Link to={`https://www.github.com/PostHog/posthog/commit/${commit}`} target="_blank">
+            {commit}
+        </Link>
+    )
+}
+
+function LinkPosthogService({ service }: { service: string }): JSX.Element {
+    if (service.includes('local-dev')) {
+        return <span>{service}</span>
+    }
+
+    return (
+        <Link
+            to={`https://argocd-internal.internal.posthog.dev/applications?search=${encodeURIComponent(service)}`}
+            target="_blank"
+        >
+            {service}
+        </Link>
     )
 }

@@ -12,6 +12,8 @@ from posthog.tasks.calculate_cohort import (
     enqueue_cohorts_to_calculate,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
+    MAX_STUCK_COHORTS_TO_RESET,
+    calculate_stuck_cohorts,
     update_stale_cohort_metrics,
     COHORTS_STALE_COUNT_GAUGE,
     COHORT_STUCK_COUNT_GAUGE,
@@ -608,5 +610,36 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
+
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_cohorts_respects_max_limit(self, mock_logger: MagicMock) -> None:
+            now = timezone.now()
+
+            # Create more stuck cohorts than the limit
+            stuck_cohorts = []
+            for i in range(MAX_STUCK_COHORTS_TO_RESET + 5):  # Create 5 more than the limit
+                cohort = Cohort.objects.create(
+                    team_id=self.team.pk,
+                    name=f"Stuck Cohort {i}",
+                    is_calculating=True,
+                    last_calculation=now - relativedelta(hours=2, minutes=i),  # Different times for ordering
+                    deleted=False,
+                    is_static=False,
+                )
+                stuck_cohorts.append(cohort)
+
+            calculate_stuck_cohorts()
+
+            # Count how many were actually reset
+            reset_count = Cohort.objects.filter(id__in=[c.id for c in stuck_cohorts], is_calculating=False).count()
+
+            # Should only reset up to the limit
+            self.assertEqual(reset_count, MAX_STUCK_COHORTS_TO_RESET)
+
+            mock_logger.warning.assert_called_once()
+            log_call_args, log_kwargs = mock_logger.warning.call_args
+
+            self.assertEqual(log_call_args[0], "enqueued_stuck_cohorts")
+            self.assertEqual(len(log_kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
 
     return TestCalculateCohort

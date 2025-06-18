@@ -2777,6 +2777,18 @@ class Day(RootModel[int]):
     root: int
 
 
+class EntityFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+
+
 class ErrorTrackingIssueAssignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3097,13 +3109,6 @@ class LogMessage(BaseModel):
     timestamp: datetime
     trace_id: str
     uuid: str
-
-
-class MarketingAnalyticsConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class MatchedRecording(BaseModel):
@@ -4340,6 +4345,7 @@ class AssistantTrendsActionsNode(BaseModel):
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -4385,6 +4391,7 @@ class AssistantTrendsEventsNode(BaseModel):
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8027,6 +8034,50 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
 
 
+class ConversionGoalFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goal_id: str
+    conversion_goal_name: str
+    custom_name: Optional[str] = None
+    days: Optional[list[str]] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    math: Optional[str] = None
+    math_group_type_index: Optional[int] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    math_property_type: Optional[TaxonomicFilterGroupType] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    schema_: dict[str, Union[str, Any]] = Field(..., alias="schema")
+    type: EntityType
+
+
 class DashboardFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8163,6 +8214,7 @@ class DataWarehouseNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8242,6 +8294,7 @@ class EntityNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8337,6 +8390,7 @@ class EventsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8417,6 +8471,7 @@ class ExperimentDataWarehouseNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8555,6 +8610,7 @@ class FunnelExclusionActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8636,6 +8692,7 @@ class FunnelExclusionEventsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8755,6 +8812,14 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     interval: Optional[list[IntervalItem]] = None
     series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
+
+
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goals: Optional[list[ConversionGoalFilter]] = None
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class PersonsNode(BaseModel):
@@ -9143,6 +9208,47 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ActionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    days: Optional[list[str]] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    math: Optional[str] = None
+    math_group_type_index: Optional[int] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    math_property_type: Optional[TaxonomicFilterGroupType] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    type: EntityType
+
+
 class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9190,6 +9296,7 @@ class ActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -9277,6 +9384,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    funnel_order_type: Optional[StepOrderValue] = None
     metric_type: Literal["funnel"] = "funnel"
     series: list[Union[EventsNode, ActionsNode]]
 
@@ -9688,6 +9796,7 @@ class ExperimentFunnelMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    funnel_order_type: Optional[StepOrderValue] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
