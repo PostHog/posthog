@@ -7,7 +7,7 @@ from typing import Optional
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import Suggestion, materialize_properties_task
+from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
@@ -228,12 +228,10 @@ class Command(BaseCommand):
 
         materialize_properties_task(
             properties_to_materialize=[
-                Suggestion(
-                    (
-                        "events",
-                        "properties",
-                        prop,
-                    )
+                (
+                    "events",
+                    "properties",
+                    prop,
                 )
                 for prop in sorted(event_properties)
             ],
@@ -241,12 +239,10 @@ class Command(BaseCommand):
         )
         materialize_properties_task(
             properties_to_materialize=[
-                Suggestion(
-                    (
-                        "events",
-                        "person_properties",
-                        prop,
-                    )
+                (
+                    "events",
+                    "person_properties",
+                    prop,
                 )
                 for prop in sorted(person_properties)
             ],
@@ -254,12 +250,10 @@ class Command(BaseCommand):
         )
         materialize_properties_task(
             properties_to_materialize=[
-                Suggestion(
-                    (
-                        "person",
-                        "properties",
-                        prop,
-                    )
+                (
+                    "person",
+                    "properties",
+                    prop,
                 )
                 for prop in sorted(person_properties)
             ],
