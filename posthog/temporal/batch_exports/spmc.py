@@ -51,9 +51,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
     get_batch_export_writer,
 )
-from posthog.temporal.batch_exports.transformer import (
-    get_stream_transformer,
-)
+from posthog.temporal.batch_exports.transformer import get_stream_transformer
 from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
@@ -1205,9 +1203,14 @@ class ConsumerFromStage:
     ) -> int:
         """Start consuming record batches from queue.
 
-        Record batches will be written to a temporary file defined by `writer_format`
-        and the file will be flushed upon reaching at least `max_bytes`.
+        Record batches will be processed by the `transformer`, which transforms the record batch into chunks of bytes,
+        depending on the `file_format` and `compression`.
 
+        Each of these chunks will be consumed by the `consume_chunk` method, which is implemented by subclasses.
+
+        If `max_file_size_bytes` is set, we split the file into multiples if the file size exceeds this value.
+
+        # TODO - we may need to support `multiple_files` here in future.
         Callers can control whether a new file is created for each flush or whether we
         continue flushing to the same file by setting `multiple_files`. File data is
         reset regardless, so this is not meant to impact total file size, but rather
