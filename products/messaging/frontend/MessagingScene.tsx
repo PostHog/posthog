@@ -1,5 +1,8 @@
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -8,9 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { Campaigns } from './Campaigns/Campaigns'
+import { CampaignsTable } from './Campaigns/CampaignsTable'
 import { MessageSenders } from './Senders/MessageSenders'
-import { MessageLibrary } from './TemplateLibrary/MessageLibrary'
+import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 
 const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'senders'] as const
 export type MessagingSceneTab = (typeof MESSAGING_SCENE_TABS)[number]
@@ -100,12 +103,48 @@ export function MessagingScene(): JSX.Element {
         {
             label: 'Campaigns',
             key: 'campaigns',
-            content: <Campaigns />,
+            content: (
+                <>
+                    <PageHeader
+                        caption="Create automated messaging campaigns triggered by events"
+                        buttons={
+                            <LemonButton
+                                data-attr="new-campaign"
+                                to={urls.messagingCampaignNew()}
+                                type="primary"
+                                icon={<IconPlusSmall />}
+                            >
+                                New campaign
+                            </LemonButton>
+                        }
+                    />
+                    <CampaignsTable />
+                </>
+            ),
         },
         {
             label: 'Library',
             key: 'library',
-            content: <MessageLibrary />,
+            content: (
+                <>
+                    <PageHeader
+                        caption="Create and manage messages"
+                        buttons={
+                            <LemonButton
+                                data-attr="new-message-button"
+                                icon={<IconPlusSmall />}
+                                size="small"
+                                type="primary"
+                                to={urls.messagingLibraryTemplateNew()}
+                            >
+                                New template
+                            </LemonButton>
+                        }
+                    />
+
+                    <MessageTemplatesTable />
+                </>
+            ),
         },
         {
             label: 'Senders',

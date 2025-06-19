@@ -457,14 +457,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         layout: 'app-container',
     },
-    [Scene.MessagingCampaigns]: {
-        projectBased: true,
-        name: 'Messaging campaigns',
-    },
-    [Scene.MessagingLibrary]: {
-        projectBased: true,
-        name: 'Messaging library',
-    },
     [Scene.HogFunction]: {
         projectBased: true,
         name: 'Hog function',

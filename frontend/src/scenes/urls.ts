@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { CampaignTab } from 'products/messaging/frontend/Campaigns/campaignSceneLogic'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
@@ -170,14 +169,6 @@ export const urls = {
     link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
-    messagingCampaigns: (): string => '/messaging/campaigns',
-    messagingCampaignNew: (): string => '/messaging/campaigns/new',
-    messagingCampaign: (id: string, tab?: CampaignTab): string => `/messaging/campaigns/${id}/${tab || 'overview'}`,
-    messagingLibrary: (): string => '/messaging/library',
-    messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
-    messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
-    messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
-    messagingSenders: (): string => '/messaging/senders',
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,

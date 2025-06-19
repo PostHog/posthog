@@ -610,12 +610,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.MESSAGING_AUTOMATION]
+                        featureFlags[FEATURE_FLAGS.MESSAGING]
                             ? {
-                                  identifier: Scene.MessagingCampaigns,
+                                  identifier: Scene.Messaging,
                                   label: 'Messaging',
                                   icon: <IconMegaphone />,
-                                  to: urls.messagingCampaigns(),
+                                  to: urls.messaging(),
                                   tag: 'alpha' as const,
                               }
                             : null,
