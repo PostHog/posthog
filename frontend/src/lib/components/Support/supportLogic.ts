@@ -445,7 +445,6 @@ export const supportLogic = kea<supportLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
-        openEmailForm: async () => {},
         updateUrlParams: async () => {
             // Only include non-text fields in the URL parameters
             // This prevents focus loss when typing in text fields
@@ -530,9 +529,6 @@ export const supportLogic = kea<supportLogicType>([
                 planLevelTag = 'plan_boost'
             } else if (billingPlan) {
                 switch (billingPlan) {
-                    case BillingPlan.Enterprise:
-                        planLevelTag = 'plan_enterprise'
-                        break
                     case BillingPlan.Scale:
                         planLevelTag = 'plan_scale'
                         break
