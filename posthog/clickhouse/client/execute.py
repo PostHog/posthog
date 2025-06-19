@@ -203,6 +203,8 @@ def sync_execute(
                     with_column_types=with_column_types,
                     query_id=query_id,
                 )
+                if "INSERT INTO" in prepared_sql and client.last_query.progress.written_rows > 0:
+                    result = client.last_query.progress.written_rows
         except Exception as e:
             exception_type = ch_error_type(e)
             QUERY_ERROR_COUNTER.labels(
