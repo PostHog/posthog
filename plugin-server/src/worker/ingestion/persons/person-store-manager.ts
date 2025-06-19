@@ -164,10 +164,10 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             tx
         )
 
-        if (this.batchStore.getCachedPersonForUpdate(teamId, distinctIds![0].distinctId) === undefined) {
+        if (distinctIds && this.batchStore.getCachedPersonForUpdate(teamId, distinctIds![0].distinctId) === undefined) {
             this.batchStore.setCachedPersonForUpdate(
                 teamId,
-                distinctIds![0].distinctId,
+                distinctIds[0].distinctId,
                 fromInternalPerson(measuringResult[0], distinctIds![0].distinctId)
             )
         }
@@ -377,11 +377,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             if (sameOutcome && !versionDisparity) {
                 // Same outcome, same batch
                 this.shadowMetrics.sameOutcomeSameBatch++
-                personShadowModeComparisonCounter.labels('same_outcome_same_batch').inc()
+                personShadowModeComparisonCounter.labels('true_same_batch').inc()
             } else if (!sameOutcome && !versionDisparity) {
                 // Different outcome, same batch (LOGIC ERROR!)
                 this.shadowMetrics.differentOutcomeSameBatch++
-                personShadowModeComparisonCounter.labels('different_outcome_same_batch').inc()
+                personShadowModeComparisonCounter.labels('false_same_batch').inc()
                 this.shadowMetrics.logicErrors.push({
                     key,
                     measuringPerson,
@@ -391,7 +391,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             } else if (!sameOutcome && versionDisparity) {
                 // Different outcome, different batch (concurrent modification by another pod)
                 this.shadowMetrics.differentOutcomeDifferentBatch++
-                personShadowModeComparisonCounter.labels('different_outcome_different_batch').inc()
+                personShadowModeComparisonCounter.labels('false_different_batch').inc()
                 this.shadowMetrics.concurrentModifications.push({
                     key,
                     type: 'different_outcome',
@@ -401,7 +401,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             } else if (sameOutcome && versionDisparity) {
                 // Same outcome, different batch (concurrent modification by another pod with same result)
                 this.shadowMetrics.sameOutcomeDifferentBatch++
-                personShadowModeComparisonCounter.labels('same_outcome_different_batch').inc()
+                personShadowModeComparisonCounter.labels('true_different_batch').inc()
                 this.shadowMetrics.concurrentModifications.push({
                     key,
                     type: 'same_outcome',
@@ -434,6 +434,19 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
         if (typeof obj1 !== 'object') {
             return obj1 === obj2
+        }
+
+        // Handle arrays
+        if (Array.isArray(obj1) && Array.isArray(obj2)) {
+            if (obj1.length !== obj2.length) {
+                return false
+            }
+            for (let i = 0; i < obj1.length; i++) {
+                if (!this.deepEqual(obj1[i], obj2[i])) {
+                    return false
+                }
+            }
+            return true
         }
 
         // Handle DateTime objects
