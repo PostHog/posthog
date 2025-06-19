@@ -175,7 +175,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 return {
                     app_source: 'cdp_destinations',
                     metric_kind: 'success',
-                    metric_name: 'event-triggered-destination',
+                    metric_name: 'event_triggered_destination',
                     team_id: invocation!.state.globals.project.id,
                     app_source_id: uuid,
                     count: 1,
@@ -196,7 +196,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 return {
                     app_source: 'cdp-destination',
                     metric_kind: 'success',
-                    metric_name: 'destination-invoked',
+                    metric_name: 'destination_invoked',
                     team_id: invocation!.state.globals.project.id,
                     app_source_id: invocation!.hogFunction.template_id ?? 'custom',
                     instance_id: uniqueId,

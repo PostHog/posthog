@@ -180,8 +180,8 @@ export type MinimalAppMetric = {
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
-        | 'event-triggered-destination'
-        | 'destination-invoked'
+        | 'event_triggered_destination'
+        | 'destination_invoked'
 
     count: number
 }
