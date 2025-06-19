@@ -1244,6 +1244,9 @@ describe('Event Pipeline E2E tests', () => {
     }
 
     const fetchEvents = async (hub: Hub, teamId: number) => {
+        // Force ClickHouse to merge parts to ensure FINAL consistency
+        await hub.db.clickhouse.querying(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`)
+
         const queryResult = (await hub.db.clickhouse.querying(`
             SELECT *,
                    if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id

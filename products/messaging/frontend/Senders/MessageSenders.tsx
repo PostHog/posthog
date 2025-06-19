@@ -98,7 +98,7 @@ function MessageSenders(): JSX.Element {
     const emailIntegrations = integrations?.filter((integration) => integration.kind === 'email') ?? []
 
     return (
-        <div className="messaging-senders">
+        <div>
             <MessagingTabs key="senders-tabs" />
             <PageHeader
                 caption="Manage email sending domains"
