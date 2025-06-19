@@ -115,9 +115,13 @@ jobs:
             #   shell: bash
             #   run: |
             #       npm run taxonomy:build:json && git diff --exit-code
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always()
+        needs: [code-quality] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - uses: ./.github/actions/posthog-ci-collector
               with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+              posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}

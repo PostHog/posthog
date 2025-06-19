@@ -76,12 +76,6 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   buildScriptName: build
                   workingDir: ./common/storybook/
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
@@ -387,12 +381,6 @@ jobs:
               id: commit-hash
               if: needs.changes.outputs.frontend == 'true' && steps.commit.outputs.pushed == 'true'
               run: echo "${{ matrix.browser }}-${{ matrix.shard }}-commitHash=${{ steps.commit.outputs.commit_long_sha }}" >> $GITHUB_OUTPUT
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     visual-regression-summary:
         name: Summarize visual regression tests
@@ -493,12 +481,6 @@ jobs:
 
                       👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
                       })
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     calculate-running-time:
         name: Calculate running time
@@ -537,9 +519,13 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always()
+        needs: [calculate-running-time] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - uses: ./.github/actions/posthog-ci-collector
               with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+              posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}

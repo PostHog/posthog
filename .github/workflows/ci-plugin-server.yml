@@ -75,12 +75,6 @@ jobs:
 
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/plugin-server lint
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     build:
         name: Plugin Server Build
@@ -117,12 +111,6 @@ jobs:
                   else
                       echo "✅ Build is valid - failed as expected without module errors"
                   fi
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     tests:
         name: Plugin Server Tests (${{matrix.shard}}/3)
@@ -252,9 +240,13 @@ jobs:
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
-            - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always()
+        needs: [tests, build] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - uses: ./.github/actions/posthog-ci-collector
               with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+              posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}
