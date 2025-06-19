@@ -24,6 +24,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import posthog from 'posthog-js'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -86,16 +87,16 @@ function SurveysWithMaxTool(): JSX.Element {
                 launched?: boolean
                 error?: string
             }) => {
-                // Handle survey creation result
-                if (toolOutput?.survey_id) {
-                    // Refresh surveys list to show new survey
-                    loadSurveys()
-                    // Optionally navigate to the new survey
-                    router.actions.push(urls.survey(toolOutput.survey_id))
-                } else if (toolOutput?.error) {
-                    // Error case - surveys list should already be current
-                    console.error('Survey creation failed:', toolOutput.error)
+                if (toolOutput?.error || !toolOutput?.survey_id) {
+                    posthog.captureException('survey-creation-failed', {
+                        error: toolOutput.error,
+                    })
+                    return
                 }
+
+                // Refresh surveys list to show new survey, then redirect to it
+                loadSurveys()
+                router.actions.push(urls.survey(toolOutput.survey_id))
             }}
         >
             <Surveys />
