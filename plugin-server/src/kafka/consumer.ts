@@ -1,5 +1,6 @@
 import {
     ClientMetrics,
+    CODES,
     ConsumerGlobalConfig,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
@@ -238,9 +239,7 @@ export class KafkaConsumer {
         consumer.on('rebalance', (err, topicPartitions) => {
             logger.info('🔁', 'kafka_consumer_rebalancing', { err, topicPartitions })
 
-            if (err.code === 1) {
-                // ERR__ASSIGN_PARTITIONS
-                // Partitions assigned to this consumer
+            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
@@ -252,9 +251,7 @@ export class KafkaConsumer {
                         1
                     )
                 })
-            } else if (err.code === 2) {
-                // ERR__REVOKE_PARTITIONS
-                // Partitions revoked from this consumer
+            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
