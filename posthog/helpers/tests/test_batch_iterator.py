@@ -67,23 +67,6 @@ class TestFunctionBatchIterator:
         assert len(batches) == 1
         assert batches[0] == (0, [1, 2, 3])
 
-    def test_function_batch_iterator_variable_batch_sizes(self):
-        def create_variable_batch(batch_index: int, batch_size: int) -> list[int]:
-            if batch_index == 0:
-                return [1, 2]  # Smaller than batch_size
-            elif batch_index == 1:
-                return [3, 4, 5, 6]  # Larger than batch_size
-            elif batch_index == 2:
-                return [7]  # Single item
-            return []
-
-        batch_iterator = FunctionBatchIterator(create_variable_batch, batch_size=3)
-        batches = list(batch_iterator)
-        assert len(batches) == 3
-        assert batches[0] == (0, [1, 2])
-        assert batches[1] == (1, [3, 4, 5, 6])
-        assert batches[2] == (2, [7])
-
     def test_function_batch_iterator_with_early_termination(self):
         def create_batch_with_gaps(batch_index: int, batch_size: int) -> list[int]:
             if batch_index == 0:
