@@ -75,7 +75,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
             - name: Report job & steps to PostHog
-              if: always()
+              if: always() # && needs.changes.outputs.rust == 'true'
               uses: ./.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -181,14 +181,9 @@ jobs:
                   echo "Starting cargo test for links"
                   ${{ matrix.package == 'feature-flags' && ('RUST_BACKTRACE=1 cargo test --all-features --package links') || 'echo "Skipping links tests as it is not needed"' }}
                   echo "Cargo test for links completed"
-            - name: Report job to PostHog
-              if: always() && github.event_name == 'pull_request' && needs.changes.outputs.rust == 'true'
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Report job & steps to PostHog
-              if: always()
+              if: always() # && needs.changes.outputs.rust == 'true'
               uses: ./.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -241,8 +236,8 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: cargo check --all-features
             - name: Report job & steps to PostHog
-              if: always()
-              uses: ./.github/actions/ci-analytics
+              if: always() # && needs.changes.outputs.rust == 'true'
+              uses: ../.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -277,8 +272,8 @@ jobs:
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
             - name: Report job & steps to PostHog
-              if: always() && needs.changes.outputs.rust == 'true'
-              uses: ./.github/actions/ci-analytics
+              if: always() # && needs.changes.outputs.rust == 'true'
+              uses: ../.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
