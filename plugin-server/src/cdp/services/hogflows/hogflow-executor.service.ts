@@ -71,8 +71,6 @@ export class HogFlowExecutorService {
                 eventUuid: triggerGlobals.event.uuid,
             })
 
-            console.log('filterResults', filterResults)
-
             // Add any generated metrics and logs to our collections
             metrics.push(...filterResults.metrics)
             logs.push(...filterResults.logs)

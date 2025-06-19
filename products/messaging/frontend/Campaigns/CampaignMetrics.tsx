@@ -91,18 +91,16 @@ function CampaignMetricsTotals(): JSX.Element {
     const { metricsByKind, metricsByKindLoading } = useValues(campaignMetricsLogic)
 
     return (
-        <div className="deprecated-space-y-4">
-            <div className="flex flex-wrap gap-2 items-center">
-                {Object.entries(METRICS_INFO).map(([key, value]) => (
-                    <div key={key} className="flex flex-col flex-1 h-30 min-w-30 max-w-100">
-                        {metricsByKindLoading ? (
-                            <LemonSkeleton className="w-full h-full" />
-                        ) : (
-                            <CampaignMetric label={key} value={metricsByKind?.[key]?.total} tooltip={value} />
-                        )}
-                    </div>
-                ))}
-            </div>
+        <div className="flex flex-wrap gap-2 items-center">
+            {Object.entries(METRICS_INFO).map(([key, value]) => (
+                <div key={key} className="flex flex-col flex-1 h-30 min-w-30 max-w-100">
+                    {metricsByKindLoading ? (
+                        <LemonSkeleton className="w-full h-full" />
+                    ) : (
+                        <CampaignMetric label={key} value={metricsByKind?.[key]?.total} tooltip={value} />
+                    )}
+                </div>
+            ))}
         </div>
     )
 }
