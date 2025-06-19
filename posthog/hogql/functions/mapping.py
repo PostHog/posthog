@@ -85,6 +85,8 @@ class HogQLFunctionMeta:
     """Additional arguments that are added to the end of the arguments provided by the caller"""
     using_placeholder_arguments: bool = False
     using_positional_arguments: bool = False
+    parametric_first_arg: bool = False
+    """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
 
 
 def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
@@ -337,7 +339,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arrayDistinct": HogQLFunctionMeta("arrayDistinct", 1, 1),
     "arrayEnumerateDense": HogQLFunctionMeta("arrayEnumerateDense", 1, 1),
     "arrayIntersect": HogQLFunctionMeta("arrayIntersect", 1, None),
-    # "arrayReduce": HogQLFunctionMeta("arrayReduce", 2,None),  # takes a "parametric function" as first arg, is that safe?
+    "arrayReduce": HogQLFunctionMeta("arrayReduce", 2, None, parametric_first_arg=True),
     # "arrayReduceInRanges": HogQLFunctionMeta("arrayReduceInRanges", 3,None),  # takes a "parametric function" as first arg, is that safe?
     "arrayReverse": HogQLFunctionMeta("arrayReverse", 1, 1),
     "arrayFilter": HogQLFunctionMeta("arrayFilter", 2, None),
@@ -1965,3 +1967,23 @@ def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
 
 def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
     return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
+
+
+def is_allowed_parametric_function(name: str) -> bool:
+    # Allow any function where the HogQL version and Clickhouse version are straighforwardly mapped
+    # This might end up being a subset of the functions we want to support long-term, but for now it's a good compromise
+    # because:
+    # * It's only functions we're already happy to support
+    # * We don't have to figure out how to map functions with different names, or suffixed args
+    #
+    # One major downside of this approach is that this does't support functions like uniqUpTo(3), though adding those
+    # would be doable if we needed to
+
+    meta = find_hogql_aggregation(name) or find_hogql_function(name)
+    return (
+        meta
+        and meta.clickhouse_name == name
+        and not meta.suffix_args
+        and not meta.tz_aware
+        and not meta.parametric_first_arg
+    )
