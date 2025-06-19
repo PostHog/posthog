@@ -39,14 +39,8 @@ WithPrefixAndSuffixAction.args = {
     ),
 }
 
-const DisabledWithReasonTemplate: StoryFn<typeof LemonInput> = (props) => {
-    return <LemonInput {...props} disabledReason="You're not cool enough to click this." />
-}
-
-export const DisabledWithReason: Story = DisabledWithReasonTemplate.bind({})
-DisabledWithReason.args = {
-    disabled: true,
-}
+export const DisabledWithReason: Story = Template.bind({})
+DisabledWithReason.args = { disabledReason: "You're not cool enough to click this." }
 
 export const Search: Story = Template.bind({})
 Search.args = { type: 'search', placeholder: 'Search your soul' }
