@@ -34,7 +34,6 @@ export function Info(): JSX.Element {
     } = useValues(experimentLogic)
     const {
         updateExperiment,
-        setExperimentStatsVersion,
         refreshExperimentResults,
         openDescriptionModal,
         closeDescriptionModal,
@@ -53,8 +52,6 @@ export function Info(): JSX.Element {
     if (!experiment.feature_flag) {
         return <></>
     }
-
-    const currentStatsVersion = experiment.stats_config?.version || 1
 
     const lastRefresh = legacyMetricResults?.[0]?.last_refresh
 
@@ -124,28 +121,6 @@ export function Info(): JSX.Element {
                                 )}
                         </div>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">
-                                <span>Stats Version</span>
-                            </div>
-                            <div className="flex gap-1">
-                                {[1, 2].map((version) => (
-                                    <LemonButton
-                                        key={version}
-                                        size="xsmall"
-                                        type="tertiary"
-                                        active={currentStatsVersion === version}
-                                        onClick={() => {
-                                            setExperimentStatsVersion(version)
-                                        }}
-                                    >
-                                        v{version}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 <div className="flex flex-col">
