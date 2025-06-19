@@ -160,7 +160,7 @@ def generate_single_session_summary_prompt(
     template_dir = Path(__file__).parent / "templates" / "identify-objectives"
     system_prompt = load_custom_template(
         template_dir,
-        f"system-prompt.djt",
+        "system-prompt.djt",
         {
             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
         },

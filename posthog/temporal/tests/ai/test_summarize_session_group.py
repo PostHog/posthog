@@ -87,7 +87,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
         assert result == expected_summary
         # Verify Redis operations count
         assert spy_get.call_count == 1  # Get input data
-        assert spy_setex.call_count == 1  # Inital setip + 0 from the activity
+        assert spy_setex.call_count == 1  # Inital setup + 0 from the activity
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ import pytest
 from typing import Any
 from posthog.redis import get_client
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
+from posthog.temporal.ai.session_summary.shared import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 
 
 @pytest.fixture
@@ -86,7 +87,7 @@ class RedisTestContext:
         """Set up Redis input data and track keys for cleanup."""
         self.redis_client.setex(
             input_key,
-            900,  # 15 minutes TTL
+            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
             input_data,
         )
         keys = [input_key] if not output_key else [input_key, output_key]

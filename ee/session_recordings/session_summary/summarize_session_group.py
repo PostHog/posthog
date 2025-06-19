@@ -14,7 +14,7 @@ def generate_session_group_summary_prompt(
     template_dir = Path(__file__).parent / "templates" / "session-group-summary"
     system_prompt = load_custom_template(
         template_dir,
-        f"system-prompt.djt",
+        "system-prompt.djt",
         {
             "FOCUS_AREA": extra_summary_context.focus_area,
         },
