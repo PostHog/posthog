@@ -55,7 +55,7 @@ function SurveysWithMaxTool(): JSX.Element {
         <MaxTool
             name="create_survey"
             displayName="AI Survey Creator"
-            initialMaxPrompt="Create a survey to "
+            initialMaxPrompt="Create a survey to understand"
             suggestions={[
                 'Create an NPS survey for customers who completed checkout',
                 'Create a feedback survey asking about our new dashboard',
