@@ -744,6 +744,27 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
             )
+        elif model.pipeline.source_type == ExternalDataSource.Type.GOOGLESHEETS:
+            from posthog.temporal.data_imports.pipelines.google_sheets.source import (
+                GoogleSheetsServiceAccountSourceConfig,
+                google_sheets_source,
+            )
+
+            google_sheets_config = GoogleSheetsServiceAccountSourceConfig.from_dict(model.pipeline.job_inputs)
+            source = google_sheets_source(
+                google_sheets_config,
+                schema.name,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
 
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")

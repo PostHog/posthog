@@ -369,7 +369,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             ]
         elif source.source_type == ExternalDataSource.Type.DOIT:
             incremental_columns = DOIT_INCREMENTAL_FIELDS
-
+        # TODO: Incremental syncing
+        # elif source.source_type == ExternalDataSource.Type.GOOGLESHEETS:
+        #     sf_schemas = get_snowflake_schemas(SnowflakeSourceConfig.from_dict(source.job_inputs))
+        #     columns = sf_schemas.get(instance.name, [])
+        #     incremental_columns = [
+        #         {"field": name, "field_type": field_type, "label": name, "type": field_type}
+        #         for name, field_type in filter_snowflake_incremental_fields(columns)
+        #     ]
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
             if mapping is None:
