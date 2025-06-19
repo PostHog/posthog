@@ -164,7 +164,7 @@ async def get_llm_single_session_summary(
             session_id=session_id,
             user_pk=user_pk,
         )
-        raise ExceptionToRetry()
+        raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
         # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
         logger.exception(
@@ -172,7 +172,7 @@ async def get_llm_single_session_summary(
             session_id=session_id,
             user_pk=user_pk,
         )
-        raise ExceptionToRetry()
+        raise ExceptionToRetry() from err
 
 
 async def stream_llm_single_session_summary(
@@ -232,7 +232,7 @@ async def stream_llm_single_session_summary(
                     session_id=session_id,
                     user_pk=user_pk,
                 )
-                raise ExceptionToRetry()
+                raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
         # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
         logger.exception(
@@ -240,7 +240,7 @@ async def stream_llm_single_session_summary(
             session_id=session_id,
             user_pk=user_pk,
         )
-        raise ExceptionToRetry()
+        raise ExceptionToRetry() from err
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
     try:
         if accumulated_usage:
@@ -275,7 +275,7 @@ async def stream_llm_single_session_summary(
             session_id=session_id,
             user_pk=user_pk,
         )
-        raise ExceptionToRetry()
+        raise ExceptionToRetry() from err
 
 
 def _track_session_summary_generation(
