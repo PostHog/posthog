@@ -2391,18 +2391,25 @@ class TestPrinter(BaseTest):
 
     def test_can_call_parametric_function(self):
         query = parse_select("SELECT arrayReduce('sum', [1, 2, 3])")
-        print_ast(
+        printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
         )
+        # TODO this needs to be constant, not added as a variable
+        assert printed == (
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
+        )
 
     def test_can_call_parametric_function_from_placeholder(self):
         query = parse_select("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
-        print_ast(
+        printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
+        )
+        assert printed == (
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 50000"
         )
 
     def test_fails_on_parametric_function_with_no_arguments(self):
