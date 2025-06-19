@@ -5,7 +5,6 @@ import {
     LemonDivider,
     LemonDropdown,
     LemonInput,
-    LemonLabel,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -15,7 +14,6 @@ import {
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl } from 'kea-router'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -26,14 +24,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
 import { useRef } from 'react'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import MaxTool from 'scenes/max/MaxTool'
-import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
@@ -59,7 +55,6 @@ export interface HogFunctionConfigurationProps {
         showEnabled?: boolean
         showTesting?: boolean
         canEditSource?: boolean
-        showPersonsCount?: boolean
     }
 }
 
@@ -84,9 +79,6 @@ export function HogFunctionConfiguration({
         sampleGlobalsWithInputs,
         showPaygate,
         hasAddon,
-        personsCount,
-        personsCountLoading,
-        personsListQuery,
         template,
         templateHasChanged,
         type,
@@ -223,11 +215,10 @@ export function HogFunctionConfiguration({
             !isSegmentPlugin &&
             (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
                 (type === 'transformation' && canEditTransformationHogCode)))
-    const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
-    const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
+    const showLeftPanel = showOverview || showExpectedVolume || showFilters
 
     return (
         <div className="deprecated-space-y-3">
@@ -387,37 +378,6 @@ export function HogFunctionConfiguration({
                                 {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
 
                                 {showFilters && <HogFunctionFilters />}
-
-                                {showPersonsCount && (
-                                    <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
-                                        <div>
-                                            <LemonLabel>Matching persons</LemonLabel>
-                                        </div>
-                                        {personsCount && !personsCountLoading ? (
-                                            <>
-                                                Found{' '}
-                                                <Link
-                                                    to={
-                                                        // TODO: swap for a link to the persons page
-                                                        combineUrl(urls.activity(), {}, { q: personsListQuery }).url
-                                                    }
-                                                    target="_blank"
-                                                >
-                                                    <strong>
-                                                        {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
-                                                    </strong>
-                                                </Link>{' '}
-                                                to send to.
-                                            </>
-                                        ) : personsCountLoading ? (
-                                            <div className="min-h-20">
-                                                <SpinnerOverlay />
-                                            </div>
-                                        ) : (
-                                            <p>The expected volume could not be calculated</p>
-                                        )}
-                                    </div>
-                                )}
 
                                 {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                             </div>
@@ -660,7 +620,6 @@ export function HogFunctionConfiguration({
                             )}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
-                            {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

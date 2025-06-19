@@ -5211,7 +5211,6 @@ export type HogFunctionTypeType =
     | 'site_destination'
     | 'site_app'
     | 'transformation'
-    | 'broadcast'
     | 'messaging_campaign'
 
 export type HogFunctionKind = 'messaging_campaign' | null
