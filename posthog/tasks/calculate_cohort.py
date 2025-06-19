@@ -87,7 +87,7 @@ def reset_stuck_cohorts() -> None:
         cohort.is_calculating = False
 
         # A stuck cohort never has its errors_calculating incremented, so we need to do it here
-        # This will ensure that we don't keep retrying that will never calculate successfully
+        # This will ensure that we don't keep retrying cohorts that will never calculate successfully
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.last_error_at = timezone.now()
         cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
