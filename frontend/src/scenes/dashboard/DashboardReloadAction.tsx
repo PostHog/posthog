@@ -12,8 +12,8 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
-    const { newestRefreshed } = useValues(dashboardLogic)
-    return <span>Last updated {newestRefreshed ? dayjs(newestRefreshed).fromNow() : 'a while ago'}</span>
+    const { lastDashboardRefresh } = useValues(dashboardLogic)
+    return <span>Last updated {lastDashboardRefresh ? dayjs(lastDashboardRefresh).fromNow() : 'a while ago'}</span>
 }
 
 const REFRESH_INTERVAL_SECONDS = [1800, 3600]
@@ -28,7 +28,7 @@ const INTERVAL_OPTIONS = [
 ]
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, oldestClientRefreshAllowed } =
+    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, nextAllowedDashboardRefresh } =
         useValues(dashboardLogic)
     const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
 
@@ -53,7 +53,7 @@ export function DashboardReloadAction(): JSX.Element {
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
-                        ? `Next bulk refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
+                        ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
                         : itemsLoading
                         ? 'Refreshing...'
                         : ''
