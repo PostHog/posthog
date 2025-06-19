@@ -1668,6 +1668,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     return metric?.metric_type || ExperimentMetricType.MEAN
                 },
         ],
+        isExperimentDraft: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !experiment?.start_date && !experiment?.end_date && !experiment?.archived
+            },
+        ],
         isExperimentRunning: [
             (s) => [s.experiment],
             (experiment): boolean => {

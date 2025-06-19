@@ -625,7 +625,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
                 component: <OrganizationExperimentStatsMethod />,
-                flag: 'EXPERIMENTS_FREQUENTIST',
             },
         ],
     },
