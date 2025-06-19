@@ -395,17 +395,26 @@ async fn send_internal_event(
     if let Some(assignment) = new_assignment {
         if let Some(user_id) = assignment.user_id {
             event
-                .insert_prop("assigned_user_id", user_id.to_string())
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user", "id": user_id}).to_string(),
+                )
                 .expect("Strings are serializable");
         }
         if let Some(group_id) = assignment.user_group_id {
             event
-                .insert_prop("assigned_user_group_id", group_id.to_string())
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user_group", "id": group_id.to_string()}).to_string(),
+                )
                 .expect("Strings are serializable");
         }
         if let Some(role_id) = assignment.role_id {
             event
-                .insert_prop("assigned_role_id", role_id.to_string())
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "role", "id": role_id.to_string()}).to_string(),
+                )
                 .expect("Strings are serializable");
         }
     }

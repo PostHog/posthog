@@ -6,13 +6,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 
-import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import {
-    AnyPropertyFilter,
-    CyclotronJobFiltersType,
-    ErrorTrackingIssueFilter,
-    HogFunctionConfigurationContextId,
-} from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -74,44 +68,6 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): Cyclotron
     }
 }
 
-const serializePropertyFilters = (
-    contextId: HogFunctionConfigurationContextId,
-    properties?: AnyPropertyFilter[]
-): AnyPropertyFilter[] => {
-    const newProperties = properties ?? []
-    switch (contextId) {
-        case 'error-tracking':
-            return newProperties.map((p) => {
-                if (p.key && ['assigned_user_group_id', 'assigned_user_id', 'assigned_role_id'].includes(p.key)) {
-                    const type = p.key.match(/^assigned_(.*)_id$/)?.[1] ?? 'user'
-                    const value = { type, id: Number(p.value) } as ErrorTrackingIssueAssignee
-                    return { ...p, key: 'assignee', value } as ErrorTrackingIssueFilter
-                }
-                return p
-            })
-        default:
-            return newProperties
-    }
-}
-
-const deserializePropertyFilters = (
-    contextId: HogFunctionConfigurationContextId,
-    properties: AnyPropertyFilter[]
-): AnyPropertyFilter[] => {
-    switch (contextId) {
-        case 'error-tracking':
-            return properties.map((p) => {
-                if (p.key === 'assignee') {
-                    const { type, id } = p.value as ErrorTrackingIssueAssignee
-                    return { ...p, key: `assigned_${type}_id`, value: id }
-                }
-                return p
-            })
-        default:
-            return properties
-    }
-}
-
 export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
@@ -142,12 +98,12 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                         {taxonomicGroupTypes.length > 0 ? (
                             <PropertyFilters
                                 key={contextId}
-                                propertyFilters={serializePropertyFilters(contextId, value?.properties)}
+                                propertyFilters={value?.properties ?? []}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
                                         ...value,
-                                        properties: deserializePropertyFilters(contextId, properties),
+                                        properties,
                                     })
                                 }}
                                 pageKey={`hog-function-internal-property-filters-${contextId}`}
