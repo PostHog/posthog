@@ -104,4 +104,9 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}

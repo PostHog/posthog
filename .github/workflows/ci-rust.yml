@@ -81,7 +81,12 @@ jobs:
             - name: Run cargo build
               if: needs.changes.outputs.rust == 'true'
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     test:
         name: Test Rust services
@@ -189,7 +194,12 @@ jobs:
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     linting:
         name: Lint Rust services
@@ -237,7 +247,12 @@ jobs:
             - name: Run cargo check
               if: needs.changes.outputs.rust == 'true'
               run: cargo check --all-features
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     shear:
         name: Shear Rust services
@@ -268,4 +283,9 @@ jobs:
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}

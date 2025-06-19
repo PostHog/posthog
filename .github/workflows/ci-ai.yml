@@ -150,4 +150,9 @@ jobs:
                           console.log(body)
                       }
 
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}

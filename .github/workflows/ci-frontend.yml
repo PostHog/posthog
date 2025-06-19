@@ -141,7 +141,12 @@ jobs:
             - name: Check toolbar for CSP eval violations
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     jest:
         runs-on: depot-ubuntu-24.04
@@ -185,7 +190,12 @@ jobs:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
                   SHARD_COUNT: 3
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     calculate-running-time:
         name: Calculate running time
@@ -224,4 +234,9 @@ jobs:
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
 
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}

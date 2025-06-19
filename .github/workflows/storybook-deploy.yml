@@ -1,5 +1,11 @@
 name: 'Storybook Deployment'
-
+_posthog_step: &posthog_step
+    name: Report job + steps to PostHog
+    if: always()
+    uses: ./.github/actions/ci-analytics
+    with:
+        posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 on:
     push:
         branches:
@@ -61,3 +67,9 @@ jobs:
                   commit_user_name: PostHog Bot
                   commit_user_email: hey@posthog.com
                   commit_author: PostHog Bot <hey@posthog.com>
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}

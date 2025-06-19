@@ -337,7 +337,12 @@ jobs:
                   name: email_renders-${{ matrix.segment }}-${{ matrix.person-on-events }}
                   path: posthog/tasks/test/__emails__
                   retention-days: 5
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
@@ -398,7 +403,12 @@ jobs:
             - name: Run async migrations tests
               run: |
                   pytest -m "async_migrations"
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     calculate-running-time:
         name: Calculate running time
@@ -432,4 +442,9 @@ jobs:
                   echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
-            - *posthog_step
+            - name: Report job & steps to PostHog
+              if: always()
+              uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
