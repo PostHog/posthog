@@ -1,5 +1,6 @@
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -81,6 +82,19 @@ export const scene: SceneExport = {
 export function MessagingScene(): JSX.Element {
     const { currentTab } = useValues(messagingSceneLogic)
     const { setCurrentTab } = useActions(messagingSceneLogic)
+
+    const hasMessagingFeatureFlag = useFeatureFlag('MESSAGING')
+
+    if (!hasMessagingFeatureFlag) {
+        return (
+            <div className="flex flex-col justify-center items-center h-full">
+                <h1 className="text-2xl font-bold">Coming soon!</h1>
+                <p className="text-sm text-muted-foreground">
+                    We're working on bringing messaging to PostHog. Stay tuned for updates!
+                </p>
+            </div>
+        )
+    }
 
     const tabs: LemonTab<MessagingSceneTab>[] = [
         {

@@ -193,9 +193,8 @@ export const FEATURE_FLAGS = {
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
-    MESSAGING: 'messaging-product', // owner @haven #team-messaging
-    MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
-    MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging
+    MESSAGING: 'messaging', // owner @haven #team-messaging
+    MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
