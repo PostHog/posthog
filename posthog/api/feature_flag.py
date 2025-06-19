@@ -714,7 +714,9 @@ class FeatureFlagViewSet(
 
         for key in filters:
             if key == "active":
-                queryset = queryset.filter(active=filters[key] == "true")
+                # Handle 'stale' filter separately in list() method as it requires post-query processing
+                if filters[key] != "STALE":
+                    queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
@@ -817,8 +819,18 @@ class FeatureFlagViewSet(
             # Add request for analytics only if request coming with personal API key authentication
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
+        # Check if we need to filter by stale status
+        filter_by_stale = request.GET.get("active") == "STALE"
+
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
+
+        # Filter by stale status if requested
+        if filter_by_stale:
+            feature_flags_data = [flag for flag in feature_flags_data if flag.get("status") == "STALE"]
+            # Update response data with filtered results
+            response.data["results"] = feature_flags_data
+            response.data["count"] = len(feature_flags_data)
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         for feature_flag in feature_flags_data:

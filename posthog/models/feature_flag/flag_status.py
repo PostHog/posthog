@@ -60,6 +60,11 @@ class FeatureFlagStatusChecker:
         if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
             return FeatureFlagStatus.STALE, fully_rolled_out_explanation
 
+        # Check if flag is rolled out to 0% (no users)
+        is_flag_rolled_out_to_no_users, no_users_explanation = self.is_flag_rolled_out_to_no_users(flag)
+        if is_flag_rolled_out_to_no_users and is_flag_at_least_thirty_days_old:
+            return FeatureFlagStatus.STALE, no_users_explanation
+
         return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
 
     def is_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
@@ -94,6 +99,30 @@ class FeatureFlagStatusChecker:
             return True, f'This flag will always use the variant "{fully_rolled_out_variant_name}"'
         elif not multivariate and self.is_boolean_flag_fully_rolled_out(flag):
             return True, 'This boolean flag will always evaluate to "true"'
+
+        return False, ""
+
+    def is_flag_rolled_out_to_no_users(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
+        """Check if flag is effectively disabled by being rolled out to 0% of users."""
+        if not flag.active:
+            return False, ""
+
+        # Check if all groups have 0% rollout
+        groups = flag.filters.get("groups", [])
+        if not groups:
+            return False, ""
+
+        all_zero_rollout = all(group.get("rollout_percentage", 100) == 0 for group in groups)
+
+        if all_zero_rollout:
+            return True, "Flag is rolled out to 0% of users (no users will match)"
+
+        # For multivariate flags, check if all variants are at 0%
+        multivariate = flag.filters.get("multivariate", None)
+        if multivariate:
+            variants = multivariate.get("variants", [])
+            if variants and all(variant.get("rollout_percentage", 0) == 0 for variant in variants):
+                return True, "All variants are rolled out to 0% (no users will match)"
 
         return False, ""
 

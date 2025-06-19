@@ -374,6 +374,8 @@ export function OverViewTab({
                                 const { active, ...restFilters } = filters
                                 setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                             }
+                        } else if (status === 'STALE') {
+                            setFeatureFlagsFilters({ active: 'STALE', page: 1 })
                         } else {
                             setFeatureFlagsFilters({ active: status, page: 1 })
                         }
@@ -385,6 +387,11 @@ export function OverViewTab({
                             label: 'Disabled',
                             value: 'false',
                             'data-attr': 'feature-flag-select-status-disabled',
+                        },
+                        {
+                            label: 'Stale',
+                            value: 'STALE',
+                            'data-attr': 'feature-flag-select-status-stale',
                         },
                     ]}
                     value={filters.active ?? 'all'}
