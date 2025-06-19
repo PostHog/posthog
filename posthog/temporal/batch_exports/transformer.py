@@ -4,7 +4,6 @@ import collections.abc
 import concurrent.futures
 import gzip
 import json
-import multiprocessing.shared_memory as sm
 import typing
 from io import BytesIO
 
@@ -15,7 +14,6 @@ import pyarrow.parquet as pq
 import structlog
 from django.conf import settings
 
-from posthog.temporal.batch_exports.utils import cast_record_batch_json_columns
 
 logger = structlog.get_logger()
 
@@ -220,23 +218,40 @@ class JSONLStreamTransformer(StreamTransformer):
             return
 
         max_workers = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS
-        task_queue: asyncio.Queue[asyncio.Future[list[bytes]]] = asyncio.Queue(max_workers)
         loop = asyncio.get_running_loop()
         current_file_size = 0
         futures_pending = set()
+        semaphore = asyncio.Semaphore(max_workers)
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        async def producer(executor: concurrent.futures.ProcessPoolExecutor):
+            nonlocal futures_pending
+
             async for record_batch in record_batches:
+                _ = await semaphore.acquire()
+
                 future = loop.run_in_executor(executor, transform_record_batch, record_batch, self)
                 futures_pending.add(future)
 
-                if len(futures_pending) < max_workers:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            producer_task = asyncio.create_task(producer(executor))
+
+            while True:
+                try:
+                    done, _ = await asyncio.wait(futures_pending, return_when=asyncio.FIRST_COMPLETED)
+                except ValueError:
+                    if producer_task.done():
+                        if exception := producer_task.exception():
+                            raise exception
+                        else:
+                            break
+
                     await asyncio.sleep(0)
                     continue
 
-                done, futures_pending = await asyncio.wait(futures_pending, return_when=asyncio.FIRST_COMPLETED)
                 for future in done:
                     chunks = await future
+                    semaphore.release()
+                    futures_pending.remove(future)
 
                     for chunk in chunks:
                         yield (chunk, False)
@@ -249,29 +264,6 @@ class JSONLStreamTransformer(StreamTransformer):
 
                             yield (b"", True)
                             current_file_size = 0
-
-                    await asyncio.sleep(0)
-
-            if futures_pending:
-                done, futures_pending = await asyncio.wait(futures_pending, return_when=asyncio.ALL_COMPLETED)
-                assert not futures_pending
-
-                for future in done:
-                    chunks = await future
-
-                    for chunk in chunks:
-                        yield (chunk, False)
-
-                        current_file_size += len(chunk)
-
-                        if max_file_size_bytes and current_file_size > max_file_size_bytes:
-                            for chunk in self.finalize():
-                                yield (chunk, False)
-
-                            yield (b"", True)
-                            current_file_size = 0
-
-                    await asyncio.sleep(0)
 
             for chunk in self.finalize():
                 yield (chunk, False)
@@ -332,38 +324,6 @@ class ParquetStreamTransformer(StreamTransformer):
         self._parquet_buffer.truncate(0)
 
         yield data
-
-
-def transform_record_batch_from_shared_memory(shm_name: str, transformer: StreamTransformer):
-    """Top level function to run transformers in multiprocessing.
-
-    Record batches are accessed from shared memory.
-    """
-    shm = None
-    record_batch = None
-    buffer_reader = None
-    reader = None
-
-    try:
-        shm = sm.SharedMemory(name=shm_name)
-
-        buffer_reader = pa.BufferReader(shm.buf)
-        with pa.RecordBatchStreamReader(buffer_reader) as reader:
-            record_batch = reader.read_next_batch()
-
-        record_batch = cast_record_batch_json_columns(record_batch)
-        return list(transformer.transform_batch(record_batch))
-    finally:
-        if buffer_reader:
-            del buffer_reader
-        if record_batch:
-            del record_batch
-        if reader:
-            del reader
-
-        if shm:
-            shm.close()
-            shm.unlink()
 
 
 def transform_record_batch(record_batch, transformer: StreamTransformer):
