@@ -673,7 +673,7 @@ export class DB {
         return [person, kafkaMessages]
     }
 
-    // Potential optimization on the updatePersonDeprecated method
+    // Potential optimization on the updatePerson method
     public async updatePersonWithMergeOperator(
         person: InternalPerson,
         propertiesToSet: Properties,
@@ -769,7 +769,7 @@ export class DB {
         return [updatedPerson, [kafkaMessage]]
     }
 
-    public async updatePersonOptimistically(personUpdate: PersonUpdate): Promise<number | undefined> {
+    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
             PostgresUse.PERSONS_WRITE,
             `
@@ -802,7 +802,7 @@ export class DB {
     }
 
     // Currently in use, but there are various problems with this function
-    public async updatePersonDeprecated(
+    public async updatePerson(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient,

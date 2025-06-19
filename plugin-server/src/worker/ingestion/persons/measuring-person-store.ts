@@ -307,7 +307,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         this.clearCache()
         this.incrementDatabaseOperation(methodName, distinctId)
         const start = performance.now()
-        const response = await this.db.updatePersonDeprecated(person, update, tx, updateType)
+        const response = await this.db.updatePerson(person, update, tx, updateType)
         this.recordUpdateLatency(updateType, (performance.now() - start) / 1000, distinctId)
         observeLatencyByVersion(person, start, methodName)
         return response

@@ -147,6 +147,14 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
+/**
+ * The mode of db batch writes to use for person batch writing
+ * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
+ * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
+ * WITH_TRANSACTION: Use SELECT FOR UPDATE in transaction to get the latest version of the person (locks the row)
+ */
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION' | 'WITH_TRANSACTION'
+
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
@@ -157,7 +165,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_CACHE_ENABLED_FOR_UPDATES: boolean // whether to cache persons for fetchForUpdate calls
     PERSON_CACHE_ENABLED_FOR_CHECKS: boolean // whether to cache persons for fetchForChecking calls
     PERSON_BATCH_WRITING_ENABLED: boolean // whether to batch write persons Postgres updates/inserts
-    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean // whether to use optimistic updates for persons table
+    PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode // the mode of db batch writes to use for person batch writing
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to persons table per batch
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update

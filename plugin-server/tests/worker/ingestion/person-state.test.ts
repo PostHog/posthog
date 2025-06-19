@@ -93,7 +93,7 @@ describe('PersonState.processEvent()', () => {
         secondUserUuid = uuidFromDistinctId(teamId, secondUserDistinctId)
 
         jest.spyOn(hub.db, 'fetchPerson')
-        jest.spyOn(hub.db, 'updatePersonDeprecated')
+        jest.spyOn(hub.db, 'updatePerson')
 
         jest.useFakeTimers({ advanceTimers: 50 })
         defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
@@ -515,7 +515,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.updatePerson).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -620,7 +620,7 @@ describe('PersonState.processEvent()', () => {
                     is_identified: false,
                 })
             )
-            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.updatePerson).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -671,7 +671,7 @@ describe('PersonState.processEvent()', () => {
                     is_identified: false,
                 })
             )
-            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePerson).toHaveBeenCalledTimes(1)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -706,7 +706,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.updatePerson).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -1024,7 +1024,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.updatePerson).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -1065,7 +1065,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -1073,7 +1073,7 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toEqual(person)
 
             await personS.updateProperties()
-            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePerson).toHaveBeenCalledTimes(1)
         })
 
         it('handles race condition when person provided has been merged', async () => {
@@ -1125,7 +1125,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(2)
+            expect(hub.db.updatePerson).toHaveBeenCalledTimes(2)
 
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -1174,7 +1174,7 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.updatePerson).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
@@ -1648,7 +1648,7 @@ describe('PersonState.processEvent()', () => {
                     is_identified: true,
                 })
             )
-            // expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            // expect(hub.db.updatePerson).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -2097,7 +2097,7 @@ describe('PersonState.processEvent()', () => {
             hub = await createHub({})
 
             jest.spyOn(hub.db, 'fetchPerson')
-            jest.spyOn(hub.db, 'updatePersonDeprecated')
+            jest.spyOn(hub.db, 'updatePerson')
         })
 
         afterEach(async () => {
@@ -2126,7 +2126,7 @@ describe('PersonState.processEvent()', () => {
                     is_identified: true,
                 })
             )
-            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.updatePerson).not.toHaveBeenCalled()
             expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
         })
 
@@ -2161,7 +2161,7 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePerson).toHaveBeenCalledTimes(1)
             expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())

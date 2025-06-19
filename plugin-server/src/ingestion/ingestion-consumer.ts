@@ -142,7 +142,7 @@ export class IngestionConsumer {
 
         if (this.hub.PERSON_BATCH_WRITING_ENABLED) {
             this.personStore = new BatchWritingPersonsStore(this.hub.db, {
-                optimisticUpdatesEnabled: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED,
+                dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
                 maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
                 maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
                 optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,

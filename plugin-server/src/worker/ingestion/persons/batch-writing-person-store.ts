@@ -3,7 +3,13 @@ import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
 import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
+import {
+    InternalPerson,
+    PersonBatchWritingDbWriteMode,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
@@ -29,7 +35,9 @@ type MethodName =
     | 'fetchForChecking'
     | 'fetchForUpdate'
     | 'fetchPerson'
-    | 'updatePersonOptimistically'
+    | 'updatePersonAssertVersion'
+    | 'updatePersonNoAssert'
+    | 'updatePersonWithTransaction'
     | 'createPerson'
     | 'updatePersonForUpdate'
     | 'updatePersonForMerge'
@@ -42,17 +50,17 @@ type MethodName =
     | 'updatePersonWithPropertiesDiffForUpdate'
     | 'addPersonUpdateToBatch'
 
-type UpdateType = 'updatePersonOptimistically' | 'updatePersonWithTransaction'
+type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert' | 'updatePersonWithTransaction'
 
 export interface BatchWritingPersonsStoreOptions {
     maxConcurrentUpdates: number
-    optimisticUpdatesEnabled: boolean
+    dbWriteMode: PersonBatchWritingDbWriteMode
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
-    optimisticUpdatesEnabled: false,
+    dbWriteMode: 'NO_ASSERT',
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
@@ -123,24 +131,30 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 .map(([cacheKey, update]) =>
                     limit(async () => {
                         try {
-                            if (this.options.optimisticUpdatesEnabled) {
-                                await promiseRetry(
-                                    () => this.updatePersonOptimistically(update),
-                                    'updatePersonOptimistically',
-                                    this.options.maxOptimisticUpdateRetries,
-                                    this.options.optimisticUpdateRetryInterval,
-                                    undefined,
-                                    [MessageSizeTooLarge]
-                                )
-                            } else {
-                                await promiseRetry(
-                                    () => this.updatePersonWithTransaction(update, 'batch'),
-                                    'updatePersonWithTransaction',
-                                    this.options.maxOptimisticUpdateRetries,
-                                    this.options.optimisticUpdateRetryInterval,
-                                    undefined,
-                                    [MessageSizeTooLarge]
-                                )
+                            switch (this.options.dbWriteMode) {
+                                case 'NO_ASSERT':
+                                    await this.updatePersonNoAssert(update, 'batch')
+                                    break
+                                case 'ASSERT_VERSION':
+                                    await promiseRetry(
+                                        () => this.updatePersonAssertVersion(update),
+                                        'updatePersonOptimistically',
+                                        this.options.maxOptimisticUpdateRetries,
+                                        this.options.optimisticUpdateRetryInterval,
+                                        undefined,
+                                        [MessageSizeTooLarge]
+                                    )
+                                    break
+                                case 'WITH_TRANSACTION':
+                                    await promiseRetry(
+                                        () => this.updatePersonWithTransaction(update, 'batch'),
+                                        'updatePersonWithTransaction',
+                                        this.options.maxOptimisticUpdateRetries,
+                                        this.options.optimisticUpdateRetryInterval,
+                                        undefined,
+                                        [MessageSizeTooLarge]
+                                    )
+                                    break
                             }
                         } catch (error) {
                             // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
@@ -163,7 +177,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                             })
                             // Remove the person from the cache, so we don't try to update it again
                             this.personUpdateCache.delete(cacheKey)
-                            await this.updatePersonWithTransaction(update, 'conflictRetry')
+                            await this.updatePersonNoAssert(update, 'conflictRetry')
                         }
                     }).catch((error) => {
                         logger.error('Failed to update person after max retries and direct update fallback', {
@@ -548,17 +562,44 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         throw new Error('Not implemented')
     }
 
-    private async updatePersonOptimistically(personUpdate: PersonUpdate): Promise<void> {
-        this.incrementDatabaseOperation('updatePersonOptimistically', personUpdate.distinct_id)
+    private async updatePersonNoAssert(
+        personUpdate: PersonUpdate,
+        source: string
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        const operation = 'updatePersonNoAssert' + (source ? `-${source}` : '')
+        this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
+        // Convert PersonUpdate back to InternalPerson for database call
+        const person = toInternalPerson(personUpdate)
+        // Create update object without version field (updatePerson handles version internally)
+        const { version, ...updateFields } = person
+
+        this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
+        this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
+        const start = performance.now()
+        const response = await this.db.updatePerson(person, updateFields, undefined, 'updatePersonNoAssert')
+        this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
+        observeLatencyByVersion(person, start, 'updatePersonNoAssert')
+        return response
+    }
+
+    /**
+     * Updates the person in the database by attempting to write to a column where the version is the stored cached
+     * version. If no rows to update are found, the update fails and we retry by reading again from the database.
+     * This method uses no locks but can cause multiple reads from the database.
+     * @param personUpdate the personUpdate to write
+     * @returns the actual version of the person after the write
+     */
+    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<void> {
+        this.incrementDatabaseOperation('updatePersonAssertVersion', personUpdate.distinct_id)
 
         const start = performance.now()
-        const actualVersion = await this.db.updatePersonOptimistically(personUpdate)
+        const actualVersion = await this.db.updatePersonAssertVersion(personUpdate)
         this.recordUpdateLatency(
-            'updatePersonOptimistically',
+            'updatePersonAssertVersion',
             (performance.now() - start) / 1000,
             personUpdate.distinct_id
         )
-        observeLatencyByVersion(personUpdate, start, 'updatePersonOptimistically')
+        observeLatencyByVersion(personUpdate, start, 'updatePersonAssertVersion')
 
         if (actualVersion !== undefined) {
             // Success - optimistic update worked, update version in cache
@@ -587,7 +628,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             personUpdate.version = latestPerson.version
         }
 
-        throw new Error('Optimistic update failed, will retry')
+        throw new Error('Assert version update failed, will retry')
     }
 
     private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<void> {
@@ -609,9 +650,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 throw new Error('Person not found during direct update')
             }
 
-            // Create update object without version field (updatePersonDeprecated handles version internally)
+            // Create update object without version field (updatePerson handles version internally)
             const { version, ...updateFields } = internalPerson
-            await this.db.updatePersonDeprecated(latestPerson, updateFields, tx, 'forUpdate')
+            await this.db.updatePerson(latestPerson, updateFields, tx, 'forUpdate')
         })
         this.recordUpdateLatency(
             'updatePersonWithTransaction',
