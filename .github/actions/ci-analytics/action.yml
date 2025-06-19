@@ -19,8 +19,19 @@ runs:
                       run_id: process.env.GITHUB_RUN_ID,
                     })).data
                   }
+                          
+                  const commit = await gh.rest.repos.getCommit({
+                    owner: context.repo.owner,
+                    repo:  context.repo.repo,
+                    ref:   run.head_sha,
+                  })
+                  const author = {
+                    login: commit.data.author?.login,                     // GitHub user
+                    name:  commit.data.commit.author?.name,               // Git name
+                    email: commit.data.commit.author?.email,              // Git e-mail
+                  }
 
-                  /* ---------------- fetch all jobs (+ steps) ---------------- */
+                          /* ---------------- fetch all jobs (+ steps) ---------------- */
                   const jobs = await gh.paginate(
                     gh.rest.actions.listJobsForWorkflowRun,
                     { owner: context.repo.owner,
@@ -54,6 +65,9 @@ runs:
                       ci_failed:     run.conclusion !== 'success',
                       ci_created_at: run.created_at,
                       ci_updated_at: run.updated_at,
+                      ci_author_login: author.login,
+                      ci_author_name:  author.name,
+                      ci_author_email: author.email,
                     },
                   })
 
@@ -75,6 +89,10 @@ runs:
                           ci_run_attempt: run.run_attempt,
                           ci_run_url: run.html_url,
                           ci_sha:     run.head_sha,
+
+                          ci_author_login: author.login,
+                          ci_author_name:  author.name,
+                          ci_author_email: author.email,
 
                           /* job-level */
                           ci_job:  j.name,
