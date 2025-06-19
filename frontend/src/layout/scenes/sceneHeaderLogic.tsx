@@ -4,6 +4,8 @@ import { ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 
 import type { sceneHeaderLogicType } from './sceneHeaderLogicType'
 
+type SceneHeaderItemProps = {}
+
 export const sceneHeaderLogic = kea<sceneHeaderLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
     actions({
