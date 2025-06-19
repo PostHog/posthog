@@ -51,12 +51,11 @@ export function filterFunctionInstrumented(options: {
         metrics,
     }
 
-    if (!filters?.bytecode) {
-        result.error = 'No filters bytecode'
-        return result
-    }
-
     try {
+        if (!filters?.bytecode) {
+            throw new Error('Filters were not compiled correctly and so could not be executed')
+        }
+
         execResult = execHog(filters.bytecode, {
             globals: filterGlobals,
             telemetry: enabledTelemetry,
