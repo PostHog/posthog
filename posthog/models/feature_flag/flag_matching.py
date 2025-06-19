@@ -671,13 +671,12 @@ class FeatureFlagMatcher:
                     key = f"flag_{feature_flag.pk}_condition_{index}"
                     condition_eval(key, condition)
 
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, READ_ONLY_DATABASE_FOR_PERSONS):
-                if len(person_fields) > 0:
+            if len(person_fields) > 0 or len(group_query_per_group_type_mapping) > 0:
+                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, READ_ONLY_DATABASE_FOR_PERSONS):
                     person_query = person_query.values(*person_fields)
                     if len(person_query) > 0:
                         all_conditions = {**all_conditions, **person_query[0]}
 
-                if len(group_query_per_group_type_mapping) > 0:
                     for (
                         group_query,
                         group_fields,
