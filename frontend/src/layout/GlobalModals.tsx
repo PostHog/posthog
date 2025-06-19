@@ -17,6 +17,7 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
+import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -78,6 +79,7 @@ export function GlobalModals(): JSX.Element {
             <GlobalCustomUnitModal />
             <SaveToModal />
             <MoveToModal />
+            <ItemSelectModal />
         </>
     )
 }

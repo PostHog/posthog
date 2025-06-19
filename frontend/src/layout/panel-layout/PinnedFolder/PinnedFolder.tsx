@@ -1,6 +1,6 @@
 import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { FolderSelect } from 'lib/components/FileSystem/FolderSelect/FolderSelect'
+import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -83,14 +83,16 @@ export function PinnedFolder(): JSX.Element {
                         </div>
                         <div className="flex items-center gap-px">
                             {pinnedFolder === 'shortcuts://' ? (
-                                <ButtonPrimitive
-                                    iconOnly
-                                    data-attr="tree-navbar-pinned-folder-add-button"
-                                    tooltip="Add shortcut"
-                                    tooltipPlacement="top"
-                                >
-                                    <IconPlusSmall className="size-4 text-secondary" />
-                                </ButtonPrimitive>
+                                <ItemSelectModal
+                                    buttonProps={{
+                                        iconOnly: true,
+                                        tooltip: 'Add shortcut',
+                                        tooltipPlacement: 'top',
+                                        children: <IconPlusSmall className="size-4 text-[red]" />,
+                                    }}
+                                    includeProtocol
+                                    root="project://"
+                                />
                             ) : null}
                             {configMenu}
                         </div>
@@ -101,37 +103,6 @@ export function PinnedFolder(): JSX.Element {
             <div className="flex flex-col mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
             </div>
-            {modalVisible ? (
-                <LemonModal
-                    onClose={hideModal}
-                    isOpen
-                    title="Change pinned folder"
-                    footer={
-                        typeof selectedFolder === 'string' ? (
-                            <>
-                                <div className="flex-1" />
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => setPinnedFolder(selectedFolder)}
-                                    data-attr="tree-navbar-pinned-folder-change-select-button"
-                                >
-                                    Select {formatUrlAsName(selectedFolder, 'Project root')}
-                                </LemonButton>
-                            </>
-                        ) : null
-                    }
-                >
-                    <div className="w-192 max-w-full">
-                        <FolderSelect
-                            value={selectedFolder}
-                            onChange={setSelectedFolder}
-                            includeProtocol
-                            root="project://"
-                            className="h-[60vh] min-h-[200px]"
-                        />
-                    </div>
-                </LemonModal>
-            ) : null}
         </>
     )
 }
