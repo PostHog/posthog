@@ -24,7 +24,7 @@ export function PinnedFolder(): JSX.Element {
     const { modalVisible, pinnedFolder, selectedFolder } = useValues(pinnedFolderLogic)
     const { hideModal, showModal, setPinnedFolder, setSelectedFolder } = useActions(pinnedFolderLogic)
 
-    const showDefaultHeader = pinnedFolder !== 'products://' && pinnedFolder !== 'data-management://'
+    const showDefaultHeader = pinnedFolder !== 'products://' && pinnedFolder !== 'data://'
 
     const configMenu = (
         <DropdownMenu>
