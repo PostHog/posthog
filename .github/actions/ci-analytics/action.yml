@@ -14,5 +14,6 @@ runs:
           run: python infra-scripts/gha/track_workflow_to_posthog.py
           env:
               GITHUB_TOKEN: ${{ inputs.github-token }}
-              POSTHOG_API_KEY: ${{ inputs.posthog-token }}
+              # This is the public key for a custom CI analytics project for testing, it's not a leaked secret.
+              POSTHOG_API_KEY: phc_90rMRdTaAI6S4qijwl0HI18UypvRq73M8lZFm6uEFbl
               POSTHOG_HOST: https://internal-t.posthog.com
