@@ -321,16 +321,16 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         <>
                                             {outdatedSdkCount === 1
                                                 ? sdkVersions.length > 1
-                                                    ? `One of your SDKs is outdated, which means you're missing out on the latest features.`
+                                                    ? `One of your SDKs is outdated, which means you may have bugs we've fixed in later versions, and you may be missing out on new enhancements and features.`
                                                     : `${numberToWord(
                                                           outdatedSdkCount
-                                                      )} outdated SDK means you're missing out on the latest features.`
+                                                      )} outdated SDK means you may have bugs we've fixed in later versions, and you may be missing out on new enhancements and features.`
                                                 : `${numberToWord(
                                                       outdatedSdkCount
-                                                  )} outdated SDKs mean you're missing out on the latest features.`}
-                                        </>{' '}
-                                        Check the links below to catch up.
+                                                  )} outdated SDKs mean you may have bugs we've fixed in later versions, and you may be missing out on new enhancements and features.`}
+                                        </>
                                     </p>
+                                    <p className="text-sm mt-1">Check the links below to get caught up.</p>
                                 </div>
                             </div>
                         </div>
