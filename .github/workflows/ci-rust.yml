@@ -256,7 +256,7 @@ jobs:
     posthog-analytics:
         name: PostHog CI analytics
         if: always() && needs.changes.outputs.rust == 'true'
-        needs: [test, build, shear] # last job in this workflow
+        needs: [test, build, shear, linting] # last job in this workflow
         runs-on: ubuntu-latest
         steps:
             - name: Checkout
