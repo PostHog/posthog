@@ -288,6 +288,8 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if field_type == IncrementalFieldType.Date:
         return parser.parse(value).date()
 
+    return None
+
 
 @database_sync_to_async
 def asave_external_data_schema(schema: ExternalDataSchema) -> None:

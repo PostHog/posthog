@@ -4,7 +4,6 @@ import collections
 from collections.abc import Iterator
 from typing import Any
 
-import pyarrow as pa
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
@@ -14,7 +13,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.pipelines.source.sql import Column
 
 
 @config.config
@@ -149,34 +147,6 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
         return 0
-
-
-class MongoColumn(Column):
-    def __init__(
-        self,
-        name: str,
-        data_type: str,
-        nullable: bool = True,
-    ) -> None:
-        self.name = name
-        self.data_type = data_type
-        self.nullable = nullable
-
-    def to_arrow_field(self) -> pa.Field[pa.DataType]:
-        if self.data_type == "boolean":
-            arrow_type = pa.bool_()
-        elif self.data_type == "integer":
-            arrow_type = pa.int64()
-        elif self.data_type == "double":
-            arrow_type = pa.float64()
-        elif self.data_type == "array":
-            arrow_type = pa.list_(pa.string())
-        elif self.data_type == "object":
-            arrow_type = pa.string()  # JSON as string
-        else:  # string, ObjectId, etc.
-            arrow_type = pa.string()
-
-        return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
 def mongo_source(

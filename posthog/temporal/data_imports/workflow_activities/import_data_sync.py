@@ -347,11 +347,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             source = mongo_source(
                 connection_string=mongo_config.connection_string,
                 collection_names=endpoints,
-                is_incremental=schema.is_incremental,
                 logger=logger,
-                incremental_field=schema.incremental_field if schema.is_incremental else None,
-                incremental_field_type=schema.incremental_field_type if schema.is_incremental else None,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
             )
 
             return _run(
