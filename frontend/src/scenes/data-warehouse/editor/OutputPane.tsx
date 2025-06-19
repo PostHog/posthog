@@ -274,7 +274,7 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = dataNodeResponse ?? localStorageResponse
+    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -313,7 +313,7 @@ export function OutputPane(): JSX.Element {
 
                 const maxContentLength = Math.max(
                     column.length,
-                    ...(response.results || response.result).map((row: any[]) => {
+                    ...(response.results || (response as any).result).map((row: any[]) => {
                         const content = row[index]
                         return typeof content === 'string'
                             ? content.length
@@ -368,7 +368,7 @@ export function OutputPane(): JSX.Element {
         }
         return response?.results?.map((row: any[], index: number) => {
             const rowObject: Record<string, any> = { __index: index }
-            response.columns.forEach((column: string, i: number) => {
+            response.columns?.forEach((column: string, i: number) => {
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
                 if (typeof row[i] === 'object' && row[i] !== null) {
                     rowObject[column] = JSON.stringify(row[i])
@@ -693,7 +693,10 @@ const Content = ({
                 ? 'Query results will appear here.'
                 : 'Query results will be visualized here.'
         return (
-            <div className="flex flex-1 justify-center items-center border-t">
+            <div
+                className="flex flex-1 justify-center items-center border-t"
+                data-attr="sql-editor-output-pane-empty-state"
+            >
                 <span className="text-secondary mt-3">
                     {msg} Press <KeyboardShortcut command enter /> to run the query.
                 </span>
@@ -703,7 +706,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Results) {
         return (
-            <TabScroller>
+            <TabScroller data-attr="sql-editor-output-pane-results">
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}

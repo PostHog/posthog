@@ -5,8 +5,10 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -148,7 +150,14 @@ function RecordingOngoingIndicator(): JSX.Element {
 }
 
 export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: number }): JSX.Element {
-    const tooltip = otherViewersCount ? (
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isExcludedFromHideRecordingsMenu = featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]
+
+    // If person wished to be excluded from the hide recordings menu, we don't show the tooltip
+    const tooltip = isExcludedFromHideRecordingsMenu ? (
+        <span>You have not watched this recording yet.</span>
+    ) : otherViewersCount ? (
         <span>
             You have not watched this recording yet. {otherViewersCount} other{' '}
             {otherViewersCount === 1 ? 'person has' : 'people have'}.
@@ -162,10 +171,18 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
             <div
                 className={clsx(
                     'UnwatchedIndicator w-2 h-2 rounded-full',
-                    otherViewersCount ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
+                    isExcludedFromHideRecordingsMenu
+                        ? 'UnwatchedIndicator--primary'
+                        : otherViewersCount
+                        ? 'UnwatchedIndicator--secondary'
+                        : 'UnwatchedIndicator--primary'
                 )}
                 aria-label={
-                    otherViewersCount ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
+                    isExcludedFromHideRecordingsMenu
+                        ? 'unwatched-recording-by-you-label'
+                        : otherViewersCount
+                        ? 'unwatched-recording-by-you-label'
+                        : 'unwatched-recording-by-everyone-label'
                 }
             />
         </Tooltip>

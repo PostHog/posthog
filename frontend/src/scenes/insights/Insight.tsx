@@ -2,7 +2,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
-import { isObject } from 'lib/utils'
+import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
@@ -57,21 +57,23 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <AccessDenied object="insight" />
     }
 
+    const dashboardOverridesExist =
+        (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+        (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
+    const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
-                {(isObject(filtersOverride) || isObject(variablesOverride)) && (
+                {dashboardOverridesExist && (
                     <LemonBanner type="warning" className="mb-4">
                         <div className="flex flex-row items-center justify-between gap-2">
-                            <span>
-                                You are viewing this insight with{' '}
-                                {isObject(variablesOverride) ? 'variables' : 'filters'} from a dashboard
-                            </span>
+                            <span>You are viewing this insight with {overrideType} from a dashboard</span>
 
                             <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
-                                Discard dashboard {isObject(variablesOverride) ? 'variables' : 'filters'}
+                                Discard dashboard {overrideType}
                             </LemonButton>
                         </div>
                     </LemonBanner>

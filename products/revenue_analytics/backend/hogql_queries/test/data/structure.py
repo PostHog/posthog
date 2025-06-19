@@ -47,6 +47,7 @@ STRIPE_CUSTOMER_COLUMNS = {
     "name": "String",
     "email": "String",
     "phone": "String",
+    "address": "String",
 }
 
 STRIPE_INVOICE_COLUMNS = {
@@ -62,7 +63,7 @@ STRIPE_INVOICE_COLUMNS = {
     "status": "String",
     "created": "DateTime",
     "currency": "String",
-    "customer_id": "String",
+    "customer": "String",
     "discount": "String",
     "due_date": "DateTime",
     "livemode": "UInt8",

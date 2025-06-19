@@ -476,6 +476,8 @@ const teamActionsMapping: Record<
     slack_incoming_webhook: () => null,
     timezone: () => null,
     revenue_analytics_config: () => null,
+    marketing_analytics_config: () => null,
+    base_currency: () => null,
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,
@@ -491,7 +493,6 @@ const teamActionsMapping: Record<
     live_events_token: () => null,
     product_intents: () => null,
     cookieless_server_hash_mode: () => null,
-    access_control_version: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

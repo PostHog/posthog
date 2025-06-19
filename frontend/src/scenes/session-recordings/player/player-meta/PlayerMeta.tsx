@@ -12,6 +12,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
@@ -112,6 +113,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 export function PlayerMeta(): JSX.Element {
+    const { isZenMode } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -201,11 +203,11 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    <PlayerMetaLinks size={size} />
-                    <ResolutionView size={size} />
+                    {!isZenMode && <PlayerMetaLinks size={size} />}
+                    {!isZenMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                <PlayerMetaBottomSettings size={size} />
+                {!isZenMode && <PlayerMetaBottomSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

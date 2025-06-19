@@ -383,6 +383,13 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 }
             }
         }
+
+        if (isRetentionQuery(query) && cache.breakdownFilter?.breakdowns) {
+            mergedQuery.breakdownFilter = {
+                ...query.breakdownFilter,
+                breakdowns: cache.breakdownFilter.breakdowns.filter((b) => b.type === 'person' || b.type === 'event'),
+            }
+        }
     }
 
     // funnel paths filter

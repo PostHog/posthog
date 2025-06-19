@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PreIngestionEvent } from '~/src/types'
+import { PreIngestionEvent } from '~/types'
 
 import { processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { logger } from '../../../utils/logger'
@@ -41,7 +41,7 @@ export async function prepareEventStep(
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
         processPerson,
-        runner.groupStoreForDistinctId
+        runner.groupStoreForBatch
     )
     await Promise.all(tsParsingIngestionWarnings)
 

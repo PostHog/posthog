@@ -96,9 +96,12 @@ export type PluginServerService = {
 
 export type CdpConfig = {
     CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function
-    CDP_WATCHER_COST_TIMING: number // The max cost of a slow function
-    CDP_WATCHER_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
-    CDP_WATCHER_COST_TIMING_UPPER_MS: number // The upper bound in ms where the timing cost is fully incurred
+    CDP_WATCHER_HOG_COST_TIMING: number // The max cost of a slow function
+    CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
+    CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: number // The upper bound in ms where the timing cost is fully incurred
+    CDP_WATCHER_ASYNC_COST_TIMING: number // The max cost of a slow async function
+    CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS: number // The lower bound in ms where the async timing cost is not incurred
+    CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS: number // The upper bound in ms where the async timing cost is fully incurred
     CDP_WATCHER_THRESHOLD_DEGRADED: number // Percentage of the bucket where we count it as degraded
     CDP_WATCHER_BUCKET_SIZE: number // The total bucket size
     CDP_WATCHER_TTL: number // The expiry for the rate limit key
@@ -155,6 +158,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_CACHE_ENABLED_FOR_CHECKS: boolean // whether to cache persons for fetchForChecking calls
     GROUP_BATCH_WRITING_ENABLED: boolean // whether to batch write groups Postgres updates/inserts
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
+    GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
+    GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL: number // starting interval for exponential backoff between retries for optimistic update
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -335,6 +340,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
+
+    // Messaging
+    MAILJET_PUBLIC_KEY: string
+    MAILJET_SECRET_KEY: string
+
     DISABLE_GROUP_SELECT_FOR_UPDATE: boolean
 }
 
@@ -636,6 +646,9 @@ export interface RawOrganization {
     available_product_features: ProductFeature[]
 }
 
+// NOTE: We don't need to list all options here - only the ones we use
+export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
+
 /** Usable Team model. */
 export interface Team {
     id: number
@@ -657,7 +670,7 @@ export interface Team {
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
     // This is parsed as a join from the org table
-    available_features: string[]
+    available_features: OrganizationAvailableFeature[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

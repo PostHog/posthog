@@ -58,7 +58,7 @@ export function ProjectHomepage(): JSX.Element {
 
     return (
         <div className="ProjectHomepage">
-            <PageHeader delimited buttons={headerButtons} />
+            <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
             ) : (

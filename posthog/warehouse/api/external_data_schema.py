@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
     get_schemas as get_bigquery_schemas,
 )
+from posthog.temporal.data_imports.pipelines.doit.source import DOIT_INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.pipelines.mssql import (
     MSSQLSourceConfig,
     get_schemas as get_mssql_schemas,
@@ -143,6 +144,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             sync_type is not None
             and sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
             and sync_type != ExternalDataSchema.SyncType.INCREMENTAL
+            and sync_type != ExternalDataSchema.SyncType.APPEND
         ):
             raise ValidationError("Invalid sync type")
 
@@ -150,7 +152,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         trigger_refresh = False
         # Update the validated_data with incremental fields
-        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL or sync_type == ExternalDataSchema.SyncType.APPEND:
             incremental_field_changed = (
                 instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
                 or instance.sync_type_config.get("incremental_field_last_value") is None
@@ -166,7 +168,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
                     if max_value:
-                        instance.update_incremental_field_last_value(max_value, save=False)
+                        instance.update_incremental_field_value(max_value, save=False)
                     else:
                         # if we can't get the max value, reset the table
                         payload["incremental_field_last_value"] = None
@@ -365,6 +367,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
             ]
+        elif source.source_type == ExternalDataSource.Type.DOIT:
+            incremental_columns = DOIT_INCREMENTAL_FIELDS
 
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)

@@ -85,7 +85,7 @@ class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Actions",
+            base_folder=self._get_assigned_folder("Unfiled/Actions"),
             type="action",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
@@ -137,7 +137,7 @@ class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.bytecode_error = None
         except BaseHogQLError as e:
             # There are several known cases when bytecode generation can fail. Instead of spamming
-            # Sentry with errors, ignore those cases for now.
+            # with errors, ignore those cases for now.
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)
