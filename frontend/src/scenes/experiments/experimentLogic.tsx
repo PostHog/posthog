@@ -344,7 +344,6 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
-        setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
         archiveExperiment: true,
@@ -1081,13 +1080,6 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: async ({ endDate }) => {
             actions.updateExperiment({ end_date: endDate })
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
-        },
-        setExperimentStatsVersion: async ({ version }, breakpoint) => {
-            actions.updateExperiment({ stats_config: { version } })
-            await breakpoint(100)
-            if (values.experiment?.start_date) {
-                actions.refreshExperimentResults(true)
-            }
         },
         endExperiment: async () => {
             const endDate = dayjs()
