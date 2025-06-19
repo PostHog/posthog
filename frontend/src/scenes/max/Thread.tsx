@@ -427,34 +427,35 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                   </h5>
                               </LemonButton>
                           </div>
-                          {isEditingInsight ? (
+                          <div className="flex items-center gap-2">
+                              {isEditingInsight ? (
+                                  <LemonButton
+                                      onClick={() => {
+                                          setQuery(query)
+                                          setIsApplied(true)
+                                      }}
+                                      sideIcon={isApplied ? <IconCheck /> : <IconSync />}
+                                      size="xsmall"
+                                  >
+                                      Apply to current insight
+                                  </LemonButton>
+                              ) : (
+                                  <LemonButton
+                                      to={urls.insightNew({ query })}
+                                      icon={<IconOpenInNew />}
+                                      size="xsmall"
+                                      targetBlank
+                                      tooltip="Open as new insight"
+                                  />
+                              )}
                               <LemonButton
-                                  onClick={() => {
-                                      setQuery(query)
-                                      setIsApplied(true)
-                                  }}
-                                  sideIcon={isApplied ? <IconCheck /> : <IconSync />}
+                                  icon={isCollapsed ? <IconEye /> : <IconHide />}
+                                  onClick={() => setIsCollapsed(!isCollapsed)}
                                   size="xsmall"
-                              >
-                                  Apply to current insight
-                              </LemonButton>
-                          ) : (
-                              <LemonButton
-                                  to={urls.insightNew({ query })}
-                                  sideIcon={<IconOpenInNew />}
-                                  size="xsmall"
-                                  targetBlank
-                              >
-                                  Open as new insight
-                              </LemonButton>
-                          )}
-                          <LemonButton
-                              sideIcon={isCollapsed ? <IconEye /> : <IconHide />}
-                              onClick={() => setIsCollapsed(!isCollapsed)}
-                              size="xsmall"
-                              className="-m-1 shrink"
-                              tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
-                          />
+                                  className="-m-1 shrink"
+                                  tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
+                              />
+                          </div>
                       </div>
                       {isSummaryShown && (
                           <>

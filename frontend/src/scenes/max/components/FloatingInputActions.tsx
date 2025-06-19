@@ -79,14 +79,13 @@ export function FloatingInputActions({
                 </Tooltip>
             )}
             {isThreadVisible && (
-                <Tooltip title="Start a new chat" placement="top" delayMs={0}>
-                    <LemonButton
-                        size="xxsmall"
-                        icon={<IconPlus className="size-3" />}
-                        type="tertiary"
-                        onClick={() => startNewConversation()}
-                    />
-                </Tooltip>
+                <LemonButton
+                    size="xxsmall"
+                    icon={<IconPlus className="size-3" />}
+                    type="tertiary"
+                    onClick={() => startNewConversation()}
+                    tooltip="Start a new chat"
+                />
             )}
             <LemonMenu items={menuItems} placement="bottom-end">
                 <LemonButton size="xxsmall" icon={<IconEllipsis className="size-3" />} type="tertiary" />
