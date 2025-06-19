@@ -1898,3 +1898,24 @@ class TestOAuthAPI(APIBaseTest):
         response = self.post("/oauth/token/", refresh_data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
+
+    def test_invalid_scope_validation_with_and_without_trailing_slash(self):
+        """Test that invalid scope validation works with and without trailing slash."""
+
+        # Test with trailing slash (this should work correctly - scope validation happens)
+        invalid_scope_url_with_slash = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&scope=invalid_scope_name"
+
+        response = self.client.get(invalid_scope_url_with_slash)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response.get("Location")
+        self.assertIn("error=invalid_scope", location)
+
+        # Test without trailing slash (should now also validate scopes after fix)
+        invalid_scope_url_without_slash = f"/oauth/authorize?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&scope=invalid_scope_name"
+
+        response = self.client.get(invalid_scope_url_without_slash)
+
+        # After the fix, both should behave the same - redirect with error
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response.get("Location")
+        self.assertIn("error=invalid_scope", location)

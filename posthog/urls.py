@@ -1,12 +1,11 @@
-from collections.abc import Callable
-from typing import Any, Optional, cast
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
-from django.urls import URLPattern, include, path, re_path
+from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import (
     csrf_exempt,
@@ -46,7 +45,7 @@ from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 
-from .utils import render_template
+from .utils import opt_slash_path, render_template
 from .views import (
     health,
     login_required,
@@ -143,12 +142,6 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             "redirect_url": request.GET["redirect"],
         },
     )
-
-
-def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
-    """Catches path with or without trailing slash, taking into account query param and hash."""
-    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
 urlpatterns = [
