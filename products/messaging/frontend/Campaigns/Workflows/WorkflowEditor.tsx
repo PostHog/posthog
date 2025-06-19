@@ -23,10 +23,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { OnWorkflowChange } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { getDefaultEdgeOptions } from './constants'
-import { HogFlowActionFactory } from './Nodes/hogFlowActionFactory'
+import { HogFlowActionManager } from './Nodes/hogFlowActionManager'
 import { NodeDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
-import { addDropzoneNodes, createEdgesForNewNode, getEdgesFromHogFlow, getNodesFromHogFlow } from './Nodes/utils'
 import { Toolbar, ToolbarNode } from './Toolbar'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from './types'
 
@@ -40,8 +39,8 @@ function WorkflowEditorContent({
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const initialNodes = useMemo(() => getNodesFromHogFlow(initialValues), [initialValues])
-    const initialEdges = useMemo(() => getEdgesFromHogFlow(initialValues), [initialValues])
+    const initialNodes = useMemo(() => HogFlowActionManager.getNodesFromHogFlow(initialValues), [initialValues])
+    const initialEdges = useMemo(() => HogFlowActionManager.getEdgesFromHogFlow(initialValues), [initialValues])
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(initialNodes)
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(initialEdges)
@@ -163,17 +162,20 @@ function WorkflowEditorContent({
                 return
             }
 
-            // Create the new node in the position of the dropzone using the factory
-            const newNodeId = `${toolbarNodeUsed.type}_${Date.now()}`
-            const newNode = HogFlowActionFactory.createFromToolbarNode(toolbarNodeUsed, newNodeId, {
+            // Create the new node in the position of the dropzone using the manager
+            const { node: newNode, edges: newEdges } = HogFlowActionManager.createNodeAndEdgesFromToolbarNode(
+                toolbarNodeUsed,
+                edgeToInsertNodeInto
+            )
+            // Set the position after creation since the manager doesn't handle position
+            newNode.position = {
                 x: intersectingDropzone.position.x,
                 y: intersectingDropzone.position.y,
-            })
+            }
             updatedNodes.push({ ...newNode })
 
             // Create incoming and outgoing edges for the new node, and remove the edge that was inserted into
             const updatedEdges = [...edges.filter((edge) => edge.id !== edgeIdToInsertNodeInto)]
-            const newEdges = createEdgesForNewNode(newNodeId, toolbarNodeUsed.type, edgeToInsertNodeInto)
             updatedEdges.push(...newEdges)
 
             void updateAndLayout({ nodes: updatedNodes, edges: updatedEdges })
@@ -233,7 +235,7 @@ function WorkflowEditorContent({
                 onEdgesChange={onEdgesChange}
                 onNodesDelete={onNodesDelete}
                 onDragStart={() => {
-                    setNodes(addDropzoneNodes(nodes, edges))
+                    setNodes(HogFlowActionManager.addDropzoneNodes(nodes, edges))
                 }}
                 onDragOver={onDragOver}
                 onNodeClick={(_, node) => {

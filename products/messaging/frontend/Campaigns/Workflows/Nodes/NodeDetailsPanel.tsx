@@ -4,10 +4,11 @@ import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
 import { Form } from 'kea-forms'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useMemo } from 'react'
 
 import type { HogFlowAction } from '../types'
+import { HogFlowActionManager } from './hogFlowActionManager'
 import { nodeLogic } from './nodeLogic'
-import { getNodeInputsSchema } from './utils'
 
 export function NodeDetailsPanel({
     node,
@@ -23,6 +24,9 @@ export function NodeDetailsPanel({
     const nodes = useNodes()
     const edges = useEdges()
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const hogFlowAction = useMemo(() => HogFlowActionManager.fromReactFlowNode(node), [node.data])
+
     const canBeDeleted = (): boolean => {
         const outgoingNodes = getOutgoers(node, nodes, edges)
         if (outgoingNodes.length === 1) {
@@ -33,19 +37,8 @@ export function NodeDetailsPanel({
     }
 
     const handleInputChange = (key: string, value: any): void => {
-        onChange({
-            ...node,
-            data: {
-                ...node.data,
-                config: {
-                    ...node.data.config,
-                    inputs: {
-                        ...node.data.config.inputs,
-                        [key]: value,
-                    },
-                },
-            },
-        })
+        hogFlowAction.setInput(key, value)
+        onChange(hogFlowAction.toReactFlowNode())
     }
 
     return (
@@ -57,7 +50,7 @@ export function NodeDetailsPanel({
                 className="bg-surface-primary rounded-md shadow-md p-4 gap-2 flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-3/4 overflow-y-scroll"
             >
                 <div className="flex justify-between items-center">
-                    <h3 className="font-semibold">Edit {capitalizeFirstLetter(node.data.type)} step</h3>
+                    <h3 className="font-semibold">Edit {capitalizeFirstLetter(hogFlowAction.action.type)} step</h3>
                     <div className="flex gap-1 items-center">
                         {node.deletable && (
                             <LemonButton
@@ -74,8 +67,8 @@ export function NodeDetailsPanel({
                 <div className="flex flex-col gap-2">
                     <CyclotronJobInputs
                         configuration={{
-                            inputs: node.data.config.inputs,
-                            inputs_schema: getNodeInputsSchema(node.data),
+                            inputs: hogFlowAction.getInputs(),
+                            inputs_schema: hogFlowAction.getInputsSchema(),
                         }}
                         onInputChange={handleInputChange}
                         showSource={false}

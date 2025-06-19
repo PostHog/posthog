@@ -25,13 +25,7 @@ import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import {
-    CyclotronJobInputSchemaType,
-    CyclotronJobInputType,
-    CyclotronJobInvocationGlobalsWithInputs,
-    HogFunctionConfigurationType,
-    HogFunctionMappingType,
-} from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
@@ -45,11 +39,8 @@ export const EXTEND_OBJECT_KEY = '$$_extend_object'
 const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 export type CyclotronJobInputsProps = {
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
     onInputChange: (key: string, input: CyclotronJobInputType) => void
+    configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean

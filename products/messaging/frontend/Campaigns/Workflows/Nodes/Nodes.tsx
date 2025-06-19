@@ -1,10 +1,13 @@
 import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconRevert, IconSend } from '@posthog/icons'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import type { HogFlowAction } from '../types'
-import { HogFlowActionFactory } from './hogFlowActionFactory'
+import { HogFlowActionManager } from './hogFlowActionManager'
+
+// Import the NodeHandle type from the manager
+type NodeHandle = Omit<Handle, 'width' | 'height' | 'nodeId'> & { label?: string }
 
 export const REACT_FLOW_NODE_TYPES = {
     dropzone: DropzoneNode,
@@ -44,7 +47,7 @@ function DropzoneNode({ type }: NodeProps): JSX.Element {
 
 function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.Element {
     const updateNodeInternals = useUpdateNodeInternals()
-    const builder = HogFlowActionFactory.createFromAction(data)
+    const hogFlowAction = useMemo(() => HogFlowActionManager.fromAction(data), [data])
 
     useEffect(() => {
         updateNodeInternals(id)
@@ -62,7 +65,7 @@ function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.
                 <div className="text-xs">{data.name || capitalizeFirstLetter(type || 'Untitled')}</div>
             </div>
             {children}
-            {builder.handles?.map((handle) => (
+            {hogFlowAction.getHandles()?.map((handle: NodeHandle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} {...handle} isConnectable={false} className="opacity-0" />
             ))}
