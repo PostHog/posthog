@@ -612,10 +612,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING_AUTOMATION]
                             ? {
-                                  identifier: Scene.MessagingBroadcasts,
+                                  identifier: Scene.MessagingCampaigns,
                                   label: 'Messaging',
                                   icon: <IconMegaphone />,
-                                  to: urls.messagingBroadcasts(),
+                                  to: urls.messagingCampaigns(),
                                   tag: 'alpha' as const,
                               }
                             : null,

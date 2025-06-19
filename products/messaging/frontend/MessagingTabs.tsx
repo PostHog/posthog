@@ -9,7 +9,6 @@ export function MessagingTabs(): JSX.Element {
     const { setTab } = useActions(messagingTabsLogic)
 
     const tabs = [
-        { key: 'broadcasts', label: 'Broadcasts' },
         { key: 'campaigns', label: 'Campaigns' },
         { key: 'library', label: 'Templates' },
         { key: 'senders', label: 'Senders' },

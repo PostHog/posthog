@@ -303,7 +303,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobalsError: (error) => ({ error }),
         setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
-        sendBroadcast: true,
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
@@ -566,21 +565,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             },
         ],
-        broadcast: [
-            false,
-            {
-                sendBroadcast: async () => {
-                    const id = values.hogFunction?.id
-                    if (!id) {
-                        lemonToast.error('No broadcast to send')
-                        return false
-                    }
-                    await api.hogFunctions.sendBroadcast(id)
-                    lemonToast.success('Broadcast sent!')
-                    return true
-                },
-            },
-        ],
     })),
     forms(({ values, props, asyncActions }) => ({
         configuration: {
@@ -626,10 +610,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             ? 'Transformations'
                             : type === 'source_webhook'
                             ? 'Sources'
-                            : type === 'broadcast'
-                            ? 'Broadcasts'
-                            : type === 'messaging_campaign'
-                            ? 'Campaigns'
                             : 'Destinations'
                     const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
                     if (typeof folder === 'string') {

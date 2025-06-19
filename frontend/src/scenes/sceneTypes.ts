@@ -97,7 +97,6 @@ export enum Scene {
     MessagingCampaigns = 'MessagingCampaigns',
     MessagingCampaign = 'MessagingCampaign',
     MessagingProviders = 'MessagingProviders',
-    MessagingBroadcasts = 'MessagingBroadcasts',
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',

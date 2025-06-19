@@ -457,10 +457,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         layout: 'app-container',
     },
-    [Scene.MessagingBroadcasts]: {
-        projectBased: true,
-        name: 'Messaging broadcasts',
-    },
     [Scene.MessagingCampaigns]: {
         projectBased: true,
         name: 'Messaging campaigns',
@@ -570,7 +566,7 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/messaging': urls.messagingBroadcasts(),
+    '/messaging': urls.messagingCampaigns(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),

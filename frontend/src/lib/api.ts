@@ -2358,9 +2358,6 @@ const api = {
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
         },
-        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
-            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
-        },
         async logs(
             id: HogFunctionType['id'],
             params: LogEntryRequestParams = {}

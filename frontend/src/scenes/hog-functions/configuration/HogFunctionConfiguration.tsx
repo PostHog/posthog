@@ -190,24 +190,16 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'email', 'transformation'].includes(
-            type
-        )
+        ['destination', 'internal_destination', 'site_destination', 'email', 'transformation'].includes(type)
     const showExpectedVolume =
         displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
         displayOptions.showEnabled ??
-        [
-            'destination',
-            'internal_destination',
-            'email',
-            'site_destination',
-            'site_app',
-            'transformation',
-            'broadcast',
-        ].includes(type)
+        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
+            type
+        )
     const canEditSource =
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins

@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { messagingTabsLogicType } from './messagingTabsLogicType'
 
-export type MessagingTab = 'broadcasts' | 'campaigns' | 'library'
+export type MessagingTab = 'campaigns' | 'library' | 'senders'
 
 export const messagingTabsLogic = kea<messagingTabsLogicType>([
     path(['products', 'messaging', 'frontend', 'messagingTabsLogic']),
@@ -12,19 +12,18 @@ export const messagingTabsLogic = kea<messagingTabsLogicType>([
         setTab: (tab: MessagingTab, fromUrl = false) => ({ tab, fromUrl }),
     }),
     reducers({
-        currentTab: ['broadcasts' as MessagingTab, { setTab: (_, { tab }) => tab }],
+        currentTab: ['campaigns' as MessagingTab, { setTab: (_, { tab }) => tab }],
     }),
     actionToUrl(({ values }) => ({
         setTab: ({ fromUrl }) => {
-            // do not override deeper urls like /messaging/broadcasts/new
+            // do not override deeper urls like /messaging/campaigns/new
             if (!fromUrl) {
                 return (
                     {
                         campaigns: urls.messagingCampaigns(),
-                        broadcasts: urls.messagingBroadcasts(),
                         library: urls.messagingLibrary(),
                         senders: urls.messagingSenders(),
-                    }[values.currentTab] ?? urls.messagingBroadcasts()
+                    }[values.currentTab] ?? urls.messagingCampaigns()
                 )
             }
         },

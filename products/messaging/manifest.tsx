@@ -7,11 +7,6 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Messaging',
     scenes: {
-        MessagingBroadcasts: {
-            import: () => import('./frontend/Broadcasts'),
-            name: 'Messaging',
-            projectBased: true,
-        },
         MessagingLibrary: {
             import: () => import('./frontend/TemplateLibrary/MessageLibrary'),
             name: 'Messaging',
@@ -42,9 +37,6 @@ export const manifest: ProductManifest = {
         // URL: [Scene, SceneKey]
         '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
         '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
-        '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
-        '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
-        '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
         '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
         '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
         '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
@@ -55,7 +47,7 @@ export const manifest: ProductManifest = {
         '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
-        '/messaging': '/messaging/broadcasts',
+        '/messaging': '/messaging/campaigns',
         '/messaging/campaigns/new': '/messaging/campaigns/new/overview',
     },
     urls: {
@@ -64,9 +56,6 @@ export const manifest: ProductManifest = {
         messagingCampaignTab: (id?: string, tab?: string): string =>
             `/messaging/campaigns/${id || 'new'}/${tab || 'overview'}`,
         messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
-        messagingBroadcasts: (): string => '/messaging/broadcasts',
-        messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
-        messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingLibrary: (): string => '/messaging/library',
         messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
