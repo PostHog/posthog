@@ -252,6 +252,13 @@ jobs:
                   echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
+            - name: Capture running time to PostHog
+              if: github.repository == 'PostHog/posthog'
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-running-time'
+                  properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
 
     posthog-analytics:
         name: PostHog CI analytics
