@@ -21,7 +21,12 @@ from posthog.temporal.data_imports.pipelines.mysql import (
     MySQLSourceConfig,
     get_schemas as get_mysql_schemas,
 )
-from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, get_schemas as get_mongo_schemas
+from posthog.temporal.data_imports.pipelines.mongo import (
+    MongoSourceConfig,
+    get_schemas as get_mongo_schemas,
+    get_indexes,
+)
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.postgres import (
     PostgreSQLSourceConfig,
@@ -507,6 +512,26 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
             results.append((column_name, IncrementalFieldType.DateTime))
         elif type == "tinyint" or type == "smallint" or type == "int" or type == "bigint":
             results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
+
+
+def filter_mongo_incremental_fields(
+    columns: list[tuple[str, str]], connection_string: str, collection_name: str
+) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    indexed_fields = get_indexes(connection_string, collection_name)
+
+    for column_name, type in columns:
+        # Only include fields that have indexes
+        if column_name not in indexed_fields:
+            continue
+
+        type = type.lower()
+        if type == "timestamp":
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif column_name == "_id" and type == "string":
+            results.append((column_name, IncrementalFieldType.String))
 
     return results
 

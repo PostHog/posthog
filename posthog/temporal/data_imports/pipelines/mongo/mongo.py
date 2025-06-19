@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import collections
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
+import math
+from datetime import datetime
 
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -11,8 +13,14 @@ from pymongo.collection import Collection
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
+from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
 @config.config
@@ -32,12 +40,69 @@ def _process_nested_value(value: Any) -> Any:
         return value
 
 
+def _infer_field_type(value: Any) -> str:
+    """Infer MongoDB field type from a value."""
+    if isinstance(value, bool):
+        return "boolean"
+    elif isinstance(value, int):
+        return "integer"
+    elif isinstance(value, float):
+        return "double"
+    elif isinstance(value, datetime):
+        return "timestamp"
+    elif isinstance(value, ObjectId):
+        return "string"  # ObjectId as string
+    elif isinstance(value, list):
+        return "array"
+    elif isinstance(value, dict):
+        return "object"
+
+    else:
+        return "string"
+
+
+def get_indexes(connection_string: str, collection_name: str) -> list[str]:
+    """Get all indexes for a MongoDB collection."""
+    try:
+        connection_params = _parse_connection_string(connection_string)
+        client = _create_mongo_client(connection_string, connection_params)
+        db = client[connection_params["database"]]
+        collection = db[collection_name]
+
+        index_cursor = collection.list_indexes()
+        return [field for index in index_cursor for field in index["key"].keys()]
+    except Exception:
+        return []
+
+
 def _process_nested_object(obj: dict) -> dict:
     """Process a nested object, converting ObjectIds to strings recursively."""
     processed = {}
     for key, value in obj.items():
         processed[key] = _process_nested_value(value)
     return processed
+
+
+def _build_query(
+    is_incremental: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType],
+    db_incremental_field_last_value: Optional[Any],
+) -> dict[str, Any]:
+    query = {}
+
+    if not is_incremental:
+        return query
+
+    if incremental_field is None or incremental_field_type is None:
+        raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if db_incremental_field_last_value is None:
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    query = {incremental_field: {"$gte": db_incremental_field_last_value, "$exists": True}}
+
+    return query
 
 
 def _create_mongo_client(connection_string: str, connection_params: dict[str, Any]) -> MongoClient:
@@ -66,6 +131,36 @@ def _create_mongo_client(connection_string: str, connection_params: dict[str, An
         connection_kwargs["tls"] = True
 
     return MongoClient(**connection_kwargs)
+
+
+def _get_partition_settings(
+    collection: Collection, collection_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+) -> PartitionSettings | None:
+    """Get partition settings for given MongoDB collection."""
+    try:
+        # Get collection stats
+        stats = collection.database.command("collStats", collection_name)
+
+        collection_size = stats.get("size", 0)  # size in bytes
+        row_count = stats.get("count", 0)
+
+        if collection_size == 0 or row_count == 0:
+            return None
+
+        # Calculate partition count based on size
+        partition_count = max(1, math.ceil(collection_size / partition_size_bytes))
+
+        # Cap at reasonable limit
+        partition_count = min(partition_count, 100)
+
+        partition_size = math.ceil(row_count / partition_count)
+
+        return PartitionSettings(
+            partition_count=partition_count,
+            partition_size=partition_size,
+        )
+    except Exception:
+        return None
 
 
 def _parse_connection_string(connection_string: str) -> dict[str, Any]:
@@ -109,6 +204,29 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
     }
 
 
+def _infer_schema_from_sample(sample: list[dict]) -> list[tuple[str, str]]:
+    """Infer schema from a sample of MongoDB documents."""
+    if not sample:
+        return [("_id", "string")]
+
+    # Get all field names from sample
+    fields = set()
+    for doc in sample:
+        fields.update(doc.keys())
+
+    schema_info = []
+    for field in fields:
+        # Infer type from first document that has this field
+        field_type = "string"  # default
+        for doc in sample:
+            if field in doc:
+                field_type = _infer_field_type(doc[field])
+                break
+        schema_info.append((field, field_type))
+
+    return schema_info
+
+
 def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
@@ -126,8 +244,11 @@ def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
     collection_names = db.list_collection_names()
 
     for collection_name in collection_names:
-        # All collections have the same schema: a single 'data' column containing the document
-        schema_list[collection_name] = [("data", "object")]
+        collection = db[collection_name]
+        # Sample a few documents to infer schema
+        sample = list(collection.find().limit(100))
+        schema_info = _infer_schema_from_sample(sample)
+        schema_list[collection_name].extend(schema_info)
 
     client.close()
     return schema_list
@@ -153,6 +274,10 @@ def mongo_source(
     connection_string: str,
     collection_names: list[str],
     logger: FilteringBoundLogger,
+    is_incremental: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> SourceResponse:
     collection_name = collection_names[0]
     if not collection_name:
@@ -169,9 +294,18 @@ def mongo_source(
     db = client[connection_params["database"]]
     collection = db[collection_name]
 
+    query = _build_query(
+        collection_name,
+        is_incremental,
+        incremental_field,
+        incremental_field_type,
+        db_incremental_field_last_value,
+    )
+
     # Get collection metadata
     primary_keys = _get_primary_keys(collection, collection_name)
-    rows_to_sync = _get_rows_to_sync(collection, {}, logger)
+    partition_settings = _get_partition_settings(collection, collection_name) if is_incremental else None
+    rows_to_sync = _get_rows_to_sync(collection, query, logger)
 
     client.close()
 
@@ -202,8 +336,19 @@ def mongo_source(
                     else:
                         processed_doc[key] = value
 
-                # Wrap the entire document in a 'data' field. Mongo schemas are not stable so we put everything in an object
-                yield {"_id": str(doc["_id"]), "data": processed_doc}
+                result = {
+                    "_id": str(doc["_id"]),
+                }
+                # extract incremental field from the document if it exists
+                if incremental_field:
+                    incremental_value = processed_doc.pop(incremental_field)
+                    if incremental_value is None:
+                        continue
+                    result[incremental_field] = incremental_value
+
+                result["data"] = processed_doc
+
+                yield result
 
         finally:
             read_client.close()
@@ -214,5 +359,7 @@ def mongo_source(
         name=name,
         items=get_rows(),
         primary_keys=primary_keys,
+        partition_count=partition_settings.partition_count if partition_settings else None,
+        partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
     )
