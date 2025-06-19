@@ -528,4 +528,4 @@ jobs:
         steps:
             - uses: ./.github/actions/ci-analytics
               with:
-              posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}
+                  posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}
