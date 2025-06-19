@@ -19,7 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
+from posthog.temporal.data_imports.pipelines.source.sql import Column
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
@@ -28,22 +28,24 @@ class MongoSourceConfig(config.Config):
     connection_string: str
 
 
-def _infer_field_type(value: Any) -> str:
-    """Infer MongoDB field type from a value."""
-    if isinstance(value, bool):
-        return "boolean"
-    elif isinstance(value, int):
-        return "integer"
-    elif isinstance(value, float):
-        return "double"
-    elif isinstance(value, ObjectId):
-        return "string"  # ObjectId as string
-    elif isinstance(value, list):
-        return "array"
+def _process_nested_value(value: Any) -> Any:
+    """Process a nested value, converting ObjectIds to strings."""
+    if isinstance(value, ObjectId):
+        return str(value)
     elif isinstance(value, dict):
-        return "object"
+        return _process_nested_object(value)
+    elif isinstance(value, list):
+        return [_process_nested_value(item) for item in value]
     else:
-        return "string"  # default
+        return value
+
+
+def _process_nested_object(obj: dict) -> dict:
+    """Process a nested object, converting ObjectIds to strings recursively."""
+    processed = {}
+    for key, value in obj.items():
+        processed[key] = _process_nested_value(value)
+    return processed
 
 
 def _create_mongo_client(connection_string: str, connection_params: dict[str, Any]) -> MongoClient:
@@ -72,29 +74,6 @@ def _create_mongo_client(connection_string: str, connection_params: dict[str, An
         connection_kwargs["tls"] = True
 
     return MongoClient(**connection_kwargs)
-
-
-def _infer_schema_from_sample(sample: list[dict]) -> list[tuple[str, str]]:
-    """Infer schema from a sample of MongoDB documents."""
-    if not sample:
-        return [("_id", "string")]
-
-    # Get all field names from sample
-    fields = set()
-    for doc in sample:
-        fields.update(doc.keys())
-
-    schema_info = []
-    for field in fields:
-        # Infer type from first document that has this field
-        field_type = "string"  # default
-        for doc in sample:
-            if field in doc:
-                field_type = _infer_field_type(doc[field])
-                break
-        schema_info.append((field, field_type))
-
-    return schema_info
 
 
 def _parse_connection_string(connection_string: str) -> dict[str, Any]:
@@ -155,11 +134,8 @@ def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
     collection_names = db.list_collection_names()
 
     for collection_name in collection_names:
-        collection = db[collection_name]
-        # Sample a few documents to infer schema
-        sample = list(collection.find().limit(100))
-        schema_info = _infer_schema_from_sample(sample)
-        schema_list[collection_name].extend(schema_info)
+        # All collections have the same schema: a single 'data' column containing the document
+        schema_list[collection_name] = [("data", "object")]
 
     client.close()
     return schema_list
@@ -276,20 +252,6 @@ class MongoColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table(collection: Collection, collection_name: str, schema_info: list[tuple[str, str]]) -> Table[MongoColumn]:
-    columns = []
-
-    for field_name, field_type in schema_info:
-        column = MongoColumn(
-            name=field_name,
-            data_type=field_type,
-            nullable=True,  # MongoDB fields are generally nullable
-        )
-        columns.append(column)
-
-    return Table(name=collection_name, columns=columns)
-
-
 def mongo_source(
     connection_string: str,
     collection_names: list[str],
@@ -328,10 +290,6 @@ def mongo_source(
     rows_to_sync = _get_rows_to_sync(collection, query, logger)
     partition_settings = _get_partition_settings(collection, collection_name) if is_incremental else None
 
-    # Get schema info
-    sample = list(collection.find(query).limit(100))
-    schema_info = _infer_schema_from_sample(sample)
-
     client.close()
 
     def get_rows() -> Iterator[dict[str, Any]]:
@@ -352,22 +310,20 @@ def mongo_source(
                 # Convert ObjectId to string and handle nested objects
                 processed_doc = {}
 
-                # First, initialize all schema fields with None
-                for field_name, _ in schema_info:
-                    processed_doc[field_name] = None
-
-                # Then populate with actual document values
+                # Process the document to handle ObjectIds and nested structures
                 for key, value in doc.items():
                     if isinstance(value, ObjectId):
                         processed_doc[key] = str(value)
                     elif isinstance(value, dict):
-                        processed_doc[key] = str(value)  # JSON as string
+                        # Keep nested objects as they are, but convert ObjectIds within them
+                        processed_doc[key] = _process_nested_object(value)
                     elif isinstance(value, list):
-                        processed_doc[key] = [str(item) if isinstance(item, ObjectId) else item for item in value]
+                        processed_doc[key] = [_process_nested_value(item) for item in value]
                     else:
                         processed_doc[key] = value
 
-                yield processed_doc
+                # Wrap the entire document in a 'data' field. Mongo schemas are not stable so we put everything in an object
+                yield {"data": processed_doc}
 
         finally:
             read_client.close()
