@@ -110,7 +110,7 @@ class SurveyCreatorTool(MaxTool):
                 },
             )
 
-            if serializer.is_valid():
+            if serializer.is_valid() and len(survey_data["questions"]) > 0:
                 survey = serializer.save()
                 launch_msg = " and launched" if result.should_launch else ""
 
@@ -118,7 +118,7 @@ class SurveyCreatorTool(MaxTool):
                     "survey_id": str(survey.id),
                     "survey_name": survey.name,
                     "launched": result.should_launch,
-                    "questions_count": len(survey.questions) if survey.questions else 0,
+                    "questions_count": len(survey.questions),
                 }
             else:
                 # Return validation errors
