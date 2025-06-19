@@ -168,41 +168,42 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-            const uniqueEventMetrics: MinimalAppMetric[] = [
-                ...new Set(validInvocations.map(({ state }) => state.globals.event.uuid)),
-            ].map((uuid) => {
-                const invocation = validInvocations.find(({ state }) => state.globals.event.uuid === uuid)
-                return {
+            const uniqueEventMetrics: MinimalAppMetric[] = notMaskedInvocations.map(
+                ({
+                    state: {
+                        globals: { event, project },
+                    },
+                }) => ({
                     app_source: 'cdp_destinations',
                     metric_kind: 'success',
                     metric_name: 'event_triggered_destination',
-                    team_id: invocation!.state.globals.project.id,
-                    app_source_id: uuid,
+                    team_id: project.id,
+                    app_source_id: event.uuid,
                     count: 1,
-                }
-            })
+                })
+            )
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
 
             const uniqueDestinationMetrics: MinimalAppMetric[] = [
-                ...new Set(
-                    validInvocations.map(({ state, hogFunction }) => state.globals.event.uuid + '_$$_' + hogFunction.id)
-                ),
-            ].map((uniqueId) => {
-                const [eventUuid, hogFunctionId] = uniqueId.split('_$$_')
-                const invocation = validInvocations.find(
-                    ({ state, hogFunction }) =>
-                        state.globals.event.uuid === eventUuid && hogFunction.id === hogFunctionId
-                )
-                return {
-                    app_source: 'cdp-destination',
-                    metric_kind: 'success',
-                    metric_name: 'destination_invoked',
-                    team_id: invocation!.state.globals.project.id,
-                    app_source_id: invocation!.hogFunction.template_id ?? 'custom',
-                    instance_id: uniqueId,
-                    count: 1,
+                ...new Set(notMaskedInvocations.map((invocation) => invocation.id)),
+            ].reduce((acc: MinimalAppMetric[], invocationId) => {
+                const invocation = notMaskedInvocations.find(({ id }) => id === invocationId)
+                if (!invocation) {
+                    return acc
                 }
-            })
+                return [
+                    ...acc,
+                    {
+                        app_source: 'cdp-destination',
+                        metric_kind: 'success',
+                        metric_name: 'destination_invoked',
+                        team_id: invocation!.state.globals.project.id,
+                        app_source_id: invocation!.hogFunction.template_id ?? 'custom',
+                        instance_id: invocationId,
+                        count: 1,
+                    },
+                ]
+            }, [] as MinimalAppMetric[])
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
 
             return notMaskedInvocations
