@@ -305,7 +305,7 @@ class EventsQueryRunner(QueryRunner):
                 persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
                 persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
                 distinct_to_person: dict[str, Person] = {}
-                for person in persons:
+                for person in persons.iterator(chunk_size=1000):
                     if person:
                         for person_distinct_id in person.distinct_ids:
                             distinct_to_person[person_distinct_id] = person

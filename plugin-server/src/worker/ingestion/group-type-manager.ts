@@ -24,7 +24,7 @@ export class GroupTypeManager {
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
                     const { rows } = await this.postgres.query(
-                        PostgresUse.COMMON_READ,
+                        PostgresUse.PERSONS_READ,
                         `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
                         [Array.from(projectIds)],
                         'fetchGroupTypes'
@@ -95,7 +95,7 @@ export class GroupTypeManager {
         }
 
         const insertGroupTypeResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
             WITH insert_result AS (
                 INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)

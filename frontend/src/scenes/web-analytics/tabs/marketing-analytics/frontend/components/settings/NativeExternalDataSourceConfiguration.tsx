@@ -3,36 +3,32 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import {
+    MAX_ITEMS_TO_SHOW,
+    NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
+    VALID_NATIVE_MARKETING_SOURCES,
+} from '../../logic/utils'
 import { AddSourceDropdown } from './AddSourceDropdown'
 import { ListDisplay } from './ListDisplay'
 import { ItemName, PaginationControls } from './PaginationControls'
 import { StatusIcon } from './StatusIcon'
 
-const MAX_SOURCES_TO_SHOW = 5
-const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['GoogleAds', 'MetaAds']
-const NEEDED_FIELDS_FOR_MARKETING_ANALYTICS: Record<'GoogleAds' | 'MetaAds', string[]> = {
-    GoogleAds: ['ad', 'campaign', 'ad_group_ad', 'ad_group_criterion', 'customer'],
-    MetaAds: [],
-}
-
 export function NativeExternalDataSourceConfiguration(): JSX.Element {
-    const { dataWarehouseSources } = useValues(dataWarehouseSettingsLogic)
-
-    const marketingSources =
-        dataWarehouseSources?.results.filter((source) => VALID_MARKETING_SOURCES.includes(source.source_type)) ?? []
+    const { nativeSources, loading } = useValues(marketingAnalyticsLogic)
 
     // Helper functions to reduce duplication
     const getRequiredFields = (sourceType: string): string[] => {
         return (
-            NEEDED_FIELDS_FOR_MARKETING_ANALYTICS[sourceType as keyof typeof NEEDED_FIELDS_FOR_MARKETING_ANALYTICS] ||
-            []
+            NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[
+                sourceType as keyof typeof NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS
+            ] || []
         )
     }
 
@@ -75,8 +71,8 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
         showAll,
         setShowAll,
     } = useSortedPaginatedList({
-        items: marketingSources,
-        maxItemsToShow: MAX_SOURCES_TO_SHOW,
+        items: nativeSources,
+        maxItemsToShow: MAX_ITEMS_TO_SHOW,
         getId: (source) => source.id,
         isItemConfigured: isSourceFullyConfigured,
     })
@@ -118,10 +114,10 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                 onToggleShowAll={() => setShowAll(!showAll)}
                 totalCount={sourcesToUse.length}
                 itemName={ItemName.Sources}
-                maxItemsToShow={MAX_SOURCES_TO_SHOW}
+                maxItemsToShow={MAX_ITEMS_TO_SHOW}
                 additionalControls={
                     <AddSourceDropdown<ExternalDataSource['source_type']>
-                        sources={VALID_MARKETING_SOURCES}
+                        sources={VALID_NATIVE_MARKETING_SOURCES}
                         onSourceAdd={(source) => {
                             router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
                         }}
@@ -130,7 +126,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
             />
             <LemonTable
                 rowKey={(item) => item.id}
-                loading={dataWarehouseSources === null}
+                loading={loading}
                 dataSource={displayedSources}
                 columns={[
                     {

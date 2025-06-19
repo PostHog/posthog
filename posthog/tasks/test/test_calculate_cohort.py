@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
@@ -279,17 +279,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             enqueue_cohorts_to_calculate(2)
 
-            # Verify the log was called for both cohorts
-            self.assertEqual(mock_logger.info.call_count, 2)
-
-            # Check the log calls have the expected format
-            self.assertCountEqual(
-                mock_logger.info.call_args_list,
-                [
-                    call("Enqueuing cohort calculation", cohort_id=cohort2.pk, last_calculation=None),
-                    call("Enqueuing cohort calculation", cohort_id=cohort1.pk, last_calculation=last_calc_time),
-                ],
-            )
+            self.assertEqual(mock_logger.warning.call_count, 1)
+            args, kwargs = mock_logger.warning.call_args
+            assert args[0] == "enqueued_cohort_calculation"
+            assert set(kwargs["cohort_ids"]) == {cohort1.pk, cohort2.pk}
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")

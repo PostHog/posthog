@@ -1,13 +1,11 @@
-import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { campaignLogic } from './campaignLogic'
 import type { campaignSceneLogicType } from './campaignSceneLogicType'
-import type { HogFlow } from './Workflows/types'
 
 export const CampaignTabs = ['overview', 'workflow'] as const
 export type CampaignTab = (typeof CampaignTabs)[number]
@@ -20,9 +18,6 @@ export interface CampaignSceneLogicProps {
 export const campaignSceneLogic = kea<campaignSceneLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignSceneLogic']),
     props({ id: 'new' } as CampaignSceneLogicProps),
-    connect((props: CampaignSceneLogicProps) => ({
-        values: [campaignLogic(props), ['campaign']],
-    })),
     actions({
         setCurrentTab: (tab: CampaignTab) => ({ tab }),
     }),
@@ -36,8 +31,8 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.campaign],
-            (campaign: HogFlow): Breadcrumb[] => {
+            () => [],
+            (): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.MessagingCampaigns,
@@ -51,18 +46,14 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
                     },
                     {
                         key: 'campaign',
-                        name: campaign.name || 'Untitled Campaign',
-                        onRename: async (name: string): Promise<void> => {
-                            // TODO(team-messaging): use campaignLogic action
-                            alert(`Renaming campaign to ${name}`)
-                        },
+                        name: 'Manage campaign',
                     },
                 ]
             },
         ],
     }),
-    actionToUrl(({ values }) => ({
-        setCurrentTab: () => [urls.messagingCampaign(values.campaign.id, values.currentTab)],
+    actionToUrl(({ props, values }) => ({
+        setCurrentTab: () => [urls.messagingCampaign(props.id || 'new', values.currentTab)],
     })),
     urlToAction(({ actions, values }) => ({
         '/messaging/campaigns/:id/:tab': ({ tab }) => {
