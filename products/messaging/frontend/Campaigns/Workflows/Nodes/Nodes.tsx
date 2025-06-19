@@ -4,7 +4,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 
 import type { HogFlowAction } from '../types'
-import { getNodeHandles } from './utils'
+import { HogFlowActionFactory } from './hogFlowActionFactory'
 
 export const REACT_FLOW_NODE_TYPES = {
     dropzone: DropzoneNode,
@@ -44,7 +44,7 @@ function DropzoneNode({ type }: NodeProps): JSX.Element {
 
 function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.Element {
     const updateNodeInternals = useUpdateNodeInternals()
-    const handles = getNodeHandles(id, type as HogFlowAction['type'])
+    const builder = HogFlowActionFactory.createFromAction(data)
 
     useEffect(() => {
         updateNodeInternals(id)
@@ -59,12 +59,10 @@ function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.
         >
             <div className="flex items-center justify-center gap-1">
                 {icon}
-                <div className="text-xs">
-                    {data.config.inputs.name?.value || capitalizeFirstLetter(type || 'Untitled')}
-                </div>
+                <div className="text-xs">{data.name || capitalizeFirstLetter(type || 'Untitled')}</div>
             </div>
             {children}
-            {handles?.map((handle) => (
+            {builder.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} {...handle} isConnectable={false} className="opacity-0" />
             ))}

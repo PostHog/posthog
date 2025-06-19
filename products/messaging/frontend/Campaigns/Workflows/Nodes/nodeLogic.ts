@@ -13,11 +13,9 @@ export const nodeLogic = kea<nodeLogicType>([
     path(['products', 'messaging', 'frontend', 'Campaigns', 'Workflows', 'Nodes', 'nodeLogic']),
     props({ node: {} } as NodeLogicProps),
     key((props) => props.node.id),
-    forms(({ props }) => ({
+    forms(() => ({
         inputs: {
-            defaults: {
-                ...props.node.data.config.inputs,
-            },
+            // TODO: Implement
         },
     })),
 ])

@@ -29,20 +29,19 @@ const NEW_CAMPAIGN: HogFlow = {
         {
             id: 'trigger_node',
             type: 'trigger',
+            name: 'Trigger',
             description: '',
-            config: {
-                inputs: {},
-            },
             created_at: 0,
             updated_at: 0,
         },
         {
             id: 'exit_node',
             type: 'exit',
-            description: '',
+            name: 'Exit',
             config: {
-                inputs: {},
+                reason: 'Default exit',
             },
+            description: '',
             created_at: 0,
             updated_at: 0,
         },

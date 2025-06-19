@@ -91,7 +91,6 @@ abstract class BaseHogFlowActionBuilder<T extends HogFlowAction> implements HogF
             updated_at: this.updatedAt,
         } as any
 
-        // Add config if it exists
         if ('config' in actionData) {
             actionData.config = this.getConfig()
         }
@@ -107,14 +106,13 @@ abstract class BaseHogFlowActionBuilder<T extends HogFlowAction> implements HogF
     }
 }
 
-// Trigger action builder
 export class TriggerActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFlowAction, { type: 'trigger' }>> {
     protected getActionType(): 'trigger' {
         return 'trigger'
     }
 
     protected getConfig(): Record<string, never> {
-        return {} // Triggers don't have config
+        return {}
     }
 
     public getHandles(): NodeHandle[] {
@@ -133,7 +131,6 @@ export class TriggerActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFl
     }
 }
 
-// Exit action builder
 export class ExitActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFlowAction, { type: 'exit' }>> {
     private reason: string = 'Default exit'
 
@@ -168,7 +165,6 @@ export class ExitActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFlowA
     }
 }
 
-// Message action builder
 export class MessageActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFlowAction, { type: 'message' }>> {
     private messageValue: any = NEW_TEMPLATE
     private channel = 'email' as const
@@ -226,7 +222,6 @@ export class MessageActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFl
     }
 }
 
-// Delay action builder
 export class DelayActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFlowAction, { type: 'delay' }>> {
     private delaySeconds: number = 15
 
@@ -267,7 +262,6 @@ export class DelayActionBuilder extends BaseHogFlowActionBuilder<Extract<HogFlow
     }
 }
 
-// Wait for condition action builder
 export class WaitForConditionActionBuilder extends BaseHogFlowActionBuilder<
     Extract<HogFlowAction, { type: 'wait_for_condition' }>
 > {
@@ -325,7 +319,6 @@ export class WaitForConditionActionBuilder extends BaseHogFlowActionBuilder<
     }
 }
 
-// Conditional branch action builder
 export class ConditionalBranchActionBuilder extends BaseHogFlowActionBuilder<
     Extract<HogFlowAction, { type: 'conditional_branch' }>
 > {
@@ -383,7 +376,6 @@ export class ConditionalBranchActionBuilder extends BaseHogFlowActionBuilder<
     }
 }
 
-// Factory class for creating action builders
 export class HogFlowActionFactory {
     static createTrigger(id: string): TriggerActionBuilder {
         return new TriggerActionBuilder(id)
@@ -409,7 +401,10 @@ export class HogFlowActionFactory {
         return new ConditionalBranchActionBuilder(id)
     }
 
-    // Factory method for creating nodes from toolbar nodes (replaces createNewNode)
+    static createFromAction(action: HogFlowAction): Node<HogFlowAction> {
+        return this.createBuilderForType(action.type, action.id).build()
+    }
+
     static createFromToolbarNode(
         toolbarNode: ToolbarNode,
         nodeId?: string,
@@ -439,7 +434,6 @@ export class HogFlowActionFactory {
         }
     }
 
-    // Factory method for creating default nodes
     static createDefaultNodes(): Node<HogFlowAction>[] {
         return [
             this.createTrigger('trigger_node').setName('Trigger').setPosition({ x: 0, y: 0 }).build(),
@@ -447,7 +441,6 @@ export class HogFlowActionFactory {
         ]
     }
 
-    // Factory method for creating default edges
     static createDefaultEdges(): Edge<HogFlowEdge>[] {
         return [
             {
@@ -461,7 +454,6 @@ export class HogFlowActionFactory {
         ]
     }
 
-    // Utility method for creating edges for a new node
     static createEdgesForNewNode(
         nodeId: string,
         nodeType: HogFlowAction['type'],
@@ -516,7 +508,6 @@ export class HogFlowActionFactory {
     }
 }
 
-// Utility functions for backward compatibility
 export const getNodeInputs = (node: HogFlowAction | ToolbarNode): Record<string, CyclotronJobInputType> => {
     switch (node.type) {
         case 'message':

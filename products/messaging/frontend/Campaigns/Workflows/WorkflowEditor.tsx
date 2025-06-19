@@ -23,15 +23,10 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { OnWorkflowChange } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { getDefaultEdgeOptions } from './constants'
+import { HogFlowActionFactory } from './Nodes/hogFlowActionFactory'
 import { NodeDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
-import {
-    addDropzoneNodes,
-    createEdgesForNewNode,
-    createNewNode,
-    getEdgesFromHogFlow,
-    getNodesFromHogFlow,
-} from './Nodes/utils'
+import { addDropzoneNodes, createEdgesForNewNode, getEdgesFromHogFlow, getNodesFromHogFlow } from './Nodes/utils'
 import { Toolbar, ToolbarNode } from './Toolbar'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from './types'
 
@@ -168,9 +163,9 @@ function WorkflowEditorContent({
                 return
             }
 
-            // Create the new node in the position of the dropzone
+            // Create the new node in the position of the dropzone using the factory
             const newNodeId = `${toolbarNodeUsed.type}_${Date.now()}`
-            const newNode = createNewNode(toolbarNodeUsed, newNodeId, {
+            const newNode = HogFlowActionFactory.createFromToolbarNode(toolbarNodeUsed, newNodeId, {
                 x: intersectingDropzone.position.x,
                 y: intersectingDropzone.position.y,
             })
