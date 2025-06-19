@@ -250,8 +250,8 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [10]
-                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+                concurrency: [15]
+                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
                 include:
                     - segment: 'Temporal'
                       person-on-events: false

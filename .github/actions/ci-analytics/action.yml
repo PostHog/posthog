@@ -31,7 +31,7 @@ runs:
                     email: commit.data.commit.author?.email,              // Git e-mail
                   }
 
-                  let prNumber, prUrl
+                  let prNumber, prUrl, prTitle
                   try {
                     const prs = await gh.rest.repos.listPullRequestsAssociatedWithCommit({
                       owner: context.repo.owner,
@@ -41,6 +41,7 @@ runs:
                     if (prs.data.length) {
                       prNumber = prs.data[0].number
                       prUrl    = prs.data[0].html_url
+                      prTitle  = prs.data[0].title
                     }
                   } catch { /* ignore if API not available (e.g. in private GHES) */ }
 
@@ -83,6 +84,7 @@ runs:
                       ci_author_email: author.email,
                       ci_pr_number: prNumber,
                       ci_pr_url:    prUrl,
+                      ci_pr_title:  prTitle,
                     },
                   })
 
@@ -117,6 +119,7 @@ runs:
                           ci_job_url: j.html_url,
                           ci_job_started_at: j.started_at,
                           ci_job_completed_at: j.completed_at,
+                          ci_job_accumulated_duration: seconds(j.started_at, j.completed_at),
 
                           /* step-level */
                           ci_step_number: s.number,
