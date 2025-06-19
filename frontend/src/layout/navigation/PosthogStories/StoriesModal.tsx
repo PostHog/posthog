@@ -1,6 +1,5 @@
 import './StoriesModal.scss'
 
-import { IconChevronLeft, IconChevronRight, IconPauseFilled, IconPlayFilled, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -129,6 +128,7 @@ export const StoriesModal = (): JSX.Element | null => {
     const handlePrevious = useCallback(() => {
         if (activeStoryIndex > 0) {
             setActiveStoryIndex(activeStoryIndex - 1)
+            setIsPaused(false)
         }
     }, [activeStoryIndex, setActiveStoryIndex])
 
@@ -171,27 +171,17 @@ export const StoriesModal = (): JSX.Element | null => {
         [activeGroup, activeStoryIndex, activeStory]
     )
 
-    const handleNext = useCallback(() => {
-        if (activeStoryIndex < maxStoryIndex - 1) {
-            sendStoryEndEvent('next')
-            setActiveStoryIndex(activeStoryIndex + 1)
-        } else if (!isLastStoryGroup) {
-            sendStoryEndEvent('next')
-            setActiveGroupIndex(activeGroupIndex + 1)
-            setActiveStoryIndex(0)
+    // Reset pause state when modal opens or story changes
+    useEffect(() => {
+        if (openStoriesModal) {
+            setIsPaused(false)
         }
-    }, [
-        activeStoryIndex,
-        maxStoryIndex,
-        isLastStoryGroup,
-        activeGroupIndex,
-        sendStoryEndEvent,
-        setActiveStoryIndex,
-        setActiveGroupIndex,
-    ])
+    }, [openStoriesModal])
 
-    const canGoPrevious = activeStoryIndex > 0
-    const canGoNext = activeStoryIndex < maxStoryIndex - 1
+    // Reset pause state when active story changes
+    useEffect(() => {
+        setIsPaused(false)
+    }, [activeStoryIndex, activeGroupIndex])
 
     if (!openStoriesModal || !activeGroup) {
         return null
@@ -227,45 +217,20 @@ export const StoriesModal = (): JSX.Element | null => {
             onClose={() => handleClose(true)}
         >
             <div className="flex flex-col">
-                {/* Header with play/pause and close buttons */}
-                <div className="flex justify-end gap-2">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setIsPaused(!isPaused)
-                        }}
-                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
-                        title={isPaused ? 'Resume story' : 'Pause story'}
-                    >
-                        {isPaused ? <IconPlayFilled className="w-5 h-5" /> : <IconPauseFilled className="w-5 h-5" />}
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            handleClose(true)
-                        }}
-                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
-                        title="Close stories"
-                    >
-                        <IconX className="w-5 h-5 [&>*]:fill-white" />
-                    </button>
-                </div>
-
-                <div className="relative cursor-pointer flex-1 stories-container">
+                <div className="relative flex-1 stories-container">
                     <StoriesPlayer
                         stories={stories}
                         defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
-                        width="100%"
-                        height="100%"
                         currentIndex={activeStoryIndex}
                         isPaused={isPaused}
+                        width={dimensions.width}
+                        height={dimensions.height}
                         onNext={() => {
                             if (!activeGroup?.stories[activeStoryIndex]) {
                                 return
                             }
                             sendStoryEndEvent('next')
+                            setIsPaused(false)
 
                             // Check if this is the last story in the current group
                             if (activeStoryIndex >= maxStoryIndex - 1) {
@@ -276,7 +241,10 @@ export const StoriesModal = (): JSX.Element | null => {
                                 setActiveStoryIndex(activeStoryIndex + 1)
                             }
                         }}
-                        onPrevious={handlePrevious}
+                        onPrevious={() => {
+                            setIsPaused(false)
+                            handlePrevious()
+                        }}
                         onAllStoriesEnd={() => handleClose(false)}
                         onStoryEnd={() => {
                             sendStoryEndEvent('ended_naturally')
@@ -291,36 +259,9 @@ export const StoriesModal = (): JSX.Element | null => {
                             }
                         }}
                         onStoryStart={handleStoryStart}
-                        storyContainerStyles={{
-                            maxWidth: `${dimensions.width}px`,
-                            minWidth: `${dimensions.width}px`,
-                            maxHeight: `${dimensions.height}px`,
-                            minHeight: `${dimensions.height}px`,
-                            borderRadius: '4px',
-                            overflow: 'hidden',
-                        }}
+                        onPauseToggle={() => setIsPaused(!isPaused)}
+                        onClose={() => handleClose(true)}
                     />
-
-                    {/* Navigation arrows */}
-                    {canGoPrevious && (
-                        <button
-                            onClick={handlePrevious}
-                            className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
-                            title="Previous story"
-                        >
-                            <IconChevronLeft className="w-4 h-4" />
-                        </button>
-                    )}
-
-                    {canGoNext && (
-                        <button
-                            onClick={handleNext}
-                            className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
-                            title="Next story"
-                        >
-                            <IconChevronRight className="w-4 h-4" />
-                        </button>
-                    )}
                 </div>
             </div>
         </LemonModal>

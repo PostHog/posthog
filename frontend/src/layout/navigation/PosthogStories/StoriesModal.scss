@@ -23,4 +23,17 @@
         width: 0%;
         transition: width 0.1s ease-linear;
     }
+
+    // Stories player container styles
+    .stories-player-container {
+        width: attr(data-container-width px);
+        height: attr(data-container-height px);
+        border-radius: 4px;
+    }
+
+    /* Fallback for browsers that don't support attr() with units */
+    .stories-player-container[data-container-width] {
+        width: var(--container-width, 400px);
+        height: var(--container-height, 600px);
+    }
 }
