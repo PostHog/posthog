@@ -74,10 +74,12 @@ def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
 
 
 def reset_stuck_cohorts() -> None:
-    # Reset stuck cohorts that have been stuck (is_calculating=True) for more than 24 hours
-    # These cohorts will be picked up by the next cohort calculation but we need to limit the number of
-    # stuck cohorts that are reset at once to avoid overwhelming ClickHouse with too many calculations
-    # for stuck cohorts
+    # A stuck cohort is a cohort that has is_calculating set to true but the query/task failed and
+    # the field was never set back to false. These cohorts will never get pick up again for
+    # recalculation by our periodic celery task and need to be reset.
+    # After reseting, these cohorts will be picked up by the next cohort calculation but we need to limit the number
+    # of stuck cohorts that are reset at once to avoid overwhelming ClickHouse with too many
+    # calculations for stuck cohorts
     reset_cohort_ids = []
     for cohort in get_stuck_cohort_calculation_candidates_queryset().order_by(
         F("last_calculation").asc(nulls_first=True)
