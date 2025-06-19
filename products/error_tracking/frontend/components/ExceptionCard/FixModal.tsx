@@ -4,6 +4,7 @@ import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 interface FixModalProps {
@@ -53,6 +54,7 @@ Please be specific about the file and line number where the fix should be applie
 
     const handleCopy = (): void => {
         void copyToClipboard(generatePrompt(), 'LLM prompt')
+        posthog.capture('error_tracking_prompt_copied')
         onClose()
     }
 
