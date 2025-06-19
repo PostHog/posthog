@@ -337,3 +337,35 @@ class TestCohort(BaseTest):
         cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
         assert cohort_person_uuids == set(uuids)
         assert cohort.is_calculating is False
+
+    def test_insert_users_by_list_avoids_duplicates_with_batching(self):
+        """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""
+        # Create people with distinct IDs
+        for i in range(10):
+            Person.objects.create(team=self.team, distinct_ids=[f"user{i}"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        # First insertion - add users 0-4 (batch size 3 will create batches: [0,1,2], [3,4])
+        cohort.insert_users_by_list(["user0", "user1", "user2", "user3", "user4"], batch_size=3)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.people.count(), 5)
+
+        # Second insertion - try to add users 2-7 (users 2,3,4 are already in cohort)
+        # This tests that our LEFT JOIN optimization works across batch boundaries
+        cohort.insert_users_by_list(["user2", "user3", "user4", "user5", "user6", "user7"], batch_size=3)
+        cohort.refresh_from_db()
+
+        # Should have 8 people total (user0-user7) - no duplicates
+        self.assertEqual(cohort.people.count(), 8)
+
+        # Verify all expected people are in the cohort
+        cohort_person_distinct_ids = set()
+        for person in cohort.people.all():
+            cohort_person_distinct_ids.update(person.distinct_ids)
+
+        expected_distinct_ids = {f"user{i}" for i in range(8)}
+        self.assertEqual(cohort_person_distinct_ids, expected_distinct_ids)
+
+        # Verify the cohort is not in calculating state
+        self.assertFalse(cohort.is_calculating)
