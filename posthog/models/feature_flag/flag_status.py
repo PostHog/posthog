@@ -107,12 +107,29 @@ class FeatureFlagStatusChecker:
         if not flag.active:
             return False, ""
 
+        # Check if super groups have 0% rollout
+        if flag.filters.get("super_groups", None):
+            for super_group in flag.filters.get("super_groups"):
+                if self.is_group_rolled_out_to_zero(super_group):
+                    logger.debug(f"Flag {flag.id} has super group rolled out to 0%")
+                    return True, "Super group is rolled out to 0% (no users will match)"
+
+        # Check if holdout groups have 0% rollout
+        if flag.filters.get("holdout_groups", None):
+            for holdout_group in flag.filters.get("holdout_groups"):
+                if self.is_group_rolled_out_to_zero(holdout_group):
+                    logger.debug(f"Flag {flag.id} has holdout group rolled out to 0%")
+                    return True, "Holdout group is rolled out to 0% (no users will match)"
+
         # Check if all groups have 0% rollout
         groups = flag.filters.get("groups", [])
         if not groups:
             return False, ""
 
-        all_zero_rollout = all(group.get("rollout_percentage", 100) == 0 for group in groups)
+        # Check each group explicitly - missing rollout_percentage means it's not 0%
+        all_zero_rollout = all(
+            group.get("rollout_percentage") is not None and group.get("rollout_percentage") == 0 for group in groups
+        )
 
         if all_zero_rollout:
             return True, "Flag is rolled out to 0% of users (no users will match)"
@@ -121,10 +138,19 @@ class FeatureFlagStatusChecker:
         multivariate = flag.filters.get("multivariate", None)
         if multivariate:
             variants = multivariate.get("variants", [])
-            if variants and all(variant.get("rollout_percentage", 0) == 0 for variant in variants):
+            # For variants, check explicitly - missing rollout_percentage should not count as 0%
+            if variants and all(
+                variant.get("rollout_percentage") is not None and variant.get("rollout_percentage") == 0
+                for variant in variants
+            ):
                 return True, "All variants are rolled out to 0% (no users will match)"
 
         return False, ""
+
+    def is_group_rolled_out_to_zero(self, group: dict) -> bool:
+        rollout_percentage = group.get("rollout_percentage")
+        properties = group.get("properties", [])
+        return rollout_percentage == 0 and len(properties) == 0
 
     def is_multivariate_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, str]:
         # If flag is multivariant and one variant is rolled out to 100%,
