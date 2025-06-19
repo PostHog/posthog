@@ -38,7 +38,7 @@ export type GroupedLogEntry = {
 }
 
 type GroupedLogEntryRequest = {
-    sourceType: 'hog_function'
+    sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
     levels: LogEntryLevel[]
     search: string
