@@ -9,9 +9,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic, QuerySecondaryPanel } from './multitabEditorLogic'
-import { QueryInfo } from './sidebar/QueryInfo'
-import { QueryVariables } from './sidebar/QueryVariables'
+import { multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryPaneProps {
     queryInput: string
@@ -30,7 +28,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
         onRejectSuggestedQueryInput,
         reportAIQueryPromptOpen,
     } = useActions(multitabEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton, secondaryPanel } = useValues(multitabEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
 
     return (
         <>
@@ -138,14 +136,6 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         </div>
                     )}
                 </div>
-                {secondaryPanel && (
-                    <div className="relative flex flex-row w-1/2">
-                        {secondaryPanel === QuerySecondaryPanel.Info && (
-                            <QueryInfo codeEditorKey={props.codeEditorProps.queryKey} />
-                        )}
-                        {secondaryPanel === QuerySecondaryPanel.Variables && <QueryVariables />}
-                    </div>
-                )}
                 <Resizer {...queryPaneResizerProps} />
             </div>
         </>

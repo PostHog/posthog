@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -17,7 +17,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { FixErrorButton } from './components/FixErrorButton'
-import { multitabEditorLogic, QuerySecondaryPanel } from './multitabEditorLogic'
+import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
@@ -41,7 +41,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         changesToSave,
         originalQueryInput,
         suggestedQueryInput,
-        secondaryPanel,
     } = useValues(multitabEditorLogic)
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -58,7 +57,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadataLoading,
         saveAsView,
         updateView,
-        setSecondaryPanel,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
@@ -73,40 +71,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 editingView.status === 'Failed' ||
                 editingView.status === 'Cancelled' ||
                 editingView.status === 'Running'))
-
-    const renderAddSQLVariablesButton = (): JSX.Element => (
-        <LemonButton
-            onClick={() =>
-                setSecondaryPanel(
-                    secondaryPanel === QuerySecondaryPanel.Variables ? null : QuerySecondaryPanel.Variables
-                )
-            }
-            icon={<IconBrackets />}
-            type="tertiary"
-            size="xsmall"
-            id="sql-editor-query-window-add-variables"
-            data-attr="sql-editor-query-window-add-variables-button"
-            active={secondaryPanel === QuerySecondaryPanel.Variables}
-        >
-            Add SQL variables
-        </LemonButton>
-    )
-
-    const renderMaterializeButton = (): JSX.Element => (
-        <LemonButton
-            onClick={() =>
-                setSecondaryPanel(secondaryPanel === QuerySecondaryPanel.Info ? null : QuerySecondaryPanel.Info)
-            }
-            icon={<IconBolt />}
-            type="tertiary"
-            size="xsmall"
-            id="sql-editor-query-window-materialize"
-            data-attr="sql-editor-query-window-materialize-button"
-            active={secondaryPanel === QuerySecondaryPanel.Info}
-        >
-            Materialize
-        </LemonButton>
-    )
 
     const editingViewDisabledReason = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -188,7 +152,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                         </LemonButton>
-                        {!isMaterializedView && renderMaterializeButton()}
                         <LemonButton
                             onClick={() => openHistoryModal()}
                             icon={<IconBook />}
@@ -200,7 +163,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         </LemonButton>
                     </>
                 )}
-                {editingInsight && renderAddSQLVariablesButton()}
                 {!editingInsight && !editingView && (
                     <>
                         <LemonButton
@@ -213,8 +175,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
-                        {renderMaterializeButton()}
-                        {renderAddSQLVariablesButton()}
                     </>
                 )}
                 {featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] && (

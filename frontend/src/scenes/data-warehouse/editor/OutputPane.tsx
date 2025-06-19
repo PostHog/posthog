@@ -46,6 +46,8 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
+import { QueryInfo } from './sidebar/QueryInfo'
+import { QueryVariables } from './sidebar/QueryVariables'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -257,6 +259,7 @@ export function OutputPane(): JSX.Element {
         exportContext,
         editorKey,
         editingInsight,
+        editingView,
         updateInsightButtonEnabled,
         showLegacyFilters,
         localStorageResponse,
@@ -394,6 +397,14 @@ export function OutputPane(): JSX.Element {
                         {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
+                        },
+                        {
+                            key: OutputTab.Variables,
+                            label: 'Variables',
+                        },
+                        {
+                            key: OutputTab.Materialization,
+                            label: 'Materialization',
                         },
                     ].map((tab) => (
                         <div
@@ -547,6 +558,7 @@ export function OutputPane(): JSX.Element {
                     pollResponse={pollResponse}
                     editorKey={editorKey}
                     setProgress={setProgress}
+                    editingView={editingView}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
             </div>
@@ -655,6 +667,7 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
+    editorKey,
     setSourceQuery,
     exportContext,
     saveAsInsight,
@@ -662,6 +675,7 @@ const Content = ({
     pollResponse,
     setProgress,
     progress,
+    editingView,
 }: any): JSX.Element | null => {
     if (responseLoading) {
         return (
@@ -712,6 +726,32 @@ const Content = ({
                     columns={columns}
                     rows={rows}
                 />
+            </TabScroller>
+        )
+    }
+
+    if (activeTab === OutputTab.Variables) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    <QueryVariables />
+                </div>
+            </TabScroller>
+        )
+    }
+
+    if (activeTab === OutputTab.Materialization) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    {editingView ? (
+                        <QueryInfo codeEditorKey={editorKey} />
+                    ) : (
+                        <div>
+                            <p>Only available for saved views</p>
+                        </div>
+                    )}
+                </div>
             </TabScroller>
         )
     }
