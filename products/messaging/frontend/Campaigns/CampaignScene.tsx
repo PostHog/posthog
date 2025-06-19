@@ -66,7 +66,7 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
             />
             <LemonTabs
                 activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.messagingCampaignTab(props.id, tab))}
+                onChange={(tab) => router.actions.push(urls.messagingCampaign(props.id ?? 'new', tab))}
                 tabs={tabs}
             />
         </div>

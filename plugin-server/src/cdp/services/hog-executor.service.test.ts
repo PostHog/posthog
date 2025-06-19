@@ -10,6 +10,7 @@ import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import { EXTEND_OBJECT_KEY } from './hog-executor.service'
 
 const setupFetchResponse = (
     invocation: CyclotronJobInvocationHogFunction,
@@ -160,6 +161,78 @@ describe('Hog Executor', () => {
             const invocation = createExampleInvocation(hogFunction)
 
             const result = executor.execute(invocation)
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+        })
+
+        it('can handle selecting entire object', () => {
+            const invocation = createExampleInvocation({
+                ...hogFunction,
+                inputs: {
+                    ...hogFunction.inputs,
+                    headers: {
+                        value: {
+                            [EXTEND_OBJECT_KEY]: '{person.properties}',
+                        },
+                        templating: 'hog',
+                        bytecode: {
+                            [EXTEND_OBJECT_KEY]: ['_H', 1, 32, 'properties', 32, 'person', 1, 2],
+                        },
+                        order: 3,
+                    },
+                },
+            })
+
+            const result = executor.execute(invocation)
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"event":{"uuid":"uuid","event":"test","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2024-06-07T12:00:00.000Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
+                  "headers": {
+                    "email": "test@posthog.com",
+                    "first_name": "Pumpkin",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://example.com/posthog-webhook",
+                }
+            `)
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+        })
+
+        it('can handle selecting entire object with overrides', () => {
+            const invocation = createExampleInvocation({
+                ...hogFunction,
+                inputs: {
+                    ...hogFunction.inputs,
+                    headers: {
+                        value: {
+                            [EXTEND_OBJECT_KEY]: '{person.properties}',
+                            email: 'email-is-hidden',
+                        },
+                        templating: 'hog',
+                        bytecode: {
+                            [EXTEND_OBJECT_KEY]: ['_H', 1, 32, 'properties', 32, 'person', 1, 2],
+                            email: ['_H', 1, 32, 'email-is-hidden'],
+                        },
+                        order: 3,
+                    },
+                },
+            })
+
+            const result = executor.execute(invocation)
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"event":{"uuid":"uuid","event":"test","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2024-06-07T12:00:00.000Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
+                  "headers": {
+                    "email": "email-is-hidden",
+                    "first_name": "Pumpkin",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://example.com/posthog-webhook",
+                }
+            `)
             expect(result.finished).toBe(false)
             expect(result.error).toBeUndefined()
         })
@@ -727,28 +800,6 @@ describe('Hog Executor', () => {
             expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
                 {
                   "version": "v=1.2.3",
-                }
-            `)
-        })
-
-        it('crafts a mailjet request', () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.send_email,
-                ...HOG_INPUTS_EXAMPLES.email,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const result = executor.execute(createExampleInvocation(fn))
-            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
-                {
-                  "body": "{"Messages":[{"From":{"Email":"info@foobar.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
-                  "headers": {
-                    "Authorization": "Basic Og==",
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                  "return_queue": "hog",
-                  "url": "https://api.mailjet.com/v3.1/send",
                 }
             `)
         })

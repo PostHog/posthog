@@ -13,6 +13,8 @@ import {
 import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
+import { isTestEnv } from '~/utils/env-utils'
+
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -149,9 +151,9 @@ export class KafkaConsumer {
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
+            'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
-            'partition.assignment.strategy': 'cooperative-sticky',
             'enable.partition.eof': true,
             rebalance_cb: true,
             offset_commit_cb: true,

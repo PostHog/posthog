@@ -101,6 +101,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         output_field=DurationField(),
     )
 
+    cohort_ids = []
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
@@ -110,8 +111,9 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
-        logger.info("Enqueuing cohort calculation", cohort_id=cohort.pk, last_calculation=cohort.last_calculation)
         increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+        cohort_ids.append(cohort.pk)
+    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids)
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
@@ -141,7 +143,7 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             logger.exception("cohort_dependency_resolution_failed", cohort_id=cohort.id, error=str(e))
             capture_exception()
             # Fall back to calculating just this cohort without dependencies
-            logger.info("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
+            logger.warning("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
             _enqueue_single_cohort_calculation(cohort, initiating_user)
             return
 
