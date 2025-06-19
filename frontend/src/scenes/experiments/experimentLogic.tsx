@@ -1786,19 +1786,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         significanceDetails: [
-            (s) => [s.legacyMetricResults, s.experimentStatsVersion],
+            (s) => [s.legacyMetricResults],
             (
                     legacyMetricResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[],
-                    experimentStatsVersion: number
+                    )[]
                 ) =>
                 (metricIndex: number = 0): string => {
                     const results = legacyMetricResults?.[metricIndex]
-                    return getSignificanceDetails(results, experimentStatsVersion)
+                    return getSignificanceDetails(results)
                 },
         ],
         recommendedSampleSize: [
@@ -2011,12 +2010,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (primaryMetric) {
                     return primaryMetric.query
                 }
-            },
-        ],
-        experimentStatsVersion: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => {
-                return experiment.stats_config?.version || 1
             },
         ],
         primaryMetricsLengthWithSharedMetrics: [
