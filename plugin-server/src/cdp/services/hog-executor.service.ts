@@ -24,7 +24,6 @@ import {
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createMailjetRequest } from '../utils/hog-mailjet-request'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
 
