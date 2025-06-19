@@ -136,7 +136,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
         redirectDomain: [
-            () => [],
+            (s) => [s.oauthApplication],
             (): string => {
                 const redirectUri = router.values.searchParams['redirect_uri'] as string
                 if (!redirectUri) {
@@ -153,7 +153,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     })),
     urlToAction(({ actions }) => ({
         '/oauth/authorize': (_, searchParams) => {
-            const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope) => scope.length) ?? []
+            const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const scopes = requestedScopes.length === 0 ? DEFAULT_OAUTH_SCOPES : requestedScopes
 
             actions.setScopes(scopes)
