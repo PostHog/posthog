@@ -295,7 +295,6 @@ def mongo_source(
     collection = db[collection_name]
 
     query = _build_query(
-        collection_name,
         is_incremental,
         incremental_field,
         incremental_field_type,
