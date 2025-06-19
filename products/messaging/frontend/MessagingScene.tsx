@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { CampaignsTable } from './Campaigns/CampaignsTable'
+import type { messagingSceneLogicType } from './MessagingSceneType'
 import { MessageSenders } from './Senders/MessageSenders'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 
@@ -22,7 +23,7 @@ export type MessagingSceneProps = {
     tab: MessagingSceneTab
 }
 
-export const messagingSceneLogic = kea([
+export const messagingSceneLogic = kea<messagingSceneLogicType>([
     props({} as MessagingSceneProps),
     path(() => ['scenes', 'messaging', 'messagingSceneLogic']),
     actions({

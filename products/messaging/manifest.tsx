@@ -3,7 +3,7 @@ import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
-import type { MessagingTab } from './frontend/messagingTabsLogic'
+import type { MessagingSceneTab } from './frontend/MessagingScene'
 
 export const manifest: ProductManifest = {
     name: 'Messaging',
@@ -40,10 +40,8 @@ export const manifest: ProductManifest = {
         '/messaging/campaigns/new': '/messaging/campaigns/new/overview',
     },
     urls: {
-        messaging: (tab?: MessagingTab): string => `/messaging/${tab || 'campaigns'}`,
-        messagingCampaign: (id: string): string => `/messaging/campaigns/${id}/overview`,
-        messagingCampaignTab: (id?: string, tab?: string): string =>
-            `/messaging/campaigns/${id || 'new'}/${tab || 'overview'}`,
+        messaging: (tab?: MessagingSceneTab): string => `/messaging/${tab || 'campaigns'}`,
+        messagingCampaign: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'overview'}`,
         messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
         messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
@@ -63,16 +61,12 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Messaging',
-            href: urls.messaging('campaigns'),
+            href: urls.messaging(),
             type: 'messaging',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
             category: 'Tools',
             tags: ['alpha'],
-            /**
-             * We'll keep early-access flag (FEATURE_FLAGS.MESSAGING) enabled but use this
-             * automation flag for sidebar visibility to enable internal dogfooding
-             */
-            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
 }
