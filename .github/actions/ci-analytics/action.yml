@@ -10,8 +10,15 @@ runs:
         - uses: actions/github-script@v6
           with:
               script: |
-                  const run = context.payload.workflow_run         // the run that just finished
-                  const gh = github
+                  const gh = github                    
+                  let run = context.payload.workflow_run
+                  if (!run) {
+                    run = (await gh.rest.actions.getWorkflowRun({
+                      owner: context.repo.owner,
+                      repo:  context.repo.repo,
+                      run_id: process.env.GITHUB_RUN_ID,
+                    })).data
+                  }
 
                   /* ---------------- fetch all jobs (+ steps) ---------------- */
                   const jobs = await gh.paginate(
