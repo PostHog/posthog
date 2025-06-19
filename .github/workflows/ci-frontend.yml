@@ -37,6 +37,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'common/cdp/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'playwright/**'

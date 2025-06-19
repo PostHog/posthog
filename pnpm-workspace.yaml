@@ -1,5 +1,6 @@
 packages:
     - '.'
+    - common/cdp
     - common/esbuilder
     - common/eslint_rules
     - common/hogvm/typescript
