@@ -142,8 +142,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
             // Don't reset context if the only change is the side panel opening/closing
             // This happens when only the 'panel' hash parameter changes
             const currentLocation = router.values.location
-            const currentHashParams = router.values.hashParams
-            const currentSearchParams = router.values.searchParams
+            const currentHashParams = router.values.hashParams || {}
+            const currentSearchParams = router.values.searchParams || {}
             const previousLocation = cache.previousLocation
 
             cache.previousLocation = {
@@ -164,8 +164,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
             // Always reset context if pathname or search params changed
             if (
-                currentLocation.pathname !== previousLocation.location.pathname ||
-                !objectsEqual(currentSearchParams, previousLocation.searchParams)
+                currentLocation?.pathname !== previousLocation.location?.pathname ||
+                !objectsEqual({ ...currentSearchParams }, { ...(previousLocation.searchParams || {}) })
             ) {
                 resetContext()
                 return
@@ -174,7 +174,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             // At this point, pathname and search params are the same
             // Check if only panel parameter changed in hash params
             const currentHashKeys = Object.keys(currentHashParams)
-            const previousHashKeys = Object.keys(previousLocation.hashParams)
+            const previousHashKeys = Object.keys(previousLocation.hashParams || {})
 
             // Get all keys except 'panel'
             const currentNonPanelKeys = currentHashKeys.filter((key) => key !== 'panel')
@@ -186,7 +186,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 currentNonPanelKeys.every(
                     (key) =>
                         previousNonPanelKeys.includes(key) &&
-                        currentHashParams[key] === previousLocation.hashParams[key]
+                        currentHashParams[key] === (previousLocation.hashParams || {})[key]
                 )
 
             // If only the panel parameter changed and nothing else, don't reset context
