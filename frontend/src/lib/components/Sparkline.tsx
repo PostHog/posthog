@@ -169,6 +169,7 @@ export function Sparkline({
                                             id: i,
                                             dataIndex: 0,
                                             datasetIndex: 0,
+                                            order: i,
                                             label: dp.dataset.label,
                                             color: dp.dataset.borderColor as string,
                                             count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,

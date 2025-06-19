@@ -239,6 +239,7 @@ services:
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
             REDIS_URL: 'redis://redis:6379/'
             ADDRESS: '0.0.0.0:3001'
+            RUST_LOG: 'info'
             SKIP_WRITES: 'false'
             SKIP_READS: 'false'
 

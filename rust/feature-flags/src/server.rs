@@ -12,6 +12,7 @@ use tokio::net::TcpListener;
 
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
+use crate::db_monitor::DatabasePoolMonitor;
 use crate::router;
 use common_cookieless::CookielessManager;
 
@@ -93,6 +94,12 @@ where
         .register("simple_loop".to_string(), Duration::from_secs(30))
         .await;
     tokio::spawn(liveness_loop(simple_loop));
+
+    // Start database pool monitoring
+    let db_monitor = DatabasePoolMonitor::new(reader.clone(), writer.clone());
+    tokio::spawn(async move {
+        db_monitor.start_monitoring().await;
+    });
 
     let billing_limiter = match RedisLimiter::new(
         Duration::from_secs(5),
