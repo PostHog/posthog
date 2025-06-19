@@ -41,7 +41,7 @@ MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
-CSV_EXPORT_LIMIT = MAX_SELECT_RETURNED_ROWS
+CSV_EXPORT_LIMIT = 300000
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
 CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
@@ -60,11 +60,12 @@ class LimitContext(StrEnum):
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context in (
-        LimitContext.EXPORT,
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
+    elif limit_context == LimitContext.EXPORT:
+        return CSV_EXPORT_LIMIT
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
@@ -78,7 +79,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
 def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
-        return MAX_SELECT_RETURNED_ROWS  # 50k
+        return CSV_EXPORT_LIMIT
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:

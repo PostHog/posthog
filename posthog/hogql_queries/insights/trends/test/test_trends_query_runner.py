@@ -56,6 +56,7 @@ from posthog.schema import (
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
+    TrendsFormulaNode,
 )
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1052,6 +1053,132 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["breakdown_value"] == "all"
         assert response.results[1]["count"] == 16
         assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        # action needs to be unset to display custom label
+        assert response.results[0]["action"] is None
+
+    def test_multiple_formula_with_multi_cohort_all_breakdown(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(
+                formulaNodes=[
+                    TrendsFormulaNode(formula="A+B", custom_name="Formula (A+B)"),
+                    TrendsFormulaNode(formula="B+1", custom_name="Formula (B+1)"),
+                ]
+            ),
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, "all"]),
+        )
+
+        assert len(response.results) == 4
+
+        response.results.sort(key=lambda r: r["count"])
+
+        assert response.results[0]["label"] == "Formula (A+B)"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 9
+        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+
+        assert response.results[1]["label"] == "Formula (B+1)"
+        assert response.results[1]["breakdown_value"] == cohort1.pk
+        assert response.results[1]["count"] == 15
+        assert response.results[1]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+
+        assert response.results[2]["label"] == "Formula (A+B)"
+        assert response.results[2]["breakdown_value"] == "all"
+        assert response.results[2]["count"] == 16
+        assert response.results[2]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        assert response.results[3]["label"] == "Formula (B+1)"
+        assert response.results[3]["breakdown_value"] == "all"
+        assert response.results[3]["count"] == 18
+        assert response.results[3]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
+
+        # action needs to be unset to display custom label
+        assert response.results[0]["action"] is None
+
+    def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, "all"]),
+            compare_filters=CompareFilter(compare=True),
+        )
+
+        assert len(response.results) == 4
+
+        response.results.sort(key=lambda r: r["count"])
+
+        self.assertEqual(True, response.results[0]["compare"])
+        self.assertEqual(True, response.results[1]["compare"])
+        self.assertEqual(True, response.results[2]["compare"])
+        self.assertEqual(True, response.results[3]["compare"])
+
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("current", response.results[1]["compare_label"])
+        self.assertEqual("previous", response.results[2]["compare_label"])
+        self.assertEqual("previous", response.results[3]["compare_label"])
+
+        assert response.results[0]["label"] == "Formula (A+B)"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+
+        assert response.results[1]["label"] == "Formula (A+B)"
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 5
+        assert response.results[1]["data"] == [2.0, 1.0, 1.0, 0.0, 1.0, 0.0]
+
+        assert response.results[2]["label"] == "Formula (A+B)"
+        assert response.results[2]["breakdown_value"] == cohort1.pk
+        assert response.results[2]["count"] == 6
+        assert response.results[2]["data"] == [0.0, 0.0, 2.0, 2.0, 2.0, 0.0]
+
+        assert response.results[3]["label"] == "Formula (A+B)"
+        assert response.results[3]["breakdown_value"] == "all"
+        assert response.results[3]["count"] == 11
+        assert response.results[3]["data"] == [1.0, 0.0, 2.0, 4.0, 4.0, 0.0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
