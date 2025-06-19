@@ -94,7 +94,7 @@ runs:
                   }
 
                   /* ---------------- send to PostHog ------------------------- */
-                  await fetch('https://app.posthog.com/batch/', {
+                  await fetch('https://internal-t.posthog.com/batch/', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ api_key: '${{ inputs.posthog-api-key }}', batch }),
