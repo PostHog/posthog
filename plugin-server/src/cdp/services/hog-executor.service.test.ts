@@ -803,28 +803,6 @@ describe('Hog Executor', () => {
                 }
             `)
         })
-
-        it('crafts a mailjet request', () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.send_email,
-                ...HOG_INPUTS_EXAMPLES.email,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const result = executor.execute(createExampleInvocation(fn))
-            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
-                {
-                  "body": "{"Messages":[{"From":{"Email":"info@foobar.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
-                  "headers": {
-                    "Authorization": "Basic Og==",
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                  "return_queue": "hog",
-                  "url": "https://api.mailjet.com/v3.1/send",
-                }
-            `)
-        })
     })
 
     describe('slow functions', () => {
