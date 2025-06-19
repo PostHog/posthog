@@ -97,6 +97,8 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         size = 'medium',
         stopPropagation = false,
         inputRef,
+        disabled,
+        disabledReason,
         ...props
     },
     ref
@@ -158,7 +160,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
 
     return (
-        <Tooltip title={props.disabledReason ?? undefined}>
+        <Tooltip title={disabledReason ?? undefined}>
             <span
                 className={clsx(
                     'LemonInput',
@@ -167,11 +169,11 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     size && `LemonInput--${size}`,
                     fullWidth && 'LemonInput--full-width',
                     value && 'LemonInput--has-content',
-                    !props.disabled && !props.disabledReason && focused && 'LemonInput--focused',
+                    !disabled && !disabledReason && focused && 'LemonInput--focused',
                     transparentBackground && 'LemonInput--transparent-background',
                     className
                 )}
-                aria-disabled={props.disabled || !!props.disabledReason}
+                aria-disabled={disabled || !!disabledReason}
                 onClick={() => focus()}
                 ref={ref}
             >
@@ -181,7 +183,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     ref={mergedInputRef}
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                     value={value}
-                    disabled={props.disabled || !!props.disabledReason}
+                    disabled={disabled || !!disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {
                             event.stopPropagation()
