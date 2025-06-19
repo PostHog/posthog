@@ -11,7 +11,7 @@ runs:
           with:
               script: |
                   const run = context.payload.workflow_run         // the run that just finished
-                  const gh  = github.getOctokit(process.env.GITHUB_TOKEN)
+                  const gh = github
 
                   /* ---------------- fetch all jobs (+ steps) ---------------- */
                   const jobs = await gh.paginate(
