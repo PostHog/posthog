@@ -1,4 +1,3 @@
-import uuid
 from pathlib import Path
 from decimal import Decimal
 from freezegun import freeze_time
@@ -11,6 +10,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     RevenueAnalyticsEventItem,
     RevenueCurrencyPropertyConfig,
+    RevenueAnalyticsPersonsJoinMode,
 )
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.test.base import (
@@ -19,6 +19,7 @@ from posthog.test.base import (
     _create_person,
     _create_event,
 )
+from posthog.test.base import snapshot_clickhouse_queries
 
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
@@ -34,10 +35,12 @@ INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_q
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 
 
+@snapshot_clickhouse_queries
 class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
     PURCHASE_EVENT_NAME = "purchase"
     REVENUE_PROPERTY = "revenue"
     QUERY_TIMESTAMP = "2025-05-30"
+    MODIFIERS = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
 
     def tearDown(self):
         if hasattr(self, "invoices_cleanup_filesystem"):
@@ -46,19 +49,19 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.customers_cleanup_filesystem()
         super().tearDown()
 
-    def test_get_revenue_for_events(self):
-        person_id = str(uuid.uuid4())
+    def setup_events(self):
+        self.person_id = "00000000-0000-0000-0000-000000000000"
 
         _create_person(
-            uuid=person_id,
+            uuid=self.person_id,
             team_id=self.team.pk,
-            distinct_ids=[person_id],
+            distinct_ids=[self.person_id],
         )
 
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=person_id,
+            distinct_id=self.person_id,
             timestamp=self.QUERY_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 10000},
         )
@@ -66,40 +69,12 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=person_id,
+            distinct_id=self.person_id,
             timestamp=self.QUERY_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 25042},
         )
 
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
-                currencyAwareDecimal=True,
-            )
-        ]
-        self.team.revenue_analytics_config.save()
-        self.team.save()
-
-        with freeze_time(self.QUERY_TIMESTAMP):
-            queries = [
-                "select revenue_analytics.revenue from persons where id = {person_id}",
-                "select $virt_revenue from persons where id = {person_id}",
-            ]
-            for query in queries:
-                response = execute_hogql_query(
-                    parse_select(query, placeholders={"person_id": ast.Constant(value=person_id)}),
-                    self.team,
-                )
-
-                assert response.results[0][0] == Decimal("350.42")
-
-    def test_get_revenue_for_schema_source(self):
-        # These are the 6 IDs inside the CSV files
-        for person_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
-            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
-
+    def setup_schema_sources(self):
         invoices_csv_path = Path("products/revenue_analytics/backend/hogql_queries/test/data/stripe_invoices.csv")
         invoices_table, source, credential, _, self.invoices_cleanup_filesystem = create_data_warehouse_table_from_csv(
             invoices_csv_path,
@@ -143,8 +118,43 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.save()
 
+    def test_get_revenue_for_events(self):
+        self.setup_events()
+
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
         with freeze_time(self.QUERY_TIMESTAMP):
-            modifiers = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
+            queries = [
+                "select revenue_analytics.revenue from persons where id = {person_id}",
+                "select $virt_revenue from persons where id = {person_id}",
+            ]
+            for query in queries:
+                response = execute_hogql_query(
+                    parse_select(query, placeholders={"person_id": ast.Constant(value=self.person_id)}),
+                    self.team,
+                )
+
+                assert response.results[0][0] == Decimal("350.42")
+
+    def test_get_revenue_for_schema_source_for_id_join(self):
+        self.setup_schema_sources()
+        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.ID
+        self.team.revenue_analytics_config.save()
+
+        # These are the 6 IDs inside the CSV files
+        for person_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
+            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
+
+        with freeze_time(self.QUERY_TIMESTAMP):
             queries = [
                 "select revenue_analytics.customer_id, revenue_analytics.revenue from persons order by id asc",
                 "select revenue_analytics.customer_id, $virt_revenue from persons order by id asc",
@@ -153,7 +163,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 response = execute_hogql_query(
                     parse_select(query),
                     self.team,
-                    modifiers=modifiers,
+                    modifiers=self.MODIFIERS,
                 )
 
                 assert response.results == [
@@ -164,3 +174,100 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ("cus_5", Decimal("626.83253")),
                     ("cus_6", Decimal("17476.47254")),
                 ]
+
+    def test_get_revenue_for_schema_source_for_email_join(self):
+        self.setup_schema_sources()
+        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.EMAIL
+        self.team.revenue_analytics_config.save()
+
+        # These are the 6 IDs inside the CSV files
+        for person_id in [
+            "john.doe@example.com",  # cus_1
+            "jane.doe@example.com",  # cus_2
+            "john.smith@example.com",  # cus_3
+            "jane.smith@example.com",  # cus_4
+            "john.doejr@example.com",  # cus_5
+            "john.doejrjr@example.com",  # cus_6
+        ]:
+            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            queries = [
+                "select revenue_analytics.customer_id, revenue_analytics.revenue from persons order by id asc",
+                "select revenue_analytics.customer_id, $virt_revenue from persons order by id asc",
+            ]
+            for query in queries:
+                response = execute_hogql_query(
+                    parse_select(query),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                assert response.results == [
+                    ("cus_1", Decimal("429.7424")),
+                    ("cus_2", Decimal("287.4779")),
+                    ("cus_3", Decimal("26182.78099")),
+                    ("cus_4", Decimal("254.12345")),
+                    ("cus_5", Decimal("626.83253")),
+                    ("cus_6", Decimal("17476.47254")),
+                ]
+
+    def test_get_revenue_for_schema_source_for_custom_join(self):
+        self.setup_schema_sources()
+        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.CUSTOM
+        self.team.revenue_analytics_config.persons_join_mode_custom = "id"
+        self.team.revenue_analytics_config.save()
+
+        # These are the 6 IDs inside the CSV files
+        for person_id in [
+            "cus_1_metadata",
+            "cus_2_metadata",
+            "cus_3_metadata",
+            "cus_4_metadata",
+            "cus_5_metadata",
+            "cus_6_metadata",
+        ]:
+            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            queries = [
+                "select revenue_analytics.customer_id, revenue_analytics.revenue from persons order by id asc",
+                "select revenue_analytics.customer_id, $virt_revenue from persons order by id asc",
+            ]
+            for query in queries:
+                response = execute_hogql_query(
+                    parse_select(query),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                assert response.results == [
+                    ("cus_1", Decimal("429.7424")),
+                    ("cus_2", Decimal("287.4779")),
+                    ("cus_3", Decimal("26182.78099")),
+                    ("cus_4", Decimal("254.12345")),
+                    ("cus_5", Decimal("626.83253")),
+                    ("cus_6", Decimal("17476.47254")),
+                ]
+
+    def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
+        self.setup_schema_sources()
+        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.EMAIL
+        self.team.revenue_analytics_config.save()
+
+        # Person has several distinct IDs, but only one of them can be matched from the customer table
+        _create_person(team_id=self.team.pk, distinct_ids=["distinct_1", "john.doe@example.com"])
+        breakpoint()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            response = execute_hogql_query(
+                parse_select("select *, $virt_revenue from persons"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+
+            # TODO: This is failing for more than one reason:
+            # 1. I can only get the revenue to work if I select * first, doesnt work if select just revenue
+            # 2. This is returning an entry for each of the distinct IDs which is understandable but could probably get the one that exists only
+            # 3. If I change the select to a specific person `where id = {}` then it fails to return for the matching email, never returns revenue
+            assert response.results[0][6] == Decimal("429.7424")

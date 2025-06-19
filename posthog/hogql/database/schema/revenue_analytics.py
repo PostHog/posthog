@@ -3,20 +3,26 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.database.models import (
     DecimalDatabaseField,
+    StringJSONDatabaseField,
+    StringDatabaseField,
     IntegerDatabaseField,
     LazyTable,
     FieldOrTable,
     LazyTableToAdd,
     LazyJoinToAdd,
 )
+from posthog.models.team.team import Team
 from posthog.hogql.errors import ResolutionError
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
     RevenueAnalyticsInvoiceItemView,
 )
+from posthog.schema import RevenueAnalyticsPersonsJoinMode
 
 REVENUE_ANALYTICS_FIELDS: dict[str, FieldOrTable] = {
     "customer_id": IntegerDatabaseField(name="customer_id"),
+    "customer_email": StringDatabaseField(name="customer_email"),
+    "customer_metadata": StringJSONDatabaseField(name="customer_metadata"),
     "revenue": DecimalDatabaseField(name="revenue", nullable=False),
     "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
 }
@@ -33,17 +39,35 @@ def join_with_revenue_analytics_table(
         raise ResolutionError("No fields requested from revenue_analytics")
 
     join_expr = ast.JoinExpr(table=select_from_revenue_analytics_table(join_to_add.fields_accessed, context))
-    join_expr.join_type = "LEFT OUTER JOIN"
+    join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=ast.Call(name="toString", args=[ast.Field(chain=[join_to_add.from_table, "pdi", "distinct_id"])]),
-            right=ast.Field(chain=[join_to_add.to_table, "customer_id"]),
+            right=_join_to_fields(context.team, join_to_add.to_table),
         ),
         constraint_type="ON",
     )
     return join_expr
+
+
+def _join_to_fields(team: Team, to_table: str) -> ast.Expr:
+    config = team.revenue_analytics_config
+    if config.persons_join_mode == RevenueAnalyticsPersonsJoinMode.ID:
+        return ast.Field(chain=[to_table, "customer_id"])
+    elif config.persons_join_mode == RevenueAnalyticsPersonsJoinMode.EMAIL:
+        return ast.Field(chain=[to_table, "customer_email"])
+    elif config.persons_join_mode == RevenueAnalyticsPersonsJoinMode.CUSTOM and config.persons_join_mode_custom:
+        return ast.Call(
+            name="JSONExtractString",
+            args=[
+                ast.Field(chain=[to_table, "customer_metadata"]),
+                ast.Constant(value=config.persons_join_mode_custom),
+            ],
+        )
+    else:
+        return ast.Field(chain=[to_table, "customer_id"])  # Fallback to ID, should never happen
 
 
 def select_from_revenue_analytics_table(
@@ -75,12 +99,30 @@ def select_from_revenue_analytics_table(
     customer_table = ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
     invoice_item_table = ast.SelectSetQuery.create_from_queries(invoice_item_selects, set_operator="UNION ALL")
 
-    # TODO: Update how we do the join so that it's slightly more dynamic
-    # and can let customer choose the kind of join they want
     return ast.SelectQuery(
         select=[
             ast.Alias(
                 alias="customer_id", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"])
+            ),
+            ast.Alias(
+                alias="customer_email",
+                expr=ast.Call(
+                    name="argMax",
+                    args=[
+                        ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "email"]),
+                        ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "timestamp"]),
+                    ],
+                ),
+            ),
+            ast.Alias(
+                alias="customer_metadata",
+                expr=ast.Call(
+                    name="argMax",
+                    args=[
+                        ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "metadata"]),
+                        ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "timestamp"]),
+                    ],
+                ),
             ),
             ast.Alias(
                 alias="revenue",
@@ -112,7 +154,7 @@ def select_from_revenue_analytics_table(
             next_join=ast.JoinExpr(
                 alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
                 table=invoice_item_table,
-                join_type="LEFT OUTER JOIN",
+                join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
                     constraint_type="ON",
                     expr=ast.CompareOperation(

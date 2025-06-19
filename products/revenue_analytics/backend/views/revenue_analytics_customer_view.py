@@ -35,6 +35,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "email": StringDatabaseField(name="email"),
     "phone": StringDatabaseField(name="phone"),
     "address": StringJSONDatabaseField(name="address"),
+    "metadata": StringJSONDatabaseField(name="metadata"),
     "country": StringDatabaseField(name="country"),
     "cohort": StringDatabaseField(name="cohort"),
     "initial_coupon": StringDatabaseField(name="initial_coupon"),
@@ -74,6 +75,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="name", expr=ast.Field(chain=["properties", "name"])),
                     ast.Alias(alias="email", expr=ast.Field(chain=["properties", "email"])),
                     ast.Alias(alias="phone", expr=ast.Field(chain=["properties", "phone"])),
+                    ast.Alias(alias="metadata", expr=ast.Field(chain=["properties"])),
                     ast.Alias(alias="address", expr=ast.Field(chain=["properties", "address"])),
                     ast.Alias(alias="country", expr=ast.Field(chain=["properties", "$geoip_country_name"])),
                     ast.Alias(alias="cohort", expr=get_cohort_expr("created_at")),
@@ -155,6 +157,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="name", expr=ast.Field(chain=["name"])),
                 ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
                 ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
+                ast.Alias(alias="metadata", expr=ast.Field(chain=["metadata"])),
                 ast.Alias(alias="address", expr=ast.Field(chain=["address"])),
                 ast.Alias(
                     alias="country",
