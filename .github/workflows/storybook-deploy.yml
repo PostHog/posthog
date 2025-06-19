@@ -67,6 +67,6 @@ jobs:
         needs: [storybook-deployment] # last job in this workflow
         runs-on: ubuntu-latest
         steps:
-            - uses: ./.github/actions/posthog-ci-collector
+            - uses: ./.github/actions/ci-analytics
               with:
               posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}
