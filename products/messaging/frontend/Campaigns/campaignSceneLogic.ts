@@ -7,7 +7,7 @@ import { Breadcrumb } from '~/types'
 
 import type { campaignSceneLogicType } from './campaignSceneLogicType'
 
-export const CampaignTabs = ['overview', 'workflow'] as const
+export const CampaignTabs = ['overview', 'workflow', 'logs', 'metrics'] as const
 export type CampaignTab = (typeof CampaignTabs)[number]
 
 export interface CampaignSceneLogicProps {

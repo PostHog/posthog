@@ -12,7 +12,7 @@ export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
 
 export type LogsViewerLogicProps = {
-    sourceType: 'hog_function'
+    sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
 }
 
