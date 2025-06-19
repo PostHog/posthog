@@ -1,5 +1,4 @@
 import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
-
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
