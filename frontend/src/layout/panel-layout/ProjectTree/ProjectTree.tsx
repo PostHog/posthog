@@ -1,4 +1,4 @@
-import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -167,7 +167,8 @@ export function ProjectTree({
 
         // Show product menu items if the item is a product or shortcut (and the item is a product, products have 1 slash in the href)
         const showProductMenuItems =
-            root === 'products://' || (root === 'shortcuts://' && item.record?.href.split('/').length - 1 === 1)
+            root === 'products://' ||
+            (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
@@ -498,7 +499,8 @@ export function ProjectTree({
             }}
             itemSideActionButton={(item) => {
                 const showProductMenuItems =
-                    root === 'products://' || (root === 'shortcuts://' && item.record?.href.split('/').length - 1 === 1)
+                    root === 'products://' ||
+                    (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
                 if (showProductMenuItems) {
                     if (item.name === 'Product analytics') {
@@ -656,11 +658,7 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon
-                            item={item}
-                            expandedItemIds={expandedFolders}
-                            defaultNodeIcon={<IconFolder />}
-                        />
+                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                     </>
                 )
             }}

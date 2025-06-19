@@ -63,32 +63,16 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
 
 def update_stale_cohort_metrics() -> None:
     now = timezone.now()
-    stale_cohorts = (
-        Cohort.objects.filter(
-            Q(last_calculation__isnull=False),
-            deleted=False,
-            is_calculating=False,
-            errors_calculating__lte=20,
-        )
-        .exclude(is_static=True)
-        .values_list("last_calculation", flat=True)
-    )
+    base_queryset = Cohort.objects.filter(
+        Q(last_calculation__isnull=False),
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
 
-    stale_24h = stale_36h = stale_48h = 0
-    for last_calc in stale_cohorts:
-        if last_calc <= now - relativedelta(hours=48):
-            stale_48h += 1
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=36):
-            stale_36h += 1
-            stale_24h += 1
-        elif last_calc <= now - relativedelta(hours=24):
-            stale_24h += 1
-
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="24").set(stale_24h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="36").set(stale_36h)
-    COHORTS_STALE_COUNT_GAUGE.labels(hours="48").set(stale_48h)
+    for hours in [24, 36, 48]:
+        stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
+        COHORTS_STALE_COUNT_GAUGE.labels(hours=str(hours)).set(stale_count)
 
     stuck_count = (
         Cohort.objects.filter(
@@ -117,6 +101,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         output_field=DurationField(),
     )
 
+    cohort_ids = []
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
@@ -126,8 +111,9 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
-        logger.info("Enqueuing cohort calculation", cohort_id=cohort.pk, last_calculation=cohort.last_calculation)
         increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+        cohort_ids.append(cohort.pk)
+    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids)
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
@@ -157,7 +143,7 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             logger.exception("cohort_dependency_resolution_failed", cohort_id=cohort.id, error=str(e))
             capture_exception()
             # Fall back to calculating just this cohort without dependencies
-            logger.info("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
+            logger.warning("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
             _enqueue_single_cohort_calculation(cohort, initiating_user)
             return
 

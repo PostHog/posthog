@@ -13,6 +13,14 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
+class AccessControlLevel(StrEnum):
+    NONE = "none"
+    MEMBER = "member"
+    ADMIN = "admin"
+    VIEWER = "viewer"
+    EDITOR = "editor"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -718,6 +726,27 @@ class CustomEventConversionGoal(BaseModel):
         extra="forbid",
     )
     customEventName: str
+
+
+class DashboardPrivilegeLevel(float, Enum):
+    NUMBER_21 = 21
+    NUMBER_37 = 37
+    NUMBER_888 = 888
+    NUMBER_999 = 999
+
+
+class DashboardRestrictionLevel(float, Enum):
+    NUMBER_21 = 21
+    NUMBER_37 = 37
+
+
+class DashboardTileBasicType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dashboard_id: float
+    deleted: Optional[bool] = None
+    id: float
 
 
 class DataColorToken(StrEnum):
@@ -1831,10 +1860,13 @@ class RevenueAnalyticsGoal(BaseModel):
 
 
 class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
-    ALL = "all"
-    PRODUCT = "product"
     COHORT = "cohort"
     COUNTRY = "country"
+    COUPON = "coupon"
+    COUPON_ID = "coupon_id"
+    INITIAL_COUPON = "initial_coupon"
+    INITIAL_COUPON_ID = "initial_coupon_id"
+    PRODUCT = "product"
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
@@ -2216,6 +2248,15 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
+
+
+class Query(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: NodeKind
+    response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantArrayPropertyFilter(BaseModel):
@@ -2774,6 +2815,18 @@ class Day(RootModel[int]):
     root: int
 
 
+class EntityFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+
+
 class ErrorTrackingIssueAssignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3094,13 +3147,6 @@ class LogMessage(BaseModel):
     timestamp: datetime
     trace_id: str
     uuid: str
-
-
-class MarketingAnalyticsConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class MatchedRecording(BaseModel):
@@ -4012,6 +4058,51 @@ class ActorsQueryResponse(BaseModel):
     types: Optional[list[str]] = None
 
 
+class AnyResponseType1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field_create_in_folder: Optional[str] = Field(
+        default=None, alias="_create_in_folder", description="Only used when creating objects"
+    )
+    cache_target_age: Optional[str] = None
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    dashboard_tiles: Optional[list[DashboardTileBasicType]] = None
+    dashboards: Optional[list[float]] = None
+    deleted: Optional[bool] = None
+    derived_name: Optional[str] = None
+    description: Optional[str] = None
+    disable_baseline: Optional[bool] = Field(
+        default=None, description="Only used in the frontend to toggle showing Baseline in funnels or not"
+    )
+    effective_privilege_level: Optional[DashboardPrivilegeLevel] = None
+    effective_restriction_level: Optional[DashboardRestrictionLevel] = None
+    favorited: Optional[bool] = None
+    id: Optional[float] = Field(
+        default=None, description="The primary key in the database, used as well in API endpoints"
+    )
+    is_sample: Optional[bool] = None
+    last_modified_at: Optional[str] = None
+    last_modified_by: Optional[UserBasicType] = None
+    last_refresh: Optional[str] = None
+    name: Optional[str] = None
+    next: Optional[str] = Field(default=None, description="Only used in the frontend to store the next breakdown url")
+    next_allowed_client_refresh: Optional[str] = None
+    order: Optional[float] = None
+    query: Optional[Query] = None
+    query_status: Optional[QueryStatus] = None
+    result: Optional[Any] = None
+    saved: Optional[bool] = None
+    short_id: Optional[str] = Field(
+        default=None, description="The unique key we use when communicating with the user, e.g. in URLs"
+    )
+    tags: Optional[list[str]] = None
+    timezone: Optional[str] = None
+    updated_at: Optional[str] = None
+    user_access_level: Optional[AccessControlLevel] = None
+
+
 class AssistantBasePropertyFilter(
     RootModel[
         Union[
@@ -4337,6 +4428,7 @@ class AssistantTrendsActionsNode(BaseModel):
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -4382,6 +4474,7 @@ class AssistantTrendsEventsNode(BaseModel):
         ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -7464,6 +7557,7 @@ class RevenueAnalyticsConfig(BaseModel):
         extra="forbid",
     )
     events: Optional[list[RevenueAnalyticsEventItem]] = []
+    filter_test_accounts: Optional[bool] = False
     goals: Optional[list[RevenueAnalyticsGoal]] = []
 
 
@@ -7486,7 +7580,7 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy
+    groupBy: list[RevenueAnalyticsInsightsQueryGroupBy]
     interval: IntervalType
     kind: Literal["RevenueAnalyticsInsightsQuery"] = "RevenueAnalyticsInsightsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -7849,6 +7943,7 @@ class AnyResponseType(
             EventsQueryResponse,
             ErrorTrackingQueryResponse,
             LogsQueryResponse,
+            AnyResponseType1,
         ]
     ]
 ):
@@ -7862,6 +7957,7 @@ class AnyResponseType(
         EventsQueryResponse,
         ErrorTrackingQueryResponse,
         LogsQueryResponse,
+        AnyResponseType1,
     ]
 
 
@@ -8023,6 +8119,50 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
 
 
+class ConversionGoalFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goal_id: str
+    conversion_goal_name: str
+    custom_name: Optional[str] = None
+    days: Optional[list[str]] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    math: Optional[str] = None
+    math_group_type_index: Optional[int] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    math_property_type: Optional[TaxonomicFilterGroupType] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    schema_: dict[str, Union[str, Any]] = Field(..., alias="schema")
+    type: EntityType
+
+
 class DashboardFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8159,6 +8299,7 @@ class DataWarehouseNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8238,6 +8379,7 @@ class EntityNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8333,6 +8475,7 @@ class EventsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8413,6 +8556,7 @@ class ExperimentDataWarehouseNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8551,6 +8695,7 @@ class FunnelExclusionActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8632,6 +8777,7 @@ class FunnelExclusionEventsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -8751,6 +8897,14 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     interval: Optional[list[IntervalItem]] = None
     series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
+
+
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversion_goals: Optional[list[ConversionGoalFilter]] = None
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class PersonsNode(BaseModel):
@@ -9139,6 +9293,47 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ActionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    days: Optional[list[str]] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    math: Optional[str] = None
+    math_group_type_index: Optional[int] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    math_property_type: Optional[TaxonomicFilterGroupType] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+    type: EntityType
+
+
 class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9186,6 +9381,7 @@ class ActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
@@ -9273,6 +9469,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    funnel_order_type: Optional[StepOrderValue] = None
     metric_type: Literal["funnel"] = "funnel"
     series: list[Union[EventsNode, ActionsNode]]
 
@@ -9684,6 +9881,7 @@ class ExperimentFunnelMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    funnel_order_type: Optional[StepOrderValue] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None

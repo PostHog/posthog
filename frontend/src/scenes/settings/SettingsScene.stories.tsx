@@ -1,23 +1,28 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
-import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
+import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { AvailableFeature, UserType } from '~/types'
 
-const meta: Meta = {
-    title: 'Scenes-Other/Settings',
+import { SettingSectionId } from './types'
+
+interface StoryProps {
+    sectionId: SettingSectionId
+}
+
+type Story = StoryObj<(props: StoryProps) => JSX.Element>
+const meta: Meta<(props: StoryProps) => JSX.Element> = {
+    title: 'Scenes-App/Settings',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING],
+        featureFlags: Object.values(FEATURE_FLAGS), // Enable all feature flags for the settings page
     },
     decorators: [
         mswDecorator({
@@ -41,124 +46,170 @@ const meta: Meta = {
 }
 export default meta
 
-export const SettingsProject: StoryFn = () => {
+const Template: StoryFn<StoryProps> = ({ sectionId }) => {
     useEffect(() => {
-        router.actions.push(urls.settings('project'))
-    }, [])
-    return <App />
-}
-SettingsProject.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsProjectWithReplayFeatures: StoryFn = () => {
-    useAvailableFeatures([
-        AvailableFeature.SESSION_REPLAY_SAMPLING,
-        AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
-        AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
-    ])
-    useEffect(() => {
-        router.actions.push(urls.settings('project'))
-    }, [])
-    return <App />
-}
-SettingsProjectWithReplayFeatures.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsUser: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.settings('user'))
-    }, [])
-    return <App />
-}
-SettingsUser.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsOrganization: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.settings('organization'))
-    }, [])
-    return <App />
-}
-SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-function TimeSensitiveSettings(props: {
-    has_password?: boolean
-    saml_available?: boolean
-    sso_enforcement?: string
-}): JSX.Element {
-    const timedOutSessionUser: UserType = {
-        ...MOCK_DEFAULT_USER,
-        sensitive_session_expires_at: '2023-05-25T00:00:00Z',
-        has_password: props.has_password ?? false,
-    }
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: true,
-                realm: 'cloud',
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-            },
-            '/api/users/@me': timedOutSessionUser,
-        },
-        post: {
-            '/api/login/precheck': {
-                sso_enforcement: props.sso_enforcement,
-                saml_available: props.saml_available,
-            },
-        },
-    })
-
-    useEffect(() => {
-        router.actions.push(urls.settings('project'))
-    }, [])
-
+        router.actions.push(urls.settings(sectionId))
+    }, [sectionId])
     return <App />
 }
 
-export const SettingsSessionTimeoutAllOptions: StoryFn = () => {
-    return <TimeSensitiveSettings has_password saml_available />
-}
-SettingsSessionTimeoutAllOptions.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
+// -- Environment --
+export const SettingsEnvironmentDetails: Story = Template.bind({})
+SettingsEnvironmentDetails.args = { sectionId: 'environment-details' }
+
+export const SettingsEnvironmentAutocapture: Story = Template.bind({})
+SettingsEnvironmentAutocapture.args = { sectionId: 'environment-autocapture' }
+
+export const SettingsEnvironmentProductAnalytics: Story = Template.bind({})
+SettingsEnvironmentProductAnalytics.args = { sectionId: 'environment-product-analytics' }
+
+export const SettingsEnvironmentRevenueAnalytics: Story = Template.bind({})
+SettingsEnvironmentRevenueAnalytics.args = { sectionId: 'environment-revenue-analytics' }
+
+export const SettingsEnvironmentMarketingAnalytics: Story = Template.bind({})
+SettingsEnvironmentMarketingAnalytics.args = { sectionId: 'environment-marketing-analytics' }
+
+export const SettingsEnvironmentWebAnalytics: Story = Template.bind({})
+SettingsEnvironmentWebAnalytics.args = { sectionId: 'environment-web-analytics' }
+
+export const SettingsEnvironmentReplay: Story = Template.bind({})
+SettingsEnvironmentReplay.args = { sectionId: 'environment-replay' }
+
+export const SettingsEnvironmentSurveys: Story = Template.bind({})
+SettingsEnvironmentSurveys.args = { sectionId: 'environment-surveys' }
+
+export const SettingsEnvironmentFeatureFlags: Story = Template.bind({})
+SettingsEnvironmentFeatureFlags.args = { sectionId: 'environment-feature-flags' }
+
+export const SettingsEnvironmentErrorTracking: Story = Template.bind({})
+SettingsEnvironmentErrorTracking.args = { sectionId: 'environment-error-tracking' }
+
+export const SettingsEnvironmentCSPReporting: Story = Template.bind({})
+SettingsEnvironmentCSPReporting.args = { sectionId: 'environment-csp-reporting' }
+
+export const SettingsEnvironmentMax: Story = Template.bind({})
+SettingsEnvironmentMax.args = { sectionId: 'environment-max' }
+
+export const SettingsEnvironmentIntegrations: Story = Template.bind({})
+SettingsEnvironmentIntegrations.args = { sectionId: 'environment-integrations' }
+
+export const SettingsEnvironmentAccessControl: Story = Template.bind({})
+SettingsEnvironmentAccessControl.args = { sectionId: 'environment-access-control' }
+
+export const SettingsEnvironmentDangerZone: Story = Template.bind({})
+SettingsEnvironmentDangerZone.args = { sectionId: 'environment-danger-zone' }
+
+// -- Project --
+
+export const SettingsProjectDetails: Story = Template.bind({})
+SettingsProjectDetails.args = { sectionId: 'project-details' }
+
+export const SettingsProjectDangerZone: Story = Template.bind({})
+SettingsProjectDangerZone.args = { sectionId: 'project-danger-zone' }
+
+// -- Project (legacy) --
+
+export const SettingsProjectAutocapture: Story = Template.bind({})
+SettingsProjectAutocapture.args = { sectionId: 'project-autocapture' }
+
+export const SettingsProjectProductAnalytics: Story = Template.bind({})
+SettingsProjectProductAnalytics.args = { sectionId: 'project-product-analytics' }
+
+export const SettingsProjectReplay: Story = Template.bind({})
+SettingsProjectReplay.args = { sectionId: 'project-replay' }
+
+export const SettingsProjectSurveys: Story = Template.bind({})
+SettingsProjectSurveys.args = { sectionId: 'project-surveys' }
+
+export const SettingsProjectIntegrations: Story = Template.bind({})
+SettingsProjectIntegrations.args = { sectionId: 'project-integrations' }
+
+export const SettingsProjectAccessControl: Story = Template.bind({})
+SettingsProjectAccessControl.args = { sectionId: 'project-access-control' }
+
+// -- Organization --
+
+export const SettingsOrganizationDetails: Story = Template.bind({})
+SettingsOrganizationDetails.args = { sectionId: 'organization-details' }
+
+export const SettingsOrganizationMembers: Story = Template.bind({})
+SettingsOrganizationMembers.args = { sectionId: 'organization-members' }
+
+export const SettingsOrganizationRoles: Story = Template.bind({})
+SettingsOrganizationRoles.args = { sectionId: 'organization-roles' }
+
+export const SettingsOrganizationAuthentication: Story = Template.bind({})
+SettingsOrganizationAuthentication.args = { sectionId: 'organization-authentication' }
+
+export const SettingsOrganizationProxy: Story = Template.bind({})
+SettingsOrganizationProxy.args = { sectionId: 'organization-proxy' }
+
+export const SettingsOrganizationDangerZone: Story = Template.bind({})
+SettingsOrganizationDangerZone.args = { sectionId: 'organization-danger-zone' }
+
+export const SettingsOrganizationBilling: Story = Template.bind({})
+SettingsOrganizationBilling.args = { sectionId: 'organization-billing' }
+
+export const SettingsOrganizationStartupProgram: Story = Template.bind({})
+SettingsOrganizationStartupProgram.args = { sectionId: 'organization-startup-program' }
+
+// -- User --
+
+export const SettingsUserProfile: Story = Template.bind({})
+SettingsUserProfile.args = { sectionId: 'user-profile' }
+
+export const SettingsUserApiKeys: Story = Template.bind({})
+SettingsUserApiKeys.args = { sectionId: 'user-api-keys' }
+
+export const SettingsUserNotifications: Story = Template.bind({})
+SettingsUserNotifications.args = { sectionId: 'user-notifications' }
+
+export const SettingsUserCustomization: Story = Template.bind({})
+SettingsUserCustomization.args = { sectionId: 'user-customization' }
+
+export const SettingsUserDangerZone: Story = Template.bind({})
+SettingsUserDangerZone.args = { sectionId: 'user-danger-zone' }
+
+// NOTE: This is used to guarantee we're testing all sections
+const _ALL_SECTIONS_CHECKER: Record<SettingSectionId, Story> = {
+    'environment-details': SettingsEnvironmentDetails,
+    'environment-autocapture': SettingsEnvironmentAutocapture,
+    'environment-product-analytics': SettingsEnvironmentProductAnalytics,
+    'environment-revenue-analytics': SettingsEnvironmentRevenueAnalytics,
+    'environment-marketing-analytics': SettingsEnvironmentMarketingAnalytics,
+    'environment-web-analytics': SettingsEnvironmentWebAnalytics,
+    'environment-replay': SettingsEnvironmentReplay,
+    'environment-surveys': SettingsEnvironmentSurveys,
+    'environment-feature-flags': SettingsEnvironmentFeatureFlags,
+    'environment-error-tracking': SettingsEnvironmentErrorTracking,
+    'environment-csp-reporting': SettingsEnvironmentCSPReporting,
+    'environment-max': SettingsEnvironmentMax,
+    'environment-integrations': SettingsEnvironmentIntegrations,
+    'environment-access-control': SettingsEnvironmentAccessControl,
+    'environment-danger-zone': SettingsEnvironmentDangerZone,
+    'project-details': SettingsProjectDetails,
+    'project-danger-zone': SettingsProjectDangerZone,
+    'project-autocapture': SettingsProjectAutocapture,
+    'project-product-analytics': SettingsProjectProductAnalytics,
+    'project-replay': SettingsProjectReplay,
+    'project-surveys': SettingsProjectSurveys,
+    'project-integrations': SettingsProjectIntegrations,
+    'project-access-control': SettingsProjectAccessControl,
+    'organization-details': SettingsOrganizationDetails,
+    'organization-members': SettingsOrganizationMembers,
+    'organization-roles': SettingsOrganizationRoles,
+    'organization-authentication': SettingsOrganizationAuthentication,
+    'organization-proxy': SettingsOrganizationProxy,
+    'organization-danger-zone': SettingsOrganizationDangerZone,
+    'organization-billing': SettingsOrganizationBilling,
+    'organization-startup-program': SettingsOrganizationStartupProgram,
+    'user-profile': SettingsUserProfile,
+    'user-api-keys': SettingsUserApiKeys,
+    'user-notifications': SettingsUserNotifications,
+    'user-customization': SettingsUserCustomization,
+    'user-danger-zone': SettingsUserDangerZone,
 }
 
-export const SettingsSessionTimeoutPasswordOnly: StoryFn = () => {
-    return <TimeSensitiveSettings has_password />
-}
-SettingsSessionTimeoutPasswordOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsSessionTimeoutSsoOnly: StoryFn = () => {
-    return <TimeSensitiveSettings />
-}
-SettingsSessionTimeoutSsoOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsSessionTimeoutSsoEnforcedGithub: StoryFn = () => {
-    return <TimeSensitiveSettings sso_enforcement="github" />
-}
-SettingsSessionTimeoutSsoEnforcedGithub.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsSessionTimeoutSsoEnforcedGoogle: StoryFn = () => {
-    return <TimeSensitiveSettings sso_enforcement="google-oauth2" />
-}
-SettingsSessionTimeoutSsoEnforcedGoogle.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
-
-export const SettingsSessionTimeoutSsoEnforcedSaml: StoryFn = () => {
-    return <TimeSensitiveSettings sso_enforcement="saml" />
-}
-SettingsSessionTimeoutSsoEnforcedSaml.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections a' },
-}
+// NOTE: This is here to avoid TS complaining
+// about us not using the variable used above to check all sections
+;(() => _ALL_SECTIONS_CHECKER)()

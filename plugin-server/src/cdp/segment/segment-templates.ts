@@ -1,7 +1,8 @@
 import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/cdp/types'
 
+import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
 import { HogFunctionTemplate } from '../templates/types'
 
 export type SegmentDestination = {
@@ -315,10 +316,12 @@ const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> 
         return defaultVal
     }
 
-    if (
-        field.type === 'object' &&
-        (typeof field.default === 'undefined' || !('@path' in field.default || '@arrayPath' in field.default))
-    ) {
+    if (field.type === 'object' && (typeof field.default === 'undefined' || !('@arrayPath' in field.default))) {
+        if (field.default && '@path' in field.default) {
+            return {
+                [EXTEND_OBJECT_KEY]: translateInputs(checkOverride(field.default, key), field.multiple),
+            }
+        }
         return Object.fromEntries(
             Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
                 const defaultVal = (field.default as Record<string, object>) ?? {}
@@ -336,9 +339,6 @@ const getFieldType = (field: any) => {
     }
 
     if (field.type === 'object') {
-        if (typeof field.default !== 'undefined' && '@path' in field.default) {
-            return 'string'
-        }
         if (typeof field.default !== 'undefined' && '@arrayPath' in field.default) {
             return 'string'
         }
@@ -346,10 +346,6 @@ const getFieldType = (field: any) => {
     }
 
     if (['number', 'integer', 'datetime', 'password', 'boolean'].includes(field.type)) {
-        return 'string'
-    }
-
-    if (typeof field.default === 'object' && '@path' in field.default) {
         return 'string'
     }
 
@@ -421,25 +417,18 @@ const APPROVED_DESTINATIONS: string[] = [
 ]
 
 const HIDDEN_DESTINATIONS = [
+    // duplicate destinations
     'segment-snap-conversions',
-    'segment-google-sheets-dev',
-    'segment-google-analytics-4',
-    'segment-google-campaign-manager-360',
     'segment-hubspot-cloud',
-    'segment-facebook-conversions-api',
     'segment-june-actions',
     'segment-intercom-cloud',
     'segment-avo',
     'segment-loops',
-    'segment-google-enhanced-conversions',
     'segment-reddit-conversions-api',
     'segment-customerio',
     'segment-slack',
     'segment-webhook',
     'segment-webhook-extensible',
-    'segment-gleap-cloud-actions',
-    'segment-adjust',
-    'segment-apolloio',
     'segment-attio',
     'segment-braze-cloud',
     'segment-klaviyo',
@@ -447,7 +436,19 @@ const HIDDEN_DESTINATIONS = [
     'segment-tiktok-conversions-sandbox',
     'segment-tiktok-offline-conversions',
     'segment-tiktok-offline-conversions-sandbox',
+    'segment-facebook-conversions-api',
+    'segment-google-enhanced-conversions',
+    'segment-gleap-cloud-actions',
+
+    // broken destinations
+    'segment-apolloio',
     'segment-toplyne-cloud',
+
+    // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
+    'segment-equals',
+    'segment-gainsight-px-cloud',
+    'segment-iqm',
+    'segment-movable-ink',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
