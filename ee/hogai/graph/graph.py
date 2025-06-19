@@ -153,7 +153,7 @@ class InsightsAssistantGraph(BaseAssistantGraph):
         builder.add_conditional_edges(
             AssistantNodeName.QUERY_PLANNER_TOOLS,
             query_planner_tools.router,
-            path_map=path_map
+            path_map=path_map  # type: ignore
             or {
                 "continue": AssistantNodeName.QUERY_PLANNER,
                 "trends": AssistantNodeName.TRENDS_GENERATOR,

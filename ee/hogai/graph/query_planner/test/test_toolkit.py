@@ -3,7 +3,7 @@ from textwrap import dedent
 
 from freezegun import freeze_time
 
-from ee.hogai.graph.query_planner.toolkit import FinalAnswerTool, TaxonomyAgentToolkit
+from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -347,5 +347,5 @@ class TestFinalAnswerTool(BaseTest):
                 - operator: equals
                 - property value: action
         """
-        tool = FinalAnswerTool(name="final_answer", arguments={"query_kind": "trends", "plan": dedent(original)})
-        self.assertEqual(tool.arguments.plan.strip(), dedent(normalized).strip())
+        tool = final_answer(query_kind="trends", plan=dedent(original))
+        self.assertEqual(tool.plan.strip(), dedent(normalized).strip())

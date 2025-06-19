@@ -303,7 +303,7 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER | AssistantNodeName.QUERY_PLANNER_TOOLS:
+            case AssistantNodeName.QUERY_PLANNER:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
@@ -336,8 +336,8 @@ class Assistant:
                                     except Action.DoesNotExist:
                                         pass
 
-                # We don't want to reset back to just "Picking relevant events",
-                # so we reuse the last reasoning headline when going back to QueryPlanner after QueryPlannerTools
+                # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools,
+                # so we reuse the last reasoning headline when going back to QueryPlanner
                 return ReasoningMessage(
                     content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
                 )
@@ -444,29 +444,34 @@ class Assistant:
                     # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
                     return AssistantMessage(content=cast(str, self._chunks.content))
             if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-                try:
-                    summary_text_chunk = reasoning["summary"][0]["text"]
-                except (KeyError, IndexError):
-                    self._reasoning_headline_chunk = None  # Not expected, so let's just reset
-                    return None
-                index_of_bold_in_text = summary_text_chunk.find("**")
-                if index_of_bold_in_text != -1:
-                    # The headline is either beginning or ending with bold text in this chunk
-                    if self._reasoning_headline_chunk is None:
-                        # If we don't have a headline, we should start reading it
-                        self._reasoning_headline_chunk = summary_text_chunk[2:]  # Remove the ** from start
-                    else:
-                        # If we already have a headline, it means we should wrap up
-                        self._reasoning_headline_chunk += summary_text_chunk[
-                            :index_of_bold_in_text
-                        ]  # Remove the ** from end
-                        reasoning_message = ReasoningMessage(content=self._reasoning_headline_chunk)
-                        self._last_reasoning_headline = reasoning_message.content
-                        self._reasoning_headline_chunk = None
-                        return reasoning_message
-                elif self._reasoning_headline_chunk is not None:
-                    # No bold text in this chunk, so we should just add the text to the headline
-                    self._reasoning_headline_chunk += summary_text_chunk
+                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                    return ReasoningMessage(content=reasoning_headline)
+        return None
+
+    def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
+        """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
+        try:
+            summary_text_chunk = reasoning["summary"][0]["text"]
+        except (KeyError, IndexError):
+            self._reasoning_headline_chunk = None  # Not expected, so let's just reset
+            return None
+
+        index_of_bold_in_text = summary_text_chunk.find("**")
+        if index_of_bold_in_text != -1:
+            # The headline is either beginning or ending with bold text in this chunk
+            if self._reasoning_headline_chunk is None:
+                # If we don't have a headline, we should start reading it
+                self._reasoning_headline_chunk = summary_text_chunk[2:]  # Remove the ** from start
+            else:
+                # If we already have a headline, it means we should wrap up
+                self._reasoning_headline_chunk += summary_text_chunk[:index_of_bold_in_text]  # Remove the ** from end
+                self._last_reasoning_headline = self._reasoning_headline_chunk
+                self._reasoning_headline_chunk = None
+                return self._last_reasoning_headline
+        elif self._reasoning_headline_chunk is not None:
+            # No bold text in this chunk, so we should just add the text to the headline
+            self._reasoning_headline_chunk += summary_text_chunk
+
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:

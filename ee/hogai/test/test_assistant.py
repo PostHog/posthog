@@ -62,6 +62,7 @@ title_generator_mock = patch(
 
 class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
+    maxDiff = None
 
     def setUp(self):
         super().setUp()
@@ -117,7 +118,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         test_graph: Optional[CompiledStateGraph] = None,
         message: Optional[str] = "Hello",
         conversation: Optional[Conversation] = None,
-        tool_call_partial_state: Optional[AssistantState] = None,
+        tool_call_partial_state: Optional[AssistantState | PartialAssistantState] = None,
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         contextual_tools: Optional[dict[str, Any]] = None,
@@ -235,15 +236,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 "message",
                 {
                     "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For QueryPlannerNode
-                    "substeps": [],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For QueryPlannerToolsNode
+                    "content": "Picking relevant events and properties",
                     "substeps": [],
                 },
             ),
@@ -298,16 +291,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     content="",
                     tool_calls=[
                         {
-                            "id": "call_5",
-                            "name": "handle_incorrect_response",
-                            "args": {},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
                             "id": "call_6",
                             "name": "final_answer",
                             "args": {"query_kind": "trends", "plan": "Plan"},
@@ -333,6 +316,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             )
             .compile(),
             conversation=self.conversation,
+            tool_call_partial_state=PartialAssistantState(root_tool_call_id="foo"),
         )
 
         # Assert that ReasoningMessages are added
@@ -345,7 +329,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 "message",
                 {
                     "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For QueryPlannerNode
+                    "content": "Picking relevant events and properties",
                     "substeps": [],
                 },
             ),
@@ -353,11 +337,44 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 "message",
                 {
                     "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",  # For QueryPlannerToolsNode
+                    "content": "Picking relevant events and properties",
+                    "substeps": [
+                        "Exploring session properties",
+                    ],
+                },
+            ),
+            (
+                "message",
+                {
+                    "type": "ai/reasoning",
+                    "content": "Picking relevant events and properties",
                     "substeps": [
                         "Exploring session properties",
                         "Exploring `$pageview` event's properties",
-                        "Analyzing `currency` event's property `purchase`",
+                    ],
+                },
+            ),
+            (
+                "message",
+                {
+                    "type": "ai/reasoning",
+                    "content": "Picking relevant events and properties",
+                    "substeps": [
+                        "Exploring session properties",
+                        "Exploring `$pageview` event's properties",
+                        "Analyzing `purchase` event's property `currency`",
+                    ],
+                },
+            ),
+            (
+                "message",
+                {
+                    "type": "ai/reasoning",
+                    "content": "Picking relevant events and properties",
+                    "substeps": [
+                        "Exploring session properties",
+                        "Exploring `$pageview` event's properties",
+                        "Analyzing `purchase` event's property `currency`",
                         "Analyzing person property `country_of_birth`",
                     ],
                 },
@@ -419,6 +436,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     }
                 )
                 .compile(),
+                tool_call_partial_state=PartialAssistantState(root_tool_call_id="foo"),
                 conversation=self.conversation,
             )
 
@@ -432,7 +450,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     "message",
                     {
                         "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",  # For QueryPlannerNode
+                        "content": "Picking relevant events and properties",
                         "substeps": [],
                     },
                 ),
@@ -440,7 +458,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     "message",
                     {
                         "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",  # For QueryPlannerToolsNode
+                        "content": "Picking relevant events and properties",
+                        "substeps": [
+                            "Exploring `Marius Tech Tips` action properties",
+                        ],
+                    },
+                ),
+                (
+                    "message",
+                    {
+                        "type": "ai/reasoning",
+                        "content": "Picking relevant events and properties",
                         "substeps": [
                             "Exploring `Marius Tech Tips` action properties",
                             "Analyzing `video_name` action property of `Marius Tech Tips`",
@@ -512,7 +540,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ("message", HumanMessage(content="Hello")),
                 ("message", AssistantMessage(content="Okay")),
                 ("message", ReasoningMessage(content="Coming up with an insight")),
-                ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
                 ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
                 ("message", AssistantMessage(content="Agent needs help with this query")),
             ]
@@ -699,23 +726,22 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
         # Second run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
         # Third run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -773,23 +799,22 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating funnel query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
         # Second run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
         # Third run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -847,23 +872,22 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating retention query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
         # Second run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
         # Third run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -912,13 +936,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating SQL query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
     @patch("ee.hogai.graph.memory.nodes.MemoryOnboardingEnquiryNode._model")
     @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
@@ -1298,7 +1321,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         expected_output = [
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
@@ -1309,27 +1331,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ]
         self.assertConversationEqual(output, expected_output)
-
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
-    def test_insights_tool_mode_invalid_insight_type(self, query_executor_mock, planner_mock, generator_mock):
-        """Test that insights tool mode handles invalid insight types correctly."""
-        tool_call_state = AssistantState(
-            root_tool_call_id=str(uuid4()),
-            root_tool_insight_plan="Foobar",
-            root_tool_insight_type="invalid_type",  # Invalid type
-            messages=[],
-        )
-
-        with self.assertRaises(ValueError) as cm:
-            self._run_assistant_graph(
-                conversation=self.conversation,
-                is_new_conversation=False,
-                tool_call_partial_state=tool_call_state,
-                mode=AssistantMode.INSIGHTS_TOOL,
-            )
-        self.assertEqual(str(cm.exception), "Invalid insight type: invalid_type")
 
     @patch("ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model")
     def test_conversation_metadata_updated(self, title_generator_model_mock):
@@ -1597,7 +1598,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),

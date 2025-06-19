@@ -414,4 +414,4 @@ class TaxonomyAgentToolkit:
         No-op tool. Take a parsing error and return a response that the LLM can use to correct itself.
         Used to control a number of retries.
         """
-        return response
+        return response.model_dump_json()

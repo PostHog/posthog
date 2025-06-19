@@ -33,7 +33,6 @@ from .prompts import (
 from .toolkit import (
     TaxonomyAgentTool,
     TaxonomyAgentToolkit,
-    TaxonomyAgentToolUnion,
     retrieve_event_properties,
     retrieve_action_properties,
     retrieve_event_property_values,
@@ -294,8 +293,8 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
             # The plan has been found. Move to the generation.
             if input.name == "final_answer":
                 return PartialAssistantState(
-                    plan=input.arguments.plan,
-                    root_tool_insight_type=input.arguments.query_kind,
+                    plan=input.arguments.plan,  # type: ignore
+                    root_tool_insight_type=input.arguments.query_kind,  # type: ignore
                     query_planner_previous_response_id="",
                     intermediate_steps=[],
                 )
@@ -316,31 +315,33 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         )
 
     def router(self, state: AssistantState):
-        # Human-in-the-loop. Get out of the product analytics subgraph.
-        if not state.root_tool_call_id:
-            return "end"
         # The plan has been found. Move to the generation.
         if state.plan:
             return state.root_tool_insight_type
+        # Human-in-the-loop. Get out of the product analytics subgraph.
+        if not state.root_tool_call_id:
+            return "end"
         return "continue"
 
-    def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
+    def _handle_tool(self, input: TaxonomyAgentTool, toolkit: TaxonomyAgentToolkit) -> str:
         if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments.event_name)
+            output = toolkit.retrieve_event_or_action_properties(input.arguments.event_name)  # type: ignore
         elif input.name == "retrieve_action_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments.action_id)
+            output = toolkit.retrieve_event_or_action_properties(input.arguments.action_id)  # type: ignore
         elif input.name == "retrieve_event_property_values":
             output = toolkit.retrieve_event_or_action_property_values(
-                input.arguments.event_name, input.arguments.property_name
+                input.arguments.event_name,  # type: ignore
+                input.arguments.property_name,  # type: ignore
             )
         elif input.name == "retrieve_action_property_values":
             output = toolkit.retrieve_event_or_action_property_values(
-                input.arguments.action_id, input.arguments.property_name
+                input.arguments.action_id,  # type: ignore
+                input.arguments.property_name,  # type: ignore
             )
         elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments.entity)
+            output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
         elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
+            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
         else:
             output = toolkit.handle_incorrect_response(input)
         return output
