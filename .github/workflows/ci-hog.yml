@@ -136,12 +136,6 @@ jobs:
                   bin/turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
-            - name: Report job to PostHog
-              if: always() && github.event_name == 'pull_request'
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
