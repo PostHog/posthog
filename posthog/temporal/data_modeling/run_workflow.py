@@ -99,6 +99,7 @@ class RunDagActivityInputs:
     team_id: int
     dag: DAG
     job_id: str
+    root_model_id: str
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -141,11 +142,14 @@ class CannotCoerceColumnException(Exception):
     pass
 
 
-async def handle_model_ready(model: ModelNode, team_id: int,
+async def handle_model_ready(
+    model: ModelNode, 
+    team_id: int,
+    queue: asyncio.Queue[QueueMessage] | None,
     job_id: str,
     logger: FilteringBoundLogger,
     shutdown_monitor: ShutdownMonitor,
-) -> None:
+) -> int | None:
     """Handle a model that is ready to run by materializing.
 
     After materializing is done, we can report back to the execution queue the result. If
@@ -155,18 +159,18 @@ async def handle_model_ready(model: ModelNode, team_id: int,
     Args:
         model: The model we are trying to run.
         team_id: The ID of the team who owns this model.
+        queue: The execution queue where we will report back results.
         job_id: The ID of the job that is running this model.
     """
 
     job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+    row_count = None
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
 
-            saved_query.progress = f"Updating current view..."
-            await database_sync_to_async(saved_query.save)()
-            await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor, False)
+            key, delta_table, _, row_count = await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s", logger)
@@ -184,15 +188,19 @@ async def handle_model_ready(model: ModelNode, team_id: int,
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s", logger)
     else:
         await logger.ainfo("Materialized model %s", model.label)
-
+        if queue:
+            await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
     finally:
-        pass
+        if queue:
+            queue.task_done()
+
+    return row_count
 
 
 async def handle_error(
     job: DataModelingJob,
     model: ModelNode,
-    queue: asyncio.Queue[QueueMessage],
+    queue: asyncio.Queue[QueueMessage] | None,
     error: Exception,
     error_message: str,
     logger: FilteringBoundLogger,
@@ -203,12 +211,14 @@ async def handle_error(
         job.status = DataModelingJob.Status.FAILED
         job.error = str(error)
         await database_sync_to_async(job.save)()
+    if queue:
+        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
 async def handle_cancelled(
     job: DataModelingJob,
     model: ModelNode,
-    queue: asyncio.Queue[QueueMessage],
+    queue: asyncio.Queue[QueueMessage] | None,
     error: Exception,
     error_message: str,
     logger: FilteringBoundLogger,
@@ -218,6 +228,8 @@ async def handle_cancelled(
         job.status = DataModelingJob.Status.CANCELLED
         job.error = str(error)
         await database_sync_to_async(job.save)()
+    if queue:
+        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
 async def start_job_modeling_run(
@@ -259,7 +271,7 @@ async def materialize_model(
     job: DataModelingJob,
     logger: FilteringBoundLogger,
     shutdown_monitor: ShutdownMonitor,
-) -> tuple[str, DeltaTable, uuid.UUID]:
+) -> tuple[str, DeltaTable, uuid.UUID, int]:
     """Materialize a given model by running its query and piping the results into a delta table.
 
     Arguments:
@@ -356,16 +368,15 @@ async def materialize_model(
 
     await update_table_row_count(saved_query, row_count, logger)
 
-    # Update the job record with the row count and completed status if we are updating the current model
-    if not is_upstream:
-        job.rows_materialized = row_count
-        job.status = DataModelingJob.Status.COMPLETED
-        job.last_run_at = dt.datetime.now(dt.UTC)
-        await database_sync_to_async(job.save)()
+    # Update the job record with the row count and completed status
+    job.rows_materialized = row_count
+    job.status = DataModelingJob.Status.COMPLETED
+    job.last_run_at = dt.datetime.now(dt.UTC)
+    await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
 
-    return (saved_query.normalized_name, delta_table, job.id)
+    return (saved_query.normalized_name, delta_table, job.id, row_count)
 
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
@@ -680,18 +691,15 @@ async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     try:
         async with asyncio.TaskGroup() as tg:
             for label in inputs.models_to_run:
-                progress = None
-                if label == inputs.root_model_id and len(inputs.models_to_run) > 1:
-                    progress = "Updating upstream view(s)..."
-
-                await logger.adebug(f"Updating saved query status for {label} to RUNNING")
+                await logger.ainfo(f"Setting status RUNNING for {label} (root_model_id={inputs.root_model_id})")
+                
                 tg.create_task(
                     update_saved_query_status(
                         label,
                         DataWarehouseSavedQuery.Status.RUNNING,
                         None,
                         inputs.team_id,
-                        progress=progress,
+                        progress=None,
                     )
                 )
     except* Exception:
@@ -848,14 +856,34 @@ class RunWorkflowInputs:
 
 
 @temporalio.activity.defn
-async def run_single_model_activity(inputs: RunDagActivityInputs, label: str) -> str:
+async def run_single_model_activity(inputs: RunDagActivityInputs, label: str, root_model_id: str) -> tuple[str, int | None]:
     """Runs a single materialized view node."""
+    logger = await bind_temporal_worker_logger(inputs.team_id)
+    shutdown_monitor = ShutdownMonitor()
+    
+    # Set appropriate progress message
+    if label == inputs.root_model_id:
+        progress = "Updating current view..."
+        # update the root model id
+    else:
+        progress = "Updating upstream view..."
+    
+    await logger.ainfo(f"Setting progress for {label}: '{progress}'")
+    
+    await update_saved_query_status(
+        label,
+        DataWarehouseSavedQuery.Status.RUNNING,
+        None,
+        inputs.team_id,
+        progress=progress if label == root_model_id else '',
+    )
+    
     model = inputs.dag[label]
     try:
-        await handle_model_ready(model, inputs.team_id, inputs.job_id)
-        return "completed"
+        row_count = await handle_model_ready(model, inputs.team_id, None, inputs.job_id, logger, shutdown_monitor)
+        return "completed", row_count
     except Exception:
-        return "failed"
+        return "failed", None
 
 
 @temporalio.workflow.defn(name="data-modeling-run")
@@ -874,6 +902,8 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        logger = await bind_temporal_worker_logger(inputs.team_id)
+        
         # Get the upstream DAG for the root model, the most downstream model in the DAG
         root_model_id = inputs.select[0].label
 
@@ -927,6 +957,7 @@ class RunWorkflow(PostHogWorkflow):
         ancestor_failed = set()
         running: dict[str, asyncio.Task[str]] = {}
         ready = [node_id for node_id, deps in dependencies.items() if not deps]
+        total_rows_materialized = 0
 
         inputs.select[0] = dataclasses.replace(inputs.select[0], ancestors="ALL")
         build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
@@ -960,10 +991,10 @@ class RunWorkflow(PostHogWorkflow):
 
         while ready or running:
             for node_id in ready:
-                run_dag_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=jobs_map[node_id])
+                run_dag_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=jobs_map[node_id], root_model_id=root_model_id)
                 fut = workflow.start_activity(
                     run_single_model_activity,
-                    args=(run_dag_inputs, node_id),
+                    args=(run_dag_inputs, node_id, root_model_id),
                     start_to_close_timeout=dt.timedelta(hours=1),
                     heartbeat_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
@@ -987,9 +1018,11 @@ class RunWorkflow(PostHogWorkflow):
                 fut = running.pop(done_label)
                 is_success = False
                 try:
-                    status = await fut
+                    status, row_count = await fut
                     if status == "completed":
                         is_success = True
+                        if row_count is not None:
+                            total_rows_materialized += row_count
                 except temporalio.exceptions.ActivityError as e:
                     await logger.ainfo("Activity failed for model %s", done_label, error=str(e))
 
