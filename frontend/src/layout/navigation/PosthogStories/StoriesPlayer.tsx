@@ -170,14 +170,6 @@ export const StoriesPlayer = ({
         [currentIndex, stories.length, onNext, onPrevious, onPauseToggle]
     )
 
-    // Set CSS custom properties for dynamic dimensions
-    useEffect(() => {
-        if (containerRef.current) {
-            containerRef.current.style.setProperty('--container-width', `${width}px`)
-            containerRef.current.style.setProperty('--container-height', `${height}px`)
-        }
-    }, [width, height])
-
     if (!currentStory) {
         return <div>No story to display</div>
     }
@@ -185,10 +177,9 @@ export const StoriesPlayer = ({
     return (
         <div
             ref={containerRef}
-            className="relative rounded overflow-hidden stories-player-container"
+            className="relative rounded overflow-hidden"
             onClick={handleContainerClick}
-            data-container-width={width}
-            data-container-height={height}
+            style={{ width, height }} // eslint-disable-line react/forbid-dom-props
         >
             {/* Progress bars and header wrapper with gradient */}
             <div className="absolute top-0 left-0 right-0 z-10 p-2 bg-gradient-to-b from-black/20 to-transparent">
@@ -269,7 +260,7 @@ export const StoriesPlayer = ({
                         onEnded={handleVideoEnd}
                     />
                 ) : (
-                    <img src={currentStory.url} alt="Story content" className="w-full h-full object-contain" />
+                    <img src={currentStory.url} alt="Story content" className="w-full h-full object-cover" />
                 )}
             </div>
 
