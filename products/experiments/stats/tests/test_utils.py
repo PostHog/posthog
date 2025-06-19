@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 from products.experiments.stats.frequentist.utils import calculate_welch_satterthwaite_df
-from products.experiments.stats.frequentist.statistics import SampleMeanStatistic
+from products.experiments.stats.shared.statistics import SampleMeanStatistic
 
 
 class TestFrequentistUtils(TestCase):

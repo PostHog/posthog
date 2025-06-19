@@ -1,33 +1,13 @@
 import numpy as np
 from scipy import stats
 
-from .statistics import (
+from ..shared.statistics import (
     ProportionStatistic,
     AnyStatistic,
-    SampleMeanStatistic,
     StatisticError,
-    DifferenceType,
 )
-
-
-def get_mean(statistic: AnyStatistic) -> float:
-    """Extract the mean/central value from any statistic type."""
-    if isinstance(statistic, SampleMeanStatistic):
-        return statistic.mean
-    elif isinstance(statistic, ProportionStatistic):
-        return statistic.proportion
-    else:
-        raise StatisticError(f"Unknown statistic type: {type(statistic)}")
-
-
-def get_variance(statistic: AnyStatistic) -> float:
-    """Extract the variance from any statistic type."""
-    return statistic.variance
-
-
-def get_sample_size(statistic: AnyStatistic) -> int:
-    """Extract the sample size from any statistic type."""
-    return statistic.n
+from products.experiments.stats.shared.enums import DifferenceType
+from products.experiments.stats.shared.utils import get_mean, get_variance, get_sample_size
 
 
 def calculate_point_estimate(

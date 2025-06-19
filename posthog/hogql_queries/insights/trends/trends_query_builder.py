@@ -63,7 +63,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
-        events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
+        events_query = self._get_events_subquery(False, breakdown=breakdown)
 
         if self._trends_display.is_total_value():
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
@@ -145,15 +145,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     def _get_events_subquery(
         self,
         no_modifications: Optional[bool],
-        is_actors_query: bool,
         breakdown: Breakdown,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
             ignore_breakdowns=False,
             breakdown=breakdown,
-            is_actors_query=is_actors_query,
-            actors_query_time_frame=actors_query_time_frame,
         )
 
         default_query = ast.SelectQuery(
@@ -495,7 +491,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(no_modifications=False, is_actors_query=False, breakdown=breakdown),
+                    expr=self._get_events_subquery(no_modifications=False, breakdown=breakdown),
                     cte_type="subquery",
                 )
             }
@@ -527,7 +523,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 if isinstance(breakdown_alias.get("histogram_bin_count"), int)
             ]
 
-            query.select.extend(
+            assert query.select_from is not None and isinstance(query.select_from.table, ast.SelectQuery)
+            query.select_from.table.select.extend(
                 [
                     # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
                     # If cardinality is high it'd blow up memory
@@ -659,10 +656,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _events_filter(
         self,
-        is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []

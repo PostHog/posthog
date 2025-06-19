@@ -34,7 +34,11 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
 
     return (
         <>
-            <div className="flex flex-row overflow-scroll hide-scrollbar h-10" ref={containerRef}>
+            <div
+                // height is hardcoded to match implicit height from tree view nav bar
+                className="flex flex-row overflow-scroll hide-scrollbar h-[39px]"
+                ref={containerRef}
+            >
                 {models.map((model: QueryTab) => (
                     <QueryTabComponent
                         key={model.uri.path}
@@ -46,7 +50,12 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
                     />
                 ))}
             </div>
-            <LemonButton className="rounded-none" onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
+            <LemonButton
+                className="rounded-none"
+                onClick={() => onAdd()}
+                icon={<IconPlus fontSize={14} />}
+                data-attr="sql-editor-new-tab-button"
+            />
         </>
     )
 }

@@ -87,7 +87,7 @@ class TestQuotaLimiting(BaseTest):
             group_properties={"organization": {"id": str(org_id)}},
         )
         # Check out many times it was called
-        assert patch_capture.call_count == 8  # 7 logs + 1 org
+        assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
             call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
@@ -138,7 +138,7 @@ class TestQuotaLimiting(BaseTest):
             group_properties={"organization": {"id": org_id}},
         )
         # Check out many times it was called
-        assert patch_capture.call_count == 8  # 7 logs + 1 org
+        assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
             call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
@@ -198,7 +198,7 @@ class TestQuotaLimiting(BaseTest):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()
-        assert patch_capture.call_count == 7  # 7 logs
+        assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert quota_limited_orgs["events"] == {}
         assert quota_limited_orgs["exceptions"] == {}
         assert quota_limited_orgs["recordings"] == {}
@@ -300,7 +300,9 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
 
             # Check out many times it was called
-            assert patch_capture.call_count == 9  # 7 logs + 1 org and 1 log from org_quota_limited_until
+            assert (
+                patch_capture.call_count == 2
+            )  # 1 org_quota_limited_until event + 1 organization quota limits changed event
             # Find the org action call
             org_action_call = next(
                 call for call in patch_capture.call_args_list if call.args[1] == "organization quota limits changed"

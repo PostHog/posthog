@@ -341,3 +341,26 @@ export const getCurrencySymbol = (currency: string): { symbol: string; isPrefix:
 
     return { symbol: symbol ?? currency, isPrefix }
 }
+
+export const DEFAULT_CURRENCY = CurrencyCode.USD
+
+// These are the currencies that are most important to show first because they're used by the most customers.
+// Check our web analytics dashboard for the most popular countries from our visitors.
+export const IMPORTANT_CURRENCIES: CurrencyCode[] = [
+    CurrencyCode.USD,
+    CurrencyCode.EUR,
+    CurrencyCode.GBP,
+    CurrencyCode.CAD,
+    CurrencyCode.INR,
+    CurrencyCode.CNY,
+    CurrencyCode.BRL,
+]
+
+// All the other currencies, sorted by their "long name" in alphabetical order.
+export const OTHER_CURRENCIES: CurrencyCode[] = (
+    Object.keys(CurrencyCode).filter(
+        (currency) => !IMPORTANT_CURRENCIES.includes(currency as CurrencyCode)
+    ) as CurrencyCode[]
+).sort((a, b) => {
+    return CURRENCY_SYMBOL_TO_NAME_MAP[a].localeCompare(CURRENCY_SYMBOL_TO_NAME_MAP[b])
+})

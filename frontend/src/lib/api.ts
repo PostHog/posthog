@@ -6,8 +6,8 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
-import { ErrorTrackingRule, ErrorTrackingRuleType } from 'scenes/error-tracking/configuration/rules/types'
+import { ErrorTrackingRule, ErrorTrackingRuleType } from 'products/error_tracking/frontend/configuration/rules/types'
+import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -22,9 +22,12 @@ import {
     FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
+    HogQLQuery,
+    HogQLQueryResponse,
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NodeKind,
     PersistedFolder,
     QuerySchema,
     QueryStatusResponse,
@@ -32,6 +35,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
+import { HogQLQueryString } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -48,6 +52,8 @@ import {
     CommentType,
     ConversationDetail,
     CoreMemory,
+    CyclotronJobFiltersType,
+    CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -59,6 +65,7 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
+    EmailSenderDomainStatus,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -81,11 +88,11 @@ import {
     HogFunctionKind,
     HogFunctionStatus,
     HogFunctionTemplateType,
-    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LineageGraph,
     LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
@@ -142,6 +149,7 @@ import {
     UserType,
 } from '~/types'
 
+import { MaxContextShape } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingStackFrame,
@@ -419,6 +427,10 @@ export class ApiRequest {
 
     public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
+    }
+
+    public insightsCancel(teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('cancel')
     }
 
     // # File System
@@ -1000,8 +1012,15 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id)
     }
 
-    public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
+    public integrationSlackChannels(
+        id: IntegrationType['id'],
+        forceRefresh: boolean,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('channels')
+            .withQueryString({ force_refresh: forceRefresh })
     }
 
     public integrationSlackChannelsById(
@@ -1047,6 +1066,10 @@ export class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('linkedin_ads_conversion_rules')
             .withQueryString({ accountId })
+    }
+
+    public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -1198,6 +1221,15 @@ export class ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
+    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('lineage')
+            .addPathComponent('get_upstream')
+            .withQueryString({
+                model_id: modelId,
+            })
+    }
+
     // ActivityLog
     public activityLog(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('activity_log')
@@ -1322,6 +1354,13 @@ function getSessionId(): string | undefined {
     return posthog.get_session_id()
 }
 
+function getDistinctId(): string | undefined {
+    if (typeof posthog?.get_distinct_id !== 'function') {
+        return undefined
+    }
+    return posthog.get_distinct_id()
+}
+
 const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
@@ -1357,6 +1396,9 @@ const api = {
         },
         async update(id: number, data: any): Promise<InsightModel> {
             return await new ApiRequest().insight(id).update({ data })
+        },
+        async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
+            await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
     },
 
@@ -2284,12 +2326,12 @@ const api = {
     },
     hogFunctions: {
         async list({
-            filters,
+            filter_groups,
             types,
             kinds,
             excludeKinds,
         }: {
-            filters?: any
+            filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
             kinds?: HogFunctionKind[]
             excludeKinds?: HogFunctionKind[]
@@ -2297,7 +2339,7 @@ const api = {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters,
+                    filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
                     ...(kinds ? { kind: kinds.join(',') } : {}),
@@ -2364,7 +2406,7 @@ const api = {
                 clickhouse_event?: any
                 invocation_id?: string
             }
-        ): Promise<HogFunctionTestInvocationResult> {
+        ): Promise<CyclotronJobTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 
@@ -3188,7 +3230,11 @@ const api = {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
         },
     },
-
+    upstream: {
+        async get(modelId: string): Promise<LineageGraph> {
+            return await new ApiRequest().upstream(modelId).get()
+        },
+    },
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
@@ -3250,8 +3296,11 @@ const api = {
         authorizeUrl(params: { kind: string; next?: string }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
-        async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
-            return await new ApiRequest().integrationSlackChannels(id).get()
+        async slackChannels(
+            id: IntegrationType['id'],
+            forceRefresh: boolean
+        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string }> {
+            return await new ApiRequest().integrationSlackChannels(id, forceRefresh).get()
         },
         async slackChannelsById(
             id: IntegrationType['id'],
@@ -3281,6 +3330,9 @@ const api = {
             accountId: string
         ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
             return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
+        },
+        async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
+            return await new ApiRequest().integrationEmailVerify(id).create()
         },
     },
 
@@ -3406,11 +3458,13 @@ const api = {
 
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
-        options?: ApiMethodOptions,
-        queryId?: string,
-        refresh?: RefreshType,
-        filtersOverride?: DashboardFilter | null,
-        variablesOverride?: Record<string, HogQLVariable> | null
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+        }
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -3419,13 +3473,41 @@ const api = {
             : Record<string, any>
     > {
         return await new ApiRequest().query().create({
-            ...options,
+            ...queryOptions?.requestOptions,
             data: {
                 query,
-                client_query_id: queryId,
-                refresh,
-                filters_override: filtersOverride,
-                variables_override: variablesOverride,
+                client_query_id: queryOptions?.clientQueryId,
+                refresh: queryOptions?.refresh,
+                filters_override: queryOptions?.filtersOverride,
+                variables_override: queryOptions?.variablesOverride,
+            },
+        })
+    },
+
+    async queryHogQL<T = any[]>(
+        query: HogQLQueryString,
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+        }
+    ): Promise<HogQLQueryResponse<T>> {
+        const hogQLQuery: HogQLQuery = {
+            ...queryOptions?.queryParams,
+            kind: NodeKind.HogQLQuery,
+            query,
+        }
+        return await new ApiRequest().query().create({
+            ...queryOptions?.requestOptions,
+            data: {
+                query: hogQLQuery,
+                client_query_id: queryOptions?.clientQueryId,
+                refresh: queryOptions?.refresh,
+                filters_override: queryOptions?.filtersOverride,
+                variables_override: queryOptions?.variablesOverride,
             },
         })
     },
@@ -3435,6 +3517,7 @@ const api = {
             data: {
                 content: string
                 contextual_tools?: Record<string, any>
+                ui_context?: MaxContextShape
                 conversation?: string | null
                 trace_id: string
             },
@@ -3471,6 +3554,7 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...(getDistinctId() ? { 'X-POSTHOG-DISTINCT-ID': getDistinctId() } : {}),
                 },
             })
         })

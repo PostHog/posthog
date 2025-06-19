@@ -91,7 +91,7 @@ export const getResponseFieldWithId = (
 }
 
 export function sanitizeSurveyDisplayConditions(
-    displayConditions: SurveyDisplayConditions | null
+    displayConditions?: SurveyDisplayConditions | null
 ): SurveyDisplayConditions | null {
     if (!displayConditions) {
         return null
@@ -105,7 +105,7 @@ export function sanitizeSurveyDisplayConditions(
 }
 
 export function sanitizeSurveyAppearance(
-    appearance: SurveyAppearance | null,
+    appearance?: SurveyAppearance | null,
     isPartialResponsesEnabled = false
 ): SurveyAppearance | null {
     if (!appearance) {
@@ -121,6 +121,8 @@ export function sanitizeSurveyAppearance(
         ratingButtonColor: sanitizeColor(appearance.ratingButtonColor),
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
+        thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
+        thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
     }
 }
 
@@ -377,4 +379,29 @@ export function buildPartialResponsesFilter(survey: Survey): string {
                 toString(uuid)
             )
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
+}
+
+export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
+    const sanitizedQuestions =
+        survey.questions?.map((question) => ({
+            ...question,
+            question: sanitizeHTML(question.question ?? ''),
+            description: sanitizeHTML(question.description ?? ''),
+        })) || []
+
+    const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
+
+    // Remove widget-specific fields if survey type is not Widget
+    if (survey.type !== SurveyType.Widget && sanitizedAppearance) {
+        delete sanitizedAppearance.widgetType
+        delete sanitizedAppearance.widgetLabel
+        delete sanitizedAppearance.widgetColor
+    }
+
+    return {
+        ...survey,
+        conditions: sanitizeSurveyDisplayConditions(survey.conditions),
+        questions: sanitizedQuestions,
+        appearance: sanitizedAppearance,
+    }
 }

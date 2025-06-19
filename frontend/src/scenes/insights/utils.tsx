@@ -178,7 +178,7 @@ export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeE
 }
 
 export function formatAggregationValue(
-    property: string | undefined,
+    property: string | undefined | null,
     propertyValue: number | null,
     renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
     formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
@@ -593,18 +593,9 @@ export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
     return queryLength > 1024 * 1024
 }
 
-function parseAndMigrateQuery<T>(query: string): T | null {
+function parseQuery<T>(query: string): T | null {
     try {
-        const parsedQuery = JSON.parse(query)
-        // We made a database migration to support weighted and simple mean in retention tables.
-        // To do this we created a new column meanRetentionCalculation and deprecated showMean.
-        // This ensures older URLs are parsed correctly.
-        const retentionFilter = parsedQuery?.source?.retentionFilter
-        if (retentionFilter && 'showMean' in retentionFilter && typeof retentionFilter.showMean === 'boolean') {
-            retentionFilter.meanRetentionCalculation = retentionFilter.showMean ? 'simple' : 'none'
-            delete retentionFilter.showMean
-        }
-        return parsedQuery
+        return JSON.parse(query)
     } catch (e) {
         console.error('Error parsing query', e)
         return null
@@ -614,7 +605,7 @@ function parseAndMigrateQuery<T>(query: string): T | null {
 export function parseDraftQueryFromLocalStorage(
     query: string
 ): { query: Node<Record<string, any>>; timestamp: number } | null {
-    return parseAndMigrateQuery(query)
+    return parseQuery(query)
 }
 
 export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
@@ -622,7 +613,7 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    return parseAndMigrateQuery(query)
+    return parseQuery(query)
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

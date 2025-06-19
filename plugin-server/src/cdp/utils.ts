@@ -174,7 +174,9 @@ function getElementsChainElements(elementsChain: string): string[] {
     return Array.from(elementMatches)
 }
 
-export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
+export function convertToHogFunctionFilterGlobal(
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups'>
+): HogFunctionFilterGlobals {
     const groups: Record<string, any> = {}
 
     // We need to add default empty groups so that filtering works as it expects it to always exist

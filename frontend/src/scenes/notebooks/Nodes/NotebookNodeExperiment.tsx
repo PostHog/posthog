@@ -1,24 +1,24 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
-import { BindLogic, useActions, useValues } from 'kea'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { buildFlagContent } from './NotebookNodeFlag'
-import { useEffect } from 'react'
-import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconFlask } from '@posthog/icons'
-import { ResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
-import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect } from 'react'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
 import { Info } from 'scenes/experiments/ExperimentView/Info'
+import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+import { NotebookNodeType } from '~/types'
+import { NotebookNodeProps } from '../Notebook/utils'
+import { buildFlagContent } from './NotebookNodeFlag'
+import { notebookNodeLogic } from './notebookNodeLogic'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, metricResults } = useValues(
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, legacyMetricResults } = useValues(
         experimentLogic({ experimentId: id })
     )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
@@ -41,7 +41,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         return <NotFound object="experiment" />
     }
 
-    if (!metricResults) {
+    if (!legacyMetricResults) {
         return <></>
     }
 
@@ -83,10 +83,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 <div className="p-2">
                                     <SummaryTable metric={experiment.metrics[0]} />
                                     {/* TODO: Only show results if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                                    {metricResults[0] &&
-                                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                                            <ResultsQuery result={metricResults[0]} showTable={true} />
+                                    {legacyMetricResults[0] &&
+                                        (legacyMetricResults[0].kind === 'ExperimentTrendsQuery' ||
+                                            legacyMetricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                                            <LegacyResultsQuery result={legacyMetricResults[0]} showTable={true} />
                                         )}
                                 </div>
                             </>

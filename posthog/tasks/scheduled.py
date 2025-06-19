@@ -18,7 +18,6 @@ from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_dige
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
-    calculate_external_data_rows_synced,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
@@ -43,7 +42,6 @@ from posthog.tasks.tasks import (
     redis_celery_queue_depth,
     redis_heartbeat,
     replay_count_metrics,
-    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -53,6 +51,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
     count_items_in_playlists,
+    schedule_all_subscriptions,
 )
 from posthog.utils import get_crontab
 
@@ -330,13 +329,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
         )
-
-    # Every 20 minutes try to retrieve and calculate total rows synced in period
-    sender.add_periodic_task(
-        crontab(minute="*/20"),
-        calculate_external_data_rows_synced.s(),
-        name="calculate external data rows synced",
-    )
 
     # Check integrations to refresh every minute
     add_periodic_task_with_expiry(

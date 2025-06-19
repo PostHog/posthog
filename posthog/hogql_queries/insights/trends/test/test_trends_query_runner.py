@@ -2,7 +2,7 @@ import itertools
 import re
 import zoneinfo
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any, Optional
 from unittest.mock import MagicMock, patch
@@ -56,6 +56,7 @@ from posthog.schema import (
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
+    TrendsFormulaNode,
 )
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1052,6 +1053,132 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["breakdown_value"] == "all"
         assert response.results[1]["count"] == 16
         assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        # action needs to be unset to display custom label
+        assert response.results[0]["action"] is None
+
+    def test_multiple_formula_with_multi_cohort_all_breakdown(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(
+                formulaNodes=[
+                    TrendsFormulaNode(formula="A+B", custom_name="Formula (A+B)"),
+                    TrendsFormulaNode(formula="B+1", custom_name="Formula (B+1)"),
+                ]
+            ),
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, "all"]),
+        )
+
+        assert len(response.results) == 4
+
+        response.results.sort(key=lambda r: r["count"])
+
+        assert response.results[0]["label"] == "Formula (A+B)"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 9
+        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+
+        assert response.results[1]["label"] == "Formula (B+1)"
+        assert response.results[1]["breakdown_value"] == cohort1.pk
+        assert response.results[1]["count"] == 15
+        assert response.results[1]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+
+        assert response.results[2]["label"] == "Formula (A+B)"
+        assert response.results[2]["breakdown_value"] == "all"
+        assert response.results[2]["count"] == 16
+        assert response.results[2]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        assert response.results[3]["label"] == "Formula (B+1)"
+        assert response.results[3]["breakdown_value"] == "all"
+        assert response.results[3]["count"] == 18
+        assert response.results[3]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
+
+        # action needs to be unset to display custom label
+        assert response.results[0]["action"] is None
+
+    def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, "all"]),
+            compare_filters=CompareFilter(compare=True),
+        )
+
+        assert len(response.results) == 4
+
+        response.results.sort(key=lambda r: r["count"])
+
+        self.assertEqual(True, response.results[0]["compare"])
+        self.assertEqual(True, response.results[1]["compare"])
+        self.assertEqual(True, response.results[2]["compare"])
+        self.assertEqual(True, response.results[3]["compare"])
+
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("current", response.results[1]["compare_label"])
+        self.assertEqual("previous", response.results[2]["compare_label"])
+        self.assertEqual("previous", response.results[3]["compare_label"])
+
+        assert response.results[0]["label"] == "Formula (A+B)"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+
+        assert response.results[1]["label"] == "Formula (A+B)"
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 5
+        assert response.results[1]["data"] == [2.0, 1.0, 1.0, 0.0, 1.0, 0.0]
+
+        assert response.results[2]["label"] == "Formula (A+B)"
+        assert response.results[2]["breakdown_value"] == cohort1.pk
+        assert response.results[2]["count"] == 6
+        assert response.results[2]["data"] == [0.0, 0.0, 2.0, 2.0, 2.0, 0.0]
+
+        assert response.results[3]["label"] == "Formula (A+B)"
+        assert response.results[3]["breakdown_value"] == "all"
+        assert response.results[3]["count"] == 11
+        assert response.results[3]["data"] == [1.0, 0.0, 2.0, 4.0, 4.0, 0.0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
@@ -5447,3 +5574,107 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
         self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)
+
+    def _compare_trends_test(self, compare_filters: CompareFilter):
+        """
+        Test a TrendsQuery with daily aggregation that has compare to previous period enabled.
+        It uses a -7d window, sets the team's timezone to US/Pacific, and generates events at 9PM and 11PM each day.
+        """
+        # Set the team's timezone to US/Pacific
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create a person
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test_user"],
+            properties={},
+        )
+
+        # Get the current time and generate events for the past 15 days
+        # We'll freeze time at 10PM Pacific time
+        freeze_time_at = datetime.now(zoneinfo.ZoneInfo("US/Pacific")).replace(
+            hour=22, minute=0, second=0, microsecond=0
+        )
+
+        # Generate one event at 9PM and another at 11PM each day for the past 16 days.
+        # On the first day at 9 PM and on the last day at 11 PM, generate 10 events
+        for days_ago in range(0, 15):
+            event_date = freeze_time_at - timedelta(days=days_ago)
+
+            # Create event at 9PM
+            for _ in range(10 if days_ago == 14 else 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="test_user",
+                    timestamp=(event_date - timedelta(hours=1)).isoformat(),  # 9PM
+                    properties={"key": "value"},
+                )
+
+            # Create event at 11PM
+            for _ in range(10 if days_ago == 0 else 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="test_user",
+                    timestamp=(event_date + timedelta(hours=1)).isoformat(),  # 11PM
+                    properties={"key": "value"},
+                )
+
+        with freeze_time(freeze_time_at.isoformat()):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    interval=IntervalType.DAY,
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                    compare_filters=compare_filters,
+                ),
+                team=self.team,
+            ).calculate()
+
+        # Verify the response
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+
+        # Check compare labels
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
+
+        # Check that each period has 8 days of data (includes one extra day)
+        self.assertEqual(8, len(response.results[0]["data"]))
+        self.assertEqual(8, len(response.results[1]["data"]))
+
+        # Each day should have 2 events (9PM and 11PM)
+        for value in response.results[0]["data"][0:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(11, response.results[0]["data"][-1])
+
+        for value in response.results[1]["data"][1:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(11, response.results[1]["data"][0])
+
+        # Test with bold number to make sure it represents just a week
+        with freeze_time(freeze_time_at.isoformat()):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    interval=IntervalType.DAY,
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                    compare_filters=compare_filters,
+                ),
+                team=self.team,
+            ).calculate()
+
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+        for result in response.results:
+            self.assertEqual(14, result["aggregated_value"])
+
+    def test_trends_daily_compare_to_previous_period(self):
+        self._compare_trends_test(CompareFilter(compare=True))
+
+    def test_trends_daily_compare_to_7_days_ago(self):
+        self._compare_trends_test(CompareFilter(compare=True, compare_to="-7d"))

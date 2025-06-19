@@ -9,10 +9,11 @@ import { MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
-import { LemonButton } from '../LemonButton'
+import { LemonButton, LemonButtonPropsBase, SideAction } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
+import { TooltipTitle } from '../Tooltip/Tooltip'
 
 const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
 
@@ -20,9 +21,12 @@ export interface LemonInputSelectOption {
     key: string
     label: string
     labelComponent?: React.ReactNode
+    tooltip?: TooltipTitle
     /** @internal */
     __isInput?: boolean
 }
+
+export type LemonInputSelectAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
 
 export type LemonInputSelectProps = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
@@ -31,12 +35,13 @@ export type LemonInputSelectProps = Pick<
 > & {
     options?: LemonInputSelectOption[]
     value?: string[] | null
+    limit?: number // Limit the number of options to show
     disabled?: boolean
     loading?: boolean
     placeholder?: string
-    /** Title shown at the top of the list. Looks the same as section titles in LemonMenu. */
-    title?: string
+    title?: string // Title shown at the top of the list. Looks the same as section titles in LemonMenu.
     disableFiltering?: boolean
+    disablePrompting?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
     emptyStateComponent?: React.ReactNode
@@ -51,6 +56,7 @@ export type LemonInputSelectProps = Pick<
     transparentBackground?: boolean
     displayMode?: 'snacks' | 'count'
     bulkActions?: 'clear-all' | 'select-and-clear-all'
+    action?: LemonInputSelectAction
 }
 
 export function LemonInputSelect({
@@ -58,6 +64,7 @@ export function LemonInputSelect({
     title,
     options = [],
     value,
+    limit = Number.POSITIVE_INFINITY,
     loading,
     emptyStateComponent,
     onChange,
@@ -67,6 +74,7 @@ export function LemonInputSelect({
     mode,
     disabled,
     disableFiltering = false,
+    disablePrompting = false,
     allowCustomValues = false,
     autoFocus = false,
     className,
@@ -78,6 +86,7 @@ export function LemonInputSelect({
     fullWidth = false,
     displayMode = 'snacks',
     bulkActions,
+    action,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -382,6 +391,8 @@ export function LemonInputSelect({
         )
     }, [displayMode, mode, inputValue, loading, values.length, options.length])
 
+    const wasLimitReached = values.length >= limit
+
     return (
         <LemonDropdown
             matchWidth
@@ -447,10 +458,24 @@ export function LemonInputSelect({
                         </div>
                     )}
 
+                    {action && (
+                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                            <LemonButton
+                                size="small"
+                                className="flex-1"
+                                disabledReason={action?.disabledReason}
+                                onClick={action?.onClick}
+                            >
+                                {action?.children}
+                            </LemonButton>
+                        </div>
+                    )}
+
                     {visibleOptions.length > 0 ? (
                         visibleOptions.map((option, index) => {
                             const isFocused = index === selectedIndex
                             const isSelected = values.includes(option.key)
+                            const isDisabled = wasLimitReached && !isSelected
                             return (
                                 <LemonButton
                                     key={option.key}
@@ -458,8 +483,10 @@ export function LemonInputSelect({
                                     size="small"
                                     fullWidth
                                     active={isFocused}
-                                    onClick={(e) => _onActionItem(option.key, e)}
+                                    onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
                                     onMouseEnter={() => setSelectedIndex(index)}
+                                    disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
+                                    tooltip={option.tooltip}
                                     icon={
                                         mode === 'multiple' && !option.__isInput ? (
                                             // No pointer events, since it's only for visual feedback
@@ -533,6 +560,8 @@ export function LemonInputSelect({
                         ? allOptionsMap.get(values[0])?.label ?? values[0]
                         : allowCustomValues
                         ? 'Add value'
+                        : disablePrompting
+                        ? undefined
                         : 'Pick value'
                 }
                 autoWidth={autoWidth}
@@ -591,9 +620,15 @@ function ValueSnacks({
                         key={value}
                         title={
                             <>
-                                Click on the text to edit.
-                                <br />
-                                Click on the X to remove.
+                                <span>
+                                    {onInitiateEdit && (
+                                        <>
+                                            Click on the text to edit.
+                                            <br />
+                                        </>
+                                    )}
+                                </span>
+                                <span>Click on the X to remove.</span>
                             </>
                         }
                     >

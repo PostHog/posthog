@@ -1,16 +1,26 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationBasicType, Region, SidePanelTab, TeamPublicType, UserType } from '~/types'
+import {
+    AvailableFeature,
+    BillingPlan,
+    OrganizationBasicType,
+    Region,
+    SidePanelTab,
+    TeamPublicType,
+    UserType,
+} from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -97,14 +107,39 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
+                value: 'billing',
+                'data-attr': `support-form-target-area-billing`,
+                label: 'Billing',
+            },
+            {
+                value: 'cohorts',
+                'data-attr': `support-form-target-area-cohorts`,
+                label: 'Cohorts',
+            },
+            {
+                value: 'data_ingestion',
+                'data-attr': `support-form-target-area-data_ingestion`,
+                label: 'Data ingestion',
+            },
+            {
+                value: 'data_management',
+                'data-attr': `support-form-target-area-data_management`,
+                label: 'Data management (incl. events, actions, properties)',
+            },
+            {
                 value: 'login',
                 'data-attr': `support-form-target-area-login`,
                 label: 'Authentication (incl. login, sign-up, invites)',
             },
             {
-                value: 'billing',
-                'data-attr': `support-form-target-area-billing`,
-                label: 'Billing',
+                value: 'mobile',
+                'data-attr': `support-form-target-area-mobile`,
+                label: 'Mobile',
+            },
+            {
+                value: 'notebooks',
+                'data-attr': `support-form-target-area-notebooks`,
+                label: 'Notebooks',
             },
             {
                 value: 'onboarding',
@@ -116,45 +151,15 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
             },
-            {
-                value: 'cohorts',
-                'data-attr': `support-form-target-area-cohorts`,
-                label: 'Cohorts',
-            },
-            {
-                value: 'data_management',
-                'data-attr': `support-form-target-area-data_management`,
-                label: 'Data management (incl. events, actions, properties)',
-            },
-            {
-                value: 'data_ingestion',
-                'data-attr': `support-form-target-area-data_ingestion`,
-                label: 'Data ingestion',
-            },
-            {
-                value: 'notebooks',
-                'data-attr': `support-form-target-area-notebooks`,
-                label: 'Notebooks',
-            },
-            {
-                value: 'mobile',
-                'data-attr': `support-form-target-area-mobile`,
-                label: 'Mobile',
-            },
         ],
     },
     {
         title: 'Individual product',
         options: [
             {
-                value: 'experiments',
-                'data-attr': `support-form-target-area-experiments`,
-                label: 'Experiments',
-            },
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
+                value: 'analytics',
+                'data-attr': `support-form-target-area-analytics`,
+                label: 'Product analytics (incl. insights, dashboards, annotations)',
             },
             {
                 value: 'batch_exports',
@@ -167,19 +172,44 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Destinations (real-time)',
             },
             {
+                value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'Data warehouse (sources)',
+            },
+            {
+                value: 'error_tracking',
+                'data-attr': `support-form-target-area-error_tracking`,
+                label: 'Error tracking',
+            },
+            {
+                value: 'experiments',
+                'data-attr': `support-form-target-area-experiments`,
+                label: 'Experiments',
+            },
+            {
                 value: 'feature_flags',
                 'data-attr': `support-form-target-area-feature_flags`,
                 label: 'Feature flags',
             },
             {
-                value: 'analytics',
-                'data-attr': `support-form-target-area-analytics`,
-                label: 'Product analytics (incl. insights, dashboards, annotations)',
-            },
-            {
                 value: 'group_analytics',
                 'data-attr': `support-form-target-area-group-analytics`,
                 label: 'Group analytics',
+            },
+            {
+                value: 'llm-observability',
+                'data-attr': `support-form-target-area-llm-observability`,
+                label: 'LLM observability',
+            },
+            {
+                value: 'max-ai',
+                'data-attr': `support-form-target-area-max-ai`,
+                label: 'Max AI',
+            },
+            {
+                value: 'messaging',
+                'data-attr': `support-form-target-area-messaging`,
+                label: 'Messaging',
             },
             {
                 value: 'revenue_analytics',
@@ -192,34 +222,19 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Session replay (incl. recordings)',
             },
             {
-                value: 'toolbar',
-                'data-attr': `support-form-target-area-toolbar`,
-                label: 'Toolbar (incl. heatmaps)',
-            },
-            {
                 value: 'surveys',
                 'data-attr': `support-form-target-area-surveys`,
                 label: 'Surveys',
             },
             {
+                value: 'toolbar',
+                'data-attr': `support-form-target-area-toolbar`,
+                label: 'Toolbar (incl. heatmaps)',
+            },
+            {
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
                 label: 'Web analytics',
-            },
-            {
-                value: 'error_tracking',
-                'data-attr': `support-form-target-area-error_tracking`,
-                label: 'Error tracking',
-            },
-            {
-                value: 'llm-observability',
-                'data-attr': `support-form-target-area-llm-observability`,
-                label: 'LLM observability',
-            },
-            {
-                value: 'messaging',
-                'data-attr': `support-form-target-area-messaging`,
-                label: 'Messaging',
             },
         ],
     },
@@ -352,6 +367,8 @@ export const supportLogic = kea<supportLogicType>([
             ['sidePanelAvailable'],
             userLogic,
             ['hasAvailableFeature'],
+            billingLogic,
+            ['billing'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -486,10 +503,55 @@ export const supportLogic = kea<supportLogicType>([
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
 
+            const billing = billingLogic.values.billing
+            const billingPlan = billingLogic.values.billingPlan
+            const currentOrganization = organizationLogic.values.currentOrganization
+
+            let planLevelTag = 'plan_free'
+
+            const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
+            const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
+
+            const orgCreatedAt = currentOrganization?.created_at
+            const isNewOrganization = orgCreatedAt && dayjs().diff(dayjs(orgCreatedAt), 'month') < 3
+
+            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
+
+            if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
+                planLevelTag = 'plan_enterprise'
+            } else if (isNewOrganization) {
+                planLevelTag = 'plan_onboarding'
+            } else if (hasScaleTrial) {
+                planLevelTag = 'plan_scale'
+            } else if (hasBoostTrial) {
+                planLevelTag = 'plan_boost'
+            } else if (billingPlan) {
+                switch (billingPlan) {
+                    case BillingPlan.Scale:
+                        planLevelTag = 'plan_scale'
+                        break
+                    case BillingPlan.Boost:
+                        planLevelTag = 'plan_boost'
+                        break
+                    case BillingPlan.Teams:
+                        planLevelTag = 'plan_teams_legacy'
+                        break
+                    case BillingPlan.Paid:
+                        planLevelTag = 'plan_pay-as-you-go'
+                        break
+                    case BillingPlan.Free:
+                        planLevelTag = 'plan_free'
+                        break
+                }
+            }
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
+                    tags: [planLevelTag],
                     custom_fields: [
                         {
                             id: 22084126888475,

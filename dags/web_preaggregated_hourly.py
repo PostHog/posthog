@@ -3,7 +3,6 @@ from collections.abc import Callable
 
 import dagster
 from dagster import Field
-from clickhouse_driver import Client
 from dags.common import JobOwners
 from dags.web_preaggregated_utils import (
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
@@ -14,11 +13,7 @@ from dags.web_preaggregated_utils import (
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
-    DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL,
-    WEB_BOUNCES_HOURLY_SQL,
     WEB_BOUNCES_INSERT_SQL,
-    WEB_STATS_HOURLY_SQL,
-    DISTRIBUTED_WEB_STATS_HOURLY_SQL,
     WEB_STATS_INSERT_SQL,
 )
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE, ClickhouseCluster
@@ -85,39 +80,8 @@ def pre_aggregate_web_analytics_hourly_data(
 
 
 @dagster.asset(
-    name="web_analytics_preaggregated_hourly_tables",
-    group_name="web_analytics_hourly",
-    description="Creates the hourly tables needed for web analytics preaggregated data with 24h TTL for real-time analytics.",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)
-def web_analytics_preaggregated_hourly_tables(
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> bool:
-    def drop_tables(client: Client):
-        client.execute("DROP TABLE IF EXISTS web_stats_hourly SYNC")
-        client.execute("DROP TABLE IF EXISTS web_bounces_hourly SYNC")
-        client.execute("DROP TABLE IF EXISTS web_stats_hourly_staging SYNC")
-        client.execute("DROP TABLE IF EXISTS web_bounces_hourly_staging SYNC")
-
-    def create_tables(client: Client):
-        client.execute(WEB_STATS_HOURLY_SQL())
-        client.execute(WEB_BOUNCES_HOURLY_SQL())
-
-        # Create staging tables with same structure
-        client.execute(WEB_STATS_HOURLY_SQL().replace("web_stats_hourly", "web_stats_hourly_staging"))
-        client.execute(WEB_BOUNCES_HOURLY_SQL().replace("web_bounces_hourly", "web_bounces_hourly_staging"))
-
-        client.execute(DISTRIBUTED_WEB_STATS_HOURLY_SQL())
-        client.execute(DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL())
-
-    cluster.map_all_hosts(drop_tables).result()
-    cluster.map_all_hosts(create_tables).result()
-    return True
-
-
-@dagster.asset(
     name="web_analytics_bounces_hourly",
-    group_name="web_analytics_hourly",
+    group_name="web_analytics",
     config_schema=WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_hourly_tables"],
     metadata={"table": "web_bounces_hourly"},
@@ -137,7 +101,7 @@ def web_bounces_hourly(
 
 @dagster.asset(
     name="web_analytics_stats_table_hourly",
-    group_name="web_analytics_hourly",
+    group_name="web_analytics",
     config_schema=WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_hourly_tables"],
     metadata={"table": "web_stats_hourly"},

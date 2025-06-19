@@ -30,6 +30,8 @@ import { RefObject } from 'react'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { ExportedSessionType } from 'scenes/session-recordings/file-playback/types'
+import { playerCommentModel } from 'scenes/session-recordings/player/playerCommentModel'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
@@ -48,6 +50,8 @@ import {
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
+import { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
@@ -241,7 +245,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         syncSnapshotsWithPlayer: true,
-        exportRecordingToFile: true,
+        exportRecordingToFile: (type?: ExportedSessionType) => ({ type }),
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
@@ -265,8 +269,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         confirmNextRecording: true,
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
+        setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
     }),
     reducers(() => ({
+        isCommenting: [
+            false,
+            {
+                setIsCommenting: (_, { isCommenting }) => isCommenting,
+            },
+        ],
         maskingWindow: [
             false,
             {
@@ -377,7 +388,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         bufferTime: state.bufferTime,
                     }
                 },
-                stopBuffer: (state) => {
+                endBuffer: (state) => {
                     return {
                         isPlaying: state.isPlaying,
                         isBuffering: false,
@@ -782,6 +793,37 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        [playerCommentModel.actionTypes.startCommenting]: async ({ annotation }) => {
+            actions.setIsCommenting(true)
+            if (annotation) {
+                // and we need a short wait until the logic is mounted after calling setIsCommenting
+                const waitForLogic = async (): Promise<BuiltLogic<playerCommentOverlayLogicType> | null> => {
+                    for (let attempts = 0; attempts < 5; attempts++) {
+                        const theMountedLogic = playerCommentOverlayLogic.findMounted()
+                        if (theMountedLogic) {
+                            return theMountedLogic
+                        }
+                        await new Promise((resolve) => setTimeout(resolve, 100))
+                    }
+                    return null
+                }
+
+                const theMountedLogic = await waitForLogic()
+
+                if (theMountedLogic) {
+                    theMountedLogic.actions.editAnnotation(annotation)
+                } else {
+                    lemonToast.error('Could not start editing annotation 😓, please refresh the page and try again.')
+                }
+            }
+        },
+        setIsCommenting: ({ isCommenting }) => {
+            if (isCommenting) {
+                actions.setPause()
+            } else {
+                actions.setPlay()
+            }
+        },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
             if (values.reportedReplayerErrors.has(fingerprint)) {
@@ -1218,7 +1260,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        exportRecordingToFile: async () => {
+        exportRecordingToFile: async ({ type }) => {
             if (!values.sessionPlayerData) {
                 return
             }
@@ -1243,11 +1285,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = values.createExportJSON()
-
+                const payload = values.createExportJSON(type)
+                const suffix = type === 'rrweb' ? 'rrweb-recording' : 'ph-recording'
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
-                    `export-${props.sessionRecordingId}-ph-recording.json`,
+                    `export-${props.sessionRecordingId}-${suffix}.json`,
                     { type: 'application/json' }
                 )
 
