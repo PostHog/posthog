@@ -112,7 +112,7 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     write: 'Write',
 }
 
-export const DEFAULT_OAUTH_SCOPES = ['openid']
+export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
 export const getScopeDescription = (scope: string): string => {
     if (scope === '*') {

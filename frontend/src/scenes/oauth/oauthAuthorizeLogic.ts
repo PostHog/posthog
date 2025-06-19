@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,25 +18,30 @@ export type OAuthAuthorizationFormValues = {
 }
 
 const oauthAuthorize = async (values: OAuthAuthorizationFormValues & { allow: boolean }): Promise<void> => {
-    const response = await api.create('/oauth/authorize/', {
-        client_id: router.values.searchParams['client_id'],
-        redirect_uri: router.values.searchParams['redirect_uri'],
-        response_type: router.values.searchParams['response_type'],
-        state: router.values.searchParams['state'],
-        scope: router.values.searchParams['scope'],
-        code_challenge: router.values.searchParams['code_challenge'],
-        code_challenge_method: router.values.searchParams['code_challenge_method'],
-        nonce: router.values.searchParams['nonce'],
-        claims: router.values.searchParams['claims'],
-        scoped_organizations: values.access_type === 'organizations' ? values.scoped_organizations : [],
-        scoped_teams: values.access_type === 'teams' ? values.scoped_teams : [],
-        access_level:
-            values.access_type === 'all' ? 'all' : values.access_type === 'organizations' ? 'organization' : 'team',
-        allow: values.allow,
-    })
+    try {
+        const response = await api.create('/oauth/authorize/', {
+            client_id: router.values.searchParams['client_id'],
+            redirect_uri: router.values.searchParams['redirect_uri'],
+            response_type: router.values.searchParams['response_type'],
+            state: router.values.searchParams['state'],
+            scope: router.values.searchParams['scope'],
+            code_challenge: router.values.searchParams['code_challenge'],
+            code_challenge_method: router.values.searchParams['code_challenge_method'],
+            nonce: router.values.searchParams['nonce'],
+            claims: router.values.searchParams['claims'],
+            scoped_organizations: values.access_type === 'organizations' ? values.scoped_organizations : [],
+            scoped_teams: values.access_type === 'teams' ? values.scoped_teams : [],
+            access_level:
+                values.access_type === 'all' ? 'all' : values.access_type === 'organizations' ? 'organization' : 'team',
+            allow: values.allow,
+        })
 
-    if (response.redirect_to) {
-        location.href = response.redirect_to
+        if (response.redirect_to) {
+            location.href = response.redirect_to
+        }
+    } catch (error: any) {
+        lemonToast.error('Something went wrong while authorizing the application')
+        throw error
     }
 
     return
@@ -129,10 +135,27 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 return minimumEquivalentScopes.map(getScopeDescription)
             },
         ],
+        redirectDomain: [
+            () => [],
+            (): string => {
+                const redirectUri = router.values.searchParams['redirect_uri'] as string
+                if (!redirectUri) {
+                    return ''
+                }
+                try {
+                    const url = new URL(redirectUri)
+                    return url.hostname
+                } catch {
+                    return ''
+                }
+            },
+        ],
     })),
     urlToAction(({ actions }) => ({
         '/oauth/authorize': (_, searchParams) => {
-            const scopes = searchParams['scope']?.split(' ') ?? DEFAULT_OAUTH_SCOPES
+            const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope) => scope.length) ?? []
+            const scopes = requestedScopes.length === 0 ? DEFAULT_OAUTH_SCOPES : requestedScopes
+
             actions.setScopes(scopes)
             actions.loadOAuthApplication()
             actions.loadAllTeams()

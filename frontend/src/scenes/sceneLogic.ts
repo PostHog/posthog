@@ -62,6 +62,7 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),
+    urls.oauthAuthorize(),
 ]
 
 export const sceneLogic = kea<sceneLogicType>([
