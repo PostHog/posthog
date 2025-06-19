@@ -41,7 +41,7 @@ from .toolkit import (
     ask_user_for_help,
     final_answer,
 )
-from ee.hogai.utils.helpers import remove_line_breaks
+from ee.hogai.utils.helpers import dereference_schema, remove_line_breaks
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -146,9 +146,9 @@ class QueryPlannerNode(AssistantNode):
                 "project_name": self._team.name,
                 "actions": state.rag_context,
                 "actions_prompt": ACTIONS_EXPLANATION_PROMPT,
-                "trends_json_schema": AssistantTrendsQuery.model_json_schema(),
-                "funnel_json_schema": AssistantFunnelsQuery.model_json_schema(),
-                "retention_json_schema": AssistantRetentionQuery.model_json_schema(),
+                "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
+                "funnel_json_schema": dereference_schema(AssistantFunnelsQuery.model_json_schema()),
+                "retention_json_schema": dereference_schema(AssistantRetentionQuery.model_json_schema()),
                 "insight_types_prompt": ROOT_INSIGHT_DESCRIPTION_PROMPT,
             },
             config,
@@ -171,7 +171,7 @@ class QueryPlannerNode(AssistantNode):
         dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
 
         return ChatOpenAI(
-            model="o3",
+            model="o4-mini",
             use_responses_api=True,
             streaming=False,
             model_kwargs={
