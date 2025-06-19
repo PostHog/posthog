@@ -19,7 +19,6 @@ class TestArrayBatchIterator:
         batch_iterator = ArrayBatchIterator(data, batch_size=3)
         for _, _ in batch_iterator:
             raise AssertionError("Should not have any batches")
-        assert True
 
     def test_array_batch_iterator_batch_size_bigger_than_data(self):
         data = [1, 2, 3]
@@ -27,7 +26,6 @@ class TestArrayBatchIterator:
         for batch_index, batch in batch_iterator:
             assert batch == [1, 2, 3]
             assert batch_index == 0
-        assert True
 
 
 class TestFunctionBatchIterator:
