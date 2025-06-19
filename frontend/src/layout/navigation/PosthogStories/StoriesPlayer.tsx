@@ -5,6 +5,7 @@ import React from 'react'
 export interface Story {
     url: string
     type: 'image' | 'video'
+    duration?: number // Duration in milliseconds
     header?: {
         heading: string
         subheading: string
@@ -30,6 +31,69 @@ export interface StoriesPlayerProps {
     height: number
 }
 
+interface ProgressBarProps {
+    story: Story
+    isCurrentStory: boolean
+    isCompletedStory: boolean
+    isPaused: boolean
+    videoDuration: number | null
+    defaultInterval: number
+    animationKey: number
+    onAnimationEnd?: () => void
+}
+
+const ProgressBar = ({
+    story,
+    isCurrentStory,
+    isCompletedStory,
+    isPaused,
+    videoDuration,
+    defaultInterval,
+    animationKey,
+    onAnimationEnd,
+}: ProgressBarProps): JSX.Element => {
+    const progressRef = useRef<HTMLDivElement>(null)
+
+    // Calculate duration for this story
+    const getDuration = (): number => {
+        if (story.type === 'video' && isCurrentStory && videoDuration) {
+            return videoDuration
+        }
+        return story.duration || defaultInterval
+    }
+
+    // Set CSS custom property for duration
+    useEffect(() => {
+        if (progressRef.current && isCurrentStory) {
+            const duration = getDuration()
+            progressRef.current.style.setProperty('--duration', `${duration}ms`)
+        }
+    }, [isCurrentStory, videoDuration, story, defaultInterval])
+
+    // Determine progress bar state classes
+    const getProgressBarClasses = (): string => {
+        const baseClasses = 'h-full bg-white rounded-full'
+
+        if (isCurrentStory) {
+            return `${baseClasses} progress-bar-active ${isPaused ? 'progress-bar-paused' : ''}`
+        } else if (isCompletedStory) {
+            return `${baseClasses} w-full`
+        }
+        return `${baseClasses} w-0`
+    }
+
+    return (
+        <div className="flex-1 h-0.75 bg-white/[0.45] rounded-full overflow-hidden">
+            <div
+                ref={progressRef}
+                key={isCurrentStory ? `${animationKey}-progress` : 'progress'}
+                className={getProgressBarClasses()}
+                onAnimationEnd={onAnimationEnd}
+            />
+        </div>
+    )
+}
+
 export const StoriesPlayer = ({
     stories,
     defaultInterval,
@@ -45,30 +109,38 @@ export const StoriesPlayer = ({
     width,
     height,
 }: StoriesPlayerProps): JSX.Element => {
-    const [progress, setProgress] = useState(0)
     const [hoveredZone, setHoveredZone] = useState<'left' | 'right' | null>(null)
-    const progressRef = useRef<number>(0)
-    const intervalRef = useRef<NodeJS.Timeout | null>(null)
+    const [videoDuration, setVideoDuration] = useState<number | null>(null)
+    const [animationKey, setAnimationKey] = useState(0) // Force re-render when story changes
     const videoRef = useRef<HTMLVideoElement | null>(null)
-    const progressBarRef = useRef<HTMLDivElement | null>(null)
-    const startTimeRef = useRef<number>(0)
     const currentStory = stories[currentIndex]
     const containerRef = useRef<HTMLDivElement>(null)
 
-    // Reset progress when story changes
+    // Reset when story changes
     useEffect(() => {
-        setProgress(0)
-        progressRef.current = 0
-        startTimeRef.current = Date.now()
+        setVideoDuration(null) // Reset video duration
+        setAnimationKey((prev) => prev + 1) // Force animation restart
         onStoryStart(currentIndex)
     }, [currentIndex, onStoryStart])
 
-    // Update progress bar width via DOM manipulation
-    useEffect(() => {
-        if (progressBarRef.current) {
-            progressBarRef.current.style.width = `${progress}%`
+    // Handle video duration loaded
+    const handleVideoLoadedMetadata = useCallback(() => {
+        if (videoRef.current && currentStory?.type === 'video') {
+            setVideoDuration(videoRef.current.duration * 1000) // Convert to milliseconds
         }
-    }, [progress])
+    }, [currentStory])
+
+    // Handle animation end for image stories
+    const handleAnimationEnd = useCallback(() => {
+        if (currentStory?.type === 'image') {
+            onStoryEnd()
+            if (currentIndex < stories.length - 1) {
+                onNext()
+            } else {
+                onAllStoriesEnd()
+            }
+        }
+    }, [currentStory, currentIndex, stories.length, onNext, onStoryEnd, onAllStoriesEnd])
 
     // Handle video pause/play
     useEffect(() => {
@@ -80,59 +152,6 @@ export const StoriesPlayer = ({
             }
         }
     }, [isPaused, currentStory])
-
-    // Handle progress for images and videos
-    useEffect(() => {
-        if (isPaused) {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current)
-                intervalRef.current = null
-            }
-            return
-        }
-
-        if (currentStory?.type === 'video') {
-            // For videos, use video duration
-            const video = videoRef.current
-            if (video && video.duration) {
-                const updateProgress = (): void => {
-                    if (video.currentTime && video.duration) {
-                        const newProgress = (video.currentTime / video.duration) * 100
-                        setProgress(newProgress)
-                        progressRef.current = newProgress
-                    }
-                }
-
-                video.addEventListener('timeupdate', updateProgress)
-                return () => video.removeEventListener('timeupdate', updateProgress)
-            }
-        } else {
-            // For images, use timer
-            const startTime = Date.now()
-            intervalRef.current = setInterval(() => {
-                const elapsed = Date.now() - startTime
-                const newProgress = Math.min((elapsed / defaultInterval) * 100, 100)
-                setProgress(newProgress)
-                progressRef.current = newProgress
-
-                if (newProgress >= 100) {
-                    onStoryEnd()
-                    if (currentIndex < stories.length - 1) {
-                        onNext()
-                    } else {
-                        onAllStoriesEnd()
-                    }
-                }
-            }, 50)
-        }
-
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current)
-                intervalRef.current = null
-            }
-        }
-    }, [currentIndex, isPaused, currentStory, defaultInterval, onNext, onStoryEnd, onAllStoriesEnd, stories.length])
 
     // Handle video end
     const handleVideoEnd = useCallback(() => {
@@ -185,20 +204,24 @@ export const StoriesPlayer = ({
             <div className="absolute top-0 left-0 right-0 z-10 p-2 bg-gradient-to-b from-black/20 to-transparent">
                 {/* Progress bars */}
                 <div className="flex gap-1 mb-2">
-                    {stories.map((_, index) => (
-                        <div key={index} className="flex-1 h-0.75 bg-white/[0.45] rounded-full overflow-hidden">
-                            <div
-                                ref={index === currentIndex ? progressBarRef : null}
-                                className={`h-full bg-white transition-all duration-100 ease-linear rounded-full ${
-                                    index === currentIndex
-                                        ? 'progress-bar-active'
-                                        : index < currentIndex
-                                        ? 'w-full'
-                                        : 'w-0'
-                                }`}
+                    {stories.map((story, index) => {
+                        const isCurrentStory = index === currentIndex
+                        const isCompletedStory = index < currentIndex
+
+                        return (
+                            <ProgressBar
+                                key={index}
+                                story={story}
+                                isCurrentStory={isCurrentStory}
+                                isCompletedStory={isCompletedStory}
+                                isPaused={isPaused}
+                                videoDuration={videoDuration}
+                                defaultInterval={defaultInterval}
+                                animationKey={animationKey}
+                                onAnimationEnd={isCurrentStory ? handleAnimationEnd : undefined}
                             />
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
 
                 {/* Header section with relative positioning for buttons */}
@@ -258,6 +281,7 @@ export const StoriesPlayer = ({
                         muted
                         playsInline
                         onEnded={handleVideoEnd}
+                        onLoadedMetadata={handleVideoLoadedMetadata}
                     />
                 ) : (
                     <img src={currentStory.url} alt="Story content" className="w-full h-full object-cover" />

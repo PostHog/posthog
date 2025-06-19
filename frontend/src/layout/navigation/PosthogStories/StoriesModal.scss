@@ -21,6 +21,22 @@
     // Progress bar styles
     .progress-bar-active {
         width: 0%;
-        transition: width 0.1s ease-linear;
+        animation: StoriesModal__ProgressFill var(--duration, 5000ms) linear forwards;
+        animation-play-state: var(--play-state, running);
+    }
+
+    .progress-bar-paused {
+        animation-play-state: paused;
+    }
+
+    // CSS animation for progress bar
+    @keyframes StoriesModal__ProgressFill {
+        from {
+            width: 0%;
+        }
+
+        to {
+            width: 100%;
+        }
     }
 }
