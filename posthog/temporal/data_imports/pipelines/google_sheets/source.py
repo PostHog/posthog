@@ -1,9 +1,11 @@
+from typing import Any, Optional
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.oauth2 import service_account
 import gspread
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 
 @config.config
@@ -51,7 +53,44 @@ def get_schemas(config: GoogleSheetsServiceAccountSourceConfig) -> list[tuple[st
     return [(NamingConvention().normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
 
-def google_sheets_source(config: GoogleSheetsServiceAccountSourceConfig, worksheet_name: str) -> SourceResponse:
+def get_schema_incremental_fields(
+    config: GoogleSheetsServiceAccountSourceConfig, worksheet_name: str
+) -> list[IncrementalField]:
+    worksheets = get_schemas(config)
+    selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
+    if len(selected_worksheet) == 0:
+        raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
+
+    worksheet_id = selected_worksheet[0]
+
+    client = google_sheets_client(config)
+    spreadsheet = client.open_by_url(config.spreadsheet_url)
+    worksheet = spreadsheet.get_worksheet_by_id(worksheet_id)
+
+    rows = worksheet.get_all_values("1:2")  # Get the first two rows
+
+    if len(rows) > 1 and "id" in rows[0]:
+        index_of_id = rows[0].index("id")
+        value_of_id_col = rows[1][index_of_id]
+        if isinstance(value_of_id_col, int | float):
+            return [
+                {
+                    "label": "id",
+                    "field": "id",
+                    "type": IncrementalFieldType.Numeric,
+                    "field_type": IncrementalFieldType.Numeric,
+                }
+            ]
+
+    return []
+
+
+def google_sheets_source(
+    config: GoogleSheetsServiceAccountSourceConfig,
+    worksheet_name: str,
+    db_incremental_field_last_value: Optional[Any],
+    is_incremental: bool = False,
+) -> SourceResponse:
     worksheets = get_schemas(config)
     selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
     if len(selected_worksheet) == 0:
@@ -75,6 +114,9 @@ def google_sheets_source(config: GoogleSheetsServiceAccountSourceConfig, workshe
         worksheet = spreadsheet.get_worksheet_by_id(worksheet_id)
 
         values = worksheet.get_all_records()
+
+        if is_incremental and db_incremental_field_last_value is not None:
+            values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
 
         yield table_from_py_list(values)
 

@@ -42,6 +42,7 @@ from posthog.temporal.data_imports.pipelines.google_ads import (
 from posthog.temporal.data_imports.pipelines.google_sheets.source import (
     GoogleSheetsServiceAccountSourceConfig,
     get_schemas as get_google_sheets_schemas,
+    get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
@@ -1227,12 +1228,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             google_sheets_config = GoogleSheetsServiceAccountSourceConfig(spreadsheet_url=spreadsheet_url)
             sheets = get_google_sheets_schemas(google_sheets_config)
-            # TODO: add incremental fields here
             result_mapped_to_options = [
                 {
                     "table": name,
                     "should_sync": False,
-                    "incremental_fields": [],
+                    "incremental_fields": get_google_sheets_schema_incremental_fields(google_sheets_config, name),
                     "incremental_available": False,
                     "incremental_field": None,
                     "sync_type": None,
