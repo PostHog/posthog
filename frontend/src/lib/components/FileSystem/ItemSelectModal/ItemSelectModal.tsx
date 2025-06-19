@@ -1,21 +1,22 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { SelectedFolder } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
 import { itemSelectModalLogic } from './itemSelectModalLogic'
-import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export interface ItemSelectModalProps {
     /** The folder to select */
@@ -44,36 +45,18 @@ export function ItemSelectModal({
     includeRoot,
     buttonProps,
 }: ItemSelectModalProps): JSX.Element {
-    const [value, setValue] = useState<string | undefined>(undefined)
     const [key] = useState(() => `item-select-${counter++}`)
     const props: ProjectTreeLogicProps = { key, root, includeRoot, hideFolders: ['shortcuts://'] }
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedItem, setSelectedItem] = useState<TreeDataItem | null>(null)
-    const { isOpen, form } = useValues(itemSelectModalLogic)
+    const { isOpen } = useValues(itemSelectModalLogic)
     const { openItemSelectModal, closeItemSelectModal, submitForm, setFormValue } = useActions(itemSelectModalLogic)
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))
-    const {
-        setSearchTerm,
-        setExpandedSearchFolders,
-        setExpandedFolders,
-        expandProjectFolder,
-        setEditingItemId,
-        rename,
-        toggleFolderOpen,
-    } = useActions(projectTreeLogic(props))
+    const { setSearchTerm, setExpandedSearchFolders, setExpandedFolders, setEditingItemId, rename, toggleFolderOpen } =
+        useActions(projectTreeLogic(props))
 
     const treeRef = useRef<LemonTreeRef>(null)
-
-    useEffect(() => {
-        if (includeProtocol) {
-            if (value?.startsWith('project://')) {
-                expandProjectFolder(value.replace('project://', ''))
-            }
-        } else {
-            expandProjectFolder(value || '')
-        }
-    }, [value])
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -88,11 +71,9 @@ export function ItemSelectModal({
 
     function handleSelectItem(item: TreeDataItem): void {
         setSelectedItem(item)
-        console.log('item', item)
         setFormValue('item', item)
     }
 
-    console.log('form', form)
     return (
         <>
             <ButtonPrimitive onClick={() => openItemSelectModal()} {...buttonProps}>
@@ -103,11 +84,7 @@ export function ItemSelectModal({
                 onClose={closeItemSelectModal}
                 isOpen={isOpen}
                 title="Choose an item"
-                description={
-                    <>
-                        Select an item
-                    </>
-                }
+                description={<>Select an item</>}
                 // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->
                 // "new dashboard template picker modal" -> "save dashboard to modal" wouldn't work.
                 // Since MoveToModal is added to the DOM earlier as part of global modals, it's below it in hierarchy.
@@ -151,7 +128,10 @@ export function ItemSelectModal({
                                         }
                                     }}
                                 />
-                                <ScrollableShadows direction="vertical" className={cn('bg-surface-primary border rounded', className)}>
+                                <ScrollableShadows
+                                    direction="vertical"
+                                    className={cn('bg-surface-primary border rounded', className)}
+                                >
                                     <LemonTree
                                         ref={treeRef}
                                         selectMode="all"
@@ -159,8 +139,8 @@ export function ItemSelectModal({
                                         data={fullFileSystemFiltered}
                                         mode="tree"
                                         tableViewKeys={treeTableKeys}
-                                        defaultSelectedFolderOrNodeId={''}
-                                        isItemActive={(item) => item.record?.path === value}
+                                        defaultSelectedFolderOrNodeId=""
+                                        isItemActive={() => false}
                                         isItemEditing={(item) => {
                                             return editingItemId === item.id
                                         }}
@@ -190,21 +170,30 @@ export function ItemSelectModal({
                                             item && handleSelectItem(item)
                                         }}
                                         expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
-                                        onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+                                        onSetExpandedItemIds={
+                                            searchTerm ? setExpandedSearchFolders : setExpandedFolders
+                                        }
                                         enableDragAndDrop={false}
                                         renderItem={(item) => {
                                             const isNew =
-                                                item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
+                                                item.record?.created_at &&
+                                                dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
                                             return (
                                                 <span className="truncate">
                                                     <span
                                                         className={cn('truncate', {
-                                                            'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
+                                                            'font-semibold':
+                                                                item.record?.type === 'folder' &&
+                                                                item.type !== 'empty-folder',
                                                         })}
                                                     >
                                                         {item.displayName}{' '}
                                                         {isNew ? (
-                                                            <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                                            <LemonTag
+                                                                type="highlight"
+                                                                size="small"
+                                                                className="ml-1 relative top-[-1px]"
+                                                            >
                                                                 New
                                                             </LemonTag>
                                                         ) : null}

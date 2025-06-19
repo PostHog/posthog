@@ -2,8 +2,6 @@ import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -21,8 +19,8 @@ import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
 
 export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
-    const { modalVisible, pinnedFolder, selectedFolder } = useValues(pinnedFolderLogic)
-    const { hideModal, setPinnedFolder, setSelectedFolder } = useActions(pinnedFolderLogic)
+    const { pinnedFolder } = useValues(pinnedFolderLogic)
+    const { setPinnedFolder } = useActions(pinnedFolderLogic)
 
     const showDefaultHeader = pinnedFolder !== 'products://' && pinnedFolder !== 'data://'
 
@@ -88,10 +86,9 @@ export function PinnedFolder(): JSX.Element {
                                         iconOnly: true,
                                         tooltip: 'Add shortcut',
                                         tooltipPlacement: 'top',
-                                        children: <IconPlusSmall className="size-4 text-[red]" />,
+                                        children: <IconPlusSmall className="size-4 text-tertiary" />,
                                     }}
                                     includeProtocol
-                                    root="project://"
                                 />
                             ) : null}
                             {configMenu}

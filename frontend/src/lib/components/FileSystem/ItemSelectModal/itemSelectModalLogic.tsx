@@ -1,11 +1,12 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { itemSelectModalLogicType } from './itemSelectModalLogicType'
-import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 export const itemSelectModalLogic = kea<itemSelectModalLogicType>([
     path(['lib', 'components', 'FileSystem', 'ItemSelectModal', 'itemSelectModalLogic']),
@@ -31,30 +32,18 @@ export const itemSelectModalLogic = kea<itemSelectModalLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        // openItemSelectModal: ({ items }) => {
-        //     if (typeof values.lastNewFolder === 'string') {
-        //         actions.setFormValue('folder', values.lastNewFolder)
-        //     } else {
-        //         const itemPath = items[0].path
-        //         const itemFolder = joinPath(splitPath(itemPath).slice(0, -1))
-        //         actions.setFormValue('folder', itemFolder)
-        //     }
-        // },
-        closeItemSelectModal: () => {
-            actions.closeItemSelectModal()
-        },
-    })),
     forms(({ actions }) => ({
         form: {
             defaults: {
                 item: null as TreeDataItem | null,
             },
-            errors: ({ item }) => ({
-                item: item ? null : 'You need to specify an item.',
-            }),
+            // errors: ({ item }) => ({
+            //     item: !item ? 'You need to specify an item.' : undefined,
+            // }),
             submit: (formValues) => {
-                actions.addShortcutItem(formValues.item)
+                if (formValues.item?.record) {
+                    actions.addShortcutItem(formValues.item.record as FileSystemEntry)
+                }
                 actions.closeItemSelectModal()
             },
         },
