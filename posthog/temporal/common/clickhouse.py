@@ -150,7 +150,7 @@ def clickhouse_types_to_arrow_schema(types: dict[str, str]) -> pa.Schema:
         if ch_type.startswith("LowCardinality("):
             return parse_ch_type(name=name, ch_type=ch_type[15:-1])
         if ch_type.startswith("Decimal"):
-            return pa.field(name, pa.decimal256(scale=32, precision=76), nullable)
+            return pa.field(name, pa.decimal128(scale=18, precision=38), nullable)
         if ch_type == "IPv4":
             return pa.field(name, pa.string(), nullable)
         if ch_type == "IPv6":
