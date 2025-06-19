@@ -45,11 +45,13 @@ COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
     "cohort_dependency_calculation_failures_total", "Number of times dependent cohort calculations have failed"
 )
 
+COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of stuck cohorts that have been reset")
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
-MAX_STUCK_COHORTS_TO_RESET = 5
+MAX_STUCK_COHORTS_TO_RESET = 2
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -65,7 +67,7 @@ def get_cohort_calculation_candidates_queryset() -> QuerySet:
 def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
     return Cohort.objects.filter(
         is_calculating=True,
-        last_calculation__lte=timezone.now() - relativedelta(hours=24),
+        last_calculation__lte=timezone.now() - relativedelta(hours=1),
         last_calculation__isnull=False,
         deleted=False,
     ).exclude(is_static=True)
@@ -81,9 +83,14 @@ def reset_stuck_cohorts() -> None:
         F("last_calculation").asc(nulls_first=True)
     )[0:MAX_STUCK_COHORTS_TO_RESET]:
         cohort.is_calculating = False
-        cohort.save(update_fields=["is_calculating"])
+
+        # A stuck cohort never has its errors_calculating incremented, so we need to do it here
+        # This will ensure that we don't keep retrying that will never calculate successfully
+        cohort.errors_calculating = F("errors_calculating") + 1
+        cohort.save(update_fields=["is_calculating", "errors_calculating"])
         reset_cohort_ids.append(cohort.pk)
 
+    COHORT_STUCK_RESETS_COUNTER.inc(len(reset_cohort_ids))
     logger.warning("reset_stuck_cohorts", cohort_ids=reset_cohort_ids, count=len(reset_cohort_ids))
 
 
