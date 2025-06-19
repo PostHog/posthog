@@ -441,7 +441,8 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         # Should fail with authentication error
         self.assertIn("❌ Failed to create survey: User id not present on the context", content)
-        self.assertEqual(artifact["error"], "authentication_required")
+        self.assertIn("❌ Failed to create survey: User id not present on the context", content)
+        self.assertEqual(artifact["error"], "user_id_not_present")
 
     @patch("products.surveys.backend.max_tools.ChatOpenAI")
     @patch("langchain_core.prompts.ChatPromptTemplate.from_messages")
