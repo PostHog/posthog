@@ -1,12 +1,13 @@
+from flaky import flaky
+
 from posthog.hogql_queries.experiments import MIN_PROBABILITY_FOR_SIGNIFICANCE
-from posthog.schema import ExperimentVariantTrendsBaseStats, ExperimentSignificanceCode
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
-    calculate_probabilities_v2_count,
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
+    calculate_probabilities_v2_count,
 )
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 from posthog.test.base import APIBaseTest
-from flaky import flaky
 
 
 def create_variant(key: str, count: int, exposure: float, absolute_exposure: int) -> ExperimentVariantTrendsBaseStats:
@@ -225,7 +226,7 @@ class TestExperimentTrendsStatistics(APIBaseTest):
         self.assertAlmostEqual(intervals["test_c"][1], 0.116, places=2)
 
     @flaky(max_runs=5, min_passes=1)
-    def test_many_variants_win_probabilty_compared_to_control(self):
+    def test_many_variants_win_probability_compared_to_control(self):
         """Test with multiple variants, win probability compared to control"""
         control_absolute_exposure = 1000
         control = create_variant("control", count=100, exposure=1, absolute_exposure=control_absolute_exposure)

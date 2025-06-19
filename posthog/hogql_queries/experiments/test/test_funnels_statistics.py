@@ -99,7 +99,7 @@ class TestExperimentFunnelStatistics(APIBaseTest):
         self.assertAlmostEqual(intervals["test_c"][1], 0.12, places=2)
 
     @flaky(max_runs=5, min_passes=1)
-    def test_many_variants_win_probabilty_compared_to_control(self):
+    def test_many_variants_win_probability_compared_to_control(self):
         """Test with multiple variants, win probability compared to control"""
 
         # test_a is worse than control

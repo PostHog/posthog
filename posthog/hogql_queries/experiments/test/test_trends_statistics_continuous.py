@@ -267,7 +267,7 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
         self.assertAlmostEqual(intervals["test_c"][1], 112, delta=1)
 
     @flaky(max_runs=5, min_passes=1)
-    def test_many_variants_win_probabilty_compared_to_control(self):
+    def test_many_variants_win_probability_compared_to_control(self):
         """Test with multiple variants, win probability compared to control"""
 
         control_absolute_exposure = 1000
