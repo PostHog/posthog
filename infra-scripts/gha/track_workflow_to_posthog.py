@@ -123,9 +123,18 @@ def find_current_job(jobs: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
     """Return the job whose *name* matches ``GITHUB_JOB`` (matrix names are unique)."""
     if not CURRENT_JOB_NAME:
         return None
-    matches = [j for j in jobs if j.get("name") == CURRENT_JOB_NAME]
-    # In practice there should be exactly one. If multiple, pick the most recently updated.
-    return sorted(matches, key=lambda j: j.get("started_at") or "", reverse=True)[0] if matches else None
+
+    # 1 – exact (non-matrix) match
+    exact = [j for j in jobs if j.get("name") == CURRENT_JOB_NAME]
+    if exact:
+        return max(exact, key=lambda j: j.get("updated_at") or "")
+
+    # 2 – matrix jobs: “Jest test (FOSS - 1/3)” *contains* “jest”
+    fuzzy = [j for j in jobs if CURRENT_JOB_NAME.lower() in (j.get("name") or "").lower()]
+    if fuzzy:
+        return max(fuzzy, key=lambda j: j.get("updated_at") or "")
+
+    return None
 
 
 # --------------------------------------------------------------------------- #

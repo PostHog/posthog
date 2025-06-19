@@ -277,7 +277,7 @@ jobs:
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
             - name: Report job & steps to PostHog
-              if: always()
+              if: always() && needs.changes.outputs.rust == 'true'
               uses: ./.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
