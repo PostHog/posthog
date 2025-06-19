@@ -173,16 +173,47 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
             )
 
-            return ast.Call(
-                name=method,
-                args=[
-                    convert_currency_call(
-                        ast.Field(chain=chain),
-                        event_currency,
-                        base_currency,
-                        ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
-                    )
-                ],
+            # For DataWarehouse nodes we have a timestamp field we need to use
+            # This timestamp data can be nullable, so we need to handle NULL values
+            # to avoid ClickHouse errors with dictGetOrDefault expecting non-nullable dates
+            timestamp_expr: ast.Expr
+            if isinstance(self.series, DataWarehouseNode):
+                timestamp_expr = ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Field(chain=[self.series.timestamp_field]),
+                        ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
+                    ],
+                )
+            else:
+                # For events, timestamp is never null
+                timestamp_expr = ast.Field(chain=["timestamp"])
+
+            # Apply math_multiplier to the field before currency conversion
+            currency_field_expr: ast.Expr = ast.Field(chain=chain)
+            if hasattr(self.series, "math_multiplier") and self.series.math_multiplier is not None:
+                currency_field_expr = ast.ArithmeticOperation(
+                    left=currency_field_expr,
+                    right=ast.Constant(value=self.series.math_multiplier),
+                    op=ast.ArithmeticOperationOp.Mult,
+                )
+
+            currency_field_expr = convert_currency_call(
+                currency_field_expr,
+                event_currency,
+                base_currency,
+                ast.Call(name="_toDate", args=[timestamp_expr]),
+            )
+
+            return ast.Call(name=method, args=[currency_field_expr])
+
+        # Apply math_multiplier if present
+        field_expr: ast.Expr = ast.Field(chain=chain)
+        if hasattr(self.series, "math_multiplier") and self.series.math_multiplier is not None:
+            field_expr = ast.ArithmeticOperation(
+                left=field_expr,
+                right=ast.Constant(value=self.series.math_multiplier),
+                op=ast.ArithmeticOperationOp.Mult,
             )
 
         return ast.Call(
@@ -193,13 +224,22 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             # (null would actually be more meaningful for e.g. min or max), but formulas aren't equipped to handle nulls
             name="ifNull",
             args=[
-                ast.Call(name=method, args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])]),
+                ast.Call(name=method, args=[ast.Call(name="toFloat", args=[field_expr])]),
                 ast.Constant(value=0),
             ],
         )
 
     def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]] = None) -> ast.Call:
         chain = override_chain or self._get_math_chain()
+
+        # Apply math_multiplier if present
+        field_expr: ast.Expr = ast.Field(chain=chain)
+        if hasattr(self.series, "math_multiplier") and self.series.math_multiplier is not None:
+            field_expr = ast.ArithmeticOperation(
+                left=field_expr,
+                right=ast.Constant(value=self.series.math_multiplier),
+                op=ast.ArithmeticOperationOp.Mult,
+            )
 
         return ast.Call(
             # Two caveats here - similar to the math_func, but not quite:
@@ -212,7 +252,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ast.Call(
                     name="quantile",
                     params=[ast.Constant(value=percentile)],
-                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])],
+                    args=[ast.Call(name="toFloat", args=[field_expr])],
                 ),
                 ast.Constant(value=0),
             ],

@@ -1,7 +1,6 @@
 import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconComment } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -109,7 +108,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
         <NotebookSelectButton
             fullWidth={fullWidth}
             size="xsmall"
-            icon={<IconComment />}
+            icon={<IconNotebook />}
             resource={{
                 type: NotebookNodeType.Recording,
                 attrs: { id: sessionRecordingId, __init: { expanded: true } },
@@ -132,7 +131,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
                 personsModalLogic.findMounted()?.actions.closeModal()
             }}
         >
-            Comment
+            Add to notebook
         </NotebookSelectButton>
     )
 }

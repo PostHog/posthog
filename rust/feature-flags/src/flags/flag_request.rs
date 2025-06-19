@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use tracing::instrument;
 
 use crate::api::errors::FlagError;
 
@@ -71,10 +70,8 @@ pub struct FlagRequest {
 impl FlagRequest {
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
-    #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
         let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            println!("failed to decode body: {}", e);
             tracing::debug!("failed to decode body: {}", e);
             FlagError::RequestDecodingError(String::from("invalid body encoding"))
         })?;
@@ -82,7 +79,6 @@ impl FlagRequest {
         match serde_json::from_str::<FlagRequest>(&payload) {
             Ok(request) => Ok(request),
             Err(e) => {
-                println!("failed to parse JSON: {}", e);
                 tracing::debug!("failed to parse JSON: {}", e);
                 Err(FlagError::RequestDecodingError(String::from(
                     "invalid JSON",
