@@ -243,7 +243,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         const operation = 'upsertGroup' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation)
         const [propertiesUpdate, createdAt, actualVersion] = await this.db.postgres.transaction(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             operation,
             async (tx) =>
                 this.groupUpsertTransaction(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
