@@ -1,3 +1,4 @@
+use crate::error::ToUserError;
 use anyhow::{Context, Error};
 use aws_sdk_s3::Client as S3Client;
 use axum::async_trait;
@@ -83,17 +84,12 @@ impl DataSource for S3Source {
             if let Some(token) = continuation_token {
                 cmd = cmd.continuation_token(token);
             }
-            let output = match cmd.send().await {
-                Ok(output) => output,
-                Err(error) => {
-                    let friendly_msg =
-                        extract_user_friendly_error(&error, &self.bucket, "list objects");
-                    return Err(Error::msg(friendly_msg).context(format!(
-                        "Failed to list S3 objects in bucket '{}' with prefix '{}'",
-                        self.bucket, self.prefix
-                    )));
-                }
-            };
+            let output = cmd.send().await.or_else(|sdk_error| {
+                let friendly_msg =
+                    extract_user_friendly_error(&sdk_error, &self.bucket, "list objects");
+                Err(sdk_error).user_error(friendly_msg)
+            })?;
+
             debug!("Got response: {:?}", output);
             if let Some(contents) = output.contents {
                 keys.extend(contents.iter().filter_map(|o| o.key.clone()));
@@ -106,36 +102,30 @@ impl DataSource for S3Source {
         Ok(keys)
     }
 
-    async fn size(&self, key: &str) -> Result<u64, Error> {
-        let head = match self
+    async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
+        let head = self
             .client
             .head_object()
             .bucket(&self.bucket)
             .key(key)
             .send()
             .await
-        {
-            Ok(head) => head,
-            Err(error) => {
+            .or_else(|sdk_error| {
                 let friendly_msg =
-                    extract_user_friendly_error(&error, &self.bucket, "get object metadata");
-                return Err(Error::msg(friendly_msg).context(format!(
-                    "Failed to get metadata for S3 object s3://{}/{}",
-                    self.bucket, key
-                )));
-            }
-        };
+                    extract_user_friendly_error(&sdk_error, &self.bucket, "get object metadata");
+                Err(sdk_error).user_error(friendly_msg)
+            })?;
 
         let Some(size) = head.content_length else {
             return Err(Error::msg(format!("No content length for key {}", key)));
         };
 
-        Ok(size as u64)
+        Ok(Some(size as u64))
     }
 
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
         let range = format!("bytes={}-{}", offset, offset + size - 1);
-        let get = match self
+        let get = self
             .client
             .get_object()
             .bucket(&self.bucket)
@@ -143,17 +133,11 @@ impl DataSource for S3Source {
             .range(&range)
             .send()
             .await
-        {
-            Ok(get) => get,
-            Err(error) => {
+            .or_else(|sdk_error| {
                 let friendly_msg =
-                    extract_user_friendly_error(&error, &self.bucket, "get object chunk");
-                return Err(Error::msg(friendly_msg).context(format!(
-                    "Failed to get S3 object chunk s3://{}/{} range {}",
-                    self.bucket, key, range
-                )));
-            }
-        };
+                    extract_user_friendly_error(&sdk_error, &self.bucket, "get object chunk");
+                Err(sdk_error).user_error(friendly_msg)
+            })?;
 
         let data = get.body.collect().await.with_context(|| {
             format!(
