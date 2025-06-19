@@ -433,7 +433,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
                 dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
                     action: 'update',
-                    refresh: 'lazy_async',
+                    manualDashboardRefresh: false,
                 })
             )
 
