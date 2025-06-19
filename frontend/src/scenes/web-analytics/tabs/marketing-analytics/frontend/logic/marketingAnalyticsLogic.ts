@@ -9,6 +9,7 @@ import {
     CurrencyCode,
     DatabaseSchemaDataWarehouseTable,
     DataWarehouseNode,
+    NodeKind,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
@@ -217,10 +218,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     return null
                 }
 
-                const conversionGoalCTEs = generateGoalConversionCTEs(conversionGoals)
+                // TODO: support actions as conversion goals
+                const filteredConversionGoal = conversionGoals.filter(
+                    (conversionGoal) => conversionGoal.kind !== NodeKind.ActionsNode
+                )
+
+                const conversionGoalCTEs = generateGoalConversionCTEs(filteredConversionGoal)
                 const withClause = generateWithClause(unionQueries, conversionGoalCTEs)
-                const conversionJoins = generateGoalConversionJoins(conversionGoals)
-                const conversionColumns = generateGoalConversionSelects(conversionGoals)
+                const conversionJoins = generateGoalConversionJoins(filteredConversionGoal)
+                const conversionColumns = generateGoalConversionSelects(filteredConversionGoal)
 
                 const query = generateSelect(withClause, conversionColumns, conversionJoins)
 

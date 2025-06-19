@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
 import { useState } from 'react'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
@@ -61,7 +62,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
         removeConversionGoal(goalId)
     }
 
-    const isFormValid = formState.name.trim() !== '' && formState.filter.name
+    const isFormValid = formState.name.trim() !== '' && defaultConversionGoalFilter.name !== formState.filter.name
 
     return (
         <div className="space-y-6">
@@ -91,12 +92,13 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                         <label className="block text-sm font-medium mb-1">Select Event or Data Warehouse Table</label>
                         <ConversionGoalDropdown
                             value={formState.filter}
-                            onChange={(filter: ConversionGoalFilter, uuid?: string) =>
+                            typeKey="conversion-goal"
+                            onChange={(newFilter) =>
                                 setFormState((prev) => ({
                                     ...prev,
                                     filter: {
-                                        ...filter,
-                                        conversion_goal_id: uuid || filter.conversion_goal_id,
+                                        ...newFilter,
+                                        conversion_goal_id: newFilter.conversion_goal_id || uuid(),
                                     },
                                 }))
                             }
@@ -144,7 +146,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                         {
                             key: 'type',
                             title: 'Type',
-                            render: (_, goal: ConversionGoalFilter) => goal.type,
+                            render: (_, goal: ConversionGoalFilter) => QUERY_TYPES_METADATA[goal.kind]?.name,
                         },
                         {
                             key: 'event',
@@ -154,11 +156,12 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                                     return (
                                         <ConversionGoalDropdown
                                             value={editingGoal}
-                                            onChange={(filter: ConversionGoalFilter) => setEditingGoal(filter)}
+                                            typeKey="conversion-goal-edit"
+                                            onChange={setEditingGoal}
                                         />
                                     )
                                 }
-                                return goal.name || goal.id
+                                return goal.custom_name || goal.name || 'No name'
                             },
                         },
                         {

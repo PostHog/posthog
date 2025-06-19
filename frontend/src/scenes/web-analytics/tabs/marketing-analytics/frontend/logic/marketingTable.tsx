@@ -1,5 +1,5 @@
-import { ConversionGoalFilter, CurrencyCode } from '~/queries/schema/schema-general'
-import { EntityTypes } from '~/types'
+import { ConversionGoalFilter, CurrencyCode, NodeKind } from '~/queries/schema/schema-general'
+import { BaseMathType } from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
 import { ExternalTable, NativeSource } from './marketingAnalyticsLogic'
@@ -117,7 +117,13 @@ export function generateGoalConversionCTEs(conversionGoals: ConversionGoalFilter
     // Generate CTEs for all conversion goals
     const conversionGoalCTEs = conversionGoals
         .map((conversionGoal, index) => {
-            const propertyName = conversionGoal.type === EntityTypes.EVENTS ? 'properties.' : ''
+            const table = getConversionGoalTable(conversionGoal)
+            // add dw distinct_id field to the select field
+            const selectField =
+                conversionGoal.math === BaseMathType.UniqueUsers && conversionGoal.kind === NodeKind.EventsNode
+                    ? `count(distinct distinct_id)`
+                    : 'count(*)'
+            const propertyName = conversionGoal.kind === NodeKind.EventsNode ? 'properties.' : ''
             // Sanitize the CTE name to be a valid SQL identifier
             const cteName = getConversionGoalCTEName(index, conversionGoal)
             return `
@@ -125,11 +131,11 @@ ${cteName} AS (
 SELECT 
     ${propertyName}${conversionGoal.schema.utm_campaign_name} as ${tableColumns.campaign_name},
     ${propertyName}${conversionGoal.schema.utm_source_name} as ${tableColumns.source_name},
-    count(*) as conversion_${index}
-FROM ${getConversionGoalTable(conversionGoal)} 
+    ${selectField} as conversion_${index}
+FROM ${table} 
 WHERE ${
-                conversionGoal.type === EntityTypes.EVENTS && conversionGoal.id
-                    ? `event = ${typeof conversionGoal.id === 'string' ? `'${conversionGoal.id}'` : conversionGoal.id}`
+                conversionGoal.kind === NodeKind.EventsNode && conversionGoal.event
+                    ? `event = '${conversionGoal.event}'`
                     : '1=1'
             }
     AND ${tableColumns.campaign_name} IS NOT NULL
@@ -152,7 +158,7 @@ export function generateGoalConversionJoins(conversionGoals: ConversionGoalFilte
 LEFT JOIN ${cteName} cg_${index} ON cc.${tableColumns.campaign_name} = cg_${index}.${tableColumns.campaign_name} 
     AND cc.${tableColumns.source_name} = cg_${index}.${tableColumns.source_name}`
               })
-              .join('\n                    ')
+              .join('\n')
         : ''
 }
 
@@ -164,7 +170,7 @@ export function generateGoalConversionSelects(conversionGoals: ConversionGoalFil
                   `round(cc.total_cost / nullif(cg_${index}.conversion_${index}, 0), 2) as "Cost per ${conversionGoal.conversion_goal_name}"`,
               ])
               .flat()
-              .join(',\n                        ')
+              .join(',\n')
         : ''
 }
 
@@ -196,7 +202,7 @@ SELECT
     cc.total_impressions as "Total Impressions",
     round(cc.total_cost / nullif(cc.total_clicks, 0), 2) as "Cost per Click",
     round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR"${
-        conversionColumns ? `,\n                        ${conversionColumns}` : ''
+        conversionColumns ? `,\n${conversionColumns}` : ''
     }
 FROM campaign_costs cc
 ${conversionJoins}
@@ -209,12 +215,12 @@ function getConversionGoalTable(conversionGoal: ConversionGoalFilter): string {
     if (!conversionGoal.name) {
         return 'events'
     }
-    switch (conversionGoal.type) {
-        case EntityTypes.EVENTS:
+    switch (conversionGoal.kind) {
+        case NodeKind.EventsNode:
             return 'events'
-        case EntityTypes.DATA_WAREHOUSE:
-            return conversionGoal.name
+        case NodeKind.DataWarehouseNode:
+            return conversionGoal.table_name
         default:
-            throw new Error(`Unsupported conversion goal type: ${conversionGoal.type}`)
+            throw new Error(`Unsupported conversion goal type: ${conversionGoal.kind}`)
     }
 }
