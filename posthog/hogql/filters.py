@@ -80,6 +80,8 @@ class ReplaceFilters(CloningVisitor):
             if no_filters:
                 return ast.Constant(value=True)
 
+            assert self.filters is not None
+
             exprs: list[ast.Expr] = []
             if self.filters.properties is not None:
                 if found_sessions:
@@ -147,6 +149,8 @@ class ReplaceFilters(CloningVisitor):
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
+            assert self.filters is not None
+
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
@@ -164,6 +168,8 @@ class ReplaceFilters(CloningVisitor):
             if no_filters:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
+
+            assert self.filters is not None
 
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:

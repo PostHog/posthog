@@ -60,13 +60,13 @@ class TestFilters(BaseTest):
 
         with self.assertRaisesMessage(
             QueryError,
-            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events or sessions table.",
+            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table.",
         ):
             replace_filters(select, None, self.team)
 
         with self.assertRaisesMessage(
             QueryError,
-            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events or sessions table.",
+            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table.",
         ):
             replace_filters(select, HogQLFilters(), self.team)
 
@@ -75,7 +75,7 @@ class TestFilters(BaseTest):
 
         with self.assertRaisesMessage(
             QueryError,
-            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events or sessions table.",
+            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table.",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
