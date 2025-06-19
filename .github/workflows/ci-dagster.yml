@@ -1,12 +1,5 @@
 # This workflow runs all of our dagster tests.
 name: Dagster CI
-_posthog_step: &posthog_step
-    name: Report job + steps to PostHog
-    if: always()
-    uses: ./.github/actions/ci-analytics
-    with:
-        posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-        github-token: ${{ secrets.GITHUB_TOKEN }}
 on:
     push:
         branches:
