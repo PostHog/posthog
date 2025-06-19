@@ -1,5 +1,7 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconCalendar } from '@posthog/icons'
+import { LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect } from 'react'
@@ -8,22 +10,50 @@ import { campaignMetricsLogic, CampaignMetricsLogicProps } from './campaignMetri
 
 export function CampaignMetrics({ id }: CampaignMetricsLogicProps): JSX.Element {
     // Get the metrics based off of the campaign id
-    const { metricsByKind } = useValues(campaignMetricsLogic({ id }))
     const { loadMetricsByKind } = useActions(campaignMetricsLogic({ id }))
 
     useEffect(() => {
         loadMetricsByKind()
     }, [id])
 
-    console.log('metricsByKind', metricsByKind)
-
     return (
         <BindLogic logic={campaignMetricsLogic} props={{ id }}>
             <div>
-                <h3>Workflow metrics</h3>
+                <CampaignMetricsFilters />
                 <CampaignMetricsTotals />
             </div>
         </BindLogic>
+    )
+}
+
+function CampaignMetricsFilters(): JSX.Element {
+    const { filters } = useValues(campaignMetricsLogic)
+    const { setFilters } = useActions(campaignMetricsLogic)
+
+    return (
+        <>
+            <LemonSelect
+                options={[
+                    { label: 'Hourly', value: 'hour' },
+                    { label: 'Daily', value: 'day' },
+                    { label: 'Weekly', value: 'week' },
+                ]}
+                size="small"
+                value={filters.interval}
+                onChange={(value) => setFilters({ interval: value })}
+            />
+            <DateFilter
+                dateTo={filters.before}
+                dateFrom={filters.after}
+                onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                makeLabel={(key) => (
+                    <>
+                        <IconCalendar /> {key}
+                    </>
+                )}
+            />
+        </>
     )
 }
 
