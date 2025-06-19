@@ -123,6 +123,7 @@ export type SettingId =
     | 'bounce-rate-duration'
     | 'revenue-base-currency'
     | 'revenue-analytics-filter-test-accounts'
+    | 'revenue-analytics-persons-join-mode'
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'

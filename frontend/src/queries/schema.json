@@ -19258,9 +19258,17 @@
                         "$ref": "#/definitions/RevenueAnalyticsGoal"
                     },
                     "type": "array"
+                },
+                "persons_join_mode": {
+                    "$ref": "#/definitions/RevenueAnalyticsPersonsJoinMode",
+                    "default": "id"
+                },
+                "persons_join_mode_custom": {
+                    "default": null,
+                    "type": ["string", "null"]
                 }
             },
-            "required": ["events", "goals", "filter_test_accounts"],
+            "required": ["events", "goals", "filter_test_accounts", "persons_join_mode", "persons_join_mode_custom"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -19458,6 +19466,10 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "RevenueAnalyticsPersonsJoinMode": {
+            "enum": ["id", "email", "custom"],
+            "type": "string"
         },
         "RevenueAnalyticsPropertyFilter": {
             "additionalProperties": false,

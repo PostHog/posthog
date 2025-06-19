@@ -13,6 +13,7 @@ import {
     RevenueAnalyticsConfig,
     RevenueAnalyticsEventItem,
     RevenueAnalyticsGoal,
+    RevenueAnalyticsPersonsJoinMode,
     RevenueCurrencyPropertyConfig,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
@@ -23,6 +24,8 @@ const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
     goals: [],
     filter_test_accounts: false,
+    persons_join_mode: RevenueAnalyticsPersonsJoinMode.ID,
+    persons_join_mode_custom: null,
 })
 
 const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] => {
@@ -56,6 +59,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
 
         updateFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        updatePersonsJoinMode: (personsJoinMode: RevenueAnalyticsPersonsJoinMode) => ({ personsJoinMode }),
+        updatePersonsJoinModeCustom: (personsJoinModeCustom: string | null) => ({ personsJoinModeCustom }),
 
         save: true,
         resetConfig: true,
@@ -175,6 +180,25 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     }
                     return { ...state, filter_test_accounts: filterTestAccounts }
                 },
+                updatePersonsJoinMode: (state: RevenueAnalyticsConfig | null, { personsJoinMode }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        persons_join_mode: personsJoinMode,
+                        persons_join_mode_custom:
+                            personsJoinMode === RevenueAnalyticsPersonsJoinMode.CUSTOM
+                                ? state.persons_join_mode_custom
+                                : null,
+                    }
+                },
+                updatePersonsJoinModeCustom: (state: RevenueAnalyticsConfig | null, { personsJoinModeCustom }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return { ...state, persons_join_mode_custom: personsJoinModeCustom }
+                },
                 resetConfig: () => {
                     return values.savedRevenueAnalyticsConfig
                 },
@@ -196,6 +220,46 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             (s) => [s.revenueAnalyticsConfig],
             (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
                 revenueAnalyticsConfig?.filter_test_accounts || false,
+        ],
+
+        personsJoinMode: [
+            (s) => [s.revenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
+                revenueAnalyticsConfig?.persons_join_mode || RevenueAnalyticsPersonsJoinMode.ID,
+        ],
+        personsJoinModeCustom: [
+            (s) => [s.revenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
+                revenueAnalyticsConfig?.persons_join_mode_custom || null,
+        ],
+        changesMadeToPersonsJoinMode: [
+            (s) => [s.revenueAnalyticsConfig, s.savedRevenueAnalyticsConfig],
+            (config, savedConfig): boolean => {
+                return (
+                    !!config &&
+                    (config.persons_join_mode !== savedConfig.persons_join_mode ||
+                        config.persons_join_mode_custom !== savedConfig.persons_join_mode_custom)
+                )
+            },
+        ],
+        savePersonsJoinModeDisabledReason: [
+            (s) => [s.revenueAnalyticsConfig, s.changesMadeToPersonsJoinMode],
+            (config, changesMade): string | null => {
+                if (!config) {
+                    return 'Loading...'
+                }
+                if (!changesMade) {
+                    return 'No changes to save'
+                }
+                if (
+                    config.persons_join_mode === RevenueAnalyticsPersonsJoinMode.CUSTOM &&
+                    !config.persons_join_mode_custom
+                ) {
+                    return 'Custom field is required'
+                }
+
+                return null
+            },
         ],
 
         goals: [
@@ -298,7 +362,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         },
     })),
     beforeUnload(({ actions, values }) => ({
-        enabled: () => values.changesMadeToEvents,
+        enabled: () => values.changesMadeToEvents || values.changesMadeToPersonsJoinMode,
         message: 'Changes you made will be discarded. Make sure you save your changes before leaving this page.',
         onConfirm: () => {
             actions.resetConfig()

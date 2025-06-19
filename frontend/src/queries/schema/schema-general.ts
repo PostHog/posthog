@@ -3177,6 +3177,12 @@ export interface RevenueAnalyticsGoal {
     goal: number
 }
 
+export enum RevenueAnalyticsPersonsJoinMode {
+    ID = 'id',
+    EMAIL = 'email',
+    CUSTOM = 'custom',
+}
+
 export interface RevenueAnalyticsConfig {
     /**
      * @default []
@@ -3192,6 +3198,16 @@ export interface RevenueAnalyticsConfig {
      * @default false
      */
     filter_test_accounts: boolean
+
+    /**
+     * @default "id"
+     */
+    persons_join_mode: RevenueAnalyticsPersonsJoinMode
+
+    /**
+     * @default null
+     */
+    persons_join_mode_custom: string | null
 }
 
 export interface PageURL {
