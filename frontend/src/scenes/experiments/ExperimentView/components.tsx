@@ -65,7 +65,7 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyMetricResults, getInsightType } = useValues(experimentLogic({ experimentId }))
+    const { experiment, legacyPrimaryMetricsResults, getInsightType } = useValues(experimentLogic({ experimentId }))
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -75,7 +75,7 @@ export function VariantTag({
         )
     }
 
-    if (!legacyMetricResults) {
+    if (!legacyPrimaryMetricsResults) {
         return <></>
     }
 
@@ -88,7 +88,7 @@ export function VariantTag({
                     style={{
                         backgroundColor: getExperimentInsightColour(
                             getIndexForVariant(
-                                legacyMetricResults[0],
+                                legacyPrimaryMetricsResults[0],
                                 variantKey,
                                 getInsightType(experiment.metrics[0])
                             )
@@ -222,9 +222,9 @@ export function LegacyExploreButton({
 }
 
 export function ResultsHeader(): JSX.Element {
-    const { legacyMetricResults } = useValues(experimentLogic)
+    const { legacyPrimaryMetricsResults } = useValues(experimentLogic)
 
-    const result = legacyMetricResults?.[0]
+    const result = legacyPrimaryMetricsResults?.[0]
 
     return (
         <div className="flex">

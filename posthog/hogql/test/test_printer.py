@@ -1978,19 +1978,16 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')), "
-                "dictGetOrNull('channel_definition_dict', 'domain_type', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS domain "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'domain_type', "
+            "(coalesce(%(hogql_val_0)s, ''), 'source')), "
+            "dictGetOrNull('posthog_test.channel_definition_dict', 'domain_type', "
+            "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS domain "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_paid_source_type(self):
         query = parse_select("select hogql_lookupPaidSourceType('google') as source from events")
@@ -2000,19 +1997,16 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
-                "dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+            "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
+            "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+            "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_paid_medium_type(self):
         query = parse_select("select hogql_lookupPaidMediumType('social') as medium from events")
@@ -2022,15 +2016,12 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+            "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_organic_source_type(self):
         query = parse_select("select hogql_lookupOrganicSourceType('google') as source  from events")
@@ -2040,19 +2031,16 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')), "
-                "dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+            "(coalesce(%(hogql_val_0)s, ''), 'source')), "
+            "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+            "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_organic_medium_type(self):
         query = parse_select("select hogql_lookupOrganicMediumType('social') as medium from events")
@@ -2062,15 +2050,12 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+            "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_currency_conversion(self):
         query = parse_select("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency")
@@ -2333,4 +2318,42 @@ class TestPrinter(BaseTest):
         assert (
             printed
             == "SELECT concat(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s) AS `concat('', 'word', '')` LIMIT 1"
+        )
+
+    def test_print_hogql_output_format(self):
+        query = parse_select("select 1 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="hogql",
+        )
+        assert printed == "SELECT 1 LIMIT 1"
+
+    def test_print_clickhouse_output_format(self):
+        query = parse_select("select 1 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert printed == "SELECT 1 LIMIT 1 FORMAT ArrowStream"
+
+    def test_print_clickhouse_output_format_union(self):
+        query = parse_select("select 1 limit 1 union all select 2 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert printed == "SELECT 1 LIMIT 1 UNION ALL SELECT 2 LIMIT 1 FORMAT ArrowStream"
+
+    def test_print_clickhouse_output_format_union_with_nested_union_subquery(self):
+        query = parse_select("select * from (select 1 as num union all select 2 as num) limit 2")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert (
+            printed == "SELECT num AS num FROM (SELECT 1 AS num UNION ALL SELECT 2 AS num) LIMIT 2 FORMAT ArrowStream"
         )

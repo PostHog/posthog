@@ -10,7 +10,7 @@ export type PanelLayoutNavIdentifier =
     | 'People'
     | 'Games'
     | 'Shortcuts'
-    | 'Data-management'
+    | 'DataManagement'
     | 'Database'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null

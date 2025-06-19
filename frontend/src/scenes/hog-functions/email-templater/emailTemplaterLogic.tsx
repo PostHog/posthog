@@ -36,7 +36,7 @@ export interface EmailTemplaterLogicProps {
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
-    path(() => ['scenes', 'pipeline', 'hogfunctions', 'emailTemplaterLogic']),
+    path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
     actions({
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
         onEmailEditorReady: true,

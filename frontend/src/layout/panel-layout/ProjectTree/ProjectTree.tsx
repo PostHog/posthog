@@ -1,4 +1,4 @@
-import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -658,11 +658,7 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon
-                            item={item}
-                            expandedItemIds={expandedFolders}
-                            defaultNodeIcon={<IconFolder />}
-                        />
+                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                     </>
                 )
             }}

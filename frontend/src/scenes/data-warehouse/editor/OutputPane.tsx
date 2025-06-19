@@ -277,7 +277,7 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = dataNodeResponse ?? localStorageResponse
+    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -316,7 +316,7 @@ export function OutputPane(): JSX.Element {
 
                 const maxContentLength = Math.max(
                     column.length,
-                    ...(response.results || response.result).map((row: any[]) => {
+                    ...(response.results || (response as any).result).map((row: any[]) => {
                         const content = row[index]
                         return typeof content === 'string'
                             ? content.length
@@ -371,7 +371,7 @@ export function OutputPane(): JSX.Element {
         }
         return response?.results?.map((row: any[], index: number) => {
             const rowObject: Record<string, any> = { __index: index }
-            response.columns.forEach((column: string, i: number) => {
+            response.columns?.forEach((column: string, i: number) => {
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
                 if (typeof row[i] === 'object' && row[i] !== null) {
                     rowObject[column] = JSON.stringify(row[i])

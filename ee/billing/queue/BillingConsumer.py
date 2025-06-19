@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from ee.billing.billing_manager import BillingManager
 from posthog.models.organization import Organization
+from posthog.cloud_utils import get_cached_instance_license
 
 from ee.sqs.SQSConsumer import SQSConsumer
 
@@ -110,7 +111,8 @@ class BillingConsumer(SQSConsumer):
         logger.info(f"Processing billing customer update for {organization_id}")
 
         organization = Organization.objects.get(id=organization_id)
-        billing_manager = BillingManager()
+        license = get_cached_instance_license()
+        billing_manager = BillingManager(license)
         billing_manager.update_org_details(organization, data)
 
         logger.info(f"Successfully processed billing customer update for {organization_id}")
