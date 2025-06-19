@@ -259,19 +259,19 @@ function DictionaryField({
             ) : null}
             {entries.map(([key, val], index) => (
                 <div className="flex gap-2 items-center" key={index}>
-                    <LemonInput
-                        value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
-                        disabledReason={
-                            EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined
-                        }
-                        className="flex-1 min-w-60"
-                        onChange={(key) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [key, newEntries[index][1]]
-                            setEntries(newEntries)
-                        }}
-                        placeholder="Key"
-                    />
+                    <Tooltip title={EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined}>
+                        <LemonInput
+                            value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
+                            disabled={key === EXTEND_OBJECT_KEY}
+                            className="flex-1 min-w-60"
+                            onChange={(key) => {
+                                const newEntries = [...entries]
+                                newEntries[index] = [key, newEntries[index][1]]
+                                setEntries(newEntries)
+                            }}
+                            placeholder="Key"
+                        />
+                    </Tooltip>
 
                     <CyclotronJobTemplateInput
                         className="overflow-hidden flex-2"
