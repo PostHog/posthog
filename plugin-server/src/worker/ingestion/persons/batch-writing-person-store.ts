@@ -21,10 +21,15 @@ import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
     personDatabaseOperationsPerBatchHistogram,
+    personFallbackOperationsCounter,
     personFetchForCheckingCacheOperationsCounter,
     personFetchForUpdateCacheOperationsCounter,
+    personFlushBatchSizeHistogram,
+    personFlushLatencyHistogram,
+    personFlushOperationsCounter,
     personMethodCallsPerBatchHistogram,
     personOptimisticUpdateConflictsPerBatchCounter,
+    personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
@@ -120,17 +125,36 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     }
 
     async flush(): Promise<void> {
+        const flushStartTime = performance.now()
+        const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
+            (entry): entry is [string, PersonUpdate] => {
+                const [_, update] = entry
+                return update !== null && update.needs_write
+            }
+        )
+
+        const batchSize = updateEntries.length
+        personFlushBatchSizeHistogram.observe({ db_write_mode: this.options.dbWriteMode }, batchSize)
+
+        if (batchSize === 0) {
+            personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, 0)
+            personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
+            return
+        }
+
         const limit = pLimit(this.options.maxConcurrentUpdates)
 
-        await Promise.all(
-            Array.from(this.personUpdateCache.entries())
-                .filter((entry): entry is [string, PersonUpdate] => {
-                    const [_, update] = entry
-                    return update !== null && update.needs_write
-                })
-                .map(([cacheKey, update]) =>
+        try {
+            await Promise.all(
+                updateEntries.map(([cacheKey, update]) =>
                     limit(async () => {
                         try {
+                            personWriteMethodAttemptCounter.inc({
+                                db_write_mode: this.options.dbWriteMode,
+                                method: this.options.dbWriteMode.toLowerCase(),
+                                outcome: 'attempt',
+                            })
+
                             switch (this.options.dbWriteMode) {
                                 case 'NO_ASSERT':
                                     await this.updatePersonNoAssert(update, 'batch')
@@ -156,6 +180,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     )
                                     break
                             }
+
+                            personWriteMethodAttemptCounter.inc({
+                                db_write_mode: this.options.dbWriteMode,
+                                method: this.options.dbWriteMode.toLowerCase(),
+                                outcome: 'success',
+                            })
                         } catch (error) {
                             // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
                             if (error instanceof MessageSizeTooLarge) {
@@ -168,16 +198,34 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         distinctId: update.distinct_id,
                                     }
                                 )
+                                personWriteMethodAttemptCounter.inc({
+                                    db_write_mode: this.options.dbWriteMode,
+                                    method: this.options.dbWriteMode.toLowerCase(),
+                                    outcome: 'error',
+                                })
                                 return
                             }
+
                             logger.warn('⚠️', 'Falling back to direct update after max retries', {
                                 teamId: update.team_id,
                                 personUuid: update.uuid,
                                 distinctId: update.distinct_id,
                             })
+
+                            personFallbackOperationsCounter.inc({
+                                db_write_mode: this.options.dbWriteMode,
+                                fallback_reason: 'max_retries',
+                            })
+
                             // Remove the person from the cache, so we don't try to update it again
                             this.personUpdateCache.delete(cacheKey)
                             await this.updatePersonNoAssert(update, 'conflictRetry')
+
+                            personWriteMethodAttemptCounter.inc({
+                                db_write_mode: this.options.dbWriteMode,
+                                method: 'fallback',
+                                outcome: 'success',
+                            })
                         }
                     }).catch((error) => {
                         logger.error('Failed to update person after max retries and direct update fallback', {
@@ -189,17 +237,34 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                             errorMessage: error instanceof Error ? error.message : String(error),
                             errorStack: error instanceof Error ? error.stack : undefined,
                         })
+
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: 'fallback',
+                            outcome: 'error',
+                        })
                         throw error
                     })
                 )
-        ).catch((error) => {
+            )
+
+            // Record successful flush
+            const flushLatency = (performance.now() - flushStartTime) / 1000
+            personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
+            personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
+        } catch (error) {
+            // Record failed flush
+            const flushLatency = (performance.now() - flushStartTime) / 1000
+            personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
+            personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'error' })
+
             logger.error('Failed to flush person updates', {
                 error,
                 errorMessage: error instanceof Error ? error.message : String(error),
                 errorStack: error instanceof Error ? error.stack : undefined,
             })
             throw error
-        })
+        }
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {

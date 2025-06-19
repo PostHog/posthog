@@ -19,10 +19,17 @@ jest.mock('./metrics', () => ({
     personCacheOperationsCounter: { inc: jest.fn() },
     personCacheSizeHistogram: { observe: jest.fn() },
     personDatabaseOperationsPerBatchHistogram: { observe: jest.fn() },
+    personFallbackOperationsCounter: { inc: jest.fn() },
     personFetchForCheckingCacheOperationsCounter: { inc: jest.fn() },
     personFetchForUpdateCacheOperationsCounter: { inc: jest.fn() },
+    personFlushBatchSizeHistogram: { observe: jest.fn() },
+    personFlushLatencyHistogram: { observe: jest.fn() },
+    personFlushOperationsCounter: { inc: jest.fn() },
     personMethodCallsPerBatchHistogram: { observe: jest.fn() },
     personOptimisticUpdateConflictsPerBatchCounter: { inc: jest.fn() },
+    personRetryAttemptsHistogram: { observe: jest.fn() },
+    personWriteMethodAttemptCounter: { inc: jest.fn() },
+    personWriteMethodLatencyHistogram: { observe: jest.fn() },
     totalPersonUpdateLatencyPerBatchHistogram: { observe: jest.fn() },
 }))
 

@@ -64,6 +64,39 @@ export const personOptimisticUpdateConflictsPerBatchCounter = new Counter({
     help: 'Number of optimistic update conflicts per batch',
 })
 
+// Flush instrumentation metrics
+export const personFlushOperationsCounter = new Counter({
+    name: 'person_flush_operations_total',
+    help: 'Total number of flush operations by outcome',
+    labelNames: ['db_write_mode', 'outcome'], // outcome: success, error, fallback
+})
+
+export const personFlushLatencyHistogram = new Histogram({
+    name: 'person_flush_latency_seconds',
+    help: 'Latency of flush operations',
+    labelNames: ['db_write_mode'],
+    buckets: exponentialBuckets(0.001, 2, 12), // 1ms to ~4s
+})
+
+export const personFlushBatchSizeHistogram = new Histogram({
+    name: 'person_flush_batch_size',
+    help: 'Number of person updates processed in a single flush',
+    labelNames: ['db_write_mode'],
+    buckets: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, Infinity],
+})
+
+export const personWriteMethodAttemptCounter = new Counter({
+    name: 'person_write_method_attempt_total',
+    help: 'Number of attempts for each write method',
+    labelNames: ['db_write_mode', 'method', 'outcome'], // method: no_assert, assert_version, with_transaction, outcome: success, retry, fallback
+})
+
+export const personFallbackOperationsCounter = new Counter({
+    name: 'person_fallback_operations_total',
+    help: 'Number of fallback operations triggered',
+    labelNames: ['db_write_mode', 'fallback_reason'], // fallback_reason: max_retries, error, conflict
+})
+
 export function getVersionBucketLabel(version: number): string {
     if (version === 0) {
         return 'v0'
