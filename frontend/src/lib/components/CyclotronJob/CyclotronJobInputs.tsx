@@ -252,7 +252,7 @@ function DictionaryField({
 
     return (
         <div className="deprecated-space-y-2">
-            {entries[0]?.[0] !== EXTEND_OBJECT_KEY ? (
+            {!entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
                     Include properties from an entire object
                 </LemonButton>
@@ -260,11 +260,9 @@ function DictionaryField({
             {entries.map(([key, val], index) => (
                 <div className="flex gap-2 items-center" key={index}>
                     <LemonInput
-                        value={key === EXTEND_OBJECT_KEY && index === 0 ? 'INCLUDE ENTIRE OBJECT' : key}
+                        value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
                         disabledReason={
-                            EXTEND_OBJECT_KEY === key && index === 0
-                                ? 'Include properties from an entire object'
-                                : undefined
+                            EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined
                         }
                         className="flex-1 min-w-60"
                         onChange={(key) => {
