@@ -16,7 +16,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
@@ -216,7 +216,7 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
 
             return () => newChart.destroy()
         }
-    }, [data])
+    }, [data, labels])
 
     return <canvas ref={canvasRef} className="h-[300px] w-full" />
 }
@@ -434,8 +434,10 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                             className="my-0"
                                         >
                                             Debug{' '}
-                                            {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'} in
-                                            new tab
+                                            <span>
+                                                {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'}
+                                            </span>{' '}
+                                            in new tab
                                         </LemonButton>
                                     ) : null}
                                 </div>
@@ -443,92 +445,13 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                         },
                     },
                     {
-                        title: 'Profiling stats',
-                        render: function ProfilingStats(_, item) {
-                            const [areAllStatsShown, setAreAllStatsShown] = useState(false)
-                            const event = item['profile_events']
-                            if (!event) {
-                                return
-                            }
+                        title: 'Metadata',
+                        render: (_, item) => {
                             return (
-                                <div>
-                                    {!areAllStatsShown ? (
-                                        <table className="w-80">
-                                            <tr>
-                                                <td>Bytes selected (all nodes, uncompressed)</td>
-                                                <td>
-                                                    {event['SelectedBytes'] != null ? (
-                                                        humanizeBytes(event['SelectedBytes'])
-                                                    ) : (
-                                                        <i>unknown</i>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td>Bytes read from disk (excl. page cache)</td>
-                                                <td>
-                                                    {event['OSReadBytes'] != null ? (
-                                                        humanizeBytes(event['OSReadBytes'])
-                                                    ) : (
-                                                        <i>unknown</i>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td>Bytes read from disk (incl. page cache)</td>
-                                                <td>
-                                                    {event['OSReadChars'] != null ? (
-                                                        humanizeBytes(event['OSReadChars'])
-                                                    ) : (
-                                                        <i>unknown</i>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td>Page cache hit rate</td>
-                                                <td>
-                                                    {event['OSReadBytes'] != null && event['OSReadChars'] != null ? (
-                                                        `${Math.round(
-                                                            ((event['OSReadChars'] - event['OSReadBytes']) /
-                                                                event['OSReadChars']) *
-                                                                100
-                                                        )}%`
-                                                    ) : (
-                                                        <i>unknown</i>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td>Bytes received over network</td>
-                                                <td>
-                                                    {event['NetworkReceiveBytes'] != null ? (
-                                                        humanizeBytes(event['NetworkReceiveBytes'])
-                                                    ) : (
-                                                        <i>unknown</i>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    ) : (
-                                        <CodeSnippet
-                                            language={Language.JSON}
-                                            maxLinesWithoutExpansion={0}
-                                            key={item.query_id}
-                                            className="text-sm mb-2"
-                                        >
-                                            {JSON.stringify(event, null, 2)}
-                                        </CodeSnippet>
-                                    )}
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => setAreAllStatsShown(!areAllStatsShown)}
-                                        className="my-1"
-                                        fullWidth
-                                        center
-                                    >
-                                        {areAllStatsShown ? 'Show key stats only' : 'Show full raw stats'}
-                                    </LemonButton>
+                                <div className="space-y-4">
+                                    <ProfilingStats item={item} />
+                                    <QueryContext item={item} />
+                                    <Timing item={item} />
                                 </div>
                             )
                         },
@@ -541,5 +464,259 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                 rowClassName="align-top"
             />
         </>
+    )
+}
+
+function ProfilingStats({ item }: { item: Query }): JSX.Element | null {
+    const [areAllStatsShown, setAreAllStatsShown] = useState(false)
+    const event = item['profile_events']
+    if (!event) {
+        return null
+    }
+    return (
+        <div>
+            {!areAllStatsShown ? (
+                <table className="w-80">
+                    <tbody>
+                        <tr>
+                            <td>Bytes selected (all nodes, uncompressed)</td>
+                            <td>
+                                {event['SelectedBytes'] != null ? (
+                                    humanizeBytes(event['SelectedBytes'])
+                                ) : (
+                                    <i>unknown</i>
+                                )}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Bytes read from disk (excl. page cache)</td>
+                            <td>
+                                {event['OSReadBytes'] != null ? humanizeBytes(event['OSReadBytes']) : <i>unknown</i>}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Bytes read from disk (incl. page cache)</td>
+                            <td>
+                                {event['OSReadChars'] != null ? humanizeBytes(event['OSReadChars']) : <i>unknown</i>}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Page cache hit rate</td>
+                            <td>
+                                {event['OSReadBytes'] != null && event['OSReadChars'] != null ? (
+                                    `${Math.round(
+                                        ((event['OSReadChars'] - event['OSReadBytes']) / event['OSReadChars']) * 100
+                                    )}%`
+                                ) : (
+                                    <i>unknown</i>
+                                )}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Bytes received over network</td>
+                            <td>
+                                {event['NetworkReceiveBytes'] != null ? (
+                                    humanizeBytes(event['NetworkReceiveBytes'])
+                                ) : (
+                                    <i>unknown</i>
+                                )}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            ) : (
+                <CodeSnippet
+                    language={Language.JSON}
+                    maxLinesWithoutExpansion={0}
+                    key={item.query_id}
+                    className="text-sm mb-2"
+                >
+                    {JSON.stringify(event, null, 2)}
+                </CodeSnippet>
+            )}
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                onClick={() => setAreAllStatsShown(!areAllStatsShown)}
+                className="my-1"
+                fullWidth
+                center
+            >
+                {areAllStatsShown ? 'Show key stats only' : 'Show full raw stats'}
+            </LemonButton>
+        </div>
+    )
+}
+
+function QueryContext({ item }: { item: Query }): JSX.Element | null {
+    const logComment = item.logComment
+
+    const [showModifiers, setShowModifiers] = useState(false)
+
+    if (!logComment) {
+        return null
+    }
+
+    const { container_hostname, git_commit, modifiers, service_name } = logComment
+
+    return (
+        <div>
+            <table className="w-80">
+                <tbody>
+                    {git_commit && typeof git_commit === 'string' ? (
+                        <tr>
+                            <td>Git commit SHA</td>
+                            <td>
+                                <LinkPosthogCommit commit={git_commit} />
+                            </td>
+                        </tr>
+                    ) : null}
+                    {service_name && typeof service_name === 'string' ? (
+                        <tr>
+                            <td>Service name</td>
+                            <td>
+                                <LinkPosthogService service={service_name} />
+                            </td>
+                        </tr>
+                    ) : null}
+                    <tr>
+                        <td>Container hostname</td>
+                        <td>{container_hostname}</td>
+                    </tr>
+                </tbody>
+            </table>
+            {modifiers && Object.keys(modifiers).length > 0 ? (
+                showModifiers ? (
+                    <CodeSnippet
+                        language={Language.JSON}
+                        maxLinesWithoutExpansion={0}
+                        key={item.query_id}
+                        className="text-sm mb-2 w-80"
+                    >
+                        {JSON.stringify(modifiers, null, 2)}
+                    </CodeSnippet>
+                ) : (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        onClick={() => setShowModifiers(!showModifiers)}
+                        className="my-1"
+                        fullWidth
+                        center
+                    >
+                        {showModifiers ? 'Hide HogQLQueryModifiers' : 'Show HogQLQueryModifiers'}
+                    </LemonButton>
+                )
+            ) : null}
+        </div>
+    )
+}
+
+function Timing({ item }: { item: Query }): JSX.Element | null {
+    const timings = item.logComment?.timings as Record<string, number> | undefined
+
+    const timingsSummary = useMemo(() => {
+        if (!timings) {
+            return null
+        }
+        const rootDuration = timings['.']
+
+        let slowestSpan = { name: '', duration: 0 }
+        const entries = Object.entries(timings)
+        // Find the entries where the key is not a prefix of another key (with / as the separator).
+        // This is quadratic, but the number of entries is small, do something smart if this becomes a problem
+        const leafEntries = entries.filter(
+            ([key]) => !entries.some(([otherKey]) => otherKey.startsWith(key + '/') && otherKey !== key)
+        )
+        for (const [key, val] of leafEntries) {
+            if (val > slowestSpan.duration) {
+                slowestSpan = { name: key, duration: val }
+            }
+        }
+        return {
+            rootDuration,
+            slowestSpan: slowestSpan.name !== '' ? slowestSpan : null,
+        }
+    }, [timings])
+
+    const [showFullTiming, setShowFullTiming] = useState(false)
+    if (!timings || !timingsSummary) {
+        return null
+    }
+
+    return (
+        <div>
+            {showFullTiming ? (
+                <CodeSnippet
+                    language={Language.JSON}
+                    maxLinesWithoutExpansion={0}
+                    key={item.query_id}
+                    className="text-sm mb-2 w-80"
+                >
+                    {JSON.stringify(timings, null, 2)}
+                </CodeSnippet>
+            ) : (
+                <table className="w-full">
+                    <tbody>
+                        <tr>
+                            <td>Root span duration</td>
+                            <td>{timingsSummary.rootDuration}</td>
+                        </tr>
+                        {timingsSummary.slowestSpan ? (
+                            <>
+                                <tr>
+                                    <td>Slowest span</td>
+                                    <td>
+                                        <div
+                                            className="w-60 overflow-scroll"
+                                            ref={(element) => element?.scrollTo({ left: element?.scrollWidth })}
+                                        >
+                                            {timingsSummary.slowestSpan.name}
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Slowest span duration</td>
+                                    <td>{timingsSummary.slowestSpan.duration}</td>
+                                </tr>
+                            </>
+                        ) : null}
+                    </tbody>
+                </table>
+            )}
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                onClick={() => setShowFullTiming(!showFullTiming)}
+                className="my-1"
+                fullWidth
+                center
+            >
+                {showFullTiming ? 'Show slowest span only' : 'Show full timing'}
+            </LemonButton>
+        </div>
+    )
+}
+
+function LinkPosthogCommit({ commit }: { commit: string }): JSX.Element {
+    return (
+        <Link to={`https://www.github.com/PostHog/posthog/commit/${commit}`} target="_blank">
+            {commit}
+        </Link>
+    )
+}
+
+function LinkPosthogService({ service }: { service: string }): JSX.Element {
+    if (service.includes('local-dev')) {
+        return <span>{service}</span>
+    }
+
+    return (
+        <Link
+            to={`https://argocd-internal.internal.posthog.dev/applications?search=${encodeURIComponent(service)}`}
+            target="_blank"
+        >
+            {service}
+        </Link>
     )
 }

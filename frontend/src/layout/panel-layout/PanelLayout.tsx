@@ -162,7 +162,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Shortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
-                    {activePanelIdentifier === 'Data' && (
+                    {activePanelIdentifier === 'DataManagement' && (
                         <ProjectTree root="data://" searchPlaceholder="Search data tools" />
                     )}
                     {activePanelIdentifier === 'People' && (

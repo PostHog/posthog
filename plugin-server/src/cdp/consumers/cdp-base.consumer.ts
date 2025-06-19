@@ -9,8 +9,8 @@ import { HogFunctionManagerService } from '../services/hog-function-manager.serv
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
-import { HogFlowExecutorService } from '../services/hogflow-executor.service'
-import { HogFlowManagerService } from '../services/hogflow-manager.service'
+import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null

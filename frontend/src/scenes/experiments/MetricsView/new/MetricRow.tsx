@@ -35,10 +35,10 @@ export function MetricRow({
     chartRadius: number
     error: any
 }): JSX.Element {
-    const { experiment, secondaryMetricResultsLoading, metricResultsLoading, hasMinimumExposureForResults } =
+    const { experiment, secondaryMetricsResultsLoading, primaryMetricsResultsLoading, hasMinimumExposureForResults } =
         useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
-    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+    const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
 
     const variantResults = result?.variant_results || []
 

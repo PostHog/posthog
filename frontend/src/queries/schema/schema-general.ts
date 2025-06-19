@@ -1,8 +1,9 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { ConversionGoalSchema, MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
+    ActionFilter,
     AnyFilterLike,
     AnyGroupScopeFilter,
     AnyPersonScopeFilter,
@@ -37,11 +38,13 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    QueryBasedInsightModel,
     RetentionDashboardDisplayType,
     RetentionFilterType,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SessionRecordingType,
+    StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
@@ -283,6 +286,7 @@ export type AnyResponseType =
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
+    | Partial<QueryBasedInsightModel>
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -591,6 +595,7 @@ export interface EntityNode extends Node {
     name?: string
     custom_name?: string
     math?: MathType
+    math_multiplier?: number
     math_property?: string
     math_property_type?: string
     math_property_revenue_currency?: RevenueCurrencyPropertyConfig
@@ -2258,6 +2263,7 @@ export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is Expe
 export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
+    funnel_order_type?: StepOrderValue
 }
 
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
@@ -3228,6 +3234,15 @@ export interface EventsHeatMapStructuredResult {
 
 export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
 
+export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
+
+export type ConversionGoalFilter = ActionFilter & {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    schema: SchemaMap
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
+    conversion_goals?: ConversionGoalFilter[]
 }
