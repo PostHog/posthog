@@ -33,6 +33,8 @@ export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
 export const DEFAULT_TIMEOUT_MS = 100
 
+export const EXTEND_OBJECT_KEY = '$$_extend_object'
+
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
@@ -83,12 +85,25 @@ export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlob
     if (Array.isArray(bytecode)) {
         return bytecode.map((item) => formatHogInput(item, globals, key))
     } else if (typeof bytecode === 'object' && bytecode !== null) {
-        return Object.fromEntries(
-            Object.entries(bytecode).map(([key2, value]) => [
-                key2,
-                formatHogInput(value, globals, key ? `${key}.${key2}` : key2),
-            ])
-        )
+        let ret: Record<string, any> = {}
+
+        if (bytecode[EXTEND_OBJECT_KEY]) {
+            const res = formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
+            if (res && typeof res === 'object') {
+                ret = {
+                    ...res,
+                }
+            }
+        }
+
+        for (const [subkey, value] of Object.entries(bytecode)) {
+            if (subkey === EXTEND_OBJECT_KEY) {
+                continue
+            }
+            ret[subkey] = formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+        }
+
+        return ret
     } else {
         return bytecode
     }
