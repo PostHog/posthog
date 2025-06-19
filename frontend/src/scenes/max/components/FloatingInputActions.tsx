@@ -4,6 +4,7 @@ import {
     IconEllipsis,
     IconGear,
     IconLightBulb,
+    IconPlus,
     IconSidePanel,
     IconX,
 } from '@posthog/icons'
@@ -19,12 +20,18 @@ import { maxLogic } from '../maxLogic'
 interface FloatingInputActionsProps {
     showSuggestions: boolean
     onCollapse: () => void
+    isThreadVisible: boolean
 }
 
-export function FloatingInputActions({ showSuggestions, onCollapse }: FloatingInputActionsProps): JSX.Element {
+export function FloatingInputActions({
+    showSuggestions,
+    onCollapse,
+    isThreadVisible,
+}: FloatingInputActionsProps): JSX.Element {
     const { setShowSuggestions, toggleConversationHistory, setActiveGroup } = useActions(maxLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const { startNewConversation } = useActions(maxLogic)
 
     const menuItems: LemonMenuItems = [
         {
@@ -52,19 +59,35 @@ export function FloatingInputActions({ showSuggestions, onCollapse }: FloatingIn
 
     return (
         <>
-            <Tooltip title={showSuggestions ? 'Hide suggestions' : 'Show suggestions'} placement="top" delayMs={0}>
-                <LemonButton
-                    size="xxsmall"
-                    icon={
-                        showSuggestions ? <IconChevronDown className="size-3" /> : <IconLightBulb className="size-3" />
-                    }
-                    type="tertiary"
-                    onClick={() => {
-                        setShowSuggestions(!showSuggestions)
-                        setActiveGroup(null)
-                    }}
-                />
-            </Tooltip>
+            {!isThreadVisible && (
+                <Tooltip title={showSuggestions ? 'Hide suggestions' : 'Show suggestions'} placement="top" delayMs={0}>
+                    <LemonButton
+                        size="xxsmall"
+                        icon={
+                            showSuggestions ? (
+                                <IconChevronDown className="size-3" />
+                            ) : (
+                                <IconLightBulb className="size-3" />
+                            )
+                        }
+                        type="tertiary"
+                        onClick={() => {
+                            setShowSuggestions(!showSuggestions)
+                            setActiveGroup(null)
+                        }}
+                    />
+                </Tooltip>
+            )}
+            {isThreadVisible && (
+                <Tooltip title="Start a new chat" placement="top" delayMs={0}>
+                    <LemonButton
+                        size="xxsmall"
+                        icon={<IconPlus className="size-3" />}
+                        type="tertiary"
+                        onClick={() => startNewConversation()}
+                    />
+                </Tooltip>
+            )}
             <LemonMenu items={menuItems} placement="bottom-end">
                 <LemonButton size="xxsmall" icon={<IconEllipsis className="size-3" />} type="tertiary" />
             </LemonMenu>

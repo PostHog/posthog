@@ -80,7 +80,7 @@ export function SuggestionsDisplay({
                     <ul
                         className={
                             compact
-                                ? 'flex flex-wrap gap-1'
+                                ? 'flex flex-wrap gap-1 px-1 pt-1'
                                 : 'flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5'
                         }
                     >
@@ -112,7 +112,7 @@ export function SuggestionsDisplay({
 
             {/* Detailed suggestions when a group is active */}
             {activeSuggestionGroup && compact && (
-                <div>
+                <div className="px-1 pt-1">
                     <div className="flex items-center gap-1 mb-1">
                         <LemonButton
                             size="xxsmall"

@@ -82,6 +82,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
         useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         conversationId: threadLogicKey,
@@ -135,7 +136,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     return (
         <>
             {sidePanel && (
-                <SidePanelPaneHeader className="transition-all duration-200">
+                <SidePanelPaneHeader
+                    className="transition-all duration-200"
+                    onClose={() => {
+                        startNewConversation()
+                        setIsFloatingMaxExpanded(false)
+                    }}
+                >
                     <div className="flex flex-1">
                         <div className="flex items-center flex-1">
                             <AnimatedBackButton in={!backButtonDisabled}>
@@ -225,8 +232,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
                     <ThreadAutoScroller>
-                        <Thread />
-                        <QuestionInput isFloating />
+                        <Thread className="p-3" />
+                        <QuestionInput />
                     </ThreadAutoScroller>
                 )}
             </BindLogic>

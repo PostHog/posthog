@@ -40,6 +40,7 @@ export function BaseQuestionInput({
     const { setQuestion } = useActions(maxLogic)
     const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
     const { askMax, stopGeneration } = useActions(maxThreadLogic)
+    const { setShowSuggestions } = useActions(maxLogic)
 
     return (
         <div
@@ -56,11 +57,11 @@ export function BaseQuestionInput({
                         clsx(
                             'flex flex-col items-center',
                             isFloating &&
-                                'p-1 mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                                'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                         )
                 )}
             >
-                <div className="relative w-full flex flex-col gap-1">
+                <div className="relative w-full flex flex-col">
                     {children}
                     <div
                         className={clsx(
@@ -68,7 +69,7 @@ export function BaseQuestionInput({
                             'border border-[var(--border-primary)] rounded-[var(--radius)]',
                             'bg-[var(--bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isFloating && 'border-primary'
+                            isFloating && 'border-primary m-1'
                         )}
                     >
                         {showTopActions && (
@@ -87,6 +88,7 @@ export function BaseQuestionInput({
                             }
                             onPressEnter={() => {
                                 if (question && !submissionDisabledReason && !threadLoading) {
+                                    setShowSuggestions(false)
                                     askMax(question)
                                 }
                             }}
@@ -99,7 +101,12 @@ export function BaseQuestionInput({
                             )}
                         />
                     </div>
-                    <div className="absolute flex items-center right-2 bottom-[7px]">
+                    <div
+                        className={clsx('absolute flex items-center', {
+                            'bottom-[11px] right-3': isFloating,
+                            'bottom-[7px] right-2': !isFloating,
+                        })}
+                    >
                         <LemonButton
                             type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
                             onClick={() => {

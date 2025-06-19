@@ -12,12 +12,7 @@ import { maxThreadLogic } from '../maxThreadLogic'
 import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlaceholders } from '../utils'
 import { BaseQuestionInput } from './BaseQuestionInput'
 
-interface QuestionInputProps {
-    isFloating?: boolean
-    placeholder?: string
-}
-
-export function QuestionInput({ isFloating, placeholder }: QuestionInputProps): JSX.Element {
+export function QuestionInput(): JSX.Element {
     const { focusCounter } = useValues(maxLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
@@ -37,13 +32,8 @@ export function QuestionInput({ isFloating, placeholder }: QuestionInputProps): 
     }, [focusCounter]) // Update focus when focusCounter changes
 
     return (
-        <BaseQuestionInput
-            isFloating={isFloating}
-            placeholder={placeholder}
-            textAreaRef={textAreaRef}
-            containerClassName={clsx('px-3 w-full', !isFloating ? '' : 'sticky bottom-0 z-10 self-center')}
-        >
-            {!isFloating && <SuggestionsList />}
+        <BaseQuestionInput isFloating={false} textAreaRef={textAreaRef} containerClassName={clsx('px-3 w-full mb-3')}>
+            <SuggestionsList />
         </BaseQuestionInput>
     )
 }

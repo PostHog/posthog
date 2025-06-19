@@ -9,9 +9,10 @@ export type SidePanelPaneHeaderProps = {
     title?: string | JSX.Element
     children?: React.ReactNode
     className?: string
+    onClose?: () => void
 }
 
-export function SidePanelPaneHeader({ children, title, className }: SidePanelPaneHeaderProps): JSX.Element {
+export function SidePanelPaneHeader({ children, title, className, onClose }: SidePanelPaneHeaderProps): JSX.Element {
     const { modalMode } = useValues(sidePanelStateLogic)
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
@@ -36,7 +37,10 @@ export function SidePanelPaneHeader({ children, title, className }: SidePanelPan
             <LemonButton
                 size="small"
                 sideIcon={<IconX />}
-                onClick={() => closeSidePanel()}
+                onClick={() => {
+                    closeSidePanel()
+                    onClose?.()
+                }}
                 tooltip={modalMode ? 'Close' : 'Close this side panel'}
                 tooltipPlacement={modalMode ? 'top' : 'bottom-end'}
             />

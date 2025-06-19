@@ -411,6 +411,7 @@ export const maxLogic = kea<maxLogicType>([
 
         startNewConversation: () => {
             actions.resetContext()
+            actions.focusInput()
         },
     })),
 

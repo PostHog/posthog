@@ -28,7 +28,7 @@ export function QuestionInputWithSuggestions(): JSX.Element {
                 <h3 className="text-center text-xs font-medium mb-0 text-secondary">Ask Max about…</h3>
                 <SuggestionsDisplay
                     type="secondary"
-                    showSuggestions={true}
+                    showSuggestions
                     dataProcessingAccepted={dataProcessingAccepted}
                     additionalSuggestions={[
                         <LemonButton
