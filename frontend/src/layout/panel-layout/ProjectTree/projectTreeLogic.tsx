@@ -624,19 +624,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.fullFileSystem, s.searchTerm, (_, props) => props],
             (fullFileSystem, searchTerm, props): TreeDataItem[] => {
                 let firstFolders = fullFileSystem.filter((item) => !item.id.startsWith('shortcuts://'))
-                
+
                 // Filter out folders specified in hideFolders prop
                 if (props.hideFolders && props.hideFolders.length > 0) {
                     firstFolders = firstFolders.filter((item) => !props.hideFolders.includes(item.id))
                 }
-                
+
                 const rootFolders = props.root ? splitPath(props.root) : []
                 const rootWithProtocol =
-                    rootFolders.length > 0 && rootFolders[0].endsWith(':') && props.root.startsWith(`${rootFolders[0]}//`)
+                    rootFolders.length > 0 &&
+                    rootFolders[0].endsWith(':') &&
+                    props.root.startsWith(`${rootFolders[0]}//`)
 
-                    
-                    if (rootWithProtocol) {
-                        const protocol = rootFolders[0] + '//'
+                if (rootWithProtocol) {
+                    const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
                     const firstFolder = fullFileSystem.find((item) => item.id === protocol)
                     if (firstFolder) {
@@ -683,11 +684,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             return acc
                         }
 
-
-                        // if (props.hideFolders && props.hideFolders.includes(node.id)) {
-                        //     return acc
-                        // }
-
                         const children = node.children ? filterTree(node.children) : undefined
                         const path =
                             typeof node.record === 'object' && node.record && 'path' in node.record
@@ -696,7 +692,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         const matches = path.toLowerCase().includes(term)
 
                         if (matches || (children && children.length)) {
-                            
                             acc.push({ ...node, children })
                         }
                         return acc
