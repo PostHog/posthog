@@ -286,11 +286,6 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             35,
         ],
     },
-    send_email: {
-        type: 'broadcast',
-        hog: 'sendEmail(inputs)',
-        bytecode: ['_H', 1, 32, 'inputs', 1, 1, 2, 'sendEmail', 1, 35],
-    },
 }
 
 export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' | 'inputs_schema'>> = {
