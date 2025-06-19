@@ -11,6 +11,7 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from './GoalsConfiguration'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
@@ -90,6 +91,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
             />
 
             <BaseCurrency />
+            <FilterTestAccountsConfiguration />
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && <GoalsConfiguration />}
 

@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
@@ -279,17 +279,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             enqueue_cohorts_to_calculate(2)
 
-            # Verify the log was called for both cohorts
-            self.assertEqual(mock_logger.info.call_count, 2)
-
-            # Check the log calls have the expected format
-            self.assertCountEqual(
-                mock_logger.info.call_args_list,
-                [
-                    call("Enqueuing cohort calculation", cohort_id=cohort2.pk, last_calculation=None),
-                    call("Enqueuing cohort calculation", cohort_id=cohort1.pk, last_calculation=last_calc_time),
-                ],
-            )
+            self.assertEqual(mock_logger.warning.call_count, 1)
+            args, kwargs = mock_logger.warning.call_args
+            assert args[0] == "enqueued_cohort_calculation"
+            assert set(kwargs["cohort_ids"]) == {cohort1.pk, cohort2.pk}
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -379,16 +372,22 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             self.assertEqual(mock_calculate_cohort_ch_si.call_count, 4)
 
-            # Extract the actual call order and verify it matches expected dependency resolution
+            # Extract the actual call order and verify dependency constraints are satisfied
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
-            expected_cohort_order = [cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id]
 
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Cohorts should be processed in dependency order: A, B (leaves), then C (depends on A,B), then D (depends on C)",
-            )
+            self.assertEqual(set(actual_cohort_order), {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id})
+
+            # Verify dependency constraints:
+            # Both A and B (leaf nodes) must come before C
+            a_index = actual_cohort_order.index(cohort_a.id)
+            b_index = actual_cohort_order.index(cohort_b.id)
+            c_index = actual_cohort_order.index(cohort_c.id)
+            d_index = actual_cohort_order.index(cohort_d.id)
+
+            self.assertLess(a_index, c_index, "Cohort A must be processed before C (dependency)")
+            self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
+            self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()

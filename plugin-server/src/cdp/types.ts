@@ -166,7 +166,8 @@ export type LogEntrySerialized = Omit<LogEntry, 'timestamp'> & {
 
 export type MinimalAppMetric = {
     team_id: number
-    app_source_id: string
+    app_source_id: string // The main item (like the hog function or hog flow ID)
+    instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
     metric_kind: 'failure' | 'success' | 'other'
     metric_name:
         | 'succeeded'
@@ -177,14 +178,15 @@ export type MinimalAppMetric = {
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
+        | 'missing_addon'
         | 'fetch'
+
     count: number
 }
 
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
-    instance_id?: string
 }
 
 export type HogFunctionQueueParametersFetchRequest = {
@@ -290,10 +292,14 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 }
 
 export type HogFlowInvocationContext = {
+    event: HogFunctionInvocationGlobals['event']
     personId?: string
-    event?: any // TODO: Type better
     variables?: Record<string, any>
-    currentActionId?: string
+    currentAction?: {
+        id: string
+        startedAtTimestamp: number
+    }
+    actionStepCount?: number
 }
 
 // Mostly copied from frontend types
@@ -353,6 +359,7 @@ export type HogFunctionType = {
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    is_addon_required: boolean
     template_id?: string
     execution_order?: number
     created_at: string

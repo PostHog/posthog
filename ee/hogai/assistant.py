@@ -369,7 +369,7 @@ class Assistant:
             case AssistantNodeName.ROOT:
                 ui_context = find_last_ui_context(input.messages)
                 if ui_context and (ui_context.dashboards or ui_context.insights):
-                    return ReasoningMessage(content="Calculating insights")
+                    return ReasoningMessage(content="Calculating context")
                 return None
             case _:
                 return None

@@ -12,7 +12,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFlows(invocations)
-        return await this.runManyWithHeartbeat(loadedInvocations, (item) => this.hogFlowExecutor.execute(item))
+        return await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
     }
 
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationHogFlow[]> {

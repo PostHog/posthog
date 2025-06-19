@@ -1,10 +1,11 @@
 import './StoriesModal.scss'
 
+import { IconChevronLeft, IconChevronRight, IconPauseFilled, IconPlayFilled, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Stories from 'react-insta-stories'
 import { Story } from 'react-insta-stories/dist/interfaces'
 
@@ -49,6 +50,7 @@ export const StoriesModal = (): JSX.Element | null => {
     const { setOpenStoriesModal, setActiveStoryIndex, setActiveGroupIndex, markStoryAsViewed } =
         useActions(storiesLogic)
     const storyStartTimeRef = useRef<number>(Date.now())
+    const [isPaused, setIsPaused] = useState(false)
 
     // Calculate dimensions based on window size and aspect ratio
     const dimensions = useMemo(() => {
@@ -126,17 +128,10 @@ export const StoriesModal = (): JSX.Element | null => {
     )
 
     const handlePrevious = useCallback(() => {
-        if (activeStoryIndex === 0 && activeGroupIndex > 0) {
-            setActiveGroupIndex(activeGroupIndex - 1)
-            setActiveStoryIndex(storyGroups[activeGroupIndex - 1].stories.length - 1)
-            sendStoryEndEvent('previous')
-        } else if (activeStoryIndex > 0) {
+        if (activeStoryIndex > 0) {
             setActiveStoryIndex(activeStoryIndex - 1)
-            sendStoryEndEvent('previous')
-        } else {
-            setActiveStoryIndex(0)
         }
-    }, [activeGroup, activeStoryIndex, activeGroupIndex, storyGroups, setActiveStoryIndex, setActiveGroupIndex])
+    }, [activeStoryIndex, setActiveStoryIndex])
 
     const handleStoryStart = useCallback(
         (index: number) => {
@@ -174,8 +169,30 @@ export const StoriesModal = (): JSX.Element | null => {
             }
             posthog.capture('posthog_story_ended', props)
         },
-        [activeGroup, activeStoryIndex]
+        [activeGroup, activeStoryIndex, activeStory]
     )
+
+    const handleNext = useCallback(() => {
+        if (activeStoryIndex < maxStoryIndex - 1) {
+            sendStoryEndEvent('next')
+            setActiveStoryIndex(activeStoryIndex + 1)
+        } else if (!isLastStoryGroup) {
+            sendStoryEndEvent('next')
+            setActiveGroupIndex(activeGroupIndex + 1)
+            setActiveStoryIndex(0)
+        }
+    }, [
+        activeStoryIndex,
+        maxStoryIndex,
+        isLastStoryGroup,
+        activeGroupIndex,
+        sendStoryEndEvent,
+        setActiveStoryIndex,
+        setActiveGroupIndex,
+    ])
+
+    const canGoPrevious = activeStoryIndex > 0
+    const canGoNext = activeStoryIndex < maxStoryIndex - 1
 
     if (!openStoriesModal || !activeGroup) {
         return null
@@ -203,34 +220,110 @@ export const StoriesModal = (): JSX.Element | null => {
     )
 
     return (
-        <LemonModal isOpen={openStoriesModal} onClose={() => handleClose(true)} simple className="StoriesModal__modal">
-            <Stories
-                stories={stories}
-                defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
-                width="100%"
-                height="100%"
-                currentIndex={activeStoryIndex}
-                onNext={() => {
-                    if (!activeGroup?.stories[activeStoryIndex]) {
-                        return
-                    }
-                    sendStoryEndEvent('next')
-                    setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))
-                }}
-                onPrevious={handlePrevious}
-                onAllStoriesEnd={() => handleClose(false)}
-                onStoryEnd={() => {
-                    sendStoryEndEvent('ended_naturally')
-                    setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))
-                }}
-                onStoryStart={handleStoryStart}
-                storyContainerStyles={{
-                    maxWidth: `${dimensions.width}px`,
-                    minWidth: `${dimensions.width}px`,
-                    maxHeight: `${dimensions.height}px`,
-                    minHeight: `${dimensions.height}px`,
-                }}
-            />
+        <LemonModal
+            isOpen={openStoriesModal}
+            simple
+            className="StoriesModal__modal"
+            hideCloseButton={true}
+            onClose={() => handleClose(true)}
+        >
+            <div className="flex flex-col">
+                {/* Header with play/pause and close buttons */}
+                <div className="flex justify-end gap-2">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setIsPaused(!isPaused)
+                        }}
+                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                        title={isPaused ? 'Resume story' : 'Pause story'}
+                    >
+                        {isPaused ? <IconPlayFilled className="w-5 h-5" /> : <IconPauseFilled className="w-5 h-5" />}
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            handleClose(true)
+                        }}
+                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                        title="Close stories"
+                    >
+                        <IconX className="w-5 h-5 [&>*]:fill-white" />
+                    </button>
+                </div>
+
+                <div className="relative cursor-pointer flex-1 stories-container">
+                    <Stories
+                        stories={stories}
+                        defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
+                        width="100%"
+                        height="100%"
+                        currentIndex={activeStoryIndex}
+                        isPaused={isPaused}
+                        onNext={() => {
+                            if (!activeGroup?.stories[activeStoryIndex]) {
+                                return
+                            }
+                            sendStoryEndEvent('next')
+
+                            // Check if this is the last story in the current group
+                            if (activeStoryIndex >= maxStoryIndex - 1) {
+                                // Last story in group - close the modal
+                                setOpenStoriesModal(false)
+                            } else {
+                                // Not last story - advance to next story in group
+                                setActiveStoryIndex(activeStoryIndex + 1)
+                            }
+                        }}
+                        onPrevious={handlePrevious}
+                        onAllStoriesEnd={() => handleClose(false)}
+                        onStoryEnd={() => {
+                            sendStoryEndEvent('ended_naturally')
+
+                            // Check if this is the last story in the current group
+                            if (activeStoryIndex >= maxStoryIndex - 1) {
+                                // Last story in group - close the modal
+                                setOpenStoriesModal(false)
+                            } else {
+                                // Not last story - advance to next story in group
+                                setActiveStoryIndex(activeStoryIndex + 1)
+                            }
+                        }}
+                        onStoryStart={handleStoryStart}
+                        storyContainerStyles={{
+                            maxWidth: `${dimensions.width}px`,
+                            minWidth: `${dimensions.width}px`,
+                            maxHeight: `${dimensions.height}px`,
+                            minHeight: `${dimensions.height}px`,
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                        }}
+                    />
+
+                    {/* Navigation arrows */}
+                    {canGoPrevious && (
+                        <button
+                            onClick={handlePrevious}
+                            className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
+                            title="Previous story"
+                        >
+                            <IconChevronLeft className="w-4 h-4" />
+                        </button>
+                    )}
+
+                    {canGoNext && (
+                        <button
+                            onClick={handleNext}
+                            className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
+                            title="Next story"
+                        >
+                            <IconChevronRight className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
+            </div>
         </LemonModal>
     )
 }
