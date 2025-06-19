@@ -56,6 +56,8 @@ HEADERS = {
     "User-Agent": "posthog-ci-analytics",
 }
 
+ANALYTICS_STEP_NAME = "Report job & steps to PostHog"
+
 
 # --------------------------------------------------------------------------- #
 #  Helpers
@@ -120,21 +122,11 @@ def fetch_jobs() -> list[dict[str, Any]]:
 
 
 def find_current_job(jobs: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
-    """Return the job whose *name* matches ``GITHUB_JOB`` (matrix names are unique)."""
-    if not CURRENT_JOB_NAME:
-        return None
-
-    # 1 – exact (non-matrix) match
-    exact = [j for j in jobs if j.get("name") == CURRENT_JOB_NAME]
-    if exact:
-        return max(exact, key=lambda j: j.get("updated_at") or "")
-
-    # 2 – matrix jobs: “Jest test (FOSS - 1/3)” *contains* “jest”
-    fuzzy = [j for j in jobs if CURRENT_JOB_NAME.lower() in (j.get("name") or "").lower()]
-    if fuzzy:
-        return max(fuzzy, key=lambda j: j.get("updated_at") or "")
-
-    return None
+    for j in jobs:
+        for s in j.get("steps", []):
+            if s.get("name") == ANALYTICS_STEP_NAME and s.get("conclusion") is None:
+                return j
+    return None  # should never happen; prints warning and exits
 
 
 # --------------------------------------------------------------------------- #
