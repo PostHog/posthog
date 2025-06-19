@@ -235,7 +235,7 @@ jobs:
               run: bin/turbo run test --filter=@posthog/plugin-server
 
             - name: Report job to PostHog
-              if: github.event_name == 'pull_request' && needs.changes.outputs.plugin-server == 'true'
+              if: always() && github.event_name == 'pull_request' && needs.changes.outputs.plugin-server == 'true'
               uses: ./.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}

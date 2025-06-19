@@ -177,7 +177,7 @@ jobs:
                   ${{ matrix.package == 'feature-flags' && ('RUST_BACKTRACE=1 cargo test --all-features --package links') || 'echo "Skipping links tests as it is not needed"' }}
                   echo "Cargo test for links completed"
             - name: Report job to PostHog
-              if: github.event_name == 'pull_request' && needs.changes.outputs.rust == 'true'
+              if: always() && github.event_name == 'pull_request' && needs.changes.outputs.rust == 'true'
               uses: ./.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}

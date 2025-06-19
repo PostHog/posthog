@@ -138,7 +138,7 @@ jobs:
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
             - name: Report job to PostHog
-              if: github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request'
               uses: ./.github/actions/ci-analytics
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
