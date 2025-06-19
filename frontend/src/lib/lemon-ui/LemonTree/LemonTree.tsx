@@ -340,8 +340,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             return null
                         }
                         return (
-                            <div key={item.id} className="not-first:mt-2 py-1 px-2 flex items-center">
-                                <span className="text-xs font-semibold text-quaternary">{item.displayName}</span>
+                            <div key={item.id} className="not-first:mt-3 py-1 pl-[1.8rem] flex items-center">
+                                <span className="text-xs font-semibold text-tertiary uppercase">
+                                    {item.displayName}
+                                </span>
                             </div>
                         )
                     }
@@ -388,9 +390,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
                                             {
                                                 'bg-fill-button-tertiary-hover':
-                                                    (selectMode === 'folder-only' || selectMode === 'all') &&
-                                                    selectedId === item.id &&
-                                                    !isEmptyFolder ||
+                                                    ((selectMode === 'folder-only' || selectMode === 'all') &&
+                                                        selectedId === item.id &&
+                                                        !isEmptyFolder) ||
                                                     isContextMenuOpenForItem === item.id,
                                                 'bg-fill-button-tertiary-active': getItemActiveState(item),
                                                 'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':

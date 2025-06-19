@@ -72,9 +72,9 @@ export function PinnedFolder(): JSX.Element {
         <>
             {!isLayoutNavCollapsed &&
                 (showDefaultHeader ? (
-                    <div className="flex justify-between items-center pl-3 pr-1 -mt-1 relative">
-                        <div className="flex items-center gap-1">
-                            <span className="text-xs font-semibold text-quaternary">
+                    <div className="flex justify-between items-center pl-3 pr-1 -mt-[3px] relative">
+                        <div className="flex items-center gap-1 pl-[1.3rem]">
+                            <span className="text-xs font-semibold text-tertiary uppercase">
                                 {formatUrlAsName(pinnedFolder)}
                             </span>
                         </div>
@@ -94,7 +94,7 @@ export function PinnedFolder(): JSX.Element {
                         </div>
                     </div>
                 ) : (
-                    <div className="absolute right-1 z-10">{configMenu}</div>
+                    <div className="absolute right-1 z-10 top-px">{configMenu}</div>
                 ))}
             <div className="flex flex-col mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
