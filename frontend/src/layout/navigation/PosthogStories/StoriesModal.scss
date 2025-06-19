@@ -40,3 +40,8 @@
         }
     }
 }
+
+// Make the background outside the modal darker
+.LemonModal__overlay:has(.StoriesModal__modal) {
+    --modal-backdrop-color: rgb(0 0 0 / 50%) !important;
+}

@@ -200,8 +200,8 @@ export const StoriesPlayer = ({
             onClick={handleContainerClick}
             style={{ width, height }} // eslint-disable-line react/forbid-dom-props
         >
-            {/* Progress bars and header wrapper with gradient */}
-            <div className="absolute top-0 left-0 right-0 z-10 p-2 bg-gradient-to-b from-black/20 to-transparent">
+            {/* header wrapper with gradient */}
+            <div className="absolute top-0 left-0 right-0 z-10 pt-3 px-3 pb-4 bg-gradient-to-b from-black/25 to-transparent">
                 {/* Progress bars */}
                 <div className="flex gap-1 mb-2">
                     {stories.map((story, index) => {
@@ -225,7 +225,7 @@ export const StoriesPlayer = ({
                 </div>
 
                 {/* Header section with relative positioning for buttons */}
-                <div className="relative rounded-lg p-2">
+                <div className="relative rounded-lg px-1">
                     {/* Play/pause and close buttons - positioned in top right of header */}
                     <div className="absolute top-1 right-1 flex gap-2 z-10">
                         <button
@@ -249,15 +249,15 @@ export const StoriesPlayer = ({
                                     <img
                                         src={currentStory.header.profileImage}
                                         alt="Profile"
-                                        className="w-10 h-10 rounded-full object-cover ring-2 ring-white shadow-lg"
+                                        className="w-10 h-10 rounded-full object-cover"
                                     />
                                 )}
                                 <div className="flex-1 min-w-0">
-                                    <div className="text-white text-sm font-semibold truncate">
+                                    <div className="text-white text-sm font-semibold truncate drop-shadow-lg">
                                         {currentStory.header.heading}
                                     </div>
                                     {currentStory.header.subheading && (
-                                        <div className="text-white text-xs truncate">
+                                        <div className="text-white text-xs truncate drop-shadow-md">
                                             {currentStory.header.subheading}
                                         </div>
                                     )}
@@ -278,7 +278,6 @@ export const StoriesPlayer = ({
                         src={currentStory.url}
                         className="w-full h-full object-contain rounded"
                         autoPlay
-                        muted
                         playsInline
                         onEnded={handleVideoEnd}
                         onLoadedMetadata={handleVideoLoadedMetadata}
@@ -318,7 +317,7 @@ export const StoriesPlayer = ({
             {/* Navigation zones with arrows */}
             <div className="absolute inset-0 flex">
                 <div
-                    className={`w-1/6 h-full relative flex items-center justify-start pl-4 ${
+                    className={`w-1/5 h-full relative flex items-center justify-start pl-4 ${
                         currentIndex > 0 ? 'cursor-pointer' : ''
                     }`}
                     onMouseEnter={() => setHoveredZone('left')}
@@ -330,8 +329,8 @@ export const StoriesPlayer = ({
                                 e.stopPropagation()
                                 onPrevious()
                             }}
-                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 ${
-                                hoveredZone === 'left' ? 'opacity-100' : 'opacity-50'
+                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer ${
+                                hoveredZone === 'left' ? 'opacity-100' : 'opacity-0'
                             }`}
                             title="Previous story"
                         >
@@ -339,9 +338,9 @@ export const StoriesPlayer = ({
                         </button>
                     )}
                 </div>
-                <div className="w-4/6 h-full" onMouseEnter={() => setHoveredZone(null)} />
+                <div className="w-3/5 h-full" onMouseEnter={() => setHoveredZone(null)} />
                 <div
-                    className={`w-1/6 h-full relative flex items-center justify-end pr-4 ${
+                    className={`w-1/5 h-full relative flex items-center justify-end pr-4 ${
                         currentIndex < stories.length - 1 ? 'cursor-pointer' : ''
                     }`}
                     onMouseEnter={() => setHoveredZone('right')}
@@ -353,8 +352,8 @@ export const StoriesPlayer = ({
                                 e.stopPropagation()
                                 onNext()
                             }}
-                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 ${
-                                hoveredZone === 'right' ? 'opacity-100' : 'opacity-40'
+                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer ${
+                                hoveredZone === 'right' ? 'opacity-100' : 'opacity-0'
                             }`}
                             title="Next story"
                         >
