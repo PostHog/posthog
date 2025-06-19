@@ -15,18 +15,16 @@ MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 # Lower casing matters here. Do not change it.
 class create_and_query_insight(BaseModel):
     """
-    Retrieve results for a specific data question by creating a query or iterate on a previous query.
-    This tool only retrieves data for a single insight at a time.
-    The `trends` insight type is the only insight that can display multiple trends insights in one request.
-    All other insight types strictly return data for a single insight.
-    This tool is also relevant if the user asks to write SQL.
+    Retrieve results for a specific data question by creating a query (aka insight), or iterate on a previous query.
+    This tool only retrieves data for a single query at a time.
     """
 
     query_description: str = Field(
         description=(
             "A description of the query to generate, encapsulating the details of the user's request. "
             "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
-            "If the users seems to ask for a list of entities, rather than number, say this explicitly."
+            "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
+            "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
         )
     )
 

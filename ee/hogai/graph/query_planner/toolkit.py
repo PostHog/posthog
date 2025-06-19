@@ -2,9 +2,9 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from functools import cached_property
-from typing import Literal, Optional, TypedDict, Union, cast
+from typing import Literal, Optional, Union, cast
 
-from pydantic import BaseModel, Field, RootModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from ee.hogai.tool import MaxSupportedQueryKind
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
@@ -23,48 +23,87 @@ from posthog.schema import (
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
-class ToolkitTool(TypedDict):
-    name: str
-    signature: str
-    description: str
+class retrieve_event_properties(BaseModel):
+    """
+    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+    - **Try other events** if the tool doesn't return any properties.
+    - **Prioritize properties that are directly related to the context or objective of the user's query.**
+    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+    """
+
+    event_name: str = Field(..., description="The name of the event that you want to retrieve properties for.")
 
 
-class RetrieveEntityPropertiesValuesArgs(BaseModel):
-    entity: str
-    property_name: str
+class retrieve_action_properties(BaseModel):
+    """
+    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+    - **Try other actions or events** if the tool doesn't return any properties.
+    - **Prioritize properties that are directly related to the context or objective of the user's query.**
+    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+    """
+
+    action_id: int = Field(..., description="The ID of the action that you want to retrieve properties for.")
 
 
-class RetrieveEntityPropertiesValuesTool(BaseModel):
-    name: Literal["retrieve_entity_property_values"]
-    arguments: RetrieveEntityPropertiesValuesArgs
+class retrieve_entity_properties(BaseModel):
+    """
+    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+    - **Infer the property groups from the user's request.**
+    - **Try other entities** if the tool doesn't return any properties.
+    - **Prioritize properties that are directly related to the context or objective of the user's query.**
+    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+    """
+
+    entity: Literal["person", "session"] = Field(
+        ..., description="The type of the entity that you want to retrieve properties for."
+    )
 
 
-class RetrieveEventPropertiesValuesArgs(BaseModel):
-    event_name: str
-    property_name: str
+class retrieve_event_property_values(BaseModel):
+    """
+    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+    """
+
+    event_name: str = Field(..., description="The name of the event that you want to retrieve values for.")
+    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
 
 
-class RetrieveEventPropertiesValuesTool(BaseModel):
-    name: Literal["retrieve_event_property_values"]
-    arguments: RetrieveEventPropertiesValuesArgs
+class retrieve_action_property_values(BaseModel):
+    """
+    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+    """
+
+    action_id: int = Field(..., description="The ID of the action that you want to retrieve values for.")
+    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
 
 
-class RetrieveActionPropertiesTool(BaseModel):
-    name: Literal["retrieve_action_properties"]
-    arguments: int
+class retrieve_entity_property_values(BaseModel):
+    """
+    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+    """
+
+    entity: Literal["person", "session"] = Field(
+        ..., description="The type of the entity that you want to retrieve properties for."
+    )
+    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
 
 
-class RetrieveActionPropertiesValuesArgs(BaseModel):
-    action_id: int
-    property_name: str
+class ask_user_for_help(BaseModel):
+    """
+    Use this tool to ask a question to the user. Your question must be concise and clear.
+    """
+
+    request: str = Field(..., description="The question you want to ask the user.")
 
 
-class RetrieveActionPropertiesValuesTool(BaseModel):
-    name: Literal["retrieve_action_property_values"]
-    arguments: RetrieveActionPropertiesValuesArgs
+class final_answer(BaseModel):
+    """
+    Use this tool to finalize the answer to the user's question.
+    """
 
-
-class FinalAnswerArgs(BaseModel):
     query_kind: MaxSupportedQueryKind
     plan: str
 
@@ -81,33 +120,21 @@ class FinalAnswerArgs(BaseModel):
         )
 
 
-class FinalAnswerTool(BaseModel):
-    name: Literal["final_answer"]
-    arguments: FinalAnswerArgs
-
-
-class SingleArgumentTaxonomyAgentTool(BaseModel):
-    name: Literal[
-        "retrieve_entity_properties",
-        "retrieve_event_properties",
-        "handle_incorrect_response",
-        "ask_user_for_help",
-    ]
-    arguments: str
-
-
 TaxonomyAgentToolUnion = Union[
-    SingleArgumentTaxonomyAgentTool,
-    RetrieveEntityPropertiesValuesTool,
-    RetrieveEventPropertiesValuesTool,
-    RetrieveActionPropertiesTool,
-    RetrieveActionPropertiesValuesTool,
-    FinalAnswerTool,
+    retrieve_event_properties,
+    retrieve_action_properties,
+    retrieve_entity_properties,
+    retrieve_event_property_values,
+    retrieve_action_property_values,
+    retrieve_entity_property_values,
+    ask_user_for_help,
+    final_answer,
 ]
 
 
-class TaxonomyAgentTool(RootModel[TaxonomyAgentToolUnion]):
-    root: TaxonomyAgentToolUnion = Field(..., discriminator="name")
+class TaxonomyAgentTool(BaseModel):
+    name: str
+    arguments: TaxonomyAgentToolUnion
 
 
 class TaxonomyAgentToolkit:
@@ -382,7 +409,7 @@ class TaxonomyAgentToolkit:
             format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )
 
-    def handle_incorrect_response(self, response: str) -> str:
+    def handle_incorrect_response(self, response: BaseModel) -> str:
         """
         No-op tool. Take a parsing error and return a response that the LLM can use to correct itself.
         Used to control a number of retries.

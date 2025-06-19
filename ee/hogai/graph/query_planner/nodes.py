@@ -1,4 +1,3 @@
-import json
 import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
@@ -15,12 +14,9 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ValidationError, Field, create_model
+from pydantic import ValidationError, Field, create_model
 
-from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
-from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
-from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
-from ee.hogai.tool import MaxSupportedQueryKind
+from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 
 from .prompts import (
     CORE_MEMORY_INSTRUCTIONS,
@@ -34,7 +30,17 @@ from .prompts import (
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     ITERATION_LIMIT_PROMPT,
 )
-from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
+from .toolkit import (
+    TaxonomyAgentTool,
+    TaxonomyAgentToolkit,
+    TaxonomyAgentToolUnion,
+    retrieve_event_properties,
+    retrieve_action_properties,
+    retrieve_event_property_values,
+    retrieve_action_property_values,
+    ask_user_for_help,
+    final_answer,
+)
 from ee.hogai.utils.helpers import remove_line_breaks
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -42,95 +48,15 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-
-
-class retrieve_event_properties(BaseModel):
-    """
-    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Try other events** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    event_name: str = Field(..., description="The name of the event that you want to retrieve properties for.")
-
-
-class retrieve_action_properties(BaseModel):
-    """
-    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Try other actions or events** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    action_id: int = Field(..., description="The ID of the action that you want to retrieve properties for.")
-
-
-class retrieve_entity_properties(BaseModel):
-    """
-    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Infer the property groups from the user's request.**
-    - **Try other entities** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
-
-
-class retrieve_event_property_values(BaseModel):
-    """
-    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    event_name: str = Field(..., description="The name of the event that you want to retrieve values for.")
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class retrieve_action_property_values(BaseModel):
-    """
-    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    action_id: int = Field(..., description="The ID of the action that you want to retrieve values for.")
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class retrieve_entity_property_values(BaseModel):
-    """
-    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class ask_user_for_help(BaseModel):
-    """
-    Use this tool to ask a question to the user. Your question must be concise and clear.
-    """
-
-    request: str = Field(..., description="The question you want to ask.")
-
-
-class final_answer(BaseModel):
-    query_kind: MaxSupportedQueryKind = Field(
-        ..., description="What kind of query to create. Only use SQL as an escape hatch, or if the user asks for it."
-    )
-    plan: str = Field(..., description="Query plan strictly following the response format.")
 
 
 class QueryPlannerNode(AssistantNode):
@@ -220,9 +146,10 @@ class QueryPlannerNode(AssistantNode):
                 "project_name": self._team.name,
                 "actions": state.rag_context,
                 "actions_prompt": ACTIONS_EXPLANATION_PROMPT,
-                "trends_json_schema": TRENDS_SCHEMA,
-                "funnel_json_schema": FUNNEL_SCHEMA,
-                "retention_json_schema": RETENTION_SCHEMA,
+                "trends_json_schema": AssistantTrendsQuery.model_json_schema(),
+                "funnel_json_schema": AssistantFunnelsQuery.model_json_schema(),
+                "retention_json_schema": AssistantRetentionQuery.model_json_schema(),
+                "insight_types_prompt": ROOT_INSIGHT_DESCRIPTION_PROMPT,
             },
             config,
         )
@@ -239,7 +166,7 @@ class QueryPlannerNode(AssistantNode):
             query_planner_previous_response_id=output_message.response_metadata["id"],
         )
 
-    def _get_model(self, state: AssistantState) -> ChatOpenAI:
+    def _get_model(self, state: AssistantState):
         # Get dynamic entity tools with correct types for this team
         dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
 
@@ -263,6 +190,7 @@ class QueryPlannerNode(AssistantNode):
                 final_answer,
             ],
             tool_choice="required",
+            parallel_tool_calls=False,
         )
 
     def _get_react_property_filters_prompt(self) -> str:
@@ -354,23 +282,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         output = ""
 
         try:
-            if action.tool in [
-                "retrieve_entity_properties",
-                "retrieve_event_properties",
-                "retrieve_action_properties",
-                "ask_user_for_help",
-            ]:
-                if not isinstance(action.tool_input, dict):
-                    raise ValueError(f"Input for {action.tool} must be a dictionary, got {action.tool_input}")
-                arguments = next(iter(action.tool_input.values()))
-            else:
-                arguments = action.tool_input
-            input = TaxonomyAgentTool.model_validate(
-                {
-                    "name": action.tool,
-                    "arguments": arguments,
-                }
-            ).root
+            input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input})
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
@@ -413,8 +325,10 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         return "continue"
 
     def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
-        if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments)
+        if input.name == "retrieve_event_properties":
+            output = toolkit.retrieve_event_or_action_properties(input.arguments.event_name)
+        elif input.name == "retrieve_action_properties":
+            output = toolkit.retrieve_event_or_action_properties(input.arguments.action_id)
         elif input.name == "retrieve_event_property_values":
             output = toolkit.retrieve_event_or_action_property_values(
                 input.arguments.event_name, input.arguments.property_name
@@ -424,13 +338,11 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
                 input.arguments.action_id, input.arguments.property_name
             )
         elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
+            output = toolkit.retrieve_entity_properties(input.arguments.entity)
         elif input.name == "retrieve_entity_property_values":
             output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
         else:
-            output = toolkit.handle_incorrect_response(
-                input.arguments if isinstance(input.arguments, str) else json.dumps(input.arguments)
-            )
+            output = toolkit.handle_incorrect_response(input)
         return output
 
     def _get_reset_state(self, state: AssistantState, output: str):
