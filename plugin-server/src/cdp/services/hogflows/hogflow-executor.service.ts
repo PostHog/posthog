@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '../../schema/hogflow'
-import { Hub } from '../../types'
-import { logger } from '../../utils/logger'
-import { UUIDT } from '../../utils/utils'
+import { HogFlow } from '../../../schema/hogflow'
+import { Hub } from '../../../types'
+import { logger } from '../../../utils/logger'
+import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
@@ -11,11 +11,11 @@ import {
     HogFunctionInvocationGlobals,
     LogEntry,
     MinimalAppMetric,
-} from '../types'
-import { convertToHogFunctionFilterGlobal } from '../utils'
-import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createInvocationResult } from '../utils/invocation-utils'
-import { HogFlowActionRunner } from './hogflows/actions'
+} from '../../types'
+import { convertToHogFunctionFilterGlobal } from '../../utils'
+import { filterFunctionInstrumented } from '../../utils/hog-function-filtering'
+import { createInvocationResult } from '../../utils/invocation-utils'
+import { HogFlowActionRunner } from './actions'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
@@ -125,34 +125,65 @@ export class HogFlowExecutorService {
             while (!result.finished && result.invocation.state.actionStepCount < MAX_ACTION_STEPS_HARD_LIMIT) {
                 const actionResult = await this.hogFlowActionRunner.runCurrentAction(result.invocation)
 
-                if (!actionResult.finished) {
-                    // If the result isn't finished we _require_ that there is a `scheduledAt` param in order to delay the result
-                    if (!actionResult.scheduledAt) {
-                        throw new Error('Action result is not finished and no scheduledAt param is provided')
-                    }
+                // Track a metric for the outcome of the action result
+                result.metrics.push({
+                    team_id: invocation.hogFlow.team_id,
+                    app_source_id: invocation.hogFlow.id,
+                    instance_id: actionResult.action.id,
+                    metric_kind: 'error' in actionResult ? 'failure' : 'success',
+                    metric_name: 'error' in actionResult ? 'failed' : 'succeeded',
+                    count: 1,
+                })
 
-                    result.finished = false
-                    result.invocation.queueScheduledAt = actionResult.scheduledAt
-                    // TODO: Do we also want to increment some meta context?
-                    // TODO: Add a log here to indicate it is scheduled for later
+                if ('error' in actionResult) {
+                    result.logs.push({
+                        level: 'error',
+                        timestamp: DateTime.now(),
+                        message: `Action ${actionResult.action.id} errored: ${String(actionResult.error)}`, // TODO: Is this enough detail?
+                    })
+                }
+
+                if (actionResult.exited) {
+                    result.finished = true
+
+                    result.logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Workflow completed`,
+                    })
                     break
                 }
 
-                if (actionResult.goToActionId) {
+                if (actionResult.scheduledAt) {
+                    // If the result has scheduled for the future then we return that triggering a push back to the queue
+                    result.invocation.queueScheduledAt = actionResult.scheduledAt
+                    result.finished = false
+                    result.logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Workflow will pause until ${actionResult.scheduledAt.toISO()}`,
+                    })
+                }
+
+                if ('goToAction' in actionResult) {
+                    // Increment the action step count
                     result.invocation.state.actionStepCount = (result.invocation.state.actionStepCount ?? 0) + 1
                     // Update the state to be going to the next action
                     result.invocation.state.currentAction = {
-                        id: actionResult.goToActionId,
+                        id: actionResult.goToAction.id,
                         startedAtTimestamp: DateTime.now().toMillis(),
                     }
                     result.finished = false // Nothing new here but just to be sure
-                    // TODO: Add a log here to indicate the outcome
-                    break
+
+                    result.logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Workflow moved to action '${actionResult.goToAction.name} (${actionResult.goToAction.id})'`,
+                    })
+                    continue
                 }
 
-                // The action is finished so we move on
-                // TODO: Add a log here to indicate the action lead to the end of the flow
-                result.finished = true
+                // This indicates that there is nothing more to be done in this execution so we should exit just in case
                 break
             }
 
