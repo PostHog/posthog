@@ -74,12 +74,6 @@ jobs:
             - name: Run cargo build
               if: needs.changes.outputs.rust == 'true'
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
-            - name: Report job & steps to PostHog
-              if: always() # && needs.changes.outputs.rust == 'true'
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     test:
         name: Test Rust services
@@ -182,13 +176,6 @@ jobs:
                   ${{ matrix.package == 'feature-flags' && ('RUST_BACKTRACE=1 cargo test --all-features --package links') || 'echo "Skipping links tests as it is not needed"' }}
                   echo "Cargo test for links completed"
 
-            - name: Report job & steps to PostHog
-              if: always() # && needs.changes.outputs.rust == 'true'
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-
     linting:
         name: Lint Rust services
         needs: changes
@@ -235,12 +222,6 @@ jobs:
             - name: Run cargo check
               if: needs.changes.outputs.rust == 'true'
               run: cargo check --all-features
-            - name: Report job & steps to PostHog
-              if: always() # && needs.changes.outputs.rust == 'true'
-              uses: ../.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     shear:
         name: Shear Rust services
@@ -271,19 +252,15 @@ jobs:
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
-            - name: Report job & steps to PostHog
-              if: always() # && needs.changes.outputs.rust == 'true'
-              uses: ../.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     posthog-analytics:
         name: PostHog CI analytics
-        if: always()
+        if: always() && needs.changes.outputs.rust == 'true'
         needs: [test, build, shear] # last job in this workflow
         runs-on: ubuntu-latest
         steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
             - uses: ./.github/actions/ci-analytics
               with:
                   posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}
