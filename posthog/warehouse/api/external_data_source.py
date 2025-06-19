@@ -84,7 +84,6 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    filter_mongo_incremental_fields,
     get_postgres_row_count,
     get_sql_schemas_for_source_type,
     get_mongo_schemas_for_source_type,
@@ -1470,25 +1469,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Failed to connect to MongoDB database"},
                 )
 
-            filtered_results = [
-                (collection_name, filter_mongo_incremental_fields(columns, connection_string, collection_name))
-                for collection_name, columns in result.items()
-            ]
+            filtered_results = [(collection_name, columns) for collection_name, columns in result.items()]
 
             result_mapped_to_options = [
                 {
                     "table": collection_name,
                     "should_sync": False,
                     "rows": None,  # MongoDB doesn't provide easy row count in schema discovery
-                    "incremental_fields": [
-                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                        for column_name, column_type in columns
-                    ],
-                    "incremental_available": True,
-                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
+                    "incremental_fields": [],
+                    "incremental_available": False,
+                    "incremental_field": None,
                     "sync_type": None,
                 }
-                for collection_name, columns in filtered_results
+                for collection_name, _ in filtered_results
             ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:

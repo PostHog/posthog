@@ -135,20 +135,6 @@ def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
     return schema_list
 
 
-def get_indexes(connection_string: str, collection_name: str) -> list[str]:
-    """Get all indexes for a MongoDB collection."""
-    try:
-        connection_params = _parse_connection_string(connection_string)
-        client = _create_mongo_client(connection_string, connection_params)
-        db = client[connection_params["database"]]
-        collection = db[collection_name]
-
-        index_cursor = collection.list_indexes()
-        return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception:
-        return []
-
-
 def _get_primary_keys(collection: Collection, collection_name: str) -> list[str] | None:
     # MongoDB always has _id as primary key
     return ["_id"]
