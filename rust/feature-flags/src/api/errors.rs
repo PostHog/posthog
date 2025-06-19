@@ -5,6 +5,8 @@ use common_database::CustomDatabaseError;
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
+use crate::utils::graph_utils::DependencyType;
+
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
     #[error("Invalid request: {0}")]
@@ -55,12 +57,12 @@ pub enum FlagError {
     TimeoutError,
     #[error("No group type mappings")]
     NoGroupTypeMappings,
-    #[error("Cohort not found")]
-    CohortNotFound(String),
+    #[error("Dependency of type {0} with id {1} not found")]
+    DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
-    #[error("Cohort dependency cycle")]
-    CohortDependencyCycle(String),
+    #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
+    DependencyCycle(DependencyType, i64),
     #[error("Person not found")]
     PersonNotFound,
     #[error("Person properties not found")]
@@ -169,17 +171,17 @@ impl IntoResponse for FlagError {
                     "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
-            FlagError::CohortNotFound(msg) => {
-                tracing::error!("Cohort not found: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            FlagError::DependencyNotFound(dependency_type, dependency_id) => {
+                tracing::error!("Dependency of type {dependency_type} with id {dependency_id} not found");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency of type {dependency_type} with id {dependency_id} not found"))
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
-            FlagError::CohortDependencyCycle(msg) => {
-                tracing::error!("Cohort dependency cycle: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            FlagError::DependencyCycle(dependency_type, cycle_start_id) => {
+                tracing::error!("{} dependency cycle: {:?}", dependency_type, cycle_start_id);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency cycle detected: {dependency_type} id {cycle_start_id} starts the cycle"))
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())

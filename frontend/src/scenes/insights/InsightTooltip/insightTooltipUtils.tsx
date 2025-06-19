@@ -17,6 +17,7 @@ export interface SeriesDatum {
     compare_label?: CompareLabelType
     action?: ActionFilter
     label?: string
+    order: number
     dotted?: boolean
     color?: string
     count: number
@@ -101,60 +102,67 @@ export function getFormattedDate(input?: string | number, interval: IntervalType
     return String(input)
 }
 
+function getPillValues(
+    s: SeriesDatum,
+    breakdownFilter: BreakdownFilter | null | undefined,
+    cohorts: any,
+    formatPropertyValueForDisplay: any
+): string[] {
+    const pillValues = []
+    if (s.breakdown_value !== undefined) {
+        pillValues.push(
+            formatBreakdownLabel(s.breakdown_value, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay)
+        )
+    }
+    if (s.compare_label) {
+        pillValues.push(capitalizeFirstLetter(String(s.compare_label)))
+    }
+    return pillValues
+}
+
+function getDatumTitle(s: SeriesDatum, breakdownFilter: BreakdownFilter | null | undefined): React.ReactNode {
+    // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
+    const cohorts = cohortsModel.findMounted()?.values?.allCohorts
+    const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
+    const pillValues = getPillValues(s, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+    if (pillValues.length > 0) {
+        return (
+            <>
+                {pillValues.map((pill, index) => (
+                    <React.Fragment key={pill}>
+                        <span>{midEllipsis(pill, 60)}</span>
+                        {index < pillValues.length - 1 && ' · '}
+                    </React.Fragment>
+                ))}
+            </>
+        )
+    }
+
+    // Technically should never reach this point because series data should have at least breakdown or compare values
+    return 'Baseline'
+}
+
 export function invertDataSource(
     seriesData: SeriesDatum[],
     breakdownFilter: BreakdownFilter | null | undefined
 ): InvertedSeriesDatum[] {
-    // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
-    const cohorts = cohortsModel.findMounted()?.values?.allCohorts
-    const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
+
     seriesData.forEach((s) => {
-        let datumTitle
-        const pillValues = []
-        if (s.breakdown_value !== undefined) {
-            pillValues.push(
-                formatBreakdownLabel(
-                    s.breakdown_value,
-                    breakdownFilter,
-                    cohorts?.results,
-                    formatPropertyValueForDisplay
-                )
-            )
-        }
-        if (s.compare_label) {
-            pillValues.push(capitalizeFirstLetter(String(s.compare_label)))
-        }
-        if (pillValues.length > 0) {
-            datumTitle = (
-                <>
-                    {pillValues.map((pill, index) => (
-                        <React.Fragment key={pill}>
-                            <span>{midEllipsis(pill, 60)}</span>
-                            {index < pillValues.length - 1 && ' · '}
-                        </React.Fragment>
-                    ))}
-                </>
-            )
-        } else {
-            // Technically should never reach this point because series data should have at least breakdown or compare values
-            datumTitle = 'Baseline'
-        }
         const datumKey = `${s.breakdown_value}-${s.compare_label}`
         if (datumKey in flattenedData) {
             flattenedData[datumKey].seriesData.push(s)
-            flattenedData[datumKey].seriesData = flattenedData[datumKey].seriesData.sort(
-                (a, b) => (b.action?.order ?? b.dataIndex) - (a.action?.order ?? a.dataIndex)
-            )
+            flattenedData[datumKey].seriesData = flattenedData[datumKey].seriesData.sort((a, b) => a.order - b.order)
         } else {
             flattenedData[datumKey] = {
                 id: datumKey,
                 datasetIndex: s.datasetIndex,
                 color: s.color,
-                datumTitle,
+                datumTitle: getDatumTitle(s, breakdownFilter),
                 seriesData: [s],
             }
         }
     })
+
     return Object.values(flattenedData)
 }

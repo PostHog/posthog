@@ -125,8 +125,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
-    /** The icon for the side action, defaults to ellipsis */
-    itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
+    /** The button to render for the item's side action. */
+    itemSideActionButton?: (item: TreeDataItem) => React.ReactNode
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
     /** Whether the item is loading */
@@ -244,7 +244,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             isItemDroppable,
             depth = 0,
             itemSideAction,
-            itemSideActionIcon,
+            itemSideActionButton,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -293,7 +293,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             <div className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full w-full', className)}>
                 {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
-                    const isFolder = item.record?.type === 'folder'
+                    const isFolder = (item.children && item.children.length > 0) || item.record?.type === 'folder'
                     const isEmptyFolder = item.type === 'empty-folder'
                     const folderLinesOffset = DEPTH_OFFSET
                     const emptySpaceOffset = DEPTH_OFFSET
@@ -569,31 +569,32 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             button
                                         )}
 
-                                        {itemSideAction && !isEmptyFolder && size === 'default' && (
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <ButtonPrimitive
-                                                        iconOnly
-                                                        isSideActionRight
-                                                        className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
-                                                    >
-                                                        {itemSideActionIcon?.(item) ?? (
-                                                            <IconEllipsis className="size-3 text-tertiary" />
+                                        {itemSideAction &&
+                                            itemSideAction(item) !== undefined &&
+                                            !isEmptyFolder &&
+                                            size === 'default' && (
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        {itemSideActionButton?.(item) ?? (
+                                                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                                                                <IconEllipsis className="size-3 text-tertiary" />
+                                                            </ButtonPrimitive>
                                                         )}
-                                                    </ButtonPrimitive>
-                                                </DropdownMenuTrigger>
+                                                    </DropdownMenuTrigger>
 
-                                                {/* The Dropdown content menu */}
-                                                <DropdownMenuContent
-                                                    loop
-                                                    align="end"
-                                                    side="bottom"
-                                                    className="max-w-[250px]"
-                                                >
-                                                    {itemSideAction(item)}
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        )}
+                                                    {/* The Dropdown content menu */}
+                                                    {!!itemSideAction(item) && (
+                                                        <DropdownMenuContent
+                                                            loop
+                                                            align="end"
+                                                            side="bottom"
+                                                            className="max-w-[250px]"
+                                                        >
+                                                            {itemSideAction(item)}
+                                                        </DropdownMenuContent>
+                                                    )}
+                                                </DropdownMenu>
+                                            )}
                                     </ButtonGroupPrimitive>
                                 </AccordionPrimitive.Trigger>
 
@@ -613,7 +614,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             renderItemTooltip={renderItemTooltip}
                                             renderItemIcon={renderItemIcon}
                                             itemSideAction={itemSideAction}
-                                            itemSideActionIcon={itemSideActionIcon}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
                                             isItemDraggable={isItemDraggable}
@@ -677,7 +677,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isItemDraggable,
             isItemDroppable,
             itemSideAction,
-            itemSideActionIcon,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -1388,7 +1387,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
-                            itemSideActionIcon={itemSideActionIcon}
                             isItemEditing={isItemEditing}
                             onItemNameChange={onItemNameChange}
                             className={cn('p-1', {

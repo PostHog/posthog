@@ -2,10 +2,11 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::{PropertyFilter, PropertyType};
+use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
+use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::instrument;
 
 impl PropertyFilter {
     /// Checks if the filter is a cohort filter
@@ -25,18 +26,26 @@ impl PropertyFilter {
             .map(|id| id as CohortId)
     }
 
-    /// Checks if the filter is a feature flag filter
-    pub fn is_feature_flag(&self) -> bool {
+    /// Checks if the filter depends on a feature flag
+    pub fn depends_on_feature_flag(&self) -> bool {
         self.prop_type == PropertyType::Flag
     }
 
-    /// Returns the feature flag id if the filter is a feature flag filter, or None if it's not a feature flag filter
+    /// Returns the feature flag id if the filter depends on a feature flag, or None if it's not a feature flag filter
     /// or if the value cannot be parsed as a feature flag id
     pub fn get_feature_flag_id(&self) -> Option<FeatureFlagId> {
-        if !self.is_feature_flag() {
+        if !self.depends_on_feature_flag() {
             return None;
         }
         self.key.parse::<FeatureFlagId>().ok()
+    }
+}
+
+fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
+    if filter.depends_on_feature_flag() {
+        filter.get_feature_flag_id()
+    } else {
+        None
     }
 }
 
@@ -63,16 +72,51 @@ impl FeatureFlag {
                 .and_then(|obj| obj.get(match_val).cloned())
         })
     }
+
+    /// Extracts dependent FeatureFlagIds from the feature flag's filters
+    ///
+    /// # Returns
+    /// * `HashSet<FeatureFlagId>` - A set of dependent feature flag IDs
+    /// * `FlagError` - If there is an error parsing the filters
+    pub fn extract_dependencies(&self) -> Result<HashSet<FeatureFlagId>, FlagError> {
+        let mut dependencies = HashSet::new();
+        for group in &self.filters.groups {
+            if let Some(properties) = &group.properties {
+                for filter in properties {
+                    if let Some(feature_flag_id) = extract_feature_flag_dependency(filter) {
+                        dependencies.insert(feature_flag_id);
+                    }
+                }
+            }
+        }
+        Ok(dependencies)
+    }
+}
+
+impl DependencyProvider for FeatureFlag {
+    type Id = FeatureFlagId;
+    type Error = FlagError;
+
+    fn get_id(&self) -> Self::Id {
+        self.id
+    }
+
+    fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
+        self.extract_dependencies()
+    }
+
+    fn dependency_type() -> DependencyType {
+        DependencyType::Flag
+    }
 }
 
 impl FeatureFlagList {
     /// Returns feature flags from redis given a project_id
-    #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
-        tracing::info!(
+        tracing::debug!(
             "Attempting to read flags from Redis at key '{}{}'",
             TEAM_FLAGS_CACHE_PREFIX,
             project_id
@@ -92,7 +136,7 @@ impl FeatureFlagList {
                 FlagError::RedisDataParsingError
             })?;
 
-        tracing::info!(
+        tracing::debug!(
             "Successfully read {} flags from Redis at key '{}{}'",
             flags_list.len(),
             TEAM_FLAGS_CACHE_PREFIX,
@@ -103,7 +147,6 @@ impl FeatureFlagList {
     }
 
     /// Returns feature flags from postgres given a project_id
-    #[instrument(skip_all)]
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
         project_id: i64,

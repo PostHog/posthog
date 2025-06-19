@@ -4,7 +4,6 @@ import {
     copyIndexHtml,
     copyPublicFolder,
     createHashlessEntrypoints,
-    gatherProductManifests,
     isDev,
     startDevServer,
 } from '@posthog/esbuilder'
@@ -17,7 +16,7 @@ startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
 writeExporterHtml()
-gatherProductManifests(__dirname)
+await import('./build-products.mjs')
 
 const common = {
     absWorkingDir: __dirname,

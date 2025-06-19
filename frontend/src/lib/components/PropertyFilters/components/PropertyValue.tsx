@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -37,8 +37,9 @@ export interface PropertyValueProps {
     inputClassName?: string
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
-    size?: LemonButtonProps['size']
+    size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
+    preloadValues?: boolean
 }
 
 export function PropertyValue({
@@ -57,6 +58,7 @@ export function PropertyValue({
     additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
     editable = true,
+    preloadValues = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -83,6 +85,12 @@ export function PropertyValue({
     }
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
+
+    useEffect(() => {
+        if (preloadValues) {
+            load('')
+        }
+    }, [])
 
     useEffect(() => {
         if (!isDateTimeProperty) {

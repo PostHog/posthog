@@ -21,6 +21,8 @@ export const storiesLogic = kea<storiesLogicType>([
         setOpenStoriesModal: (openStoriesModal: boolean) => ({ openStoriesModal }),
         markStoryAsViewed: (storyId: string) => ({ storyId }),
         loadViewedStories: true,
+        toggleStoriesCollapsed: true,
+        setInitialCollapsedState: (collapsed: boolean) => ({ collapsed }),
     }),
 
     loaders(() => ({
@@ -59,6 +61,13 @@ export const storiesLogic = kea<storiesLogicType>([
                 setActiveStoryIndex: (_, { storyIndex }) => storyIndex,
             },
         ],
+        storiesCollapsedValue: [
+            true,
+            {
+                toggleStoriesCollapsed: (state) => !state,
+                setInitialCollapsedState: (_, { collapsed }) => collapsed,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -71,6 +80,13 @@ export const storiesLogic = kea<storiesLogicType>([
                 }
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
                 actions.loadViewedStories()
+            }
+        },
+        loadViewedStoriesSuccess: () => {
+            // Set initial collapsed state based on whether there are unseen stories
+            // Only do this once when stories are first loaded (if still at default collapsed=true)
+            if (values.storiesCollapsedValue === true) {
+                actions.setInitialCollapsedState(!values.hasUnseenStories)
             }
         },
     })),
@@ -88,6 +104,14 @@ export const storiesLogic = kea<storiesLogicType>([
         openStoriesModal: [(s) => [s.openStoriesModalValue], (openStoriesModalValue: boolean) => openStoriesModalValue],
         activeGroupIndex: [(s) => [s.activeGroupIndexValue], (activeGroupIndexValue: number) => activeGroupIndexValue],
         activeStoryIndex: [(s) => [s.activeStoryIndexValue], (activeStoryIndexValue: number) => activeStoryIndexValue],
+        storiesCollapsed: [(s) => [s.storiesCollapsedValue], (storiesCollapsedValue: boolean) => storiesCollapsedValue],
+        hasUnseenStories: [
+            (s) => [s.stories, s.viewedStories],
+            (stories: storyGroup[], viewedStories: ViewedStories) =>
+                stories.some((storyGroup) =>
+                    storyGroup.stories.some((story) => !viewedStories.storyIds.includes(story.id))
+                ),
+        ],
         isStoryViewed: [
             (s) => [s.viewedStories],
             (viewedStories: ViewedStories) => (storyId: string) => viewedStories.storyIds.includes(storyId),

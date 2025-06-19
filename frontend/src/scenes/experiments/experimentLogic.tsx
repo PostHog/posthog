@@ -79,6 +79,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
@@ -495,6 +496,10 @@ export const experimentLogic = kea<experimentLogicType>([
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
+        duplicateMetric: ({ metricIndex, isSecondary }: { metricIndex: number; isSecondary: boolean }) => ({
+            metricIndex,
+            isSecondary,
+        }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
@@ -659,6 +664,30 @@ export const experimentLogic = kea<experimentLogicType>([
                             },
                         },
                     } as ExperimentFunnelsQuery
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                duplicateMetric: (state, { metricIndex, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    const originalMetric = metrics[metricIndex]
+
+                    if (!originalMetric) {
+                        return state
+                    }
+
+                    const name = originalMetric.name
+                        ? `${originalMetric.name} (copy)`
+                        : originalMetric.kind === NodeKind.ExperimentMetric
+                        ? `${getDefaultMetricTitle(originalMetric)} (copy)`
+                        : undefined
+
+                    const newMetric = { ...originalMetric, id: undefined, name }
+                    metrics.splice(metricIndex + 1, 0, newMetric)
 
                     return {
                         ...state,
@@ -1639,6 +1668,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     return metric?.metric_type || ExperimentMetricType.MEAN
                 },
         ],
+        isExperimentDraft: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !experiment?.start_date && !experiment?.end_date && !experiment?.archived
+            },
+        ],
         isExperimentRunning: [
             (s) => [s.experiment],
             (experiment): boolean => {
@@ -1757,19 +1792,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         significanceDetails: [
-            (s) => [s.legacyMetricResults, s.experimentStatsVersion],
+            (s) => [s.legacyMetricResults],
             (
                     legacyMetricResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[],
-                    experimentStatsVersion: number
+                    )[]
                 ) =>
                 (metricIndex: number = 0): string => {
                     const results = legacyMetricResults?.[metricIndex]
-                    return getSignificanceDetails(results, experimentStatsVersion)
+                    return getSignificanceDetails(results)
                 },
         ],
         recommendedSampleSize: [
@@ -1982,12 +2016,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (primaryMetric) {
                     return primaryMetric.query
                 }
-            },
-        ],
-        experimentStatsVersion: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => {
-                return experiment.stats_config?.version || 1
             },
         ],
         primaryMetricsLengthWithSharedMetrics: [

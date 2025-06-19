@@ -96,6 +96,7 @@ export function PlayerSidebar(): JSX.Element {
                             })}
                             barClassName="!mb-0"
                             size="small"
+                            className="overflow-x-auto"
                         />
                         <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b end">
