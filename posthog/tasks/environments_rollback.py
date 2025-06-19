@@ -19,6 +19,7 @@ from posthog.models import (
     EarlyAccessFeature,
     Notebook,
 )
+from posthog.models.organization import OrganizationMembership
 from django.db import transaction, IntegrityError
 
 logger = get_logger(__name__)
@@ -26,9 +27,9 @@ logger = get_logger(__name__)
 
 @dataclass
 class RollbackEventContext:
-    user: object
-    organization: object
-    membership: object
+    user: User
+    organization: Organization
+    membership: OrganizationMembership
     environment_mappings: dict[str, int]
 
 
