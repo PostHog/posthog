@@ -4,7 +4,7 @@ import pytest
 
 class TestArrayBatchIterator:
     def test_array_batch_iterator(self):
-        data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        data: list[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         expected_batches = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10]]
         batch_iterator = ArrayBatchIterator(data, batch_size=3)
         iteration_count = 0
@@ -15,13 +15,13 @@ class TestArrayBatchIterator:
         assert iteration_count == len(expected_batches)
 
     def test_array_batch_iterator_empty(self):
-        data = []
+        data: list[int] = []
         batch_iterator = ArrayBatchIterator(data, batch_size=3)
         for _, _ in batch_iterator:
             raise AssertionError("Should not have any batches")
 
     def test_array_batch_iterator_batch_size_bigger_than_data(self):
-        data = [1, 2, 3]
+        data: list[int] = [1, 2, 3]
         batch_iterator = ArrayBatchIterator(data, batch_size=4)
         for batch_index, batch in batch_iterator:
             assert batch == [1, 2, 3]
@@ -54,7 +54,7 @@ class TestFunctionBatchIterator:
         batch_iterator = FunctionBatchIterator(create_empty_batch, batch_size=3)
         for _, _ in batch_iterator:
             raise AssertionError("Should not have any batches")
-        assert True
+        return
 
     def test_function_batch_iterator_single_batch(self):
         def create_single_batch(batch_index: int, batch_size: int) -> list[int]:
@@ -75,6 +75,7 @@ class TestFunctionBatchIterator:
                 return []  # Empty batch should terminate
             elif batch_index == 2:
                 return [4, 5, 6]  # This should never be reached
+            return []  # Keep mypy happy
 
         batch_iterator = FunctionBatchIterator(create_batch_with_gaps, batch_size=3)
         batches = list(batch_iterator)

@@ -352,12 +352,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         # Grab uuids for this batch of distinct IDs
-        uuids = list(
-            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+        uuids = [
+            str(uuid)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id, id__in=person_ids_qs)
             .exclude(id__in=CohortPeople.objects.filter(cohort_id=self.id).values_list("person_id", flat=True))
             .values_list("uuid", flat=True)
-        )
+        ]
 
         return uuids
 
@@ -475,7 +476,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             self.save()
             # Add batch index context to the exception
-            capture_exception(err, extra={"batch_index": current_batch_index})
+            capture_exception(err, additional_properties={"batch_index": current_batch_index})
 
     def to_dict(self) -> dict:
         people_data = [
