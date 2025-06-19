@@ -3,7 +3,13 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Hog CI
-
+_posthog_step: &posthog_step
+    name: Report job + steps to PostHog
+    if: always()
+    uses: ./.github/actions/ci-analytics
+    with:
+        posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 on:
     push:
         branches:
@@ -143,6 +149,7 @@ jobs:
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+            - *posthog_step
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
@@ -161,6 +168,7 @@ jobs:
               uses: PostHog/check-package-version@v2
               with:
                   path: common/hogvm/typescript
+            - *posthog_step
 
     release-hogvm:
         name: Release new HogVM TypeScript version
@@ -209,3 +217,4 @@ jobs:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
             - name: Sleep 60 seconds to allow npm to update the package
               run: sleep 60
+            - *posthog_step

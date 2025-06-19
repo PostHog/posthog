@@ -3,6 +3,13 @@
 # Instance name should look like `do-ci-hobby-deploy-xxxx`
 # SSH onto the instance and `tail -f /var/log/cloud-init-output.log`
 name: e2e - hobby smoke test
+_posthog_step: &posthog_step
+    name: Report job + steps to PostHog
+    if: always()
+    uses: ./.github/actions/ci-analytics
+    with:
+        posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 on:
     push:
         branches:
@@ -46,3 +53,4 @@ jobs:
               run: python3 bin/hobby-ci.py destroy
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+            - *posthog_step

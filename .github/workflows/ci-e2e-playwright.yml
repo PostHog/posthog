@@ -4,7 +4,13 @@
 # It relies on the container image built by 'container-images-ci.yml'.
 #
 name: E2E CI Playwright
-
+_posthog_step: &posthog_step
+    name: Report job + steps to PostHog
+    if: always()
+    uses: ./.github/actions/ci-analytics
+    with:
+        posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 on:
     pull_request:
 
@@ -75,6 +81,7 @@ jobs:
                   save: true
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
+            - *posthog_step
 
     playwright:
         name: Playwright E2E tests
@@ -224,6 +231,7 @@ jobs:
                   name: playwright-screenshots
                   path: playwright/test-results
                   retention-days: 30
+            - *posthog_step
 
     capture-run-time:
         name: Capture run time
@@ -253,16 +261,4 @@ jobs:
                   echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
-            - name: Capture running time to PostHog
-              if: github.repository == 'PostHog/posthog'
-              uses: PostHog/posthog-github-action@v0.1
-              with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
-                  event: 'posthog-ci-running-time'
-                  properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
-            - name: Report job to PostHog
-              if: always() && github.event_name == 'pull_request' && github.repository == 'PostHog/posthog'
-              uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+            - *posthog_step

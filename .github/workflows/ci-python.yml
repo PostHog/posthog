@@ -1,6 +1,12 @@
 # This workflow runs generic Python tests global to Dagster and PostHog.
 name: Python CI
-
+_posthog_step: &posthog_step
+    name: Report job + steps to PostHog
+    if: always()
+    uses: ./.github/actions/ci-analytics
+    with:
+        posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 on:
     push:
         branches:
@@ -116,3 +122,4 @@ jobs:
             #   shell: bash
             #   run: |
             #       npm run taxonomy:build:json && git diff --exit-code
+            - *posthog_step

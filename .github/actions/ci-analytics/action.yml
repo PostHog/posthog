@@ -6,6 +6,13 @@ inputs:
     github-token:
         required: true
         description: Token with access to GitHub Actions API
+    scope:
+        required: false
+        default: job # <─ keep old behaviour for all existing calls
+        description: |
+            Granularity of the event(s) to emit.
+            • “job”      – emit this job and its finished steps (default)  
+            • “workflow” – emit a single workflow-level summary event only
 runs:
     using: composite
     steps:
@@ -17,3 +24,4 @@ runs:
               # This is the public key for a custom CI analytics project for testing, it's not a leaked secret.
               POSTHOG_API_KEY: phc_90rMRdTaAI6S4qijwl0HI18UypvRq73M8lZFm6uEFbl
               POSTHOG_HOST: https://internal-t.posthog.com
+              CI_ANALYTICS_SCOPE: ${{ inputs.scope }}
