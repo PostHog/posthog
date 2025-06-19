@@ -147,7 +147,8 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
 }
 
 export function SidePanelSdkDoctor(): JSX.Element {
-    const { sdkVersions, sdkHealth, recentEventsLoading, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
+    const { sdkVersions, sdkHealth, recentEventsLoading, outdatedSdkCount, multipleInitDetection } =
+        useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
     // Group the versions by SDK type (each SDK type gets its own table)
@@ -239,7 +240,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
             </SidePanelPaneHeader>
             <div className="p-3 overflow-y-auto flex-1">
                 {/* Show warning for multiple initializations if detected */}
-                {sdkVersions.some((sdk) => sdk.multipleInitializations) && (
+                {(sdkVersions.some((sdk) => sdk.multipleInitializations) || multipleInitDetection.detected) && (
                     <Section title="Multiple SDK initializations detected">
                         <div className="p-3 bg-danger/10 rounded border border-danger/20">
                             <div className="flex items-start">
@@ -261,7 +262,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         Initialize the SDK only once, at the top of your script or in your entry point
                                         file.
                                     </p>
-                                    <div className="mt-2">
+                                    <div className="mt-2 flex gap-3">
                                         <Link
                                             to="https://posthog.com/docs/libraries/js/config"
                                             target="_blank"
@@ -269,6 +270,19 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         >
                                             View initialization docs
                                         </Link>
+                                        {multipleInitDetection.detected && multipleInitDetection.exampleEventId && (
+                                            <Link
+                                                to={`/project/1/events/${
+                                                    multipleInitDetection.exampleEventId
+                                                }/${encodeURIComponent(
+                                                    multipleInitDetection.exampleEventTimestamp || ''
+                                                )}`}
+                                                target="_blank"
+                                                targetBlankIcon
+                                            >
+                                                View example event
+                                            </Link>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -279,17 +293,19 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             <h4 className="text-sm font-semibold mb-2">Sources of multiple initialization</h4>
                             <LemonTable
                                 dataSource={
-                                    // Use the actual URLs from the events, or fallback to a default if none found
-                                    sdkVersions
-                                        .find((sdk) => sdk.multipleInitializations)
-                                        ?.initUrls?.map((item) => ({
-                                            url: item.url,
-                                        })) || [
-                                        // Fallback data just in case
-                                        {
-                                            url: 'Unknown source file',
-                                        },
-                                    ]
+                                    // Use persistent detection data if available, otherwise fall back to current events
+                                    multipleInitDetection.detected && multipleInitDetection.affectedUrls.length > 0
+                                        ? multipleInitDetection.affectedUrls.map((url) => ({ url }))
+                                        : sdkVersions
+                                              .find((sdk) => sdk.multipleInitializations)
+                                              ?.initUrls?.map((item) => ({
+                                                  url: item.url,
+                                              })) || [
+                                              // Fallback data just in case
+                                              {
+                                                  url: 'Unknown source file',
+                                              },
+                                          ]
                                 }
                                 columns={[
                                     {

@@ -32,6 +32,16 @@ export type SdkVersionInfo = {
     initCount?: number
     initUrls?: { url: string; count: number }[] // Add this to track actual URLs
 }
+
+export type MultipleInitDetection = {
+    detected: boolean
+    detectedAt: string // timestamp when first detected
+    exampleEventId?: string // UUID of a problematic event
+    exampleEventTimestamp?: string // timestamp of the problematic event
+    affectedUrls: string[]
+    sessionCount: number
+}
+
 export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
 // Add a cache utility for GitHub API responses
@@ -263,6 +273,133 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
 
+        // Persistent detection for multiple initializations
+        multipleInitDetection: [
+            { detected: false, detectedAt: '', affectedUrls: [], sessionCount: 0 } as MultipleInitDetection,
+            {
+                loadRecentEventsSuccess: (state, { recentEvents }) => {
+                    // If we've already detected multiple inits, keep the persistent state
+                    // Only update if we find NEW instances of the problem
+
+                    const limitedEvents = recentEvents.slice(0, 15)
+
+                    // Check for multiple initialization patterns
+                    let newDetection = false
+                    let exampleEventId: string | undefined
+                    let exampleEventTimestamp: string | undefined
+                    const newProblematicUrls = new Set<string>()
+                    let sessionCount = 0
+
+                    // Sort events by timestamp for temporal analysis
+                    const eventsByUser = limitedEvents
+                        .filter(
+                            (e) =>
+                                e.properties?.$lib === 'web' && e.properties?.$session_id && e.properties?.$current_url
+                        )
+                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+                    // Group events by distinct_id to track per-user patterns
+                    const userEventGroups: Record<string, typeof eventsByUser> = {}
+                    eventsByUser.forEach((event) => {
+                        const distinctId = event.properties?.distinct_id || 'unknown'
+                        if (!userEventGroups[distinctId]) {
+                            userEventGroups[distinctId] = []
+                        }
+                        userEventGroups[distinctId].push(event)
+                    })
+
+                    // Track unique sessions
+                    const uniqueSessions = new Set<string>()
+
+                    // Check each user's events for multiple init patterns
+                    Object.values(userEventGroups).forEach((userEvents) => {
+                        for (let i = 1; i < userEvents.length; i++) {
+                            const prevEvent = userEvents[i - 1]
+                            const currEvent = userEvents[i]
+
+                            const prevSessionId = prevEvent.properties?.$session_id
+                            const currSessionId = currEvent.properties?.$session_id
+                            const prevUrl = prevEvent.properties?.$current_url
+                            const currUrl = currEvent.properties?.$current_url
+                            const prevTime = new Date(prevEvent.timestamp).getTime()
+                            const currTime = new Date(currEvent.timestamp).getTime()
+                            const timeDiffSeconds = (currTime - prevTime) / 1000
+
+                            // Track unique sessions
+                            if (prevSessionId) {
+                                uniqueSessions.add(prevSessionId)
+                            }
+                            if (currSessionId) {
+                                uniqueSessions.add(currSessionId)
+                            }
+
+                            // Detect: new session ID + same URL + tiny time gap
+                            if (
+                                prevSessionId !== currSessionId && // Different session IDs
+                                prevUrl === currUrl && // Same URL
+                                timeDiffSeconds < 30 && // Less than 30 seconds apart
+                                timeDiffSeconds > 0 // Ensure we have actual time progression
+                            ) {
+                                newDetection = true
+                                newProblematicUrls.add(currUrl)
+
+                                // Capture the first problematic event for linking
+                                if (!exampleEventId && currEvent.id) {
+                                    exampleEventId = currEvent.id
+                                    exampleEventTimestamp = currEvent.timestamp
+                                }
+
+                                // console.log(`[SDK Doctor] Multiple init detected: ${prevSessionId} → ${currSessionId} on ${currUrl} (${timeDiffSeconds}s apart`)
+                            }
+                        }
+                    })
+
+                    sessionCount = uniqueSessions.size
+
+                    // If we detect a new problem, update state
+                    if (newDetection) {
+                        return {
+                            detected: true,
+                            detectedAt: state.detectedAt || new Date().toISOString(), // Keep original detection time
+                            exampleEventId: exampleEventId || state.exampleEventId, // Use new or keep existing
+                            exampleEventTimestamp: exampleEventTimestamp || state.exampleEventTimestamp,
+                            affectedUrls: Array.from(
+                                new Set([...state.affectedUrls, ...Array.from(newProblematicUrls)])
+                            ),
+                            sessionCount: Math.max(sessionCount, state.sessionCount),
+                        }
+                    }
+
+                    // If we had a previous detection but see sustained normal behavior, consider clearing it
+                    if (state.detected && !newDetection) {
+                        // Check if we have recent normal web events (single session across multiple events)
+                        const recentWebEvents = limitedEvents
+                            .filter((e) => e.properties?.$lib === 'web' && e.properties?.$session_id)
+                            .slice(0, 10) // Look at the 10 most recent web events
+
+                        if (recentWebEvents.length >= 5) {
+                            // If the last 5+ web events all share the same session ID, consider the issue resolved
+                            const sessionIds = new Set(recentWebEvents.map((e) => e.properties?.$session_id))
+
+                            if (sessionIds.size === 1) {
+                                // All recent events are from the same session - issue appears resolved
+                                // console.log('[SDK Doctor] Multiple init issue appears resolved - clearing detection state')
+                                return {
+                                    detected: false,
+                                    detectedAt: '',
+                                    affectedUrls: [],
+                                    sessionCount: 0,
+                                }
+                            }
+                        }
+                    }
+
+                    // Keep existing state (either detected with no new evidence, or not detected)
+                    return state
+                },
+            },
+        ],
+
         sdkVersionsMap: [
             {} as Record<string, SdkVersionInfo>,
             {
@@ -333,6 +470,63 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                         }
                     }
+
+                    // Detect multiple initialization patterns - same URL, new session ID, tiny time gap
+                    let hasMultipleInits = false
+                    const initProblematicUrls = new Set<string>()
+
+                    // Sort events by timestamp for temporal analysis
+                    const eventsByUser = limitedEvents
+                        .filter(
+                            (e) =>
+                                e.properties?.$lib === 'web' && e.properties?.$session_id && e.properties?.$current_url
+                        )
+                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+                    // Group events by distinct_id to track per-user patterns
+                    const userEventGroups: Record<string, typeof eventsByUser> = {}
+                    eventsByUser.forEach((event) => {
+                        const distinctId = event.properties?.distinct_id || 'unknown'
+                        if (!userEventGroups[distinctId]) {
+                            userEventGroups[distinctId] = []
+                        }
+                        userEventGroups[distinctId].push(event)
+                    })
+
+                    // Check each user's events for multiple init patterns
+                    Object.values(userEventGroups).forEach((userEvents) => {
+                        for (let i = 1; i < userEvents.length; i++) {
+                            const prevEvent = userEvents[i - 1]
+                            const currEvent = userEvents[i]
+
+                            const prevSessionId = prevEvent.properties?.$session_id
+                            const currSessionId = currEvent.properties?.$session_id
+                            const prevUrl = prevEvent.properties?.$current_url
+                            const currUrl = currEvent.properties?.$current_url
+                            const prevTime = new Date(prevEvent.timestamp).getTime()
+                            const currTime = new Date(currEvent.timestamp).getTime()
+                            const timeDiffSeconds = (currTime - prevTime) / 1000
+
+                            // Detect: new session ID + same URL + tiny time gap
+                            if (
+                                prevSessionId !== currSessionId && // Different session IDs
+                                prevUrl === currUrl && // Same URL
+                                timeDiffSeconds < 30 && // Less than 30 seconds apart
+                                timeDiffSeconds > 0 // Ensure we have actual time progression
+                            ) {
+                                hasMultipleInits = true
+                                initProblematicUrls.add(currUrl)
+
+                                // console.log(`[SDK Doctor] Multiple init detected: ${prevSessionId} → ${currSessionId} on ${currUrl} (${timeDiffSeconds}s apart`)
+                            }
+                        }
+                    })
+
+                    // Merge multiple init URLs with version conflict URLs
+                    initProblematicUrls.forEach((url) => problematicUrls.add(url))
+
+                    // Update hasMultipleVersions to include init detection
+                    hasMultipleVersions = hasMultipleVersions || hasMultipleInits
 
                     // Convert URLs to the expected format
                     const initUrlsSorted = Array.from(problematicUrls).map((url) => ({
@@ -499,8 +693,20 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         ],
 
         multipleInitSdks: [
-            (s) => [s.sdkVersions],
-            (sdkVersions: SdkVersionInfo[]): SdkVersionInfo[] => {
+            (s) => [s.sdkVersions, s.multipleInitDetection],
+            (sdkVersions: SdkVersionInfo[], multipleInitDetection: MultipleInitDetection): SdkVersionInfo[] => {
+                // Use persistent detection state instead of just current event window
+                if (multipleInitDetection.detected) {
+                    // Return web SDK with the persistent detection info
+                    return sdkVersions
+                        .filter((sdk) => sdk.type === 'web')
+                        .map((sdk) => ({
+                            ...sdk,
+                            multipleInitializations: true,
+                            initCount: multipleInitDetection.sessionCount,
+                            initUrls: multipleInitDetection.affectedUrls.map((url) => ({ url, count: 1 })),
+                        }))
+                }
                 return sdkVersions.filter((sdk) => sdk.multipleInitializations)
             },
         ],
