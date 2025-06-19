@@ -41,9 +41,9 @@ interface LemonInputPropsBase
     prefix?: React.ReactElement | null
     /** Element to suffix input field */
     suffix?: React.ReactElement | null
-    /** @deprecated Use `disabledReason` instead. Whether input field is disabled. */
+    /** @deprecated Use `disabledReason` instead and provide a reason. */
     disabled?: boolean
-    /** @deprecated Use `disabledReason` instead. Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
+    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     /** Whether input field is full width. Cannot be used in conjuction with `autoWidth`. */
     fullWidth?: boolean
