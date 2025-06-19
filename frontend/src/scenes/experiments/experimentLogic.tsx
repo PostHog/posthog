@@ -465,7 +465,7 @@ export const experimentLogic = kea<experimentLogicType>([
         loadSecondaryMetricsResults: (refresh?: boolean) => ({ refresh }),
         setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
-        setLegacySecondaryMetricResults: (
+        setLegacySecondaryMetricsResults: (
             results: (
                 | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
@@ -814,7 +814,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[],
             {
-                setLegacySecondaryMetricResults: (_, { results }) => results,
+                setLegacySecondaryMetricsResults: (_, { results }) => results,
             },
         ],
         secondaryMetricsResults: [
@@ -1151,7 +1151,7 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             values.experiment && actions.reportExperimentReset(values.experiment)
             actions.setLegacyPrimaryMetricsResults([])
-            actions.setLegacySecondaryMetricResults([])
+            actions.setLegacySecondaryMetricsResults([])
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
@@ -1404,7 +1404,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadSecondaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setSecondaryMetricsResultsLoading(true)
-            actions.setLegacySecondaryMetricResults([])
+            actions.setLegacySecondaryMetricsResults([])
             actions.setSecondaryMetricsResults([])
 
             let secondaryMetrics = values.experiment?.metrics_secondary
@@ -1419,7 +1419,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
                 refresh,
-                onSetLegacyResults: actions.setLegacySecondaryMetricResults,
+                onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,

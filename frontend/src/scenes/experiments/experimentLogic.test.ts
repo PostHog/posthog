@@ -198,7 +198,7 @@ describe('experimentLogic', () => {
             const promise = logic.asyncActions.loadSecondaryMetricsResults(true)
 
             await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricsResultsLoading', 'setLegacySecondaryMetricResults'])
+                .toDispatchActions(['setSecondaryMetricsResultsLoading', 'setLegacySecondaryMetricsResults'])
                 .toMatchValues({
                     legacySecondaryMetricsResults: [],
                     secondaryMetricsResultsLoading: true,
