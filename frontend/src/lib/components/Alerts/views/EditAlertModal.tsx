@@ -40,6 +40,19 @@ import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
 
+function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
+    switch (interval) {
+        case AlertCalculationInterval.HOURLY:
+            return 'hour'
+        case AlertCalculationInterval.DAILY:
+            return 'day'
+        case AlertCalculationInterval.WEEKLY:
+            return 'week'
+        case AlertCalculationInterval.MONTHLY:
+            return 'month'
+    }
+}
+
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
     if (!alert.checks || alert.checks.length === 0) {
         return null
@@ -85,7 +98,7 @@ interface EditAlertModalProps {
     alertId?: AlertType['id']
     insightId: QueryBasedInsightModel['id']
     insightShortId: InsightShortId
-    onEditSuccess: () => void
+    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
     insightLogicProps?: InsightLogicProps
 }
@@ -104,10 +117,15 @@ export function EditAlertModal({
     const { loadAlert } = useActions(_alertLogic)
 
     // need to reload edited alert as well
-    const _onEditSuccess = useCallback(() => {
-        loadAlert()
-        onEditSuccess()
-    }, [loadAlert, onEditSuccess])
+    const _onEditSuccess = useCallback(
+        (alertId: AlertType['id'] | undefined) => {
+            if (alertId) {
+                loadAlert()
+            }
+            onEditSuccess(alertId)
+        },
+        [loadAlert, onEditSuccess]
+    )
 
     const formLogicProps = {
         alert,
@@ -121,7 +139,13 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid, formulaNodes } = useValues(trendsLogic)
+    const {
+        alertSeries,
+        isNonTimeSeriesDisplay,
+        isBreakdownValid,
+        formulaNodes,
+        interval: trendInterval,
+    } = useValues(trendsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const insightAlertsCDPFlag = featureFlags[FEATURE_FLAGS.INSIGHT_ALERTS_CDP]
 
@@ -170,7 +194,6 @@ export function EditAlertModal({
                                         at={alert.created_at}
                                         by={alert.created_by}
                                         prefix="Created"
-                                        // className="mb-4"
                                     />
                                 ) : null}
                             </div>
@@ -333,29 +356,46 @@ export function EditAlertModal({
                                         )}
                                     </div>
                                     <div className="flex gap-4 items-center">
-                                        <div>
-                                            {alertForm.condition.type === AlertConditionType.ABSOLUTE_VALUE
-                                                ? 'check'
-                                                : 'compare'}
-                                        </div>
+                                        <div>Run alert every</div>
                                         <LemonField name="calculation_interval">
                                             <LemonSelect
                                                 fullWidth
                                                 className="w-28"
                                                 data-attr="alertForm-calculation-interval"
                                                 options={Object.values(AlertCalculationInterval).map((interval) => ({
-                                                    label: interval,
+                                                    label: alertCalculationIntervalToLabel(interval),
                                                     value: interval,
                                                 }))}
                                             />
                                         </LemonField>
+                                        <div>
+                                            and check {alertForm?.config.check_ongoing_interval ? 'current' : 'last'}
+                                        </div>
+                                        <LemonSelect
+                                            fullWidth
+                                            className="w-28"
+                                            data-attr="alertForm-trend-interval"
+                                            disabledReason={
+                                                <>
+                                                    To change the interval being checked, edit and <b>save</b> the
+                                                    interval which the insight is 'grouped by'
+                                                </>
+                                            }
+                                            value={trendInterval ?? 'day'}
+                                            options={[
+                                                {
+                                                    label: trendInterval ?? 'day',
+                                                    value: trendInterval ?? 'day',
+                                                },
+                                            ]}
+                                        />
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="deprecated-space-y-2">
+                            <div>
                                 <h3>Notification</h3>
-                                <div className="flex gap-4 items-center">
+                                <div className="flex gap-4 items-center mt-2">
                                     <div>E-mail</div>
                                     <div className="flex-auto">
                                         <MemberSelectMultiple
@@ -365,11 +405,17 @@ export function EditAlertModal({
                                         />
                                     </div>
                                 </div>
-                                {!!alertId && insightAlertsCDPFlag && (
-                                    <div className="deprecated-space-y-5">
-                                        <div className="flex flex-col">
-                                            <AlertDestinationSelector alertId={alertId} />
-                                        </div>
+
+                                <h4 className="mt-4">CDP Destinations</h4>
+                                {insightAlertsCDPFlag && (
+                                    <div className="mt-2">
+                                        {alertId ? (
+                                            <div className="flex flex-col">
+                                                <AlertDestinationSelector alertId={alertId} />
+                                            </div>
+                                        ) : (
+                                            <div className="text-muted-alt">Save alert first to add destinations</div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -395,7 +441,7 @@ export function EditAlertModal({
                                                                     label="Check ongoing period"
                                                                     disabledReason={
                                                                         !can_check_ongoing_interval &&
-                                                                        'Can only alert for ongoing period when checking for absolute value/increase above threshold'
+                                                                        'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
                                                                     }
                                                                 />
                                                             </LemonField>

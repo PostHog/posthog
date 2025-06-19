@@ -24,11 +24,12 @@ export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
-        metricResults,
+        legacyMetricResults,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         isDescriptionModalOpen,
         statsMethod,
+        usesNewQueryRunner,
     } = useValues(experimentLogic)
     const {
         updateExperiment,
@@ -54,7 +55,7 @@ export function Info(): JSX.Element {
 
     const currentStatsVersion = experiment.stats_config?.version || 1
 
-    const lastRefresh = metricResults?.[0]?.last_refresh
+    const lastRefresh = legacyMetricResults?.[0]?.last_refresh
 
     return (
         <div>
@@ -104,7 +105,7 @@ export function Info(): JSX.Element {
                         </div>
                         <div className="inline-flex deprecated-space-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
-                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREQUENTIST] && (
+                            {usesNewQueryRunner && featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREQUENTIST] && (
                                 <>
                                     <LemonButton
                                         type="secondary"

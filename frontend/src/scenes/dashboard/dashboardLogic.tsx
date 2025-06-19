@@ -19,7 +19,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { Link } from 'lib/lemon-ui/Link'
@@ -30,6 +30,7 @@ import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -211,7 +212,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic, maxContextLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -1142,18 +1143,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canEditDashboard: [
-            (s) => [s.dashboard, s.featureFlags],
-            (dashboard, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return dashboard?.user_access_level
-                        ? accessLevelSatisfied(
-                              AccessControlResourceType.Dashboard,
-                              dashboard.user_access_level,
-                              'editor'
-                          )
-                        : true
-                }
-                return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+            (s) => [s.dashboard],
+            (dashboard) => {
+                return dashboard?.user_access_level
+                    ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
+                    : true
             },
         ],
         canRestrictDashboard: [
@@ -1283,6 +1277,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
             }
+            // Clear dashboard context when unmounting
+            maxContextLogic.actions.clearActiveDashboard()
         },
     })),
     sharedListeners(({ values, props }) => ({
@@ -1480,7 +1476,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         actions.setRefreshError(insight.short_id)
                                         break // Exit retry loop
                                     }
-                                    const delay = initialDelay * Math.pow(2, attempt - 1) // Exponential backoff
+                                    const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
                                     await wait(delay)
                                     continue // Retry
                                 }
@@ -1703,6 +1699,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
+            // Set dashboard context for Max AI
+            maxContextLogic.actions.setActiveDashboard(values.dashboard)
+
             const { action, dashboardQueryId } = values.dashboardLoadTimerData
             actions.refreshAllDashboardItems({ action, dashboardQueryId })
 
@@ -1741,9 +1740,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
-            const { currentTeamId } = values
+            const { currentTeamId, featureFlags } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
+                if (featureFlags[FEATURE_FLAGS.DASHBOARD_SYNC_INSIGHT_LOADING]) {
+                    await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
+                } else {
+                    await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
+                }
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

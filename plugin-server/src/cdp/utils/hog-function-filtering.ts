@@ -2,10 +2,11 @@ import { ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
+import { HogFlow } from '../../schema/hogflow'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
-import { HogFlow, HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
+import { HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
@@ -38,6 +39,7 @@ export function filterFunctionInstrumented(options: {
 }): HogFilterResult {
     const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
+    const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const start = performance.now()
     const logs: LogEntry[] = []
     const metrics: MinimalAppMetric[] = []
@@ -76,7 +78,7 @@ export function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        logger.error('🦔', `[HogFunction] Error filtering function`, {
+        logger.error('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,
             teamId: fn.team_id,
@@ -95,7 +97,7 @@ export function filterFunctionInstrumented(options: {
         if (eventUuid) {
             logs.push({
                 team_id: fn.team_id,
-                log_source: 'hog_function',
+                log_source: fnKind === 'HogFunction' ? 'hog_function' : 'hog_flow',
                 log_source_id: fn.id,
                 instance_id: new UUIDT().toString(),
                 timestamp: DateTime.now(),
@@ -113,7 +115,7 @@ export function filterFunctionInstrumented(options: {
         hogFunctionFilterDuration.observe({ type }, duration)
 
         if (duration > DEFAULT_TIMEOUT_MS) {
-            logger.error('🦔', `[HogFunction] Filter took longer than expected`, {
+            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
                 functionId: fn.id,
                 functionName: fn.name,
                 teamId: fn.team_id,

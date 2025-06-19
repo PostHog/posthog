@@ -94,10 +94,12 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebBouncesDailyTable,
-    WebBouncesHourlyTable,
     WebStatsDailyTable,
+    WebBouncesDailyTable,
     WebStatsHourlyTable,
+    WebBouncesHourlyTable,
+    WebStatsCombinedTable,
+    WebBouncesCombinedTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -160,6 +162,8 @@ class Database(BaseModel):
     web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
     web_stats_hourly: WebStatsHourlyTable = WebStatsHourlyTable()
     web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
+    web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
+    web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -401,6 +405,7 @@ def create_hogql_database(
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
         database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+        poe = cast(VirtualTable, database.events.fields["poe"])
 
         if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
             # no change
@@ -414,7 +419,7 @@ def create_hogql_database(
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             _use_person_id_from_person_overrides(database)
             _use_person_properties_from_events(database)
-            cast(VirtualTable, database.events.fields["poe"]).fields["id"] = database.events.fields["person_id"]
+            poe.fields["id"] = database.events.fields["person_id"]
 
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
             _use_person_id_from_person_overrides(database)
@@ -458,11 +463,22 @@ def create_hogql_database(
 
     with timings.measure("initial_domain_type"):
         database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            "$virt_initial_referring_domain_type", timings=timings
+            name="$virt_initial_referring_domain_type", timings=timings
+        )
+        poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
+            name="$virt_initial_referring_domain_type",
+            timings=timings,
+            properties_path=["poe", "properties"],
         )
     with timings.measure("initial_channel_type"):
         database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            "$virt_initial_channel_type", modifiers.customChannelTypeRules, timings=timings
+            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
+        )
+        poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
+            name="$virt_initial_channel_type",
+            custom_rules=modifiers.customChannelTypeRules,
+            timings=timings,
+            properties_path=["poe", "properties"],
         )
 
     with timings.measure("group_type_mapping"):

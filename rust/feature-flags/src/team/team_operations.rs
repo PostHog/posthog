@@ -5,16 +5,14 @@ use crate::{
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
-use tracing::instrument;
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
-    #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         token: &str,
     ) -> Result<Team, FlagError> {
-        tracing::info!(
+        tracing::debug!(
             "Attempting to read team from Redis at key '{}{}'",
             TEAM_TOKEN_CACHE_PREFIX,
             token
@@ -27,7 +25,7 @@ impl Team {
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
-            tracing::error!("failed to parse data to team: {}", e);
+            tracing::error!("failed to parse data to team for token {}: {}", token, e);
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
@@ -35,7 +33,7 @@ impl Team {
             team.project_id = team.id as i64;
         }
 
-        tracing::info!(
+        tracing::debug!(
             "Successfully read team {} from Redis at key '{}{}'",
             team.id,
             TEAM_TOKEN_CACHE_PREFIX,
@@ -45,13 +43,17 @@ impl Team {
         Ok(team)
     }
 
-    #[instrument(skip_all)]
     pub async fn update_redis_cache(
         client: Arc<dyn RedisClient + Send + Sync>,
         team: &Team,
     ) -> Result<(), FlagError> {
         let serialized_team = serde_json::to_string(&team).map_err(|e| {
-            tracing::error!("Failed to serialize team: {}", e);
+            tracing::error!(
+                "Failed to serialize team {} (token {}): {}",
+                team.id,
+                team.api_token,
+                e
+            );
             FlagError::RedisDataParsingError
         })?;
 
@@ -69,7 +71,12 @@ impl Team {
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update Redis cache: {}", e);
+                tracing::error!(
+                    "Failed to update Redis cache for team {} (token {}): {}",
+                    team.id,
+                    team.api_token,
+                    e
+                );
                 FlagError::CacheUpdateError
             })?;
 
@@ -113,6 +120,7 @@ impl Team {
             session_recording_url_trigger_config,
             session_recording_url_blocklist_config,
             session_recording_event_trigger_config,
+            session_recording_trigger_match_type_config,
             recording_domains
         FROM posthog_team 
         WHERE api_token = $1";

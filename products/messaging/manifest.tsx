@@ -7,23 +7,33 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Messaging',
     scenes: {
-        MessagingCampaigns: {
-            import: () => import('./frontend/Campaigns'),
-            name: 'Messaging',
-            projectBased: true,
-        },
         MessagingBroadcasts: {
             import: () => import('./frontend/Broadcasts'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/library/MessageLibrary'),
+            import: () => import('./frontend/TemplateLibrary/MessageLibrary'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessagingCampaigns: {
+            import: () => import('./frontend/Campaigns/Campaigns'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessagingCampaign: {
+            import: () => import('./frontend/Campaigns/CampaignScene'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/MessageTemplate'),
+            import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessageSenders: {
+            import: () => import('./frontend/Senders/MessageSenders'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -31,8 +41,7 @@ export const manifest: ProductManifest = {
     routes: {
         // URL: [Scene, SceneKey]
         '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
-        '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
-        '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
+        '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
         '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
         '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
         '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
@@ -43,14 +52,17 @@ export const manifest: ProductManifest = {
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
+        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
+        '/messaging/campaigns/new': '/messaging/campaigns/new/overview',
     },
     urls: {
         messagingCampaigns: (): string => '/messaging/campaigns',
         messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
-        messagingCampaignNew: (): string => '/messaging/campaigns/new',
+        messagingCampaignTab: (id?: string, tab?: string): string => `/messaging/campaigns/${id}/${tab}`,
+        messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
         messagingBroadcasts: (): string => '/messaging/broadcasts',
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
@@ -62,53 +74,27 @@ export const manifest: ProductManifest = {
             `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
-        'hog_function/broadcast': {
-            name: 'Broadcast',
-            icon: <IconCursor />,
-            href: (ref: string) => urls.messagingBroadcast(ref),
-            iconColor: ['var(--product-messaging-light)'],
-            filterKey: 'broadcast',
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-        'hog_function/campaign': {
+        messaging: {
             name: 'Campaign',
             icon: <IconCursor />,
-            href: (ref: string) => urls.messagingCampaign(ref),
             iconColor: ['var(--product-messaging-light)'],
-            filterKey: 'campaign',
-            flag: FEATURE_FLAGS.MESSAGING,
+            href: (ref: string) => urls.messagingCampaign(ref),
+            filterKey: 'messaging',
         },
     },
-    treeItemsNew: [
-        {
-            path: `Broadcast`,
-            type: 'hog_function/broadcast',
-            href: urls.messagingBroadcastNew(),
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-        {
-            path: `Campaign`,
-            type: 'hog_function/campaign',
-            href: urls.messagingCampaignNew(),
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-    ],
     treeItemsProducts: [
         {
-            path: 'Broadcasts',
-            href: urls.messagingBroadcasts(),
-            type: 'hog_function/broadcast',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
-            tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-        {
-            path: 'Campaigns',
+            path: 'Messaging',
             href: urls.messagingCampaigns(),
-            type: 'hog_function/campaign',
+            type: 'messaging',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            category: 'Tools',
             tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING,
+            /**
+             * We'll keep early-access flag (FEATURE_FLAGS.MESSAGING) enabled but use this
+             * automation flag for sidebar visibility to enable internal dogfooding
+             */
+            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
 }

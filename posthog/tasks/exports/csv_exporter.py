@@ -9,7 +9,6 @@ import requests
 import structlog
 from openpyxl import Workbook
 from django.http import QueryDict
-from sentry_sdk import push_scope
 from requests.exceptions import HTTPError
 
 from posthog.exceptions_capture import capture_exception
@@ -406,10 +405,7 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
         else:
             team_id = "unknown"
 
-        with push_scope() as scope:
-            scope.set_tag("celery_task", "csv_export")
-            scope.set_tag("team_id", team_id)
-            capture_exception(e)
+        capture_exception(e, additional_properties={"celery_task": "csv_export", "team_id": team_id})
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
         EXPORT_FAILED_COUNTER.labels(type="csv").inc()

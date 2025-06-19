@@ -1,7 +1,6 @@
 import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconComment } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -109,7 +108,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
         <NotebookSelectButton
             fullWidth={fullWidth}
             size="xsmall"
-            icon={<IconComment />}
+            icon={<IconNotebook />}
             resource={{
                 type: NotebookNodeType.Recording,
                 attrs: { id: sessionRecordingId, __init: { expanded: true } },
@@ -132,7 +131,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
                 personsModalLogic.findMounted()?.actions.closeModal()
             }}
         >
-            Comment
+            Add to notebook
         </NotebookSelectButton>
     )
 }
@@ -166,11 +165,26 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const items: LemonMenuItems = useMemo(() => {
         const itemsArray: LemonMenuItems = [
             isStandardMode && {
-                label: '.json',
-                status: 'default',
-                icon: <IconDownload />,
-                onClick: exportRecordingToFile,
-                tooltip: 'Export recording to a JSON file. This can be loaded later into PostHog for playback.',
+                title: 'Export',
+                key: 'export',
+                items: [
+                    {
+                        label: 'posthog .json',
+                        status: 'default',
+                        icon: <IconDownload />,
+                        onClick: () => exportRecordingToFile('posthog'),
+                        tooltip:
+                            'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
+                    },
+                    {
+                        label: 'rrweb .json',
+                        status: 'default',
+                        icon: <IconDownload />,
+                        onClick: () => exportRecordingToFile('rrweb'),
+                        tooltip:
+                            'Export rrweb snapshots to a JSON file. This can be played in rrweb compatible players like rrwebdebug.com.',
+                    },
+                ],
             },
         ]
         if (size === 'small') {

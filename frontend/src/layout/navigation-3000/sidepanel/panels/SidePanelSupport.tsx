@@ -94,7 +94,7 @@ const SupportResponseTimesTable = ({
         {
             name: 'Pay-as-you-go',
             current_plan: billing?.subscription_level === 'paid' && !hasActiveTrial && !hasPlatformAndSupportAddon,
-            features: [{ note: '2 business days' }],
+            features: [{ note: '72 hours' }],
             plan_key: 'paid',
         },
         ...(platformAndSupportProduct?.addons?.map((addon) => {
@@ -116,14 +116,6 @@ const SupportResponseTimesTable = ({
                 const isBold = plan.current_plan
 
                 const responseNote = plan.features.find((f: any) => f.note)?.note
-
-                const formattedResponseTime = responseNote
-                    ? responseNote === '2 days' || responseNote === '24 hours'
-                        ? '2 business days'
-                        : responseNote === '1 day' || responseNote === '12 hours'
-                        ? '1 business day'
-                        : responseNote
-                    : 'Community support only'
 
                 return (
                     <React.Fragment key={plan.plan_key}>
@@ -147,10 +139,10 @@ const SupportResponseTimesTable = ({
                             data-attr="support-response-time"
                         >
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
-                                {formattedResponseTime === 'Community support only' && plan.link ? (
+                                {!responseNote && plan.link ? (
                                     <Link to={plan.link}>Community forum</Link>
                                 ) : (
-                                    formattedResponseTime
+                                    responseNote || 'Community support only'
                                 )}
                             </span>
                         </div>
@@ -182,40 +174,29 @@ const SupportResponseTimesTable = ({
 }
 
 export function SidePanelSupport(): JSX.Element {
-    // We need preflightLogic and userLogic for debugBilling to work properly
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
     const { isEmailFormOpen, title: supportPanelTitle } = useValues(supportLogic)
-    const { closeEmailForm, openEmailForm, closeSupportForm } = useActions(supportLogic)
+    const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
 
-    // Check for support access - paid plans or active trials only
     const canEmail =
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
         (!!billing?.trial?.status && billing.trial.status === 'active')
 
-    // Check if we're on a paid plan or active trial
     const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
-
-    // Show email support only to paid/trial users on cloud or in development
     const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
-
-    // Show Max AI to all cloud users regardless of plan or in development
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
-
-    // Ensure billing data is loaded before showing support options
     const isBillingLoaded = !billingLoading && billing !== undefined
 
     const handleOpenEmailForm = (): void => {
-        // Only allow email form opening if user has access
         if (showEmailSupport && isBillingLoaded) {
             openEmailForm()
         }
     }
 
-    // Define SupportFormBlock component here, with access to debugBilling
     const SupportFormBlock = ({
         onCancel,
         hasActiveTrial,
@@ -282,12 +263,12 @@ export function SidePanelSupport(): JSX.Element {
                             onCancel={() => {
                                 closeEmailForm()
                                 closeSupportForm()
+                                resetSendSupportRequest()
                             }}
                             hasActiveTrial={hasActiveTrial}
                         />
                     ) : (
                         <>
-                            {/* Max AI section - show for all cloud users */}
                             {showMaxAI && isBillingLoaded && (
                                 <Section title="Ask Max AI">
                                     <div>
@@ -315,7 +296,6 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {/* Contact us section - only show for paid/trial users on cloud */}
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
                                     <p>Can't find what you need and Max unable to help?</p>
@@ -332,7 +312,6 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {/* For free users who can't email, show an explanation */}
                             {!showEmailSupport && isBillingLoaded && (
                                 <Section title="">
                                     <h3>Can't find what you need in the docs?</h3>
