@@ -4,9 +4,11 @@ import React, {
     createContext,
     forwardRef,
     ReactNode,
+    useCallback,
     useContext,
     useEffect,
     useImperativeHandle,
+    useMemo,
     useReducer,
     useRef,
     useState,
@@ -57,17 +59,28 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
 
     const [groupVisibility, dispatch] = useReducer(groupReducer, new Map())
 
-    const registerGroup = (id: string, visible: boolean): void => {
+    const registerGroup = useCallback((id: string, visible: boolean): void => {
         dispatch({ type: 'register', id, visible })
-    }
+    }, [])
 
-    const unregisterGroup = (id: string): void => {
+    const unregisterGroup = useCallback((id: string): void => {
         dispatch({ type: 'unregister', id })
-    }
+    }, [])
 
-    const getVisibleGroupCount = (): number => {
+    const getVisibleGroupCount = useCallback((): number => {
         return Array.from(groupVisibility.values()).filter(Boolean).length
-    }
+    }, [groupVisibility])
+
+    const contextValue = useMemo(
+        () => ({
+            searchValue,
+            setSearchValue,
+            registerGroup,
+            unregisterGroup,
+            getVisibleGroupCount,
+        }),
+        [searchValue, registerGroup, unregisterGroup, getVisibleGroupCount]
+    )
 
     useImperativeHandle(ref, () => ({
         recalculateFocusableElements: () => listboxRef.current?.recalculateFocusableElements(),
@@ -81,15 +94,7 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
     }, [searchValue])
 
     return (
-        <ComboboxContext.Provider
-            value={{
-                searchValue,
-                setSearchValue,
-                registerGroup,
-                unregisterGroup,
-                getVisibleGroupCount,
-            }}
-        >
+        <ComboboxContext.Provider value={contextValue}>
             <ListBox
                 ref={listboxRef}
                 className={className}
@@ -148,18 +153,19 @@ const Group = ({ value, children }: GroupProps): JSX.Element | null => {
         throw new Error('Combobox.Group must be used inside Combobox')
     }
 
+    const { searchValue, registerGroup, unregisterGroup } = context
     const idRef = useRef<string>(`group-${groupIdCounter++}`)
 
-    const lowerSearch = context.searchValue.toLowerCase()
+    const lowerSearch = searchValue.toLowerCase()
     const match = value.some((v) => v.toLowerCase().includes(lowerSearch))
 
     useEffect(() => {
         const id = idRef.current
-        context.registerGroup(id, match)
+        registerGroup(id, match)
         return () => {
-            context.unregisterGroup(id)
+            unregisterGroup(id)
         }
-    }, [match, context])
+    }, [match, registerGroup, unregisterGroup])
 
     if (!match) {
         return null
@@ -179,7 +185,9 @@ const Empty = ({ children }: EmptyProps): JSX.Element | null => {
     }
 
     return context.getVisibleGroupCount() === 0 ? (
-        <ButtonPrimitive className="text-tertiary text-center">{children}</ButtonPrimitive>
+        <ButtonPrimitive className="text-tertiary text-center" role="alert">
+            {children}
+        </ButtonPrimitive>
     ) : null
 }
 
