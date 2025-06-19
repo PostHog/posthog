@@ -39,9 +39,8 @@ runs:
                   /* workflow-level event (ONE) */
                   batch.push({
                     event: 'github workflow completed',
-                    distinct_id: run.head_sha,
+                    distinct_id: 'PostHog CI analytics',
                     timestamp: run.updated_at,
-                    $insert_id: `run:${run.id}`,           // hard dedupe
                     properties: {
                       ci_owner:      context.repo.owner,
                       ci_repo:       context.repo.repo,
@@ -64,9 +63,8 @@ runs:
                       const stepAnchor = `step:${s.number}:${slug(s.name)}`
                       batch.push({
                         event: 'github action step',
-                        distinct_id: run.head_sha,
+                        distinct_id: 'PostHog CI analytics',
                         timestamp:   s.completed_at || s.started_at || run.updated_at,
-                        $insert_id:  `step:${j.id}:${s.number}`,
                         properties: {
                           /* run-level */
                           ci_owner: context.repo.owner,

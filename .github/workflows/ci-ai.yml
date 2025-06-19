@@ -145,7 +145,9 @@ jobs:
 
     posthog-analytics:
         name: PostHog CI analytics
-        if: always()
+        if: always() && github.repository == 'PostHog/posthog' && (
+            github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
+            )
         needs: [eval] # last job in this workflow
         runs-on: ubuntu-latest
         steps:
@@ -153,4 +155,4 @@ jobs:
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
             - uses: ./.github/actions/ci-analytics
               with:
-                  posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

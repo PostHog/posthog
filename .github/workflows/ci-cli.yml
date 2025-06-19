@@ -30,4 +30,4 @@ jobs:
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
             - uses: ./.github/actions/ci-analytics
               with:
-                  posthog-api-key: ${{ secrets.POSTHOG_API_TOKEN }}
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}
