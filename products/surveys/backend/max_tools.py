@@ -39,6 +39,20 @@ class SurveyCreatorTool(MaxTool):
         Generate survey configuration from natural language instructions.
         """
         try:
+            user = None
+            user_id = self.context.get("user_id")
+            if not user_id:
+                return "❌ Failed to create survey: User id not present on the context", {
+                    "error": "user_id_not_present"
+                }
+
+            try:
+                from posthog.models import User
+
+                user = User.objects.get(uuid=user_id)
+            except User.DoesNotExist:
+                return "❌ Failed to create survey: Invalid user", {"error": "invalid_user"}
+
             # Get team for context
             team = Team.objects.get(id=self._team_id)
 
@@ -78,19 +92,6 @@ class SurveyCreatorTool(MaxTool):
             # Set launch date if requested
             if result.should_launch:
                 survey_data["start_date"] = datetime.now()
-
-            # Get the actual user from the context
-            user = None
-            user_id = self.context.get("user_id")
-            if not user_id:
-                return "❌ Failed to create survey: User authentication required", {"error": "authentication_required"}
-
-            try:
-                from posthog.models import User
-
-                user = User.objects.get(uuid=user_id)
-            except User.DoesNotExist:
-                return "❌ Failed to create survey: Invalid user", {"error": "invalid_user"}
 
             # Create a minimal request-like object for the serializer context
             class MinimalRequest:
