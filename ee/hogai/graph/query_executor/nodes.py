@@ -35,6 +35,8 @@ class QueryExecutorNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
+        if isinstance(viz_message, FailureMessage):
+            return PartialAssistantState()  # Exit early - something failed earlier
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
         if viz_message.answer is None:

@@ -42,7 +42,8 @@ GROUP BY week_of
 ORDER BY week_of DESC
 
 Important HogQL differences versus other SQL dialects:
-- JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties can also be accessed using `properties.foo['bar']` (note the single quotes)
 """
 
 SCHEMA_MESSAGE = """
