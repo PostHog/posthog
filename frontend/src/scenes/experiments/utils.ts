@@ -428,6 +428,7 @@ export function getExperimentMetricFromInsight(
                 layout: insight.query.source.funnelsFilter?.layout,
                 breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
                 breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
+                funnelOrderType: insight.query.source.funnelsFilter?.funnelOrderType,
             },
             filterTestAccounts: insight.query.source.filterTestAccounts,
         })
@@ -727,6 +728,7 @@ export function metricToQuery(
                 },
                 funnelsFilter: {
                     layout: FunnelLayout.horizontal,
+                    ...(metric.funnel_order_type && { funnelOrderType: metric.funnel_order_type }),
                 },
                 series: getFunnelPreviewSeries(metric),
             } as FunnelsQuery

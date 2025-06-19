@@ -220,6 +220,7 @@ const QueryDatabaseTreeView = (): JSX.Element => {
                             <TreeNodeDisplayIcon
                                 item={item}
                                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                                defaultFolderIcon={item.icon}
                             />
                         )
                     }}

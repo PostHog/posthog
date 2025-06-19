@@ -1,6 +1,10 @@
 import abc
+import asyncio
+import collections.abc
+import concurrent.futures
 import gzip
 import json
+import multiprocessing.shared_memory as sm
 import typing
 from io import BytesIO
 
@@ -9,6 +13,10 @@ import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
+
+from posthog.temporal.batch_exports.utils import (
+    cast_record_batch_json_columns,
+)
 
 logger = structlog.get_logger()
 
@@ -67,6 +75,28 @@ class StreamTransformer:
             column_names.pop(column_names.index("_inserted_at"))
 
         yield from self.write_batch(batch.select(column_names))
+
+    async def iter_transformed_record_batches(
+        self, record_batches: collections.abc.AsyncIterator[pa.RecordBatch], max_file_size_bytes: int = 0
+    ) -> collections.abc.AsyncIterator[tuple[bytes, bool]]:
+        """Iterate over record batches transforming them into chunks."""
+        current_file_size = 0
+
+        async for record_batch in record_batches:
+            for chunk in self.transform_batch(record_batch):
+                yield (chunk, False)
+
+                current_file_size += len(chunk)
+
+                if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                    for chunk in self.finalize():
+                        yield (chunk, False)
+
+                    yield (b"", True)
+                    current_file_size = 0
+
+        for chunk in self.finalize():
+            yield (chunk, False)
 
     def finalize(self) -> typing.Generator[bytes, None, None]:
         """Finalize and yield any remaining data"""
@@ -167,6 +197,89 @@ class JSONLStreamTransformer(StreamTransformer):
         compressed_content = self.compress(content)
         yield compressed_content
 
+    async def iter_transformed_record_batches(
+        self, record_batches: collections.abc.AsyncIterator[pa.RecordBatch], max_file_size_bytes: int = 0
+    ) -> collections.abc.AsyncIterator[tuple[bytes, bool]]:
+        """Distribute transformation of record batches into multiple processes.
+
+        This is only supported for non-brotli compressed batch exports, so we
+        default to the parent implementation when using brotli compression.
+
+        The multiprocess pipeline works as follows:
+        1. Start a `ProcessPoolExecutor` with a number of workers to distribute
+           the workload. This is hardcoded to 5 at the moment, but should be
+           configurable later.
+        2. Spawn a producer asyncio task to iterate through record batches,
+           spawn multiprocessing tasks for the workers, and pass the futures
+           along to the consumer main thread using a queue.
+        3. The consumer main thread reads the futures from the queue and awaits
+           their result before yielding chunks along.
+        """
+        if self.compression == "brotli":
+            async for t in super().iter_transformed_record_batches(record_batches, max_file_size_bytes):
+                yield t
+            return
+
+        max_workers = 5
+        task_queue: asyncio.Queue[asyncio.Future[list[bytes]]] = asyncio.Queue(max_workers)
+        loop = asyncio.get_running_loop()
+
+        async def producer(executor):
+            async for record_batch in record_batches:
+                sink = pa.MockOutputStream()
+                with pa.ipc.new_stream(sink, record_batch.schema) as writer:
+                    writer.write_batch(record_batch)
+                size = sink.size()
+
+                shm = sm.SharedMemory(create=True, size=size)
+
+                try:
+                    stream = pa.FixedSizeBufferWriter(pa.py_buffer(shm.buf))
+                    with pa.RecordBatchStreamWriter(stream, record_batch.schema) as writer:
+                        writer.write_batch(record_batch)
+
+                    future = loop.run_in_executor(executor, transform_record_batch_from_shared_memory, shm.name, self)
+                    await task_queue.put(future)
+
+                    del stream
+                    del writer
+                    del record_batch
+                    del sink
+
+                finally:
+                    shm.close()
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            producer_task = asyncio.create_task(producer(executor))
+
+            current_file_size = 0
+            while True:
+                try:
+                    future = task_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    if producer_task.done():
+                        if exception := producer_task.exception():
+                            raise exception
+                        else:
+                            break
+
+                    await asyncio.sleep(0.0)
+                    continue
+
+                chunks = await future
+                task_queue.task_done()
+
+                for chunk in chunks:
+                    yield (chunk, False)
+                    current_file_size += len(chunk)
+
+                    if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                        # Nothing to finalize for JSONL. We just inform caller.
+                        yield (b"", True)
+                        current_file_size = 0
+
+            await producer_task
+
 
 class ParquetStreamTransformer(StreamTransformer):
     def __init__(
@@ -223,6 +336,39 @@ class ParquetStreamTransformer(StreamTransformer):
         self._parquet_buffer.truncate(0)
 
         yield data
+
+
+def transform_record_batch_from_shared_memory(shm_name: str, transformer: StreamTransformer):
+    """Top level function to run transformers in multiprocessing.
+
+    Record batches are accessed from shared memory.
+    """
+    shm = None
+    record_batch = None
+    buffer_reader = None
+    reader = None
+
+    try:
+        shm = sm.SharedMemory(name=shm_name)
+        buffer_reader = pa.BufferReader(shm.buf)
+        with pa.RecordBatchStreamReader(buffer_reader) as reader:
+            record_batch = reader.read_next_batch()
+
+        record_batch = cast_record_batch_json_columns(record_batch)
+        chunks = list(transformer.transform_batch(record_batch))
+
+        return chunks
+    finally:
+        if buffer_reader:
+            del buffer_reader
+        if record_batch:
+            del record_batch
+        if reader:
+            del reader
+
+        if shm:
+            shm.close()
+            shm.unlink()
 
 
 # TODO: Implement other transformers
