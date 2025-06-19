@@ -257,7 +257,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
         # Person has several distinct IDs, but only one of them can be matched from the customer table
         _create_person(team_id=self.team.pk, distinct_ids=["distinct_1", "john.doe@example.com"])
-        breakpoint()
 
         with freeze_time(self.QUERY_TIMESTAMP):
             response = execute_hogql_query(
