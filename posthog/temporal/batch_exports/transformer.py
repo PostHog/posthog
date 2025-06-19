@@ -204,13 +204,13 @@ class JSONLStreamTransformer(StreamTransformer):
 
         The multiprocess pipeline works as follows:
         1. Start a `ProcessPoolExecutor` with a number of workers to distribute
-           the workload. This is hardcoded to 5 at the moment, but should be
-           configurable later.
+           the workload.
         2. Spawn a producer asyncio task to iterate through record batches,
-           spawn multiprocessing tasks for the workers, and pass the futures
-           along to the consumer main thread using a queue.
-        3. The consumer main thread reads the futures from the queue and awaits
-           their result before yielding chunks along.
+           and spawn multiprocessing tasks for the workers.
+        3. We use a `asyncio.Semaphore` to block the producer loop to avoid
+           spawning up too many multiprocessing tasks at a time.
+        4. The consumer main thread waits on futures as they are done, and
+           iterates through chunks.
         """
         if self.compression == "brotli":
             async for t in super().iter_transformed_record_batches(record_batches, max_file_size_bytes):
