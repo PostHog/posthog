@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.tool import MaxTool
 from posthog.models import Team
@@ -135,6 +136,7 @@ class SurveyCreatorTool(MaxTool):
                 }
 
         except Exception as e:
+            capture_exception(e, {"team_id": self._team_id, "user_id": user_id})
             return f"❌ Failed to create survey: {str(e)}", {"error": str(e)}
 
     def _get_team_survey_config(self, team: Team) -> dict[str, Any]:
@@ -150,7 +152,10 @@ class SurveyCreatorTool(MaxTool):
         try:
             from posthog.models import Survey
 
-            surveys = Survey.objects.filter(team_id=self._team_id, archived=False)[:5]
+            surveys = Survey.objects.filter(
+                team_id=self._team_id,
+                archived=False,
+            )[:5]
 
             if not surveys:
                 return "No existing surveys"
@@ -161,7 +166,8 @@ class SurveyCreatorTool(MaxTool):
                 summaries.append(f"- '{survey.name}' ({survey.type}, {status})")
 
             return "\n".join(summaries)
-        except Exception:
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team_id})
             return "Unable to load existing surveys"
 
     def _convert_to_posthog_format(self, llm_output: SurveyCreationOutput, team: Team) -> dict[str, Any]:
