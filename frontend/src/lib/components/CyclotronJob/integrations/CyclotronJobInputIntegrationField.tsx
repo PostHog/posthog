@@ -12,21 +12,16 @@ import {
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
-import {
-    CyclotronJobInputSchemaType,
-    CyclotronJobInputType,
-    HogFunctionConfigurationType,
-    HogFunctionMappingType,
-} from '~/types'
+import { CyclotronJobInputSchemaType } from '~/types'
+
+import { CyclotronJobInputConfiguration } from '../types'
 
 export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType
     value?: any
     onChange?: (value: any) => void
-    configuration:
-        | HogFunctionConfigurationType
-        | HogFunctionMappingType
-        | { inputs: Record<string, CyclotronJobInputType>; inputs_schema: CyclotronJobInputSchemaType[] }
+    configuration: CyclotronJobInputConfiguration
+    parentConfiguration?: CyclotronJobInputConfiguration
 }
 
 export function CyclotronJobInputIntegrationField({
@@ -34,14 +29,25 @@ export function CyclotronJobInputIntegrationField({
     value,
     onChange,
     configuration,
+    parentConfiguration,
 }: CyclotronJobInputIntegrationFieldProps): JSX.Element {
+    const combinedInputs = {
+        ...(configuration?.inputs ?? {}),
+        ...(parentConfiguration?.inputs ?? {}),
+    }
+
+    const combinedInputsSchema = [
+        ...(configuration?.inputs_schema ?? []),
+        ...(parentConfiguration?.inputs_schema ?? []),
+    ]
+
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
 
     if (integrationsLoading) {
         return <LemonSkeleton className="h-10" />
     }
 
-    const relatedSchemaIntegration = configuration.inputs_schema?.find((input) => input.key === schema.integration_key)
+    const relatedSchemaIntegration = combinedInputsSchema.find((input) => input.key === schema.integration_key)
 
     if (!relatedSchemaIntegration) {
         return (
@@ -51,12 +57,12 @@ export function CyclotronJobInputIntegrationField({
         )
     }
 
-    const integrationId = configuration.inputs?.[relatedSchemaIntegration.key]?.value
+    const integrationId = combinedInputs[relatedSchemaIntegration.key]?.value
     const integration = integrations?.find((integration) => integration.id === integrationId)
     let requiresFieldValue: string | undefined
 
     if (schema.requires_field) {
-        const requiresFieldSchema = configuration.inputs_schema?.find((input) => input.key === schema.requires_field)
+        const requiresFieldSchema = combinedInputsSchema.find((input) => input.key === schema.requires_field)
 
         if (!requiresFieldSchema) {
             return (
@@ -66,7 +72,7 @@ export function CyclotronJobInputIntegrationField({
             )
         }
 
-        const requiresField = configuration.inputs?.[requiresFieldSchema.key]
+        const requiresField = combinedInputs?.[requiresFieldSchema.key]
         requiresFieldValue = requiresField?.value
         if (!requiresFieldValue) {
             return (
