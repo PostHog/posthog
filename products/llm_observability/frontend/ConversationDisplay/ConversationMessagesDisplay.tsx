@@ -79,11 +79,7 @@ export function ConversationMessagesDisplay({
                 )
             }
             outputDisplay={outputDisplay}
-            outputHeading={
-                raisedError
-                    ? `Error (${httpStatus})`
-                    : `Output${outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
-            }
+            outputHeading={raisedError ? `Error (${httpStatus})` : 'Output'}
             bordered={bordered}
         />
     )
@@ -111,9 +107,9 @@ export const LLMMessageDisplay = React.memo(
         const [show, setShow] = React.useState(role !== 'system' && role !== 'tool')
 
         // Compute whether the content looks like Markdown.
-        // (Heuristic: looks for code blocks, blockquotes, or headings)
+        // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
         const isMarkdownCandidate =
-            content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
+            content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s|_|\*|~~)/.test(content) : false
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
@@ -178,13 +174,15 @@ export const LLMMessageDisplay = React.memo(
                         const escapedContent = content.replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
                         try {
-                            return <LemonMarkdown>{escapedContent}</LemonMarkdown>
+                            // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
+                            return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                         } catch {
                             // If markdown still fails, fall back to plain text
                             return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
                         }
                     } else {
-                        return <LemonMarkdown>{content}</LemonMarkdown>
+                        // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
+                        return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
                     return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
@@ -200,7 +198,7 @@ export const LLMMessageDisplay = React.memo(
                 className={clsx(
                     'rounded border text-default',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)]'
+                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
                         ? 'bg-[var(--bg-fill-tertiary)]'
                         : role === 'assistant'

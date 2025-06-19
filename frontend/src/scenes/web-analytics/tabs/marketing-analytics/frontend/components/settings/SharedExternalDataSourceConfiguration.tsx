@@ -1,19 +1,19 @@
-import { IconCheck, IconPlus, IconTrash, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSelect, LemonSelectSection, Link } from '@posthog/lemon-ui'
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import {
-    OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED,
-    OPTIONS_FOR_OTHER_CURRENCIES_ABBREVIATED,
-} from 'lib/components/BaseCurrency/utils'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useState } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
-import { ExternalDataSource, ManualLinkSourceType } from '~/types'
-
 import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
+import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { MAX_ITEMS_TO_SHOW } from '../../logic/utils'
+import { AddSourceDropdown } from './AddSourceDropdown'
+import { ColumnMappingModal } from './ColumnMappingModal'
+import { ItemName, PaginationControls } from './PaginationControls'
+import { StatusIcon } from './StatusIcon'
 
 export type SimpleDataWarehouseTable = {
     name: string
@@ -26,72 +26,80 @@ export type SimpleDataWarehouseTable = {
     sourceUrl?: string
 }
 
-interface SharedExternalDataSourceConfigurationProps {
+interface SharedExternalDataSourceConfigurationProps<T extends string> {
     title: string
     description: string
     tables: ExternalTable[]
     loading: boolean
-    validSources: ExternalDataSource['source_type'][] | ManualLinkSourceType[]
-    onSourceAdd: (source: any) => void // Need any because self-managed and non-native sources have different types
+    validSources: T[]
+    onSourceAdd: (source: T) => void
 }
 
-export function SharedExternalDataSourceConfiguration({
+export function SharedExternalDataSourceConfiguration<T extends string>({
     title,
     description,
     tables,
     loading,
     validSources,
     onSourceAdd,
-}: SharedExternalDataSourceConfigurationProps): JSX.Element {
+}: SharedExternalDataSourceConfigurationProps<T>): JSX.Element {
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
+    const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
+
     const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
         (field) => MARKETING_ANALYTICS_SCHEMA[field].required
     )
 
-    const isColumnTypeCompatible = (
-        columnType: string,
-        schemaField: { required: boolean; type: string[] }
-    ): boolean => {
-        return schemaField.type.includes(columnType)
+    const isFieldMapped = (table: ExternalTable, fieldName: string): boolean => {
+        const sourceMapping = table.source_map
+        if (!sourceMapping) {
+            return false
+        }
+        const mapping = sourceMapping[fieldName]
+        return !!(mapping && mapping.trim() !== '')
     }
 
-    const renderColumnMappingDropdown = (
-        table: ExternalTable,
-        fieldName: keyof typeof MARKETING_ANALYTICS_SCHEMA
-    ): JSX.Element => {
-        const currentValue = table.source_map?.[fieldName]
-        const expectedTypes = MARKETING_ANALYTICS_SCHEMA[fieldName]
-        const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
-
-        let columnOptions: LemonSelectSection<string | null>[]
-        if (fieldName === 'currency') {
-            columnOptions = [
-                { options: [{ label: 'None', value: null }] },
-                { options: OPTIONS_FOR_IMPORTANT_CURRENCIES_ABBREVIATED, title: 'Most Popular' },
-                { options: OPTIONS_FOR_OTHER_CURRENCIES_ABBREVIATED, title: 'Other currencies' },
-            ]
-        } else {
-            columnOptions = [
-                { options: [{ label: 'None', value: null }] },
-                {
-                    options: compatibleColumns.map((col) => ({
-                        label: `${col.name} (${col.type})`,
-                        value: col.name,
-                    })),
-                },
-            ]
+    const getTableMappingInfo = (
+        table: ExternalTable
+    ): { mappedFields: string[]; unmappedFields: string[]; totalRequired: number; mappedCount: number } => {
+        const sourceMapping = table.source_map
+        if (!sourceMapping) {
+            return {
+                mappedFields: [],
+                unmappedFields: requiredFields,
+                totalRequired: requiredFields.length,
+                mappedCount: 0,
+            }
         }
 
-        return (
-            <LemonSelect
-                value={currentValue || null}
-                onChange={(value) => updateSourceMapping(table.source_map_id, fieldName, value)}
-                options={columnOptions}
-                placeholder="Select..."
-                size="small"
-            />
-        )
+        const mappedFields = requiredFields.filter((fieldName) => isFieldMapped(table, fieldName))
+        const unmappedFields = requiredFields.filter((fieldName) => !isFieldMapped(table, fieldName))
+
+        return {
+            mappedFields,
+            unmappedFields,
+            totalRequired: requiredFields.length,
+            mappedCount: mappedFields.length,
+        }
     }
+
+    const isTableFullyConfigured = (table: ExternalTable): boolean => {
+        const { mappedCount, totalRequired } = getTableMappingInfo(table)
+        return mappedCount === totalRequired && totalRequired > 0
+    }
+
+    const {
+        displayedItems: displayedTables,
+        sortedItems: tablesToUse,
+        hasMoreItems: hasMoreTables,
+        showAll,
+        setShowAll,
+    } = useSortedPaginatedList({
+        items: tables,
+        maxItemsToShow: MAX_ITEMS_TO_SHOW,
+        getId: (table) => table.id,
+        isItemConfigured: isTableFullyConfigured,
+    })
 
     const removeTableMapping = (table: ExternalTable): void => {
         // Remove all field mappings for this table by setting each to null
@@ -106,37 +114,21 @@ export function SharedExternalDataSourceConfiguration({
 
     const hasAnyMapping = (table: ExternalTable): boolean => {
         const sourceMapping = table.source_map
-        return sourceMapping ? Object.keys(sourceMapping).length > 0 : false
-    }
-
-    const isTableFullyConfigured = (table: ExternalTable): boolean => {
-        const sourceMapping = table.source_map
-        if (!sourceMapping) {
-            return false
-        }
-
-        return requiredFields.every((fieldName: string) => {
-            const mapping = sourceMapping[fieldName]
-            return mapping && mapping.trim() !== ''
-        })
+        return !!(sourceMapping && Object.keys(sourceMapping).length > 0)
     }
 
     const getTableStatus = (table: ExternalTable): { isConfigured: boolean; message: string } => {
-        const sourceMapping = table.source_map
-        if (!sourceMapping || Object.keys(sourceMapping).length === 0) {
+        if (!hasAnyMapping(table)) {
             return { isConfigured: false, message: 'No fields mapped' }
         }
 
-        if (isTableFullyConfigured(table)) {
+        const { mappedCount, totalRequired } = getTableMappingInfo(table)
+
+        if (mappedCount === totalRequired) {
             return { isConfigured: true, message: 'Ready to use! All fields mapped correctly.' }
         }
 
-        const mappedFields = requiredFields.filter((fieldName) => {
-            const mapping = sourceMapping[fieldName]
-            return mapping && mapping.trim() !== ''
-        })
-
-        const missingCount = requiredFields.length - mappedFields.length
+        const missingCount = totalRequired - mappedCount
         return {
             isConfigured: false,
             message: `${missingCount} field${missingCount > 1 ? 's' : ''} still need mapping`,
@@ -147,22 +139,33 @@ export function SharedExternalDataSourceConfiguration({
         <div>
             <h3 className="mb-2">{title}</h3>
             <p className="mb-4">{description}</p>
+            <PaginationControls
+                hasMoreItems={hasMoreTables}
+                showAll={showAll}
+                onToggleShowAll={() => setShowAll(!showAll)}
+                totalCount={tablesToUse.length}
+                itemName={ItemName.Tables}
+                maxItemsToShow={MAX_ITEMS_TO_SHOW}
+                additionalControls={<AddSourceDropdown<T> sources={validSources} onSourceAdd={onSourceAdd} />}
+            />
             <LemonTable
                 rowKey={(item) => item.id}
                 loading={loading}
-                dataSource={tables}
+                dataSource={displayedTables}
                 columns={[
                     {
                         key: 'source_icon',
                         title: '',
                         width: 0,
-                        render: (_, item: ExternalTable) => <DataWarehouseSourceIcon type={item.source_type} />,
+                        render: (_, item: ExternalTable): JSX.Element => (
+                            <DataWarehouseSourceIcon type={item.source_type} />
+                        ),
                     },
                     {
                         key: 'source',
                         title: 'Source',
                         width: 0,
-                        render: (_, item: ExternalTable) => {
+                        render: (_, item: ExternalTable): JSX.Element => {
                             return item.sourceUrl ? (
                                 <Link to={item.sourceUrl}>
                                     {item.source_type} {item.source_prefix}
@@ -177,102 +180,53 @@ export function SharedExternalDataSourceConfiguration({
                     {
                         key: 'prefix',
                         title: 'Table',
-                        render: (_, item: ExternalTable) => item.name,
+                        render: (_, item: ExternalTable): string => item.name,
                     },
                     {
                         key: 'status',
                         title: 'Status',
                         width: 80,
-                        render: (_, item: ExternalTable) => {
+                        render: (_, item: ExternalTable): JSX.Element => {
                             const { isConfigured, message } = getTableStatus(item)
-                            const sourceMapping = item.source_map
-                            const hasAnyMapping = sourceMapping && Object.keys(sourceMapping).length > 0
 
                             if (isConfigured) {
-                                return (
-                                    <Tooltip title={message}>
-                                        <div className="flex justify-center">
-                                            <IconCheck className="text-success text-lg" />
-                                        </div>
-                                    </Tooltip>
-                                )
-                            } else if (hasAnyMapping) {
-                                return (
-                                    <Tooltip title={message}>
-                                        <div className="flex justify-center">
-                                            <IconWarning className="text-warning text-lg" />
-                                        </div>
-                                    </Tooltip>
-                                )
+                                return <StatusIcon status="success" message={message} />
+                            } else if (hasAnyMapping(item)) {
+                                return <StatusIcon status="warning" message={message} />
                             }
-                            return (
-                                <Tooltip title={message}>
-                                    <div className="flex justify-center">
-                                        <IconX className="text-muted text-lg" />
-                                    </div>
-                                </Tooltip>
-                            )
+                            return <StatusIcon status="error" message={message} />
                         },
                     },
-                    // Required fields first
-                    ...requiredFields.sort().map((column) => ({
-                        key: column,
-                        title: `${column.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())} (*)`,
-                        render: (_: any, item: ExternalTable) => renderColumnMappingDropdown(item, column),
-                    })),
-                    ...Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                        .filter((column) => !MARKETING_ANALYTICS_SCHEMA[column].required)
-                        .sort()
-                        .map((column) => ({
-                            key: column,
-                            title: `${column.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}`,
-                            render: (_: any, item: ExternalTable) => renderColumnMappingDropdown(item, column),
-                        })),
                     {
                         key: 'actions',
                         width: 0,
-                        title: (
-                            <LemonDropdown
-                                className="my-1"
-                                overlay={
-                                    <div className="p-1">
-                                        {validSources.map((source) => (
-                                            <LemonButton
-                                                key={source}
-                                                onClick={() => onSourceAdd(source)}
-                                                fullWidth
-                                                size="small"
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <DataWarehouseSourceIcon type={source} />
-                                                    {source}
-                                                    <IconPlus className="text-muted" />
-                                                </div>
-                                            </LemonButton>
-                                        ))}
-                                    </div>
-                                }
-                            >
-                                <LemonButton type="primary" size="small">
-                                    Add new source
-                                </LemonButton>
-                            </LemonDropdown>
-                        ),
-                        render: (_, item: ExternalTable) => {
+                        title: 'Actions',
+                        render: (_, item: ExternalTable): JSX.Element => {
                             const tableHasMapping = hasAnyMapping(item)
-                            return tableHasMapping ? (
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    size="small"
-                                    status="danger"
-                                    onClick={() => removeTableMapping(item)}
-                                    tooltip="Remove all mappings for this table"
-                                />
-                            ) : null
+                            return (
+                                <div className="flex gap-1">
+                                    <LemonButton
+                                        icon={<IconPencil />}
+                                        size="small"
+                                        onClick={() => setEditingTable(item)}
+                                        tooltip="Configure column mappings"
+                                    />
+                                    {tableHasMapping && (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            size="small"
+                                            status="danger"
+                                            onClick={() => removeTableMapping(item)}
+                                            tooltip="Remove all mappings for this table"
+                                        />
+                                    )}
+                                </div>
+                            )
                         },
                     },
                 ]}
             />
+            <ColumnMappingModal table={editingTable} isOpen={!!editingTable} onClose={() => setEditingTable(null)} />
         </div>
     )
 }

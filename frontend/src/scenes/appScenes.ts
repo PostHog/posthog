@@ -91,4 +91,9 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.DataPipelines]: () => import('./data-pipelines/DataPipelinesScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
+    [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
+    [Scene.DataWarehouseSourceNew]: () => import('./data-warehouse/new/NewSourceWizard'),
+    [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
+    [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
+    [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
 }

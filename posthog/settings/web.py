@@ -100,6 +100,7 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
     "posthog.middleware.Fix204Middleware",
+    "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 
 if DEBUG:

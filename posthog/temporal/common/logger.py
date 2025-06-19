@@ -10,7 +10,6 @@ from contextvars import copy_context
 import aiokafka
 import structlog
 import temporalio.activity
-import temporalio.workflow
 from django.conf import settings
 from kafka import KafkaProducer
 from structlog.processors import EventRenamer
@@ -325,6 +324,10 @@ def get_temporal_context() -> dict[str, str | int]:
         # This works because the WorkflowID is made up like f"{external_data_schema_id}-compaction"
         log_source_id = workflow_id.split("-compaction")[0]
         log_source = "deltalake_compaction_job"
+    elif workflow_type == "data-modeling-run":
+        # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"
+        log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "data_modeling_run"
     else:
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
         # Since 'data_interval_end' is an iso formatted datetime string, it has two '-' to separate the

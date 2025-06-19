@@ -38,6 +38,7 @@ import {
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
+import { get, set } from './db'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
@@ -82,6 +83,28 @@ const getNextUntitledNumber = (tabs: QueryTab[]): number => {
         }
     }
     return untitledNumbers.length + 1
+}
+
+const getStorageItem = async (key: string): Promise<string | null> => {
+    const dbValue = await get(key)
+
+    if (dbValue) {
+        return dbValue
+    }
+
+    const lsValue = localStorage.getItem(key)
+
+    if (lsValue) {
+        await set(key, lsValue)
+        localStorage.removeItem(key)
+        return lsValue
+    }
+
+    return null
+}
+
+const setStorageItem = async (key: string, value: string): Promise<void> => {
+    await set(key, value)
 }
 
 export interface QueryTab {
@@ -228,8 +251,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         console.error(e)
                     }
 
-                    const localEditorModels = localStorage.getItem(editorModelsStateKey(props.key))
-                    const localActiveModelUri = localStorage.getItem(activeModelStateKey(props.key))
+                    const localEditorModels = await getStorageItem(editorModelsStateKey(props.key))
+                    const localActiveModelUri = await getStorageItem(activeModelStateKey(props.key))
 
                     if (queryTabStateModel === null) {
                         queryTabStateModel = await api.queryTabState.create({
@@ -527,7 +550,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.createTab(query, undefined, insight)
             }
         },
-        createTab: ({ query = '', view, insight }) => {
+        createTab: async ({ query = '', view, insight }) => {
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
                 codeEditorLogic({
@@ -704,13 +727,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
-        setLocalState: ({ key, value }) => {
-            localStorage.setItem(key, value)
+        setLocalState: async ({ key, value }) => {
+            await setStorageItem(key, value)
         },
-        initialize: () => {
+        initialize: async () => {
             // TODO: replace with queryTabState
-            const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
-            const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
+            const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
+            const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -909,7 +932,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: queryToSave,
             })
 
-            const types = logic.values.response?.types ?? []
+            const response = logic.values.response
+            const types = response && 'types' in response ? response.types ?? [] : []
             try {
                 await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
                     name,
@@ -1047,8 +1071,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             try {
                 await api.queryTabState.update(values.queryTabState.id, {
                     state: {
-                        editorModelsStateKey: localStorage.getItem(editorModelsStateKey(props.key)),
-                        activeModelStateKey: localStorage.getItem(activeModelStateKey(props.key)),
+                        editorModelsStateKey: await getStorageItem(editorModelsStateKey(props.key)),
+                        activeModelStateKey: await getStorageItem(activeModelStateKey(props.key)),
                         sourceQuery: JSON.stringify(values.sourceQuery),
                     },
                 })

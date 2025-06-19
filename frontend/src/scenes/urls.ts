@@ -185,6 +185,11 @@ export const urls = {
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
+    dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
+    batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,
+    batchExport: (id: string): string => `/data-pipelines/batch-exports/${id}`,
+    legacyPlugin: (id: string): string => `/data-pipelines/plugins/${id}`,
     hogFunction: (id: string): string => `/functions/${id}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
 }

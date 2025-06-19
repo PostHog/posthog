@@ -488,6 +488,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'New data pipeline',
     },
+    [Scene.DataWarehouseSource]: {
+        projectBased: true,
+        name: 'Data warehouse source',
+    },
+    [Scene.DataWarehouseSourceNew]: {
+        projectBased: true,
+        name: 'New data warehouse source',
+    },
+    [Scene.LegacyPlugin]: {
+        projectBased: true,
+        name: 'Legacy plugin',
+    },
     [Scene.Game368]: {
         name: '368 Hedgehogs',
         projectBased: true,
@@ -568,6 +580,7 @@ export const redirects: Record<
     '/messaging': urls.messagingBroadcasts(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
 
@@ -700,6 +713,11 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
+    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
+    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
+    [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     ...productRoutes,
