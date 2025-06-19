@@ -45,6 +45,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
+    [Scene.PublicSurvey]: () => import('./surveys/PublicSurvey'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
