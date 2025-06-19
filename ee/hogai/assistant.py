@@ -92,6 +92,11 @@ VERBOSE_NODES = STREAMING_NODES | {
 }
 """Nodes that can send messages to the client."""
 
+THINKING_NODES = {
+    AssistantNodeName.QUERY_PLANNER,
+}
+"""Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
+
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +112,10 @@ class Assistant:
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _custom_update_ids: set[str]
+    _reasoning_headline_chunk: Optional[str]
+    """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
+    _last_reasoning_headline: Optional[str]
+    """Last emittted reasoning headline, to be able to carry it over."""
 
     def __init__(
         self,
@@ -155,6 +164,8 @@ class Assistant:
         )
         self._trace_id = trace_id
         self._custom_update_ids = set()
+        self._reasoning_headline_chunk = None
+        self._last_reasoning_headline = None
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -318,16 +329,18 @@ class Assistant:
                                         )
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action properties")
-                                        elif action.tool == "retrieve_action_property_values" and isinstance(
-                                            action.tool_input, dict
-                                        ):
+                                        elif action.tool == "retrieve_action_property_values":
                                             substeps.append(
                                                 f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
                                             )
                                     except Action.DoesNotExist:
                                         pass
 
-                return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
+                # We don't want to reset back to just "Picking relevant events",
+                # so we reuse the last reasoning headline when going back to QueryPlanner after QueryPlannerTools
+                return ReasoningMessage(
+                    content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
+                )
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
             case AssistantNodeName.FUNNEL_GENERATOR:
@@ -407,6 +420,11 @@ class Assistant:
                             _messages.append(candidate_message)
                     return _messages
 
+        for node_name in THINKING_NODES:
+            if node_val := state_update.get(node_name):
+                # If update involves new state from a thinking node, we reset the thinking headline to be sure
+                self._reasoning_headline_chunk = None
+
         return None
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
@@ -425,6 +443,30 @@ class Assistant:
                 if self._chunks.content:
                     # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
                     return AssistantMessage(content=cast(str, self._chunks.content))
+            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+                try:
+                    summary_text_chunk = reasoning["summary"][0]["text"]
+                except (KeyError, IndexError):
+                    self._reasoning_headline_chunk = None  # Not expected, so let's just reset
+                    return None
+                index_of_bold_in_text = summary_text_chunk.find("**")
+                if index_of_bold_in_text != -1:
+                    # The headline is either beginning or ending with bold text in this chunk
+                    if self._reasoning_headline_chunk is None:
+                        # If we don't have a headline, we should start reading it
+                        self._reasoning_headline_chunk = summary_text_chunk[2:]  # Remove the ** from start
+                    else:
+                        # If we already have a headline, it means we should wrap up
+                        self._reasoning_headline_chunk += summary_text_chunk[
+                            :index_of_bold_in_text
+                        ]  # Remove the ** from end
+                        reasoning_message = ReasoningMessage(content=self._reasoning_headline_chunk)
+                        self._last_reasoning_headline = reasoning_message.content
+                        self._reasoning_headline_chunk = None
+                        return reasoning_message
+                elif self._reasoning_headline_chunk is not None:
+                    # No bold text in this chunk, so we should just add the text to the headline
+                    self._reasoning_headline_chunk += summary_text_chunk
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
