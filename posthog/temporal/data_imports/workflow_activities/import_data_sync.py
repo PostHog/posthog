@@ -754,6 +754,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             source = google_sheets_source(
                 google_sheets_config,
                 schema.name,
+                is_incremental=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
