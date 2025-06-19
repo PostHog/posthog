@@ -280,7 +280,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         ...getTreeItemsProducts(),
         {
             path: 'Dashboards',
-            category: 'Analytics',
+            category: 'Tools',
             type: 'dashboard',
             href: urls.dashboards(),
         },
@@ -292,20 +292,20 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         },
         {
             path: `Data pipelines`,
-            category: 'Tools',
+            category: 'Data',
             type: 'hog_function',
             iconType: 'plug',
             href: urls.pipeline(),
         } as FileSystemImport,
         {
             path: `SQL editor`,
-            category: 'Analytics',
+            category: 'Data',
             type: 'sql',
             href: urls.sqlEditor(),
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            category: 'Behavior',
+            category: 'Marketing',
             iconType: 'heatmap',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,

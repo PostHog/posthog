@@ -42,7 +42,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Session replay',
-            category: 'Behavior',
+            category: 'Product engineering',
             href: urls.replay(ReplayTabs.Home),
             type: 'session_recording_playlist',
         },

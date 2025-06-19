@@ -10,6 +10,13 @@ import { UserBasicType } from '~/types'
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
+const categoryOrder = {
+    Analytics: 1,
+    'Product engineering': 2,
+    Data: 3,
+    Tools: 4,
+}
+
 export interface ConvertProps {
     imports: (FileSystemImport | FileSystemEntry)[]
     folderStates: Record<string, FolderState>
@@ -258,6 +265,9 @@ export function convertFileSystemEntryToTreeDataItem({
         nodes.sort((a, b) => {
             // If they have a category, sort by that
             if (a.record?.category && b.record?.category && a.record.category !== b.record.category) {
+                if (categoryOrder[a.record.category] && categoryOrder[b.record.category]) {
+                    return categoryOrder[a.record.category] - categoryOrder[b.record.category]
+                }
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
             }
 

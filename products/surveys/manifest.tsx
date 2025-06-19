@@ -31,7 +31,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Surveys',
-            category: 'Behavior',
+            category: 'Product engineering',
             type: 'survey',
             href: urls.surveys(),
         },

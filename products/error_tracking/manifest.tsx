@@ -45,7 +45,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Error tracking',
-            category: 'Behavior',
+            category: 'Product engineering',
             iconType: 'errorTracking',
             href: urls.errorTracking(),
         },
