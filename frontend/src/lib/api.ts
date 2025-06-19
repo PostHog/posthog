@@ -86,7 +86,6 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
-    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -2337,13 +2336,9 @@ const api = {
         async list({
             filter_groups,
             types,
-            kinds,
-            excludeKinds,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
-            kinds?: HogFunctionKind[]
-            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2351,8 +2346,6 @@ const api = {
                     filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
-                    ...(kinds ? { kind: kinds.join(',') } : {}),
-                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },

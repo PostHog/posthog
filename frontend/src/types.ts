@@ -5211,14 +5211,10 @@ export type HogFunctionTypeType =
     | 'site_destination'
     | 'site_app'
     | 'transformation'
-    | 'messaging_campaign'
-
-export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string
