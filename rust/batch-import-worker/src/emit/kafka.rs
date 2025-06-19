@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use uuid::Uuid;
 use anyhow::Error;
 use async_trait::async_trait;
 use common_kafka::{
@@ -24,6 +25,7 @@ pub struct KafkaEmitter {
     producer: TransactionalProducer,
     topic: String,
     send_rate: u64, // Messages sent per second
+    job_id: Uuid,
 }
 
 pub struct KafkaEmitterTransaction<'a> {
@@ -32,6 +34,7 @@ pub struct KafkaEmitterTransaction<'a> {
     send_rate: u64,
     start: Instant,
     count: AtomicUsize,
+    job_id: Uuid,
 }
 
 impl KafkaEmitter {
@@ -39,6 +42,7 @@ impl KafkaEmitter {
         emitter_config: KafkaEmitterConfig,
         transactional_id: &str, // Kafka transactional ID
         context: Arc<AppContext>,
+        job_id: Uuid,
     ) -> Result<Self, Error> {
         let producer = TransactionalProducer::from_config(
             &context.config.kafka,
@@ -50,6 +54,7 @@ impl KafkaEmitter {
             producer,
             topic: emitter_config.topic,
             send_rate: emitter_config.send_rate,
+            job_id,
         })
     }
 }
@@ -64,6 +69,7 @@ impl Emitter for KafkaEmitter {
             topic: &self.topic,
             send_rate: self.send_rate,
             count: AtomicUsize::new(0),
+            job_id: self.job_id,
         }))
     }
 }
@@ -73,7 +79,7 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
         for (idx, result) in self
             .inner
-            .send_keyed_iter_to_kafka(self.topic, |e| Some(e.inner.key()), data.iter())
+            .send_keyed_iter_to_kafka_with_headers(self.topic, |e| Some(e.inner.key()), |_| Some(vec![("batch_import_worker_job_id".to_string(), self.job_id.to_string())]), data.iter())
             .await
             .into_iter()
             .enumerate()

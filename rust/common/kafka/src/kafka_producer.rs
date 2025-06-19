@@ -113,11 +113,25 @@ pub async fn send_keyed_iter_to_kafka<T, C: ClientContext>(
 where
     T: Serialize,
 {
+    send_keyed_iter_to_kafka_with_headers(kafka_producer, topic, key_extractor, |_| None, iter).await
+}
+
+pub async fn send_keyed_iter_to_kafka_with_headers<T, C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
+    topic: &str,
+    key_extractor: impl Fn(&T) -> Option<String>,
+    headers_extractor: impl Fn(&T) -> Option<Vec<(String, String)>>,
+    iter: impl IntoIterator<Item = T>,
+) -> Vec<Result<(), KafkaProduceError>>
+where
+    T: Serialize,
+{
     let mut results = Vec::new();
     let mut handles = Vec::new();
 
     for (index, item) in iter.into_iter().enumerate() {
         let key = key_extractor(&item);
+        let headers = headers_extractor(&item);
         let payload = match serde_json::to_string(&item)
             .map_err(|e| KafkaProduceError::SerializationError { error: e })
         {
@@ -128,13 +142,19 @@ where
             }
         };
 
+        let owned_headers = headers.map(|headers| {
+            headers.into_iter().fold(rdkafka::message::OwnedHeaders::new(), |acc, (k, v)| {
+                acc.insert(rdkafka::message::Header { key: &k, value: Some(&v) })
+            })
+        });
+
         let record = FutureRecord {
             topic,
             key: key.as_deref(),
             payload: Some(&payload),
             timestamp: None,
             partition: None,
-            headers: None,
+            headers: owned_headers,
         };
 
         let future_handle = match kafka_producer.send_result(record) {
