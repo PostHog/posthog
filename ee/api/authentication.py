@@ -170,6 +170,16 @@ class MultitenantSAMLAuth(SAMLAuth):
 
 
 class CustomGoogleOAuth2(GoogleOAuth2):
+    def auth_extra_arguments(self):
+        extra_args = super().auth_extra_arguments()
+        email = self.strategy.request.GET.get("email")
+
+        if email:
+            extra_args["login_hint"] = email
+            extra_args["prompt"] = "select_account"
+
+        return extra_args
+
     def get_user_id(self, details, response):
         """
         Retrieve and migrate Google OAuth user identification.
