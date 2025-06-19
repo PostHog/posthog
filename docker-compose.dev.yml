@@ -20,7 +20,7 @@ services:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
             - 'capture:host-gateway'
-            - 'capture-replay:host-gateway'
+            - 'replay-capture:host-gateway'
         environment:
             CADDYFILE: |
                 http://localhost:8000 {
