@@ -14,7 +14,7 @@ from posthog.tasks.calculate_cohort import (
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
     reset_stuck_cohorts,
-    update_stale_cohort_metrics,
+    update_cohort_metrics,
     COHORTS_STALE_COUNT_GAUGE,
     COHORT_STUCK_COUNT_GAUGE,
     increment_version_and_enqueue_calculate_cohort,
@@ -193,7 +193,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 is_static=False,
             )
 
-            update_stale_cohort_metrics()
+            update_cohort_metrics()
 
             mock_labels.assert_any_call(hours="24")
             mock_labels.assert_any_call(hours="36")
@@ -252,7 +252,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 is_static=False,
             )
 
-            update_stale_cohort_metrics()
+            update_cohort_metrics()
             mock_set.assert_called_with(2)
 
         @patch("posthog.tasks.calculate_cohort.logger")
