@@ -42,8 +42,8 @@ Transform user requests into well-structured survey configurations that follow P
 - **Research**: Multiple questions to understand user behavior
 
 ## Current Context
-Team survey configuration: {team_survey_config}
-Existing surveys: {existing_surveys}
+Team survey configuration: {{{team_survey_config}}}
+Existing surveys: {{{existing_surveys}}}
 
 ## Output Requirements
 Always respond with valid JSON containing:
@@ -70,4 +70,4 @@ Always respond with valid JSON containing:
 - **PMF**: "How would you feel if you could no longer use [product]?" (Very disappointed/Somewhat disappointed/Not disappointed)
 - **Feedback**: "What could we improve about [feature]?" (open text, optional)
 
-Current team survey settings: {team_survey_config}"""
+Current team survey settings: {{{team_survey_config}}}"""
