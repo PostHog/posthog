@@ -252,7 +252,7 @@ function ZenModeSettings(): JSX.Element | null {
         <div>
             <h3>Cinema mode</h3>
             <p>
-                This setting controls if the cinema mode is enabled. Cinema mode hides all the extra features (e.g.
+                This setting controls if cinema mode is enabled. Cinema mode hides all the extra features (e.g.
                 annotations, inspector, etc.) and only shows the bare minimum.
             </p>
             <LemonSwitch
