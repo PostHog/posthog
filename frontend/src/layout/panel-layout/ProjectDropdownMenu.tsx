@@ -36,7 +36,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
@@ -172,6 +172,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                     tooltip="Create a new project"
                                     tooltipPlacement="right"
                                     className="shrink-0"
+                                    disabled={!!projectCreationForbiddenReason}
                                 >
                                     <IconPlusSmall className="text-tertiary" />
                                     New project
