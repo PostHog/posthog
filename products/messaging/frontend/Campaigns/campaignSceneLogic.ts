@@ -31,8 +31,8 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            () => [(_, props) => props.id as CampaignSceneLogicProps['id']],
+            (id): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.MessagingCampaigns,
@@ -46,7 +46,7 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
                     },
                     {
                         key: 'campaign',
-                        name: 'Manage campaign',
+                        name: id == 'new' ? 'New campaign' : 'Manage campaign',
                     },
                 ]
             },

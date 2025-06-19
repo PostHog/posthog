@@ -5,9 +5,11 @@ import React, {
     forwardRef,
     isValidElement,
     ReactNode,
+    useCallback,
     useContext,
     useEffect,
     useImperativeHandle,
+    useMemo,
     useRef,
     useState,
 } from 'react'
@@ -54,7 +56,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
     const focusableElements = useRef<HTMLElement[]>([])
     const [virtualFocusedElement, setVirtualFocusedElement] = useState<HTMLElement | null>(null)
 
-    function recalculateFocusableElements(): void {
+    const recalculateFocusableElements = useCallback((): void => {
         focusableElements.current = Array.from(
             containerRef.current?.querySelectorAll<HTMLElement>('[data-listbox-item]') || []
         ).filter(
@@ -63,84 +65,97 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 el.getAttribute('aria-disabled') !== 'true' &&
                 el.getAttribute('data-virtual-focus-ignore') !== 'true'
         )
-    }
+    }, [])
 
-    useImperativeHandle(ref, () => ({
-        recalculateFocusableElements,
-        focusFirstItem() {
-            recalculateFocusableElements()
-            const elements = focusableElements.current
-            if (!elements.length) {
-                return
-            }
-
-            elements.forEach((el) => el.removeAttribute('data-focused'))
-
-            if (virtualFocus) {
-                setVirtualFocusedElement(elements[0])
-                elements[0].setAttribute('data-focused', 'true')
-            } else {
-                elements[0].focus()
-            }
-        },
-        getFocusableElementsCount() {
-            recalculateFocusableElements()
-            const elements = focusableElements.current
-            if (!elements.length) {
-                return 0
-            }
-            return elements.length
-        },
-    }))
-
-    const handleKeyDown = (e: React.KeyboardEvent): void => {
-        if (!containerRef.current?.contains(document.activeElement)) {
-            return
-        }
-
+    const focusFirstItem = useCallback(() => {
         recalculateFocusableElements()
         const elements = focusableElements.current
         if (!elements.length) {
             return
         }
 
-        const activeElement = virtualFocus ? virtualFocusedElement : (document.activeElement as HTMLElement)
-        const currentIndex = elements.indexOf(activeElement!)
-        let nextIndex = currentIndex
+        elements.forEach((el) => el.removeAttribute('data-focused'))
 
         if (virtualFocus) {
-            elements.forEach((el) => el.removeAttribute('data-focused'))
-        }
-
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault()
-            nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
-        } else if (e.key === 'Home' || e.key === 'End') {
-            e.preventDefault()
-            nextIndex = e.key === 'Home' ? 0 : elements.length - 1
-        }
-
-        if (virtualFocus) {
-            setVirtualFocusedElement(elements[nextIndex])
-            elements[nextIndex]?.setAttribute('data-focused', 'true')
+            setVirtualFocusedElement(elements[0])
+            elements[0].setAttribute('data-focused', 'true')
         } else {
-            elements[nextIndex]?.focus()
+            elements[0].focus()
         }
+    }, [virtualFocus, recalculateFocusableElements])
 
-        elements[nextIndex]?.scrollIntoView({ block: 'nearest' })
-
-        if (e.key === 'Enter') {
-            e.preventDefault()
-            activeElement?.click()
+    const getFocusableElementsCount = useCallback(() => {
+        recalculateFocusableElements()
+        const elements = focusableElements.current
+        if (!elements.length) {
+            return 0
         }
+        return elements.length
+    }, [recalculateFocusableElements])
 
-        onFinishedKeyDown?.({
-            e,
-            activeElement,
-            nextFocusedElement: elements[nextIndex],
-            allElements: elements,
-        })
-    }
+    useImperativeHandle(
+        ref,
+        () => ({
+            recalculateFocusableElements,
+            focusFirstItem,
+            getFocusableElementsCount,
+        }),
+        [recalculateFocusableElements, focusFirstItem, getFocusableElementsCount]
+    )
+
+    const handleKeyDown = useCallback(
+        (e: React.KeyboardEvent): void => {
+            if (!containerRef.current?.contains(document.activeElement)) {
+                return
+            }
+
+            recalculateFocusableElements()
+            const elements = focusableElements.current
+            if (!elements.length) {
+                return
+            }
+
+            const activeElement = virtualFocus ? virtualFocusedElement : (document.activeElement as HTMLElement)
+            const currentIndex = elements.indexOf(activeElement!)
+            let nextIndex = currentIndex
+
+            if (virtualFocus) {
+                elements.forEach((el) => el.removeAttribute('data-focused'))
+            }
+
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
+            } else if (e.key === 'Home' || e.key === 'End') {
+                e.preventDefault()
+                nextIndex = e.key === 'Home' ? 0 : elements.length - 1
+            }
+
+            if (virtualFocus) {
+                setVirtualFocusedElement(elements[nextIndex])
+                elements[nextIndex]?.setAttribute('data-focused', 'true')
+            } else {
+                elements[nextIndex]?.focus()
+            }
+
+            elements[nextIndex]?.scrollIntoView({ block: 'nearest' })
+
+            if (e.key === 'Enter') {
+                e.preventDefault()
+                activeElement?.click()
+            }
+
+            onFinishedKeyDown?.({
+                e,
+                activeElement,
+                nextFocusedElement: elements[nextIndex],
+                allElements: elements,
+            })
+        },
+        [virtualFocus, virtualFocusedElement, onFinishedKeyDown, recalculateFocusableElements]
+    )
+
+    const contextValue = useMemo(() => ({ containerRef }), [])
 
     useEffect(() => {
         recalculateFocusableElements()
@@ -153,7 +168,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
     }, [focusedElement])
 
     return (
-        <ListBoxContext.Provider value={{ containerRef }}>
+        <ListBoxContext.Provider value={contextValue}>
             <div
                 ref={containerRef}
                 role="listbox"
@@ -209,20 +224,23 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
             }
         }
 
-        const itemProps = {
-            'data-listbox-item': 'true',
-            'data-focused': 'false',
-            'aria-current': false,
-            'aria-selected': false,
-            tabIndex: -1,
-            role: 'option',
-            onClick: handleItemClick,
-            onFocus: handleFocus,
-            onBlur: handleBlur,
-            ref,
-            ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
-            ...props,
-        }
+        const itemProps = useMemo(
+            () => ({
+                'data-listbox-item': 'true',
+                'data-focused': 'false',
+                'aria-current': false,
+                'aria-selected': false,
+                tabIndex: -1,
+                role: 'option',
+                onClick: handleItemClick,
+                onFocus: handleFocus,
+                onBlur: handleBlur,
+                ref,
+                ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
+                ...props,
+            }),
+            [handleItemClick, handleFocus, handleBlur, ref, virtualFocusIgnore, props]
+        )
 
         if (asChild && isValidElement(children)) {
             return cloneElement(children as React.ReactElement, {

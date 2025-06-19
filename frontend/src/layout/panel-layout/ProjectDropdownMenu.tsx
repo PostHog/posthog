@@ -36,7 +36,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
@@ -57,7 +57,10 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                     />
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
-            <PopoverPrimitiveContent align="start" className="min-w-[200px] max-w-[var(--project-panel-inner-width)]">
+            <PopoverPrimitiveContent
+                align="start"
+                className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)]"
+            >
                 <Combobox>
                     <Combobox.Search placeholder="Search projects..." />
                     <Combobox.Content className="max-h-[300px]">
@@ -78,6 +81,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                         tooltip={`Current project: ${currentTeam.name}`}
                                         tooltipPlacement="right"
                                         data-attr="tree-navbar-project-dropdown-current-project-button"
+                                        className="pr-12"
                                     >
                                         <IconCheck className="text-tertiary" />
                                         <ProjectName team={currentTeam} />
@@ -121,6 +125,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                                         buttonProps={{
                                                             menuItem: true,
                                                             hasSideActionRight: true,
+                                                            className: 'pr-12',
                                                         }}
                                                         tooltip={`Switch to project: ${team.name}`}
                                                         tooltipPlacement="right"
@@ -160,13 +165,14 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                         showCreateProjectModal()
                                     })
                                 }
-                                className="sticky bottom-0"
                             >
                                 <ButtonPrimitive
                                     menuItem
                                     data-attr="new-project-button"
                                     tooltip="Create a new project"
                                     tooltipPlacement="right"
+                                    className="shrink-0"
+                                    disabled={!!projectCreationForbiddenReason}
                                 >
                                     <IconPlusSmall className="text-tertiary" />
                                     New project

@@ -7,7 +7,6 @@ use strum::Display;
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time::interval;
-use tracing::instrument;
 
 /// Limit resources by checking if a value is present in Redis
 ///
@@ -144,7 +143,7 @@ impl RedisLimiter {
                         *limited_lock = set;
                     }
                     Err(e) => {
-                        tracing::error!("Failed to update cache from Redis: {:?}", e);
+                        tracing::warn!("Failed to update cache from Redis: {:?}", e);
                     }
                 }
 
@@ -153,7 +152,6 @@ impl RedisLimiter {
         });
     }
 
-    #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key: &String,
@@ -164,7 +162,6 @@ impl RedisLimiter {
             .await
     }
 
-    #[instrument(skip_all, fields(value = value))]
     pub async fn is_limited(&self, value: &str) -> bool {
         let limited = self.limited.read().await;
         limited.contains(value)
