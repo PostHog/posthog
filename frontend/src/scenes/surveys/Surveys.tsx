@@ -51,11 +51,16 @@ function SurveysWithMaxTool(): JSX.Element {
     const { loadSurveys } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
+    // If the user is not loaded, wait for it to load to show the surveys' Max tool
+    if (!user?.uuid) {
+        return <Surveys />
+    }
+
     return (
         <MaxTool
             name="create_survey"
             displayName="AI Survey Creator"
-            initialMaxPrompt="Create a survey to understand"
+            initialMaxPrompt="Create a survey to understand "
             suggestions={[
                 'Create an NPS survey for customers who completed checkout',
                 'Create a feedback survey asking about our new dashboard',
@@ -73,7 +78,7 @@ function SurveysWithMaxTool(): JSX.Element {
                         status: getSurveyStatus(survey),
                     })),
                 total_surveys_count: surveys.length,
-                user_id: user?.uuid, // Pass the actual user ID to the backend
+                user_id: user.uuid,
             }}
             callback={(toolOutput: {
                 survey_id?: string
