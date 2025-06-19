@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,7 +209,17 @@ impl Config {
     }
 
     pub fn get_maxmind_db_path(&self) -> PathBuf {
-        PathBuf::from(&self.maxmind_db_path)
+        if self.maxmind_db_path.is_empty() {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("share")
+                .join("GeoLite2-City.mmdb")
+        } else {
+            PathBuf::from(&self.maxmind_db_path)
+        }
     }
 
     pub fn get_redis_reader_url(&self) -> &str {
