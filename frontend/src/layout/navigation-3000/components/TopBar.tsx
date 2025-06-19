@@ -30,7 +30,7 @@ export const BREADCRUMBS_HEIGHT_COMPACT = 44
 export function TopBar(): JSX.Element | null {
     const { mobileLayout } = useValues(navigationLogic)
     const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
-    const { setActionsContainer } = useActions(breadcrumbsLogic)
+    // const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
@@ -158,7 +158,7 @@ export function TopBar(): JSX.Element | null {
                         <MetalyticsSummary />
                     </div>
                 </FlaggedFeature>
-                <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
+                {/* <div className="TopBar3000__actions border-danger" ref={setActionsContainer} /> */}
                 <div className="shrink-1">
                     <TopBarSettingsButton />
                 </div>

@@ -16,6 +16,7 @@ import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
+import { SceneHeader } from '../scenes/SceneHeader'
 
 export function Navigation({
     children,
@@ -54,6 +55,7 @@ export function Navigation({
             <PanelLayout mainRef={mainRef} />
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
+                {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <SceneHeader />}
                 {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
                 <div
                     className={clsx(
