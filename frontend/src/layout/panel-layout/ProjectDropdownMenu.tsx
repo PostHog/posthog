@@ -36,7 +36,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
@@ -156,57 +156,6 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                     )
                                 })}
 
-                        {currentOrganization?.teams &&
-                            currentOrganization.teams
-                                .filter((team) => team.id !== currentTeam?.id)
-                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                                .map((team) => {
-                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
-                                        location.pathname,
-                                        team.id,
-                                        currentTeam?.project_id,
-                                        team.project_id
-                                    )
-
-                                    return (
-                                        <Combobox.Group value={[team.name]} key={team.id}>
-                                            <ButtonGroupPrimitive menuItem fullWidth>
-                                                <Combobox.Item asChild>
-                                                    <Link
-                                                        buttonProps={{
-                                                            menuItem: true,
-                                                            hasSideActionRight: true,
-                                                            className: 'pr-12',
-                                                        }}
-                                                        tooltip={`Switch to project: ${team.name}`}
-                                                        tooltipPlacement="right"
-                                                        to={relativeOtherProjectPath}
-                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
-                                                    >
-                                                        <IconBlank />
-                                                        <ProjectName team={team} />
-                                                    </Link>
-                                                </Combobox.Item>
-
-                                                <Combobox.Item asChild>
-                                                    <Link
-                                                        buttonProps={{
-                                                            iconOnly: true,
-                                                            isSideActionRight: true,
-                                                        }}
-                                                        tooltip={`View settings for project: ${team.name}`}
-                                                        tooltipPlacement="right"
-                                                        to={urls.project(team.id, urls.settings('project'))}
-                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
-                                                    >
-                                                        <IconGear />
-                                                    </Link>
-                                                </Combobox.Item>
-                                            </ButtonGroupPrimitive>
-                                        </Combobox.Group>
-                                    )
-                                })}
-
                         {preflight?.can_create_org && (
                             <Combobox.Item
                                 asChild
@@ -223,6 +172,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                     tooltip="Create a new project"
                                     tooltipPlacement="right"
                                     className="shrink-0"
+                                    disabled={!!projectCreationForbiddenReason}
                                 >
                                     <IconPlusSmall className="text-tertiary" />
                                     New project

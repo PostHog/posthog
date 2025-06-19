@@ -372,16 +372,22 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             self.assertEqual(mock_calculate_cohort_ch_si.call_count, 4)
 
-            # Extract the actual call order and verify it matches expected dependency resolution
+            # Extract the actual call order and verify dependency constraints are satisfied
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
-            expected_cohort_order = [cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id]
 
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Cohorts should be processed in dependency order: A, B (leaves), then C (depends on A,B), then D (depends on C)",
-            )
+            self.assertEqual(set(actual_cohort_order), {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id})
+
+            # Verify dependency constraints:
+            # Both A and B (leaf nodes) must come before C
+            a_index = actual_cohort_order.index(cohort_a.id)
+            b_index = actual_cohort_order.index(cohort_b.id)
+            c_index = actual_cohort_order.index(cohort_c.id)
+            d_index = actual_cohort_order.index(cohort_d.id)
+
+            self.assertLess(a_index, c_index, "Cohort A must be processed before C (dependency)")
+            self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
+            self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()

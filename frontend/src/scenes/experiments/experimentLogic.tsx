@@ -344,7 +344,6 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
-        setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
         addVariant: true,
@@ -1093,13 +1092,6 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ end_date: endDate })
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
         },
-        setExperimentStatsVersion: async ({ version }, breakpoint) => {
-            actions.updateExperiment({ stats_config: { version } })
-            await breakpoint(100)
-            if (values.experiment?.start_date) {
-                actions.refreshExperimentResults(true)
-            }
-        },
         endExperiment: async () => {
             const endDate = dayjs()
             actions.updateExperiment({
@@ -1668,6 +1660,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     return metric?.metric_type || ExperimentMetricType.MEAN
                 },
         ],
+        isExperimentDraft: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !experiment?.start_date && !experiment?.end_date && !experiment?.archived
+            },
+        ],
         isExperimentRunning: [
             (s) => [s.experiment],
             (experiment): boolean => {
@@ -1786,19 +1784,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         significanceDetails: [
-            (s) => [s.legacyMetricResults, s.experimentStatsVersion],
+            (s) => [s.legacyMetricResults],
             (
                     legacyMetricResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[],
-                    experimentStatsVersion: number
+                    )[]
                 ) =>
                 (metricIndex: number = 0): string => {
                     const results = legacyMetricResults?.[metricIndex]
-                    return getSignificanceDetails(results, experimentStatsVersion)
+                    return getSignificanceDetails(results)
                 },
         ],
         recommendedSampleSize: [
@@ -2011,12 +2008,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (primaryMetric) {
                     return primaryMetric.query
                 }
-            },
-        ],
-        experimentStatsVersion: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => {
-                return experiment.stats_config?.version || 1
             },
         ],
         primaryMetricsLengthWithSharedMetrics: [

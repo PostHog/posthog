@@ -10,7 +10,7 @@ import { MessageTemplatesTable } from './MessageTemplatesTable'
 
 export function MessageLibrary(): JSX.Element {
     return (
-        <div className="messaging-library">
+        <div>
             <MessagingTabs key="library-tabs" />
             <PageHeader
                 caption="Create and manage messages"

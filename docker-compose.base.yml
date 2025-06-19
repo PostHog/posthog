@@ -238,6 +238,11 @@ services:
             READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
             REDIS_URL: 'redis://redis:6379/'
+            # Optional: Use separate Redis URLs for read/write separation
+            # REDIS_READER_URL: 'redis://redis-replica:6379/'
+            # REDIS_WRITER_URL: 'redis://redis-primary:6379/'
+            # Optional: Increase Redis timeout (default is 100ms)
+            # REDIS_TIMEOUT_MS: 200
             ADDRESS: '0.0.0.0:3001'
             RUST_LOG: 'info'
             SKIP_WRITES: 'false'
