@@ -87,5 +87,5 @@ def get_single_session_summary_llm_input_from_redis(
     except Exception as e:
         raise ValueError(
             f"Failed to parse single session summary LLM input data ({raw_redis_data}) for Redis key {redis_input_key}: {e}"
-        )
+        ) from e
     return redis_data
