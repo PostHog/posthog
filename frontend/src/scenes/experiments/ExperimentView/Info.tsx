@@ -30,6 +30,7 @@ export function Info(): JSX.Element {
         isDescriptionModalOpen,
         statsMethod,
         usesNewQueryRunner,
+        isExperimentDraft,
     } = useValues(experimentLogic)
     const {
         updateExperiment,
@@ -105,20 +106,22 @@ export function Info(): JSX.Element {
                         </div>
                         <div className="inline-flex deprecated-space-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
-                            {usesNewQueryRunner && featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREQUENTIST] && (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => {
-                                            openStatsEngineModal()
-                                        }}
-                                        icon={<IconGear />}
-                                        tooltip="Change stats engine"
-                                    />
-                                    <StatsMethodModal />
-                                </>
-                            )}
+                            {usesNewQueryRunner &&
+                                (isExperimentDraft ||
+                                    featureFlags[FEATURE_FLAGS.EXPERIMENTS_DEV_STATS_METHOD_TOGGLE]) && (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            onClick={() => {
+                                                openStatsEngineModal()
+                                            }}
+                                            icon={<IconGear />}
+                                            tooltip="Change stats engine"
+                                        />
+                                        <StatsMethodModal />
+                                    </>
+                                )}
                         </div>
                     </div>
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
