@@ -19,7 +19,7 @@ class TestCohort(BaseTest):
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
-        cohort = Cohort.objects.get()
+        cohort.refresh_from_db()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
 
@@ -29,7 +29,7 @@ class TestCohort(BaseTest):
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
-        cohort = Cohort.objects.get()
+        cohort.refresh_from_db()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
 
@@ -50,7 +50,7 @@ class TestCohort(BaseTest):
         cohort.insert_users_by_list(
             ["000", "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"], batch_size=3
         )
-        cohort = Cohort.objects.get()
+        cohort.refresh_from_db()
         self.assertEqual(cohort.people.count(), 11)
         self.assertEqual(cohort.is_calculating, False)
 
@@ -95,7 +95,8 @@ class TestCohort(BaseTest):
         )
 
         cohort2.calculate_people_ch(pending_version=0)
-        self.assertFalse(Cohort.objects.get().is_calculating)
+        cohort2.refresh_from_db()
+        self.assertFalse(cohort2.is_calculating)
 
     def test_group_to_property_conversion(self):
         cohort = Cohort.objects.create(
