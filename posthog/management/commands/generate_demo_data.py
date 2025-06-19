@@ -224,7 +224,7 @@ class Command(BaseCommand):
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):
                 continue
-            person_properties.add("$initial_" + prop[1:] if prop[0] == "$" else prop)
+            person_properties.add("$initial_" + (prop[1:] if prop[0] == "$" else prop))
 
         materialize_properties_task(
             properties_to_materialize=[
