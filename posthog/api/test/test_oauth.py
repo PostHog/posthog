@@ -1908,6 +1908,7 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get(invalid_scope_url_with_slash)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response.get("Location")
+        assert location
         self.assertIn("error=invalid_scope", location)
 
         # Test without trailing slash (should now also validate scopes after fix)
@@ -1918,4 +1919,5 @@ class TestOAuthAPI(APIBaseTest):
         # After the fix, both should behave the same - redirect with error
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response.get("Location")
+        assert location
         self.assertIn("error=invalid_scope", location)

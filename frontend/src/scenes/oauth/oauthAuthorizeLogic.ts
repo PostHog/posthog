@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
@@ -16,19 +16,17 @@ export type OAuthAuthorizationFormValues = {
     access_type: 'all' | 'organizations' | 'teams'
 }
 
-const submitOAuthAuthorization = async (values: OAuthAuthorizationFormValues & { allow: boolean }): Promise<void> => {
-    const params = new URLSearchParams(location.search)
-
+const oauthAuthorize = async (values: OAuthAuthorizationFormValues & { allow: boolean }): Promise<void> => {
     const response = await api.create('/oauth/authorize/', {
-        client_id: params.get('client_id'),
-        redirect_uri: params.get('redirect_uri'),
-        response_type: params.get('response_type'),
-        state: params.get('state'),
-        scope: params.get('scope'),
-        code_challenge: params.get('code_challenge'),
-        code_challenge_method: params.get('code_challenge_method'),
-        nonce: params.get('nonce'),
-        claims: params.get('claims'),
+        client_id: router.values.searchParams['client_id'],
+        redirect_uri: router.values.searchParams['redirect_uri'],
+        response_type: router.values.searchParams['response_type'],
+        state: router.values.searchParams['state'],
+        scope: router.values.searchParams['scope'],
+        code_challenge: router.values.searchParams['code_challenge'],
+        code_challenge_method: router.values.searchParams['code_challenge_method'],
+        nonce: router.values.searchParams['nonce'],
+        claims: router.values.searchParams['claims'],
         scoped_organizations: values.access_type === 'organizations' ? values.scoped_organizations : [],
         scoped_teams: values.access_type === 'teams' ? values.scoped_teams : [],
         access_level:
@@ -65,15 +63,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             null as OAuthApplicationPublicMetadata | null,
             {
                 loadOAuthApplication: async () => {
-                    const params = new URLSearchParams(location.search)
-                    return await api.oauthApplication.getPublicMetadata(params.get('client_id') as string)
+                    return await api.oauthApplication.getPublicMetadata(
+                        router.values.searchParams['client_id'] as string
+                    )
                 },
             },
         ],
     }),
     listeners(({ values }) => ({
         cancel: async () => {
-            await submitOAuthAuthorization({
+            await oauthAuthorize({
                 scoped_organizations: values.oauthAuthorization.scoped_organizations,
                 scoped_teams: values.oauthAuthorization.scoped_teams,
                 access_type: values.oauthAuthorization.access_type,
@@ -108,7 +107,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
-                await submitOAuthAuthorization({
+                await oauthAuthorize({
                     ...values,
                     allow: true,
                 })

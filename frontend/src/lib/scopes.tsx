@@ -12,7 +12,7 @@ export type APIScope = {
     objectPlural: string
 }
 
-export const APIScopes: APIScope[] = [
+export const API_SCOPES: APIScope[] = [
     { key: 'action', objectPlural: 'actions' },
     { key: 'activity_log', objectPlural: 'activity logs' },
     { key: 'annotation', objectPlural: 'annotations' },
@@ -100,7 +100,7 @@ export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: stri
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: APIScopes.map(({ key }) =>
+        scopes: API_SCOPES.map(({ key }) =>
             ['feature_flag', 'insight'].includes(key) ? `${key}:write` : `${key}:read`
         ),
     },
@@ -137,7 +137,7 @@ export const getScopeDescription = (scope: string): string => {
         return scope
     }
 
-    const scopeObject = APIScopes.find((s) => s.key === object)
+    const scopeObject = API_SCOPES.find((s) => s.key === object)
     const actionWord = action === 'write' ? 'Write' : 'Read'
 
     return `${actionWord} access to ${scopeObject?.objectPlural ?? scope}`

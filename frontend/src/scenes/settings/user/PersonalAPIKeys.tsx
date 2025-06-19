@@ -20,7 +20,7 @@ import { Form } from 'kea-forms'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { API_KEY_SCOPE_PRESETS, APIScopes, MAX_API_KEYS_PER_USER } from 'lib/scopes'
+import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -123,7 +123,7 @@ function EditKeyModal(): JSX.Element {
                                     </LemonBanner>
                                 ) : (
                                     <div>
-                                        {APIScopes.map(
+                                        {API_SCOPES.map(
                                             ({ key, disabledActions, warnings, disabledWhenProjectScoped, info }) => {
                                                 const disabledDueToProjectScope =
                                                     disabledWhenProjectScoped && editingKey.access_type === 'teams'
