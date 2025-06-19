@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
+
+from dateutil import parser
 from django.core.cache import cache
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from dateutil import parser
-
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.clickhouse.views.experiment_saved_metrics import (
+    ExperimentToSavedMetricSerializer,
+)
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -14,10 +16,10 @@ from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.test.base import (
     ClickhouseTestMixin,
+    FuzzyInt,
     _create_event,
     _create_person,
     flush_persons_and_events,
-    FuzzyInt,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -100,11 +102,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
-        self.assertEqual(response.json()["stats_config"], {"version": 2, "method": "bayesian"})
+        self.assertEqual(response.json()["stats_config"], {"method": "bayesian"})
 
         id = response.json()["id"]
         experiment = Experiment.objects.get(pk=id)
-        self.assertEqual(experiment.get_stats_config("version"), 2)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -118,7 +119,7 @@ class TestExperimentCRUD(APILicensedTest):
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "end_date": end_date, "stats_config": {"version": 1}},
+            {"description": "Bazinga", "end_date": end_date},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -126,7 +127,6 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
-        self.assertEqual(experiment.get_stats_config("version"), 1)
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
