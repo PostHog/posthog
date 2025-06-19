@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { UUIDT } from '~/src/utils/utils'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -185,7 +185,6 @@ describe('CdpCyclotronWorker', () => {
             invocation.functionId = new UUIDT().toString()
             const results = await processor.processInvocations([invocation])
             expect(results).toEqual([])
-
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
     })

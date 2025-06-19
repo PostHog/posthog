@@ -52,6 +52,8 @@ import {
     CommentType,
     ConversationDetail,
     CoreMemory,
+    CyclotronJobFiltersType,
+    CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -82,12 +84,10 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
-    HogFunctionFiltersType,
     HogFunctionIconResponse,
     HogFunctionKind,
     HogFunctionStatus,
     HogFunctionTemplateType,
-    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
@@ -1359,6 +1359,13 @@ function getSessionId(): string | undefined {
     return posthog.get_session_id()
 }
 
+function getDistinctId(): string | undefined {
+    if (typeof posthog?.get_distinct_id !== 'function') {
+        return undefined
+    }
+    return posthog.get_distinct_id()
+}
+
 const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
@@ -2329,7 +2336,7 @@ const api = {
             kinds,
             excludeKinds,
         }: {
-            filter_groups?: HogFunctionFiltersType[]
+            filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
             kinds?: HogFunctionKind[]
             excludeKinds?: HogFunctionKind[]
@@ -2404,7 +2411,7 @@ const api = {
                 clickhouse_event?: any
                 invocation_id?: string
             }
-        ): Promise<HogFunctionTestInvocationResult> {
+        ): Promise<CyclotronJobTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 
@@ -3557,6 +3564,7 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...(getDistinctId() ? { 'X-POSTHOG-DISTINCT-ID': getDistinctId() } : {}),
                 },
             })
         })

@@ -46,9 +46,8 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     is_continuous,
 )
 from posthog.hogql_queries.experiments.funnel_query_utils import (
+    funnel_evaluation_expr,
     funnel_steps_to_filter,
-    funnel_steps_to_window_funnel_expr,
-    get_funnel_step_level_expr,
 )
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
@@ -94,8 +93,6 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = 2
-
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
@@ -110,15 +107,12 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Determine which statistical method to use
         if self.experiment.stats_config is None:
-            self.stats_version = 2
             # Default to "bayesian" if not specified
             self.stats_method = "bayesian"
-
         else:
             self.stats_method = self.experiment.stats_config.get("method", "bayesian")
             if self.stats_method not in ["bayesian", "frequentist"]:
                 self.stats_method = "bayesian"
-            self.stats_version = self.experiment.stats_config.get("version", 1)
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -405,13 +399,27 @@ class ExperimentQueryRunner(QueryRunner):
                         )
 
             case ExperimentFunnelMetric() as metric:
+                # Pre-calculate step conditions to avoid property resolution issues in UDF
+                # For each step in the funnel, we create a new column that is 1 if the step is true, 0 otherwise
+                step_selects = []
+                for i, funnel_step in enumerate(metric.series):
+                    step_filter = event_or_action_to_filter(self.team, funnel_step)
+                    step_selects.append(
+                        ast.Alias(
+                            alias=f"step_{i}",
+                            expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+                        )
+                    )
+
                 return ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
                         ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", self.entity_key])),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
-                        ast.Alias(alias="funnel_step", expr=get_funnel_step_level_expr(self.team, metric)),
+                        ast.Field(chain=["events", "uuid"]),
+                        ast.Field(chain=["events", "properties"]),
+                        *step_selects,
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["events"]),
@@ -456,7 +464,7 @@ class ExperimentQueryRunner(QueryRunner):
                     case _:
                         return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
             case ExperimentFunnelMetric():
-                return funnel_steps_to_window_funnel_expr(self.metric)
+                return funnel_evaluation_expr(self.team, self.metric, events_alias="metric_events")
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
@@ -731,7 +739,7 @@ class ExperimentQueryRunner(QueryRunner):
             probability=probability,
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
-            stats_version=self.stats_version,
+            stats_version=2,
             p_value=p_value,
             credible_intervals=credible_intervals,
         )

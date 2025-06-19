@@ -168,7 +168,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.insightDataRaw],
             (insightDataRaw): Record<string, any> => {
                 // :TRICKY: The queries return results as `results`, but insights expect `result`
-                return { ...insightDataRaw, result: insightDataRaw?.results ?? insightDataRaw?.result }
+                return {
+                    ...insightDataRaw,
+                    result: (insightDataRaw as any)?.results ?? (insightDataRaw as any)?.result,
+                }
             },
         ],
 

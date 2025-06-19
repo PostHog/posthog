@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -181,7 +181,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                     const beforeUpdates: Record<string, any> = {}
                     for (const key of Object.keys(metadataUpdate)) {
-                        beforeUpdates[key] = (values.savedInsight as any)[key]
+                        beforeUpdates[key] = values.savedInsight[key]
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
@@ -337,17 +337,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight, s.featureFlags],
-            (insight, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return insight.user_access_level
-                        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
-                        : true
-                }
-                return (
-                    insight.effective_privilege_level == undefined ||
-                    insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
-                )
+            (s) => [s.insight],
+            (insight) => {
+                return insight.user_access_level
+                    ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                    : true
             },
         ],
         insightChanged: [
@@ -509,7 +503,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         setMaxContext: () => {
             // Set MaxAI context when insight changes
-            if (values.insight && values.insight.query) {
+            if (values.insight && values.insight.id && values.insight.query) {
                 maxContextLogic.findMounted()?.actions.addOrUpdateActiveInsight(values.insight, values.isInViewMode)
             }
         },

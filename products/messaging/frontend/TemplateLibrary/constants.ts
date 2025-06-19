@@ -186,7 +186,7 @@ export const NEW_TEMPLATE: MessageTemplate = {
                 counters: { u_row: 1, u_column: 1, u_content_text: 1, u_content_button: 1 },
                 schemaVersion: 17,
             },
-            text: '',
+            text: 'Hello from PostHog!\n\n[Learn more]\nhttps://posthog.com/',
         },
     },
     created_at: null,

@@ -5,9 +5,8 @@ import { urls } from 'scenes/urls'
 import { ExternalDataSource, PipelineStage } from '~/types'
 
 import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { NonNativeMarketingSource, VALID_NON_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
 import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
-
-const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery']
 
 // This allows users to map columns from data warehouse sources (BigQuery, Postgres, etc.)
 // to the correct fields in the Marketing Analytics product.
@@ -15,21 +14,20 @@ const VALID_MARKETING_SOURCES: ExternalDataSource['source_type'][] = ['BigQuery'
 export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
     const { externalTables, loading } = useValues(marketingAnalyticsLogic)
 
-    const tables: ExternalTable[] | null =
-        externalTables.filter((source) =>
-            VALID_MARKETING_SOURCES.includes(source.source_type as ExternalDataSource['source_type'])
-        ) ?? null
+    const tables: ExternalTable[] = externalTables.filter((source) =>
+        VALID_NON_NATIVE_MARKETING_SOURCES.includes(source.source_type as NonNativeMarketingSource)
+    )
     const handleSourceAdd = (source: ExternalDataSource['source_type']): void => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
     }
 
     return (
-        <SharedExternalDataSourceConfiguration
+        <SharedExternalDataSourceConfiguration<ExternalDataSource['source_type']>
             title="Non Native Data Warehouse Sources Configuration"
-            description="PostHog can display marketing data in our Marketing Analytics product from the following data warehouse sources."
+            description="Configure data warehouse sources to display marketing analytics in PostHog. You'll need to map the required columns for each table to enable the functionality."
             tables={tables}
             loading={loading}
-            validSources={VALID_MARKETING_SOURCES}
+            validSources={VALID_NON_NATIVE_MARKETING_SOURCES}
             onSourceAdd={handleSourceAdd}
         />
     )

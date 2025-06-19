@@ -9,6 +9,8 @@ import {
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
 import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
@@ -68,7 +70,7 @@ export function ChartModal({
                 </>
             ) : (
                 <ResultsBreakdown result={result} experiment={experiment}>
-                    {({ query, breakdownResults }) => (
+                    {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
                         <>
                             {query && (
                                 <div className="flex justify-end">
@@ -82,8 +84,12 @@ export function ChartModal({
                                 </div>
                             </LemonBanner>
                             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
+                            {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
-                                <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                <>
+                                    <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
+                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                </>
                             )}
                         </>
                     )}

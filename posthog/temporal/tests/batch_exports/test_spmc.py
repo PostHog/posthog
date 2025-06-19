@@ -177,6 +177,38 @@ def test_slice_record_batch_in_half():
     assert all(slice.num_rows == 3 for slice in slices)
 
 
+def test_slice_large_record_batch():
+    """Test we can slice a record batch with plenty of elements and data.
+
+    We construct an array with a large payload and attempt to slice it evenly.
+    We assert that the count of rows matches expected, all ids are accounted
+    for, the number of slices matches what we expect, and that each slice
+    has the same number of rows.
+    """
+    size = 1_000_000
+    one_tenth = size / 10
+
+    payload = pa.array([b"0" * (1024)] * size, type=pa.large_binary())
+    id = pa.array(list(range(size)))
+    batch = pa.RecordBatch.from_arrays([id, payload], names=["id", "payload"])  # type: ignore
+
+    # Large binary allocates additional 8 bytes per row.
+    # Id array is int64, and takes up 8 bytes per row.
+    # So, we add 16 bytes per row (16 * 1000 total) to get evenly split record
+    # batches of 1k rows each.
+    slices = list(
+        slice_record_batch(batch, max_record_batch_size_bytes=int(one_tenth * (1024 + 16)), min_records_per_batch=1)
+    )
+    expected_len = 10
+    result_len = len(slices)
+    concatenated = pa.concat_arrays(s.column("id") for s in slices)
+
+    assert sum(slice.num_rows for slice in slices) == size
+    assert concatenated.to_pylist() == list(range(size))
+    assert result_len == expected_len, f"Have {result_len} slices, expected {expected_len}"
+    assert all(slice.num_rows == one_tenth for slice in slices)
+
+
 @pytest.mark.parametrize(
     "test_data",
     [

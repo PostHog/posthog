@@ -1,4 +1,4 @@
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -12,6 +12,8 @@ import { cn } from 'lib/utils/css-classes'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+import { RevenueAnalyticsInsightsQueryGroupBy } from '~/queries/schema/schema-general'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { DateMappingOption } from '~/types'
 
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -93,7 +95,47 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         />
                     )}
                 </div>
+
+                <RevenueAnalyticsBreakdownBy />
             </div>
+        </div>
+    )
+}
+
+// We're defining the options here as a Record to get type-safety guarantee we'll
+// include all the options.
+const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsInsightsQueryGroupBy, string> = {
+    [RevenueAnalyticsInsightsQueryGroupBy.COHORT]: 'Cohort',
+    [RevenueAnalyticsInsightsQueryGroupBy.COUNTRY]: 'Country',
+    [RevenueAnalyticsInsightsQueryGroupBy.COUPON]: 'Coupon',
+    [RevenueAnalyticsInsightsQueryGroupBy.COUPON_ID]: 'Coupon ID',
+    [RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON]: 'Initial coupon',
+    [RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON_ID]: 'Initial coupon ID',
+    [RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]: 'Product',
+}
+
+const BREAKDOWN_BY_OPTIONS: LemonInputSelectOption[] = Object.entries(BREAKDOWN_BY_MAPPING).map(([key, label]) => ({
+    key,
+    label,
+    tooltip: CORE_FILTER_DEFINITIONS_BY_GROUP['revenue_analytics_properties'][key]?.description,
+}))
+
+const RevenueAnalyticsBreakdownBy = (): JSX.Element => {
+    const { groupBy } = useValues(revenueAnalyticsLogic)
+    const { setGroupBy } = useActions(revenueAnalyticsLogic)
+
+    return (
+        <div className="flex items-center gap-1 text-muted-alt">
+            <span>{groupBy.length > 0 && 'Breakdown by'}</span>
+            <LemonInputSelect
+                options={BREAKDOWN_BY_OPTIONS}
+                value={groupBy}
+                onChange={(value) => setGroupBy(value as RevenueAnalyticsInsightsQueryGroupBy[])}
+                mode="multiple"
+                disablePrompting
+                limit={2}
+                placeholder="Breakdown by"
+            />
         </div>
     )
 }

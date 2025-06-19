@@ -5,16 +5,14 @@ use crate::{
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
-use tracing::instrument;
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
-    #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         token: &str,
     ) -> Result<Team, FlagError> {
-        tracing::info!(
+        tracing::debug!(
             "Attempting to read team from Redis at key '{}{}'",
             TEAM_TOKEN_CACHE_PREFIX,
             token
@@ -35,7 +33,7 @@ impl Team {
             team.project_id = team.id as i64;
         }
 
-        tracing::info!(
+        tracing::debug!(
             "Successfully read team {} from Redis at key '{}{}'",
             team.id,
             TEAM_TOKEN_CACHE_PREFIX,
@@ -45,7 +43,6 @@ impl Team {
         Ok(team)
     }
 
-    #[instrument(skip_all)]
     pub async fn update_redis_cache(
         client: Arc<dyn RedisClient + Send + Sync>,
         team: &Team,

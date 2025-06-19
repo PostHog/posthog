@@ -3,6 +3,7 @@ import csv
 from collections import defaultdict
 from django.db import DatabaseError
 from loginas.utils import is_impersonated_session
+from posthog.api.insight import capture_legacy_api_call
 import structlog
 
 from posthog.models.activity_logging.activity_log import log_activity, Detail, dict_changes_between, load_activity
@@ -233,6 +234,7 @@ class CohortSerializer(serializers.ModelSerializer):
             if existing_cohort_id:
                 filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
             if filter_data:
+                capture_legacy_api_call(request, self.context["get_team"]())
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
@@ -529,6 +531,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "request": request,
                 "from_cohort_id": cohort.pk,
                 "team_id": team.pk,
+                "get_team": lambda: team,
             },
         )
 
