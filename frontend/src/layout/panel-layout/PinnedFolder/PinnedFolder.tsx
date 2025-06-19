@@ -21,7 +21,6 @@ export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { pinnedFolder } = useValues(pinnedFolderLogic)
     const { setPinnedFolder } = useActions(pinnedFolderLogic)
-
     const showDefaultHeader = pinnedFolder !== 'products://' && pinnedFolder !== 'data://'
 
     const configMenu = (

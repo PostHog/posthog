@@ -621,20 +621,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         fullFileSystemFiltered: [
-            (s) => [s.fullFileSystem, s.searchTerm, (_, props) => props],
-            (fullFileSystem, searchTerm, props): TreeDataItem[] => {
-                let firstFolders = fullFileSystem.filter((item) => !item.id.startsWith('shortcuts://'))
+            (s) => [
+                s.fullFileSystem,
+                s.searchTerm,
+                (_, props) => props.root,
+                (_, props) => props.includeRoot,
+                (_, props) => props.hideFolders,
+            ],
+            (fullFileSystem, searchTerm, root, includeRoot, hideFolders): TreeDataItem[] => {
+                let firstFolders = fullFileSystem
 
                 // Filter out folders specified in hideFolders prop
-                if (props.hideFolders && props.hideFolders.length > 0) {
-                    firstFolders = firstFolders.filter((item) => !props.hideFolders.includes(item.id))
+                if (hideFolders && hideFolders.length > 0) {
+                    firstFolders = firstFolders.filter((item) => !hideFolders.includes(item.id))
                 }
 
-                const rootFolders = props.root ? splitPath(props.root) : []
+                const rootFolders = root ? splitPath(root) : []
                 const rootWithProtocol =
-                    rootFolders.length > 0 &&
-                    rootFolders[0].endsWith(':') &&
-                    props.root.startsWith(`${rootFolders[0]}//`)
+                    rootFolders.length > 0 && rootFolders[0].endsWith(':') && root.startsWith(`${rootFolders[0]}//`)
 
                 if (rootWithProtocol) {
                     const protocol = rootFolders[0] + '//'
@@ -653,15 +657,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 function addRoot(tree: TreeDataItem[]): TreeDataItem[] {
-                    if (props.includeRoot) {
+                    if (includeRoot) {
                         return [
                             {
-                                id: props.root,
-                                name: formatUrlAsName(props.root),
-                                displayName: <>{formatUrlAsName(props.root)}</>,
+                                id: root,
+                                name: formatUrlAsName(root),
+                                displayName: <>{formatUrlAsName(root)}</>,
                                 record: {
                                     type: 'folder',
-                                    path: rootWithProtocol ? joinPath(rootFolders.splice(2)) : props.root,
+                                    path: rootWithProtocol ? joinPath(rootFolders.splice(2)) : root,
                                 },
                                 children: tree,
                             },
@@ -671,7 +675,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 // no client side filtering under project://
-                if (!searchTerm || !props.root || props.root.startsWith('project://')) {
+                if (!searchTerm || !root || root.startsWith('project://')) {
                     return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()

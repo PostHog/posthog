@@ -35,7 +35,7 @@ export interface ItemSelectModalProps {
     buttonProps?: ButtonPrimitiveProps
 }
 
-/** Input component for selecting a folder */
+/** Input component for selecting a item */
 let counter = 0
 
 export function ItemSelectModal({

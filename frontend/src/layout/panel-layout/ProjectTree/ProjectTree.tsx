@@ -115,7 +115,6 @@ export function ProjectTree({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, showLayoutNavBar } =
         useActions(panelLayoutLogic)
     const { mainContentRef, isLayoutPanelPinned, isLayoutPanelVisible, isLayoutNavbarVisible } =
