@@ -38,6 +38,7 @@ import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogi
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
+import { CyclotronJobInputConfiguration } from './types'
 
 const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
@@ -318,7 +319,7 @@ type CyclotronJobInputProps = {
     parentConfiguration?: CyclotronJobInputConfiguration
 }
 
-export function CyclotronJobInputRenderer({
+function CyclotronJobInputRenderer({
     onChange,
     schema,
     disabled,
@@ -521,7 +522,7 @@ type CyclotronJobInputWithSchemaProps = CyclotronJobInputsProps & {
     schema: CyclotronJobInputSchemaType
 }
 
-export function CyclotronJobInputWithSchema({
+function CyclotronJobInputWithSchema({
     schema,
     configuration,
     parentConfiguration,
