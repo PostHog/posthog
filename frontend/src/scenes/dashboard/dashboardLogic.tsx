@@ -11,7 +11,7 @@ import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -264,6 +264,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 | 'preview'
             manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
         }) => payload,
+        /** sets params from loadDashboard which can then be accessed in listeners (loadDashboardSuccess) */
+        loadingDashboardItemsStarted: (action: string, manualDashboardRefresh: boolean) => ({
+            action,
+            manualDashboardRefresh,
+        }),
+        setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
+        /** Called from insight tile, when a single insight is refreshed manually on the dashboard */
+        triggerDashboardItemRefresh: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
+        /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
+        triggerDashboardRefresh: true,
+        /** helper used within this file to refresh provided tiles on the dashboard */
+        updateDashboardItems: (payload: {
+            tiles?: DashboardTile<QueryBasedInsightModel>[]
+            action: string
+            manualDashboardRefresh?: boolean
+        }) => payload,
 
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
@@ -272,17 +288,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
-
-        /** Called from insight tile, when a single insight is refreshed manually on the dashboard */
-        refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
-        /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
-        refreshAllDashboardItemsManual: true,
-        /** helper used within this file to refresh provided tiles on the dashboard */
-        refreshAllDashboardItems: (payload: {
-            tiles?: DashboardTile<QueryBasedInsightModel>[]
-            action: string
-            manualDashboardRefresh?: boolean
-        }) => payload,
 
         resetInterval: true,
         setDates: (date_from: string | null, date_to: string | null) => ({
@@ -332,13 +337,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
-
-        /** sets params from loadDashboard which can then be accessed in listeners (loadDashboardSuccess) */
-        loadingDashboardItemsStarted: (action: string, manualDashboardRefresh: boolean) => ({
-            action,
-            manualDashboardRefresh,
-        }),
-        setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
 
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
@@ -888,7 +886,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     [shortId]: { error: true, timer: state[shortId]?.timer || null },
                 }),
-                refreshAllDashboardItems: () => ({}),
+                updateDashboardItems: () => ({}),
                 abortQuery: () => ({}),
             },
         ],
@@ -1424,18 +1422,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
             }
         },
-        refreshAllDashboardItemsManual: () => {
+        /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
+        triggerDashboardRefresh: () => {
             // reset auto refresh interval
             actions.resetInterval()
-
-            // on manual refresh, we want to avoid cache and force a refresh of all insights
-            // hence using 'force_blocking'
             actions.loadDashboard({ action: 'refresh', manualDashboardRefresh: true })
         },
-        /**
-         * Called when a single insight is refreshed manually on the dashboard
-         */
-        refreshDashboardItem: async ({ tile }, breakpoint) => {
+        /** Called when a single insight is refreshed manually on the dashboard */
+        triggerDashboardItemRefresh: async ({ tile }, breakpoint) => {
             const dashboardId: number = props.id
             const insight = tile.insight
 
@@ -1472,7 +1466,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id)
             }
         },
-        refreshAllDashboardItems: async ({ tiles, action, manualDashboardRefresh }) => {
+        updateDashboardItems: async ({ tiles, action, manualDashboardRefresh }) => {
             const dashboardId: number = props.id
             const sortedInsights = (tiles || values.insightTiles || [])
                 // sort tiles so we poll them in the exact order they are computed on the backend
@@ -1535,17 +1529,37 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Execute the fetches with concurrency limit of 4
                 await runWithLimit(fetchSyncInsightFunctions, 4)
 
-                // all insights have been refreshed, update last refresh time
-                // only if we've forced a blocking refresh of the dashboard
+                // REFRESH DONE: all insights have been refreshed
+
+                // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 if (manualDashboardRefresh) {
                     dashboardsModel.actions.updateDashboard({
                         id: props.id,
                         last_refresh: new Date().toISOString(),
                     })
                 }
-            }
 
-            eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
+                // capture time to see data
+                const { dashboardQueryId, startTime, responseBytes } = values.dashboardLoadData
+                eventUsageLogic.actions.reportTimeToSeeData({
+                    team_id: values.currentTeamId,
+                    type: 'dashboard_load',
+                    context: 'dashboard',
+                    action,
+                    status: 'success',
+                    primary_interaction_id: dashboardQueryId,
+                    time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                    api_response_bytes: responseBytes,
+                    insights_fetched: insightsToRefresh.length,
+                    insights_fetched_cached: values.dashboard?.tiles.reduce(
+                        (acc, curr) => acc + (curr.is_cached ? 1 : 0),
+                        0
+                    ),
+                    ...getJSHeapMemory(),
+                })
+
+                eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
+            }
         },
         setFiltersAndLayoutsAndVariables: ({ filters: { date_from, date_to } }) => {
             actions.updateFiltersAndLayoutsAndVariables()
@@ -1619,7 +1633,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // access stored values from dashboardLoadData
             // as we can't pass them down to this listener
             const { action, manualDashboardRefresh } = values.dashboardLoadData
-            actions.refreshAllDashboardItems({ action, manualDashboardRefresh })
+            actions.updateDashboardItems({ action, manualDashboardRefresh })
 
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)

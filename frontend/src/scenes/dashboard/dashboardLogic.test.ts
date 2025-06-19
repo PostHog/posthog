@@ -473,7 +473,7 @@ describe('dashboardLogic', () => {
             // TODO: Not sure why this test is not working
             await expectLogic(logic, () => {
                 // try and load dashboard items data once dashboard is loaded
-                logic.actions.refreshDashboardItem({
+                logic.actions.triggerDashboardItemRefresh({
                     tile: {
                         insight: {
                             id: 1001,
@@ -524,13 +524,13 @@ describe('dashboardLogic', () => {
         describe('reload items', () => {
             it('reloads all items', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.refreshAllDashboardItemsManual()
+                    logic.actions.triggerDashboardRefresh()
                 })
                     .toDispatchActions([
                         // starts loading
-                        'refreshAllDashboardItemsManual',
+                        'triggerDashboardRefresh',
                         'loadDashboard',
-                        'refreshAllDashboardItems',
+                        'updateDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses(
                             [dashboards['5'].tiles[0].insight!.short_id],

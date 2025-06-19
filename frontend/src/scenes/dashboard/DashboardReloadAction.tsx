@@ -30,7 +30,7 @@ const INTERVAL_OPTIONS = [
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, nextAllowedDashboardRefresh } =
         useValues(dashboardLogic)
-    const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
+    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
 
     usePageVisibilityCb((pageIsVisible) => {
         setPageVisibility(pageIsVisible)
@@ -46,7 +46,7 @@ export function DashboardReloadAction(): JSX.Element {
     return (
         <div className="relative">
             <LemonButton
-                onClick={() => refreshAllDashboardItemsManual()}
+                onClick={() => triggerDashboardRefresh()}
                 type="secondary"
                 icon={itemsLoading ? <Spinner textColored /> : blockRefresh ? <IconCheck /> : <IconRefresh />}
                 size="small"
