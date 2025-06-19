@@ -280,7 +280,7 @@ function PageTabs(): JSX.Element {
             {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && (
                 <div className="flex items-center gap-2">
                     <LemonSwitch
-                        data-attr="opt-in-minimalist-mode-switch"
+                        data-attr="opt-in-cinema-mode-switch"
                         onChange={setIsZenMode}
                         checked={isZenMode}
                         label="Cinema mode"
