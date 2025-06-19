@@ -64,7 +64,7 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         AND instance_id in (
             SELECT DISTINCT instance_id
             FROM log_entries
-            WHERE log_source = 'hog_function'
+            WHERE log_source = ${request.sourceType}
             AND log_source_id = ${request.sourceId}
             AND timestamp > {filters.dateRange.from}
             AND timestamp < {filters.dateRange.to}

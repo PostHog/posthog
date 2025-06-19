@@ -62,14 +62,14 @@ export const campaignMetricsLogic = kea<campaignMetricsLogicType>([
 
                     const query = hogql`SELECT ${hogql.raw(
                         dateClause
-                    )} AS time_clamp, metric_name, count() AS total_count
+                    )} AS timestamp, metric_name, count() AS total_count
                         FROM app_metrics
                         WHERE app_source = 'hog_flow'
                         AND app_source_id = ${props.id}
-                        AND time_clamp >= {filters.dateRange.from}
-                        AND time_clamp <= {filters.dateRange.to}
-                        GROUP BY time_clamp, metric_name
-                        ORDER BY time_clamp, metric_name`
+                        AND timestamp >= {filters.dateRange.from}
+                        AND timestamp <= {filters.dateRange.to}
+                        GROUP BY timestamp, metric_name
+                        ORDER BY timestamp, metric_name`
 
                     const response = await api.queryHogQL(query, {
                         refresh: 'force_blocking',

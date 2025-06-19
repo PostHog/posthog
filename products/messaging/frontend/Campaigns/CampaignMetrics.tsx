@@ -18,7 +18,7 @@ export function CampaignMetrics({ id }: CampaignMetricsLogicProps): JSX.Element 
 
     return (
         <BindLogic logic={campaignMetricsLogic} props={{ id }}>
-            <div>
+            <div className="flex flex-col gap-2">
                 <CampaignMetricsFilters />
                 <CampaignMetricsTotals />
             </div>
@@ -31,7 +31,7 @@ function CampaignMetricsFilters(): JSX.Element {
     const { setFilters } = useActions(campaignMetricsLogic)
 
     return (
-        <>
+        <div className="flex gap-2 items-center">
             <LemonSelect
                 options={[
                     { label: 'Hourly', value: 'hour' },
@@ -53,7 +53,7 @@ function CampaignMetricsFilters(): JSX.Element {
                     </>
                 )}
             />
-        </>
+        </div>
     )
 }
 
