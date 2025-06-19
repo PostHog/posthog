@@ -94,11 +94,5 @@ LOGGING = {
         "posthog.caching.warming": {"level": "INFO"},
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
-        "botocore.auth": {"level": "WARN"},  # botocore auth logs are noisy
-        "botocore.endpoint": {"level": "WARN"},  # botocore endpoint logs are noisy
-        "botocore.hooks": {"level": "WARN"},  # botocore hooks logs are noisy
-        "botocore.httpsession": {"level": "WARN"},  # botocore httpsession logs are noisy
-        "botocore.regions": {"level": "WARN"},  # botocore regions logs are noisy
-        "botocore.retryhandler": {"level": "WARN"},  # botocore retry logs are noisy
     },
 }
