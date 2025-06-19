@@ -24,9 +24,9 @@ export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
-        legacyMetricResults,
-        metricResultsLoading,
-        secondaryMetricResultsLoading,
+        legacyPrimaryMetricsResults,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
         isDescriptionModalOpen,
         statsMethod,
         usesNewQueryRunner,
@@ -56,7 +56,7 @@ export function Info(): JSX.Element {
 
     const currentStatsVersion = experiment.stats_config?.version || 1
 
-    const lastRefresh = legacyMetricResults?.[0]?.last_refresh
+    const lastRefresh = legacyPrimaryMetricsResults?.[0]?.last_refresh
 
     return (
         <div>
@@ -165,7 +165,7 @@ export function Info(): JSX.Element {
                                                 : ''
                                         }`}
                                     >
-                                        {metricResultsLoading || secondaryMetricResultsLoading
+                                        {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
                                             ? dayjs(lastRefresh).fromNow()
