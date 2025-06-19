@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import collections
-import math
 from collections.abc import Iterator
-from typing import Any, Optional
+from typing import Any
 
 import pyarrow as pa
 from bson import ObjectId
@@ -13,14 +12,9 @@ from pymongo.collection import Collection
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-)
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
 @config.config
@@ -141,29 +135,6 @@ def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
     return schema_list
 
 
-def _build_query(
-    collection_name: str,
-    is_incremental: bool,
-    incremental_field: Optional[str],
-    incremental_field_type: Optional[IncrementalFieldType],
-    db_incremental_field_last_value: Optional[Any],
-) -> dict[str, Any]:
-    query = {}
-
-    if not is_incremental:
-        return query
-
-    if incremental_field is None or incremental_field_type is None:
-        raise ValueError("incremental_field and incremental_field_type can't be None")
-
-    if db_incremental_field_last_value is None:
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
-
-    query = {incremental_field: {"$gte": db_incremental_field_last_value}}
-
-    return query
-
-
 def get_indexes(connection_string: str, collection_name: str) -> list[str]:
     """Get all indexes for a MongoDB collection."""
     try:
@@ -192,36 +163,6 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
         return 0
-
-
-def _get_partition_settings(
-    collection: Collection, collection_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
-) -> PartitionSettings | None:
-    """Get partition settings for given MongoDB collection."""
-    try:
-        # Get collection stats
-        stats = collection.database.command("collStats", collection_name)
-
-        collection_size = stats.get("size", 0)  # size in bytes
-        row_count = stats.get("count", 0)
-
-        if collection_size == 0 or row_count == 0:
-            return None
-
-        # Calculate partition count based on size
-        partition_count = max(1, math.ceil(collection_size / partition_size_bytes))
-
-        # Cap at reasonable limit
-        partition_count = min(partition_count, 100)
-
-        partition_size = math.ceil(row_count / partition_count)
-
-        return PartitionSettings(
-            partition_count=partition_count,
-            partition_size=partition_size,
-        )
-    except Exception:
-        return None
 
 
 class MongoColumn(Column):
@@ -255,11 +196,7 @@ class MongoColumn(Column):
 def mongo_source(
     connection_string: str,
     collection_names: list[str],
-    is_incremental: bool,
     logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> SourceResponse:
     collection_name = collection_names[0]
     if not collection_name:
@@ -276,19 +213,9 @@ def mongo_source(
     db = client[connection_params["database"]]
     collection = db[collection_name]
 
-    # Build query
-    query = _build_query(
-        collection_name,
-        is_incremental,
-        incremental_field,
-        incremental_field_type,
-        db_incremental_field_last_value,
-    )
-
     # Get collection metadata
     primary_keys = _get_primary_keys(collection, collection_name)
-    rows_to_sync = _get_rows_to_sync(collection, query, logger)
-    partition_settings = _get_partition_settings(collection, collection_name) if is_incremental else None
+    rows_to_sync = _get_rows_to_sync(collection, {}, logger)
 
     client.close()
 
@@ -301,10 +228,7 @@ def mongo_source(
 
         # TODO: update to pymongoarrow when pyarrow major version is bumped
         try:
-            cursor = read_collection.find(query)
-
-            if is_incremental and incremental_field:
-                cursor = cursor.sort(incremental_field, 1).allow_disk_use(True)  # ascending order
+            cursor = read_collection.find({})
 
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
@@ -323,7 +247,7 @@ def mongo_source(
                         processed_doc[key] = value
 
                 # Wrap the entire document in a 'data' field. Mongo schemas are not stable so we put everything in an object
-                yield {"data": processed_doc}
+                yield {"_id": str(doc["_id"]), "data": processed_doc}
 
         finally:
             read_client.close()
@@ -334,7 +258,5 @@ def mongo_source(
         name=name,
         items=get_rows(),
         primary_keys=primary_keys,
-        partition_count=partition_settings.partition_count if partition_settings else None,
-        partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
     )
