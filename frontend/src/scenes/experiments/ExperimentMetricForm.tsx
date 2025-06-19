@@ -4,10 +4,17 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { Query } from '~/queries/Query/Query'
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentMetric,
+    ExperimentMetricType,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
+import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
@@ -145,7 +152,10 @@ export function ExperimentMetricForm({
                 )}
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
-            {metric.metric_type === ExperimentMetricType.MEAN && (
+            {isExperimentFunnelMetric(metric) && (
+                <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+            )}
+            {isExperimentMeanMetric(metric) && (
                 <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
             )}
             <div>
@@ -165,9 +175,10 @@ export function ExperimentMetricForm({
                 </LemonLabel>
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {metric.metric_type === ExperimentMetricType.MEAN &&
-                metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && <Query query={queryConfig} readOnly />}
-            {metric.metric_type === ExperimentMetricType.FUNNEL && <Query query={queryConfig} readOnly />}
+            {isExperimentMeanMetric(metric) && metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
+                <Query query={queryConfig} readOnly />
+            )}
+            {isExperimentFunnelMetric(metric) && <Query query={queryConfig} readOnly />}
         </div>
     )
 }

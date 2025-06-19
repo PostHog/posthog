@@ -21,7 +21,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, HogFunctionMappingType } from '~/types'
+import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -82,10 +82,12 @@ export function HogFunctionMapping({
     index,
     mapping,
     onChange,
+    parentConfiguration,
 }: {
     index: number
     mapping: HogFunctionMappingType
     onChange: (mapping: HogFunctionMappingType | null) => void
+    parentConfiguration: HogFunctionConfigurationType
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { showSource } = useValues(hogFunctionConfigurationLogic)
@@ -139,6 +141,10 @@ export function HogFunctionMapping({
                         configuration={{
                             inputs_schema: mapping.inputs_schema ?? [],
                             inputs: mapping.inputs ?? {},
+                        }}
+                        parentConfiguration={{
+                            inputs_schema: parentConfiguration.inputs_schema ?? [],
+                            inputs: parentConfiguration.inputs ?? {},
                         }}
                         onInputSchemaChange={(schema) => {
                             onChange({ ...mapping, inputs_schema: schema })
@@ -341,6 +347,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                 className: 'p-0 bg-accent-light',
                                                 content: (
                                                     <HogFunctionMapping
+                                                        parentConfiguration={configuration}
                                                         key={index}
                                                         index={index}
                                                         mapping={mapping}

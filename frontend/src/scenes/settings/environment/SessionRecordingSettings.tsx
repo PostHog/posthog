@@ -250,15 +250,15 @@ function ZenModeSettings(): JSX.Element | null {
 
     return (
         <div>
-            <h3>Minimalist mode</h3>
+            <h3>Cinema mode</h3>
             <p>
-                This setting controls if the minimalist mode is enabled. Minimalist mode hides all the extra features
-                (e.g. annotations, inspector, etc.) and only shows the bare minimum.
+                This setting controls if cinema mode is enabled. Cinema mode hides all the extra features (e.g.
+                annotations, inspector, etc.) and only shows the bare minimum.
             </p>
             <LemonSwitch
-                data-attr="opt-in-minimalist-mode-switch"
+                data-attr="opt-in-cinema-mode-switch"
                 onChange={setIsZenMode}
-                label="Enable minimalist mode"
+                label="Enable cinema mode"
                 bordered
                 checked={isZenMode}
             />

@@ -1,4 +1,4 @@
-import { IconBolt, IconLightBulb, IconRevert, IconX } from '@posthog/icons'
+import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
@@ -415,16 +415,11 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     key: 'name',
                                     title: 'Name',
-                                    render: (_, { name, last_run_at }) => (
+                                    render: (_, { name }) => (
                                         <div className="flex items-center gap-1">
                                             {name === editingView?.name && (
                                                 <Tooltip placement="right" title="This is the currently viewed query">
-                                                    <IconLightBulb className="text-warning" />
-                                                </Tooltip>
-                                            )}
-                                            {last_run_at && (
-                                                <Tooltip placement="right" title="This view is materialized">
-                                                    <IconBolt className="text-warning" />
+                                                    <IconTarget className="text-warning" />
                                                 </Tooltip>
                                             )}
                                             {name}

@@ -259,6 +259,7 @@ class Command(BaseCommand):
             )
 
             should_stop = False
+            time_increment = 1
             for action in experiment_config.variants[variant].actions:
                 for _ in range(action.count):
                     if random.random() < action.probability:
@@ -281,9 +282,10 @@ class Command(BaseCommand):
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event=action.event,
-                            timestamp=random_timestamp + timedelta(minutes=1),
+                            timestamp=random_timestamp + timedelta(minutes=time_increment),
                             properties=properties,
                         )
+                        time_increment += 1
                     else:
                         if action.required_for_next:
                             should_stop = True

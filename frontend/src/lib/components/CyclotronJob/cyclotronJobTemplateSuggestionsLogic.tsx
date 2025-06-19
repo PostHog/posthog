@@ -73,7 +73,7 @@ export const cyclotronJobTemplateSuggestionsLogic = kea<cyclotronJobTemplateSugg
 
         optionsFiltered: [
             (s) => [s.allOptions, s.optionsFuse, s.search],
-            (allOptions, optionsFuse, search) => {
+            (allOptions, optionsFuse, search): CyclotronJobTemplateOption[] => {
                 if (!search) {
                     return allOptions
                 }

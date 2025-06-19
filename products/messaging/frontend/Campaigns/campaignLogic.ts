@@ -2,6 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -16,8 +17,36 @@ export interface CampaignLogicProps {
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
     name: '',
-    edges: [],
-    actions: [],
+    edges: [
+        {
+            type: 'continue',
+            from: 'trigger_node',
+            to: 'exit_node',
+            index: 0,
+        },
+    ],
+    actions: [
+        {
+            id: 'trigger_node',
+            type: 'trigger',
+            description: '',
+            config: {
+                inputs: {},
+            },
+            created_at: 0,
+            updated_at: 0,
+        },
+        {
+            id: 'exit_node',
+            type: 'exit',
+            description: '',
+            config: {
+                inputs: {},
+            },
+            created_at: 0,
+            updated_at: 0,
+        },
+    ],
     trigger: { type: 'event' },
     trigger_masking: { ttl: 0, hash: '', threshold: 0 },
     conversion: { window_minutes: 0, filters: [] },
@@ -36,21 +65,29 @@ export const campaignLogic = kea<campaignLogicType>([
     actions({
         setOriginalCampaign: (campaign: HogFlow) => ({ campaign }),
     }),
-    loaders(() => ({
+    loaders(({ props }) => ({
         campaign: {
             loadCampaign: async () => {
-                return { ...NEW_CAMPAIGN }
+                if (!props.id || props.id === 'new') {
+                    return { ...NEW_CAMPAIGN }
+                }
+
+                return api.hogFlows.getHogFlow(props.id)
             },
-            saveCampaign: async () => {
-                return { ...NEW_CAMPAIGN }
+            saveCampaign: async (updates: Partial<HogFlow>) => {
+                if (!props.id || props.id === 'new') {
+                    return api.hogFlows.createHogFlow(updates)
+                }
+
+                return api.hogFlows.updateHogFlow(props.id, updates)
             },
         },
     })),
     forms(({ actions }) => ({
         campaign: {
             defaults: { ...NEW_CAMPAIGN },
-            submit: async () => {
-                actions.saveCampaign()
+            submit: async (values) => {
+                actions.saveCampaign(values)
             },
         },
     })),
