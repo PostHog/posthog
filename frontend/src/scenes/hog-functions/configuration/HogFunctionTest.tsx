@@ -466,11 +466,7 @@ export function HogFunctionTest(): JSX.Element {
                                     {({ value, onChange }) => (
                                         <>
                                             <div className="deprecated-space-y-2">
-                                                <div>
-                                                    {type === 'broadcast'
-                                                        ? 'The test broadcast will be sent with this sample data:'
-                                                        : 'Here are all the global variables you can use in your code:'}
-                                                </div>
+                                                <div>Here are all the global variables you can use in your code:</div>
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>
                                                 ) : null}

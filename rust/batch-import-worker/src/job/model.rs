@@ -22,7 +22,10 @@ pub struct JobModel {
     pub leased_until: Option<DateTime<Utc>>,
 
     pub status: JobStatus,
+    // Exposed to a developer, not the user
     pub status_message: Option<String>,
+    // Exposed to the user
+    pub display_status_message: Option<String>,
 
     pub state: Option<JobState>,
     pub import_config: JobConfig,
@@ -55,12 +58,15 @@ pub struct JobState {
 pub struct PartState {
     pub key: String,
     pub current_offset: u64,
-    pub total_size: u64,
+    pub total_size: Option<u64>,
 }
 
 impl PartState {
     pub fn is_done(&self) -> bool {
-        self.current_offset == self.total_size
+        match self.total_size {
+            Some(size) => self.current_offset == size,
+            None => false,
+        }
     }
 }
 
@@ -92,6 +98,7 @@ impl JobModel {
                 posthog_batchimport.created_at,
                 posthog_batchimport.updated_at,
                 posthog_batchimport.status_message,
+                posthog_batchimport.display_status_message,
                 posthog_batchimport.state,
                 posthog_batchimport.import_config,
                 posthog_batchimport.secrets,
@@ -122,11 +129,13 @@ impl JobModel {
                         lease_id = null,
                         leased_until = null,
                         status = 'paused',
-                        status_message = $2
+                        status_message = $2,
+                        display_status_message = $3
                     WHERE id = $1
                     "#,
                     id,
-                    format!("{:?}", e) // We like context
+                    format!("{:?}", e), // We like context
+                    "Failed to parse source event data into Posthog event data"
                 )
                 .execute(&context.db)
                 .await?;
@@ -164,15 +173,17 @@ impl JobModel {
             SET
                 status = $2,
                 status_message = $3,
-                state = $4,
+                display_status_message = $4,
+                state = $5,
                 updated_at = now(),
-                lease_id = $5,
-                leased_until = $6
-            WHERE id = $1 AND lease_id = $7
+                lease_id = $6,
+                leased_until = $7
+            WHERE id = $1 AND lease_id = $8
             "#,
             self.id,
             self.status.to_string(),
             self.status_message,
+            self.display_status_message,
             serde_json::to_value(&self.state)?,
             self.lease_id,
             self.leased_until,
@@ -186,9 +197,15 @@ impl JobModel {
         Ok(())
     }
 
-    pub async fn pause(&mut self, context: Arc<AppContext>, reason: String) -> Result<(), Error> {
+    pub async fn pause(
+        &mut self,
+        context: Arc<AppContext>,
+        reason: String,
+        display_reason: String,
+    ) -> Result<(), Error> {
         self.status = JobStatus::Paused;
         self.status_message = Some(reason);
+        self.display_status_message = Some(display_reason);
         self.flush(&context.db, true).await
     }
 
@@ -198,9 +215,15 @@ impl JobModel {
         self.flush(&context.db, true).await
     }
 
-    pub async fn fail(&mut self, pool: &PgPool, reason: String) -> Result<(), Error> {
+    pub async fn fail(
+        &mut self,
+        pool: &PgPool,
+        reason: String,
+        display_reason: String,
+    ) -> Result<(), Error> {
         self.status = JobStatus::Failed;
         self.status_message = Some(reason);
+        self.display_status_message = Some(display_reason);
         self.flush(pool, false).await
     }
 
@@ -227,6 +250,7 @@ struct JobRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     status_message: Option<String>,
+    display_status_message: Option<String>,
     state: Option<serde_json::Value>,
     import_config: serde_json::Value,
     secrets: String,
@@ -256,6 +280,7 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             leased_until: None,
             status: JobStatus::Running,
             status_message: row.status_message,
+            display_status_message: row.display_status_message,
             state: Some(state),
             import_config,
             secrets,
