@@ -403,9 +403,13 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     return table_from_iterator(iter(table_data), schema=schema)
 
 
-def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type:
-    # Delta Lake has limitations on decimal precision of (38, 18)
-    return pa.decimal128(precision, scale)
+def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
+    if precision <= 38:
+        return pa.decimal128(precision, scale)
+    elif precision <= 76:
+        return pa.decimal256(precision, scale)
+    else:
+        return pa.decimal256(76, max(0, 76 - (precision - scale)))
 
 
 def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | pa.Decimal256Type:
@@ -487,7 +491,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
             return build_pyarrow_decimal_type(precision, scale)
 
-        return pa.decimal128(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
+        return pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
 
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
