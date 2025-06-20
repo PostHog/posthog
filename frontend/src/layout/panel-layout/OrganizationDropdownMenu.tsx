@@ -39,7 +39,7 @@ export const OrganizationDropdownMenu = forwardRef<HTMLButtonElement, Record<str
                 <DropdownMenuTrigger asChild>
                     <ButtonPrimitive
                         className="max-w-[210px]"
-                        iconOnly={isLayoutNavCollapsed ? true : false}
+                        iconOnly={isLayoutNavCollapsed}
                         data-attr="tree-navbar-organization-dropdown-button"
                         ref={ref}
                         {...props}

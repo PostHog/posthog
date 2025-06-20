@@ -28,7 +28,6 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
         registerKeyboardShortcut: (keyboardShortcut: UniversalKeyboardShortcutItem) => ({ keyboardShortcut }),
         unregisterKeyboardShortcut: (name: string) => ({ name }),
         showKeyboardShortcuts: (show: boolean) => ({ show }),
-        handleKeyboardShortcut: (keybind: string) => ({ keybind }),
     }),
     reducers({
         isKeyboardShortcutsVisible: [

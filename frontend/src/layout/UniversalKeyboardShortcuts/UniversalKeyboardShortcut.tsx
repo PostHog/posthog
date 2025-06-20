@@ -55,7 +55,7 @@ export const UniversalKeyboardShortcut = forwardRef<HTMLElement, UniversalShortc
                     registerKeyboardShortcut({ name, category, keybind, ref: internalRef, intent, interaction })
                 }
             }
-        }, [isRefReady, name, category, keybind])
+        }, [isRefReady, name, category, keybind, intent, interaction])
 
         // Clean up on unmount
         useEffect(() => {
