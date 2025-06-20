@@ -94,7 +94,7 @@ class TestFetchSessionDataActivity:
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
             # Mock DB calls
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -133,7 +133,7 @@ class TestFetchSessionDataActivity:
         input_data = mock_single_session_summary_inputs(session_id)
         with (
             # Mock DB calls - return columns but no events (empty list)
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -220,7 +220,7 @@ class TestSummarizeSingleSessionWorkflow:
                         "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
                     ),
                     # Mock DB calls
-                    patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+                    patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
                     patch(
                         "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
                         return_value=mock_raw_metadata,

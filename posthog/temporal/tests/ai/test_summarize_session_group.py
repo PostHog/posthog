@@ -147,7 +147,7 @@ class TestSummarizeSessionGroupWorkflow:
                 new=AsyncMock(side_effect=call_llm_side_effects),
             ),
             # Mock DB calls
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,

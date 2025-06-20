@@ -64,7 +64,7 @@ class TestSummarizeSession:
         session_id = "test_session_id"
         empty_context = ExtraSummaryContext()
         with (
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch.object(
                 SessionReplayEvents,
                 "get_metadata",
@@ -80,7 +80,7 @@ class TestSummarizeSession:
                 )
             mock_get_db_metadata.assert_called_once_with(
                 session_id=session_id,
-                team=mock_team,
+                team_id=mock_team.id,
             )
 
     def test_prepare_data_no_events_returns_error_data(self, mock_team: MagicMock, mock_raw_metadata: dict[str, Any]):
@@ -98,16 +98,17 @@ class TestSummarizeSession:
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
             with pytest.raises(ValueError, match=f"No columns found for session_id {session_id}"):
-                get_session_events(session_id=session_id, session_metadata=mock_raw_metadata, team=mock_team)  # type: ignore[arg-type]
-                mock_instance.get_events.assert_called_once_with(
-                    session_id="test_session_id",
-                    team=mock_team,
-                    metadata=mock_raw_metadata,
-                    events_to_ignore=["$feature_flag_called"],
-                    extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
-                    page=0,
-                    limit=3000,
-                )
+                with patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team):
+                    get_session_events(session_id=session_id, session_metadata=mock_raw_metadata, team_id=mock_team.id)  # type: ignore[arg-type]
+                    mock_instance.get_events.assert_called_once_with(
+                        session_id="test_session_id",
+                        team_id=mock_team.id,
+                        metadata=mock_raw_metadata,
+                        events_to_ignore=["$feature_flag_called"],
+                        extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
+                        page=0,
+                        limit=3000,
+                    )
 
     @pytest.mark.asyncio
     async def test_stream_recording_summary_asgi(
