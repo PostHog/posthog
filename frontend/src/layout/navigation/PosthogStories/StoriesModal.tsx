@@ -249,8 +249,10 @@ export const StoriesModal = (): JSX.Element | null => {
                 setIsPaused(false)
 
                 if (action === 'modal') {
+                    sendStoryEndEvent('overlay_close_modal')
                     setOpenStoriesModal(false)
                 } else if (action === 'next') {
+                    sendStoryEndEvent('overlay_next')
                     // Go to next story
                     if (activeStoryIndex < maxStoryIndex - 1) {
                         setActiveStoryIndex(activeStoryIndex + 1)
@@ -259,6 +261,7 @@ export const StoriesModal = (): JSX.Element | null => {
                         setOpenStoriesModal(false)
                     }
                 } else if (action === 'previous') {
+                    sendStoryEndEvent('overlay_previous')
                     // Go to previous story
                     if (activeStoryIndex > 0) {
                         setActiveStoryIndex(activeStoryIndex - 1)
@@ -270,7 +273,7 @@ export const StoriesModal = (): JSX.Element | null => {
             }, 300) // Match animation duration
             // Default action 'overlay' or undefined just closes the overlay and continues current story
         },
-        [setOpenStoriesModal, activeStoryIndex, maxStoryIndex, setActiveStoryIndex]
+        [setOpenStoriesModal, activeStoryIndex, maxStoryIndex, setActiveStoryIndex, sendStoryEndEvent]
     )
 
     if (!openStoriesModal || !activeGroup) {
