@@ -32,9 +32,6 @@ export const itemSelectModalLogic = kea<itemSelectModalLogicType>([
             defaults: {
                 item: null as TreeDataItem | null,
             },
-            // errors: ({ item }) => ({
-            //     item: !item ? 'You need to specify an item.' : undefined,
-            // }),
             submit: (formValues) => {
                 if (formValues.item?.record) {
                     actions.addShortcutItem(formValues.item.record as FileSystemEntry)
