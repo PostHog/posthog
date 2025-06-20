@@ -1,6 +1,65 @@
 // This should eventually be moved to a DB.
 import React from 'react'
 
+// Simple reusable overlay helpers
+const createExampleOverlay = (
+    title: string,
+    description: string,
+    features?: string[]
+): ((closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void) => JSX.Element) => {
+    const ExampleOverlay = (closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void): JSX.Element =>
+        React.createElement(
+            'div',
+            { className: 'p-6 max-w-lg mx-auto text-center' },
+            React.createElement('h2', { className: 'text-2xl font-bold mb-2' }, title),
+            React.createElement('p', { className: 'text-gray-600 mb-4' }, description),
+            features &&
+                React.createElement(
+                    'ul',
+                    { className: 'space-y-1 mb-4 text-left' },
+                    ...features.map((f) =>
+                        React.createElement(
+                            'li',
+                            { key: f, className: 'flex items-center' },
+                            React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
+                            f
+                        )
+                    )
+                ),
+            React.createElement(
+                'div',
+                { className: 'flex gap-2 justify-center' },
+                React.createElement(
+                    'button',
+                    {
+                        className: 'px-4 py-2 bg-red-600 text-white rounded cursor-pointer',
+                        onClick: () => closeOverlay(),
+                    },
+                    'Continue story'
+                ),
+                React.createElement(
+                    'button',
+                    {
+                        className: 'px-4 py-2 bg-red-600 text-white rounded cursor-pointer',
+                        onClick: () => closeOverlay('next'),
+                    },
+                    'Next story'
+                ),
+                React.createElement(
+                    'button',
+                    {
+                        className: 'px-4 py-2 bg-red-600 text-white rounded cursor-pointer',
+                        onClick: () => closeOverlay('modal'),
+                    },
+                    'Close modal'
+                )
+            )
+        )
+
+    ExampleOverlay.displayName = 'ExampleOverlay'
+    return ExampleOverlay
+}
+
 export interface SeeMoreOptions {
     text?: string
     textColor?: 'black' | 'white'
@@ -60,86 +119,10 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 type: 'overlay',
                 durationMs: 20000,
-                seeMoreOverlay: (closeOverlay) =>
-                    React.createElement(
-                        'div',
-                        { className: 'p-8 max-w-4xl mx-auto' },
-                        React.createElement(
-                            'div',
-                            { className: 'text-center mb-6' },
-                            React.createElement(
-                                'h2',
-                                { className: 'text-3xl font-bold text-gray-900 mb-2' },
-                                '🎉 New Feature Alert!'
-                            ),
-                            React.createElement(
-                                'p',
-                                { className: 'text-lg text-gray-600' },
-                                'Interactive Story Overlays'
-                            )
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 mb-6' },
-                            React.createElement(
-                                'h3',
-                                { className: 'text-xl font-semibold text-gray-900 mb-3' },
-                                "What's New?"
-                            ),
-                            React.createElement(
-                                'ul',
-                                { className: 'space-y-2 text-gray-700' },
-                                React.createElement(
-                                    'li',
-                                    { className: 'flex items-center' },
-                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
-                                    'Custom React components in story overlays'
-                                ),
-                                React.createElement(
-                                    'li',
-                                    { className: 'flex items-center' },
-                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
-                                    'Story pauses automatically when overlay opens'
-                                )
-                            )
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'flex gap-3 justify-center' },
-                            React.createElement(
-                                'button',
-                                {
-                                    className:
-                                        'px-6 py-3 bg-red-600  text-white rounded-lg hover:bg-blue-700 transition-colors font-medium',
-                                    onClick: () => closeOverlay(),
-                                },
-                                'Continue Story'
-                            ),
-                            React.createElement(
-                                'button',
-                                {
-                                    className:
-                                        'px-6 py-3 bg-red-600  text-white rounded-lg hover:bg-green-700 transition-colors font-medium',
-                                    onClick: () => closeOverlay('next'),
-                                },
-                                'Next Story'
-                            ),
-                            React.createElement(
-                                'button',
-                                {
-                                    className:
-                                        'px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium',
-                                    onClick: () => closeOverlay('modal'),
-                                },
-                                'Close Stories'
-                            )
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'mt-6 text-center text-sm text-gray-500' },
-                            'This overlay demonstrates the new seeMoreComponent feature'
-                        )
-                    ),
+                seeMoreOverlay: createExampleOverlay('🎉 New Feature Alert!', 'Interactive Story Overlays', [
+                    'Custom React components',
+                    'Story pauses automatically',
+                ]),
                 seeMoreOptions: {
                     text: 'Explore Feature',
                     textColor: 'black',
@@ -183,86 +166,11 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
                 type: 'image',
                 durationMs: 20000,
-                seeMoreOverlay: (closeOverlay) =>
-                    React.createElement(
-                        'div',
-                        { className: 'p-8 max-w-4xl mx-auto' },
-                        React.createElement(
-                            'div',
-                            { className: 'text-center mb-6' },
-                            React.createElement(
-                                'h2',
-                                { className: 'text-3xl font-bold text-gray-900 mb-2' },
-                                '🎉 New Feature Alert!'
-                            ),
-                            React.createElement(
-                                'p',
-                                { className: 'text-lg text-gray-600' },
-                                'Interactive Story Overlays'
-                            )
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 mb-6' },
-                            React.createElement(
-                                'h3',
-                                { className: 'text-xl font-semibold text-gray-900 mb-3' },
-                                "What's New?"
-                            ),
-                            React.createElement(
-                                'ul',
-                                { className: 'space-y-2 text-gray-700' },
-                                React.createElement(
-                                    'li',
-                                    { className: 'flex items-center' },
-                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
-                                    'Custom React components in story overlays'
-                                ),
-                                React.createElement(
-                                    'li',
-                                    { className: 'flex items-center' },
-                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
-                                    'Story pauses automatically when overlay opens'
-                                )
-                            )
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'flex gap-3 justify-center' },
-                            React.createElement(
-                                'button',
-                                {
-                                    className:
-                                        'px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium',
-                                    onClick: () => closeOverlay(),
-                                },
-                                'Try It Now'
-                            ),
-                            React.createElement(
-                                'button',
-                                {
-                                    className:
-                                        'px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium',
-                                    onClick: () => closeOverlay(),
-                                },
-                                'Learn More'
-                            ),
-                            React.createElement(
-                                'button',
-                                {
-                                    className:
-                                        'px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium',
-                                    onClick: () => closeOverlay('modal'),
-                                },
-                                'Close Stories'
-                            )
-                        ),
-                        React.createElement(
-                            'div',
-                            { className: 'mt-6 text-center text-sm text-gray-500' },
-                            'This overlay demonstrates the new seeMoreComponent feature'
-                        )
-                    ),
+                seeMoreOverlay: createExampleOverlay('🚀 Feature Showcase', "See what's new in PostHog", [
+                    'Advanced analytics',
+                    'Real-time insights',
+                    'Custom dashboards',
+                ]),
                 seeMoreOptions: {
                     text: 'Explore Feature',
                     textColor: 'black',
