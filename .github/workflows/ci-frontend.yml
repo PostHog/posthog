@@ -149,8 +149,8 @@ jobs:
               with:
                   name: frontend-build
                   path: |
-                      frontend/
-                      products/
+                      frontend/**/*Type.ts
+                      frontend/src/products.tsx
                   retention-days: 1
 
     frontend-eslint:
@@ -180,7 +180,8 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: |
-                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
@@ -215,7 +216,8 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: |
-                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
@@ -259,7 +261,8 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: |
-                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Run typescript with strict
               if: needs.changes.outputs.frontend == 'true'
