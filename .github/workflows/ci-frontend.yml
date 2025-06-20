@@ -1,5 +1,4 @@
 name: Frontend CI
-
 on:
     pull_request:
     push:
@@ -16,7 +15,7 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-small
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
@@ -54,11 +53,10 @@ jobs:
                         - webpack.config.js
                         - stylelint*
 
-    frontend-code-quality:
-        name: Code quality checks
+    frontend-linting:
+        name: Frontend linting checks
         needs: changes
-        # kea typegen and typescript:check need some more oomph
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-24.04
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
@@ -101,11 +99,103 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:css
 
-            - name: Generate logic types and run typescript with strict
+    frontend-build-and-typegen:
+        name: Frontend build and typegen
+        needs: changes
+        runs-on: depot-ubuntu-24.04-8 # kea typegen needs a lot of oomph
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend build:products && pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Kea typegen
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend typegen:write
+
+            - name: Upload frontend build artifacts
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              with:
+                  name: frontend-build
+                  path: |
+                      **/*Type.ts
+                      frontend/src/products.tsx
+                  retention-days: 1
+
+    frontend-eslint:
+        name: Frontend ESLint checks
+        needs: [changes, frontend-build-and-typegen]
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Download frontend build artifacts
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              with:
+                  name: frontend-build
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
@@ -113,13 +203,46 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
-            - name: Check if "schema.json" is up to date
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+    frontend-toolbar-checks:
+        name: Frontend toolbar checks
+        needs: [changes]
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
-            - name: Check if mobile replay "schema.json" is up to date
+            - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend build:products
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
@@ -135,6 +258,63 @@ jobs:
             - name: Check toolbar for CSP eval violations
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
+
+    frontend-typescript-checks:
+        name: Frontend typescript and schema checks
+        needs: [changes, frontend-build-and-typegen]
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Download frontend build artifacts
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              with:
+                  name: frontend-build
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Run typescript with strict
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend typescript:check
+              env:
+                  NODE_OPTIONS: --max-old-space-size=16384
+
+            - name: Check if "schema.json" is up to date
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+
+            - name: Check if mobile replay "schema.json" is up to date
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
 
     jest:
         runs-on: depot-ubuntu-24.04
@@ -181,7 +361,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-code-quality, changes]
+        needs: [jest, frontend-typescript-checks, frontend-linting, frontend-toolbar-checks, frontend-eslint, changes]
         runs-on: depot-ubuntu-24.04
         if: needs.changes.outputs.frontend == 'true'
         steps:
@@ -215,3 +395,15 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.frontend == 'true'
+        needs: [calculate-running-time] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}
