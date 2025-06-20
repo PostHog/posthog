@@ -41,7 +41,7 @@ export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRef
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
     return (
-        <>
+        <div className="flex items-center gap-1">
             <span title={insightType?.description}>{insightType?.name}</span>
             {dateText ? (
                 <>
@@ -53,11 +53,11 @@ export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRef
                 <>
                     {' '}
                     •{' '}
-                    <span className="whitespace-nowrap text-muted">
-                        computed <TZLabel time={lastRefresh} />
-                    </span>
+                    <div className="flex items-center gap-1 text-muted">
+                        <span>Computed</span> <TZLabel time={lastRefresh} />
+                    </div>
                 </>
             ) : null}
-        </>
+        </div>
     )
 }

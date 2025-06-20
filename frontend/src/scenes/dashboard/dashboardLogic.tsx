@@ -358,6 +358,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAccessDeniedToDashboard: true,
         setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
+        updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -975,6 +976,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
             },
         ],
+
+        lastDashboardRefresh: [
+            null as Dayjs | null,
+            {
+                loadDashboardSuccess: (_, { dashboard }) => {
+                    return dashboard?.last_refresh ? dayjs(dashboard.last_refresh) : null
+                },
+                updateDashboardLastRefresh: (_, { lastDashboardRefresh }) => lastDashboardRefresh,
+            },
+        ],
     })),
     selectors(() => ({
         canAutoPreview: [
@@ -1159,16 +1170,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     .map((i) => dayjs(i.insight?.cache_target_age ?? i.insight?.next_allowed_client_refresh))
                     .filter((date) => date.isValid())
                 return sortDayJsDates(validDates)
-            },
-        ],
-        lastDashboardRefresh: [
-            (s) => [s.dashboard],
-            (dashboard): Dayjs | null => {
-                if (!dashboard?.last_refresh) {
-                    return null
-                }
-
-                return dayjs(dashboard.last_refresh)
             },
         ],
         nextAllowedDashboardRefresh: [
@@ -1538,10 +1539,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 if (manualDashboardRefresh) {
-                    dashboardsModel.actions.updateDashboard({
-                        id: props.id,
-                        last_refresh: new Date().toISOString(),
-                    })
+                    actions.updateDashboardLastRefresh(dayjs())
                 }
 
                 // capture time to see data
@@ -1746,6 +1744,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             actions.setInitialVariablesLoaded(true)
+        },
+        updateDashboardLastRefresh: ({ lastDashboardRefresh }) => {
+            dashboardsModel.actions.updateDashboard({
+                id: props.id,
+                last_refresh: lastDashboardRefresh.toISOString(),
+            })
         },
     })),
 
