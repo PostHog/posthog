@@ -12458,6 +12458,12 @@
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
+                "revenueAnalyticsPersonsJoinMode": {
+                    "$ref": "#/definitions/RevenueAnalyticsPersonsJoinMode"
+                },
+                "revenueAnalyticsPersonsJoinModeCustom": {
+                    "type": ["string", "null"]
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
@@ -19258,17 +19264,9 @@
                         "$ref": "#/definitions/RevenueAnalyticsGoal"
                     },
                     "type": "array"
-                },
-                "persons_join_mode": {
-                    "$ref": "#/definitions/RevenueAnalyticsPersonsJoinMode",
-                    "default": "id"
-                },
-                "persons_join_mode_custom": {
-                    "default": null,
-                    "type": ["string", "null"]
                 }
             },
-            "required": ["events", "goals", "filter_test_accounts", "persons_join_mode", "persons_join_mode_custom"],
+            "required": ["events", "goals", "filter_test_accounts"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {

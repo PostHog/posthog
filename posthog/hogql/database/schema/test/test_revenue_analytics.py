@@ -40,7 +40,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
     PURCHASE_EVENT_NAME = "purchase"
     REVENUE_PROPERTY = "revenue"
     QUERY_TIMESTAMP = "2025-05-30"
-    MODIFIERS = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
+    DEFAULT_MODIFIERS = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
 
     def tearDown(self):
         if hasattr(self, "invoices_cleanup_filesystem"):
@@ -148,8 +148,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
-        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.ID
-        self.team.revenue_analytics_config.save()
+        modifiers = HogQLQueryModifiers(
+            **self.DEFAULT_MODIFIERS,
+            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.ID,
+        )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
         for person_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
@@ -162,11 +164,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             ]
 
             for query in queries:
-                response = execute_hogql_query(
-                    parse_select(query),
-                    self.team,
-                    modifiers=self.MODIFIERS,
-                )
+                response = execute_hogql_query(parse_select(query), self.team, modifiers=modifiers)
 
                 assert response.results == [
                     ("cus_1", Decimal("429.7424")),
@@ -180,8 +178,11 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_email_join(self):
         self.setup_schema_sources()
-        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.EMAIL
-        self.team.revenue_analytics_config.save()
+
+        modifiers = HogQLQueryModifiers(
+            **self.DEFAULT_MODIFIERS,
+            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.EMAIL,
+        )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
         for person_id in [
@@ -202,11 +203,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             ]
 
             for query in queries:
-                response = execute_hogql_query(
-                    parse_select(query),
-                    self.team,
-                    modifiers=self.MODIFIERS,
-                )
+                response = execute_hogql_query(parse_select(query), self.team, modifiers=modifiers)
 
                 assert response.results == [
                     ("john.doe@example.com", Decimal("429.7424")),
@@ -220,9 +217,11 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_custom_join(self):
         self.setup_schema_sources()
-        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.CUSTOM
-        self.team.revenue_analytics_config.persons_join_mode_custom = "id"
-        self.team.revenue_analytics_config.save()
+        modifiers = HogQLQueryModifiers(
+            **self.DEFAULT_MODIFIERS,
+            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.CUSTOM,
+            revenueAnalyticsPersonsJoinModeCustom="id",
+        )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
         for person_id in [
@@ -243,11 +242,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             ]
 
             for query in queries:
-                response = execute_hogql_query(
-                    parse_select(query),
-                    self.team,
-                    modifiers=self.MODIFIERS,
-                )
+                response = execute_hogql_query(parse_select(query), self.team, modifiers=modifiers)
 
                 assert response.results == [
                     ("cus_1_metadata", Decimal("429.7424")),
@@ -261,8 +256,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
         self.setup_schema_sources()
-        self.team.revenue_analytics_config.persons_join_mode = RevenueAnalyticsPersonsJoinMode.EMAIL
-        self.team.revenue_analytics_config.save()
+        modifiers = HogQLQueryModifiers(
+            **self.DEFAULT_MODIFIERS,
+            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.EMAIL,
+        )
 
         # Person has several distinct IDs, but only one of them can be matched from the customer table
         _create_person(team_id=self.team.pk, distinct_ids=["distinct_1", "john.doe@example.com"])
@@ -274,7 +271,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 parse_select("SELECT DISTINCT pdi.distinct_id, $virt_revenue AS r FROM persons ORDER BY r ASC"),
                 self.team,
-                modifiers=self.MODIFIERS,
+                modifiers=modifiers,
             )
 
             assert response.results == [
@@ -289,7 +286,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 parse_select("SELECT DISTINCT $virt_revenue AS r FROM persons ORDER BY r ASC"),
                 self.team,
-                modifiers=self.MODIFIERS,
+                modifiers=modifiers,
             )
 
             assert response.results == [(Decimal("429.7424"),), (None,)]

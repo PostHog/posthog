@@ -176,10 +176,6 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     events = serializers.JSONField(required=False)
     goals = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
-    persons_join_mode = serializers.ChoiceField(
-        choices=TeamRevenueAnalyticsConfig.PersonsJoinMode.choices, required=False
-    )
-    persons_join_mode_custom = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
@@ -188,8 +184,6 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
             "events",
             "goals",
             "filter_test_accounts",
-            "persons_join_mode",
-            "persons_join_mode_custom",
         ]
 
     def to_representation(self, instance):

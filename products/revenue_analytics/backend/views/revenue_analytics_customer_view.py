@@ -19,6 +19,10 @@ from posthog.hogql.database.models import (
 )
 from .revenue_analytics_base_view import events_expr_for_team
 from posthog.schema import RevenueAnalyticsPersonsJoinMode
+from posthog.schema import (
+    RevenueAnalyticsPersonsJoinMode,
+    HogQLQueryModifiers,
+)
 
 SOURCE_VIEW_SUFFIX = "customer_revenue_view"
 EVENTS_VIEW_SUFFIX = "customer_events_revenue_view"
@@ -51,7 +55,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER
 
     @classmethod
-    def for_events(cls, team: Team) -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, team: Team, _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:
             return []
 
@@ -117,7 +121,9 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         ]
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource, team: Team) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(
+        cls, source: ExternalDataSource, modifiers: HogQLQueryModifiers
+    ) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -181,7 +187,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                         constraint_type="ON",
                         expr=ast.CompareOperation(
                             left=ast.Field(chain=["person_distinct_ids", "distinct_id"]),
-                            right=cls._schema_source_distinct_id_expr(team, chain=["outer"]),
+                            right=cls._schema_source_distinct_id_expr(modifiers, chain=["outer"]),
                             op=ast.CompareOperationOp.Eq,
                         ),
                     ),
@@ -265,16 +271,21 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         ]
 
     @classmethod
-    def _schema_source_distinct_id_expr(cls, team: Team, chain: list[str] = []) -> ast.Expr:
-        config = team.revenue_analytics_config
-        if config.persons_join_mode == RevenueAnalyticsPersonsJoinMode.ID:
+    def _schema_source_distinct_id_expr(cls, modifiers: HogQLQueryModifiers, chain: list[str] = []) -> ast.Expr:
+        if modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.ID:
             return ast.Field(chain=[*chain, "id"])
-        elif config.persons_join_mode == RevenueAnalyticsPersonsJoinMode.EMAIL:
+        elif modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.EMAIL:
             return ast.Field(chain=[*chain, "email"])
-        elif config.persons_join_mode == RevenueAnalyticsPersonsJoinMode.CUSTOM and config.persons_join_mode_custom:
+        elif (
+            modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.CUSTOM
+            and modifiers.revenueAnalyticsPersonsJoinModeCustom
+        ):
             return ast.Call(
                 name="JSONExtractString",
-                args=[ast.Field(chain=[*chain, "metadata"]), ast.Constant(value=config.persons_join_mode_custom)],
+                args=[
+                    ast.Field(chain=[*chain, "metadata"]),
+                    ast.Constant(value=modifiers.revenueAnalyticsPersonsJoinModeCustom),
+                ],
             )
         else:
             return ast.Field(chain=[*chain, "id"])  # Fallback to ID, should never happen

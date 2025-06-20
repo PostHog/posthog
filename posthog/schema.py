@@ -3314,6 +3314,8 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
+    revenueAnalyticsPersonsJoinMode: Optional[RevenueAnalyticsPersonsJoinMode] = None
+    revenueAnalyticsPersonsJoinModeCustom: Optional[str] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
@@ -8931,8 +8933,6 @@ class RevenueAnalyticsConfig(BaseModel):
     events: Optional[list[RevenueAnalyticsEventItem]] = []
     filter_test_accounts: Optional[bool] = False
     goals: Optional[list[RevenueAnalyticsGoal]] = []
-    persons_join_mode: Optional[RevenueAnalyticsPersonsJoinMode] = RevenueAnalyticsPersonsJoinMode.ID
-    persons_join_mode_custom: Optional[str] = None
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):

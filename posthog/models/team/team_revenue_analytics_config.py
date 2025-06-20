@@ -23,25 +23,6 @@ class TeamRevenueAnalyticsConfig(models.Model):
     _events = models.JSONField(default=list, db_column="events")
     _goals = models.JSONField(default=list, db_column="goals", null=True, blank=True)
 
-    # Used to track how we connect Posthog persons to the customers table
-    # Keep it in sync with frontend/src/queries/schema/schema-general.ts#RevenueAnalyticsPersonsJoinMode
-    class PersonsJoinMode(models.TextChoices):
-        # Joins persons.distinct_id to the customer.id field
-        ID = "id", "ID"
-        # Joins persons.distinct_id to the customer.email field
-        EMAIL = "email", "Email"
-        # Joins persons.distinct_id to the customer.custom_field field
-        CUSTOM = "custom", "Custom"
-
-    persons_join_mode = models.CharField(
-        max_length=30,
-        choices=PersonsJoinMode.choices,
-        default=PersonsJoinMode.ID,
-        null=False,
-        blank=False,
-    )
-    persons_join_mode_custom = models.CharField(max_length=255, null=True, blank=True)
-
     @property
     def events(self) -> list[RevenueAnalyticsEventItem]:
         return [RevenueAnalyticsEventItem.model_validate(event) for event in self._events or []]

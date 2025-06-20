@@ -1,17 +1,56 @@
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { RevenueAnalyticsPersonsJoinMode } from '~/queries/schema/schema-general'
 import { PipelineTab } from '~/types'
 
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
-
 export function PersonsJoinModeConfiguration(): JSX.Element {
-    const { personsJoinMode, personsJoinModeCustom, savePersonsJoinModeDisabledReason } =
-        useValues(revenueAnalyticsSettingsLogic)
-    const { updatePersonsJoinMode, updatePersonsJoinModeCustom, save } = useActions(revenueAnalyticsSettingsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    const [personsJoinMode, setPersonsJoinMode] = useState<RevenueAnalyticsPersonsJoinMode>(
+        currentTeam?.modifiers?.revenueAnalyticsPersonsJoinMode ??
+            currentTeam?.default_modifiers?.revenueAnalyticsPersonsJoinMode ??
+            RevenueAnalyticsPersonsJoinMode.ID
+    )
+    const [personsJoinModeCustom, setPersonsJoinModeCustom] = useState<string | null>(
+        currentTeam?.modifiers?.revenueAnalyticsPersonsJoinModeCustom ??
+            currentTeam?.default_modifiers?.revenueAnalyticsPersonsJoinModeCustom ??
+            null
+    )
+
+    const updatePersonsJoinMode = (value: RevenueAnalyticsPersonsJoinMode): void => {
+        setPersonsJoinMode(value)
+        if (value !== RevenueAnalyticsPersonsJoinMode.CUSTOM) {
+            setPersonsJoinModeCustom(null)
+        }
+    }
+
+    const updatePersonsJoinModeCustom = (value: string): void => {
+        setPersonsJoinModeCustom(value)
+    }
+
+    const save = (): void => {
+        updateCurrentTeam({
+            modifiers: {
+                ...currentTeam?.modifiers,
+                revenueAnalyticsPersonsJoinMode: personsJoinMode,
+                revenueAnalyticsPersonsJoinModeCustom: personsJoinModeCustom,
+            },
+        })
+    }
+
+    const disabledReason =
+        personsJoinMode === RevenueAnalyticsPersonsJoinMode.CUSTOM && !personsJoinModeCustom
+            ? 'Custom field is required'
+            : personsJoinMode === currentTeam?.modifiers?.revenueAnalyticsPersonsJoinMode &&
+              personsJoinModeCustom === currentTeam?.modifiers?.revenueAnalyticsPersonsJoinModeCustom
+            ? 'No changes to save'
+            : null
 
     return (
         <div>
@@ -78,7 +117,7 @@ export function PersonsJoinModeConfiguration(): JSX.Element {
                 />
             </div>
 
-            <LemonButton type="primary" onClick={save} disabledReason={savePersonsJoinModeDisabledReason}>
+            <LemonButton type="primary" onClick={save} disabledReason={disabledReason}>
                 Save
             </LemonButton>
         </div>
