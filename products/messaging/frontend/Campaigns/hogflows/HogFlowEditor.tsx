@@ -5,9 +5,6 @@ import {
     BackgroundVariant,
     Controls,
     Edge,
-    getConnectedEdges,
-    getIncomers,
-    getOutgoers,
     Node,
     ReactFlow,
     ReactFlowProvider,
@@ -16,7 +13,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -25,7 +22,6 @@ import { HogFlowActionManager } from './actions/hogFlowActionManager'
 import { NodeDetailsPanel } from './actions/NodeDetailsPanel'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './actions/Nodes'
 import { getFormattedNodes } from './autolayout'
-import { getDefaultEdgeOptions } from './constants'
 import { Toolbar, ToolbarNode } from './Toolbar'
 import type { HogFlow, HogFlowAction } from './types'
 
@@ -33,46 +29,31 @@ import type { HogFlow, HogFlowAction } from './types'
 function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChange: OnWorkflowChange }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const initialNodes = useMemo(() => HogFlowActionManager.getNodesFromHogFlow(hogFlow), [hogFlow])
-    const initialEdges = useMemo(() => HogFlowActionManager.getEdgesFromHogFlow(hogFlow), [hogFlow])
-
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(initialNodes)
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges)
-
-    useEffect(() => {
-        onChange({
-            actions: nodes.filter((node) => !DROPZONE_NODE_TYPES.includes(node.type || '')).map((node) => node.data),
-        })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [nodes.length, edges.length])
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(
+        HogFlowActionManager.getNodesFromHogFlow(hogFlow)
+    )
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(HogFlowActionManager.getEdgesFromHogFlow(hogFlow))
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
     const [toolbarNodeUsed, setToolbarNodeUsed] = useState<ToolbarNode>()
     const [selectedNode, setSelectedNode] = useState<Node<HogFlowAction>>()
-
     const { screenToFlowPosition, deleteElements, setCenter, getIntersectingNodes, fitView } = useReactFlow()
 
     const nodeTypes = useMemo(() => REACT_FLOW_NODE_TYPES, [])
 
-    const updateAndLayout = useCallback(
-        async ({ nodes, edges }) => {
-            void (async () => {
-                const formattedNodes = await getFormattedNodes(nodes, edges)
-                setNodes(formattedNodes)
-                setEdges(edges)
-                void fitView()
-            })()
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        []
-    )
+    // Layout the graph on node changes.
+    useEffect(() => {
+        void (async () => {
+            const nodes = HogFlowActionManager.getNodesFromHogFlow(hogFlow)
+            const formattedNodes = await getFormattedNodes(nodes)
+            setNodes(formattedNodes)
+            setEdges(HogFlowActionManager.getEdgesFromHogFlow(hogFlow))
 
-    // Layout the graph on mount.
-    useLayoutEffect(() => {
-        void updateAndLayout({ nodes: initialNodes, edges: initialEdges })
+            void fitView()
+        })()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [hogFlow])
 
     // When a node is selected, center the view on it
     useEffect(() => {
@@ -89,7 +70,7 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
     }, [selectedNode, setCenter])
 
     const findIntersectingDropzone = useCallback(
-        (event: React.DragEvent): Node<HogFlowAction> | undefined => {
+        (event: React.DragEvent): Node<{ edge: Edge }> | undefined => {
             const position = screenToFlowPosition({
                 x: event.clientX,
                 y: event.clientY,
@@ -108,7 +89,7 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
             const intersectingDropzoneNode = intersectingNodes.find((node) =>
                 DROPZONE_NODE_TYPES.includes(node.type || '')
             )
-            return intersectingDropzoneNode as Node<HogFlowAction> | undefined
+            return intersectingDropzoneNode as Node<{ edge: Edge }> | undefined
         },
         [getIntersectingNodes, screenToFlowPosition]
     )
@@ -139,35 +120,21 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
             event.preventDefault()
 
             const intersectingDropzone = findIntersectingDropzone(event)
-            const edgeIdToInsertNodeInto = intersectingDropzone?.id.replace('dropzone_edge_', '')
-            const edgeToInsertNodeInto = edges.find((edge) => edge.id === edgeIdToInsertNodeInto)
-
-            const updatedNodes = [...nodes.filter((nd) => !DROPZONE_NODE_TYPES.includes(nd.type || ''))]
-
-            if (!toolbarNodeUsed || !intersectingDropzone || !edgeToInsertNodeInto) {
-                setNodes(updatedNodes)
+            if (!toolbarNodeUsed || !intersectingDropzone) {
+                // No changes, just hide dropzones
+                setNodes([...nodes.filter((nd) => !DROPZONE_NODE_TYPES.includes(nd.type || ''))])
                 return
             }
 
             // Create the new node in the position of the dropzone using the manager
-            const { node: newNode, edges: newEdges } = HogFlowActionManager.createNodeAndEdgesFromToolbarNode(
+            const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
+                hogFlow.actions,
                 toolbarNodeUsed,
-                edgeToInsertNodeInto
+                intersectingDropzone
             )
-            // Set the position after creation since the manager doesn't handle position
-            newNode.position = {
-                x: intersectingDropzone.position.x,
-                y: intersectingDropzone.position.y,
-            }
-            updatedNodes.push({ ...newNode })
-
-            // Create incoming and outgoing edges for the new node, and remove the edge that was inserted into
-            const updatedEdges = [...edges.filter((edge) => edge.id !== edgeIdToInsertNodeInto)]
-            updatedEdges.push(...newEdges)
-
-            void updateAndLayout({ nodes: updatedNodes, edges: updatedEdges })
+            onChange({ actions: updatedActions })
         },
-        [findIntersectingDropzone, edges, nodes, toolbarNodeUsed, updateAndLayout, setNodes]
+        [findIntersectingDropzone, edges, nodes, toolbarNodeUsed, setNodes]
     )
 
     // When a node is deleted, connect the middle nodes to their incomers and outgoers to avoid orphaned nodes
@@ -178,38 +145,35 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
                 setSelectedNode(undefined)
             }
 
-            // Connect middle nodes to their incomers and outgoers to avoid orphaned nodes
-            const newEdges = deleted.reduce((acc, node) => {
-                const incomers = getIncomers(node, nodes, edges)
-                const outgoers = getOutgoers(node, nodes, edges)
-                const connectedEdges = getConnectedEdges([node], edges)
+            // Get the nodes that are incoming to the deleted nodes, and connect them to their deleted nodes' continue next action
+            const deletedNodeIds = deleted.map((node) => node.id)
+            const updatedActions = hogFlow.actions
+                .filter((action) => !deletedNodeIds.includes(action.id))
+                .map((action) => {
+                    // For each action, update its next_actions to skip deleted nodes
+                    const updatedNextActions: Record<string, string> = {}
 
-                const sourceHandle = connectedEdges.find((e) => e.target === node.id)?.sourceHandle
-                const sourceLabel = connectedEdges.find((e) => e.target === node.id)?.label
-                const targetHandle = connectedEdges.find((e) => e.source === node.id)?.targetHandle
+                    Object.entries(action.next_actions).forEach(([branch, nextActionId]) => {
+                        if (deletedNodeIds.includes(nextActionId)) {
+                            // Find the deleted node's continue action and use that instead
+                            const deletedNode = hogFlow.actions.find((a) => a.id === nextActionId)
+                            if (deletedNode?.next_actions.continue) {
+                                updatedNextActions[branch] = deletedNode.next_actions.continue
+                            }
+                        } else {
+                            updatedNextActions[branch] = nextActionId
+                        }
+                    })
 
-                const remainingEdges = acc.filter((edge) => !connectedEdges.includes(edge))
+                    return {
+                        ...action,
+                        next_actions: updatedNextActions,
+                    }
+                })
 
-                const createdEdges = incomers.flatMap(({ id: source }) =>
-                    outgoers.map(({ id: target }) => ({
-                        id: `${source}->${target}${sourceHandle ? `:${sourceHandle}` : ''}`,
-                        source,
-                        target,
-                        sourceHandle,
-                        targetHandle,
-                        label: sourceLabel,
-                        ...getDefaultEdgeOptions(),
-                    }))
-                )
-
-                return [...remainingEdges, ...createdEdges]
-            }, edges)
-
-            const newNodes = nodes.filter((node) => !deleted.includes(node))
-
-            void updateAndLayout({ nodes: newNodes, edges: newEdges })
+            onChange({ actions: updatedActions })
         },
-        [nodes, edges, selectedNode?.id, setSelectedNode, updateAndLayout]
+        [nodes, edges, selectedNode?.id, setSelectedNode, onChange]
     )
 
     return (

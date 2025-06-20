@@ -1,6 +1,5 @@
 import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconRevert, IconSend } from '@posthog/icons'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useMemo } from 'react'
 
 import type { HogFlowAction } from '../types'
@@ -45,7 +44,7 @@ function DropzoneNode({ type }: NodeProps): JSX.Element {
     )
 }
 
-function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.Element {
+function BaseNode({ id, icon, selected, data, children }: NodeProps): JSX.Element {
     const updateNodeInternals = useUpdateNodeInternals()
     const hogFlowAction = useMemo(() => HogFlowActionManager.fromAction(data), [data])
 
@@ -62,7 +61,7 @@ function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.
         >
             <div className="flex items-center justify-center gap-1">
                 {icon}
-                <div className="text-xs">{data.name || capitalizeFirstLetter(type || 'Untitled')}</div>
+                <div className="text-xs">{data.name}</div>
             </div>
             {children}
             {hogFlowAction.getHandles()?.map((handle: NodeHandle) => (

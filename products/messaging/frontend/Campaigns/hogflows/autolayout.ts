@@ -1,8 +1,8 @@
-import { Edge, Node, Position } from '@xyflow/react'
-import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import { Node, Position } from '@xyflow/react'
+import ELK, { ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
-import type { HogFlowAction, HogFlowEdge } from './types'
+import type { HogFlowAction } from './types'
 
 /**
  * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm
@@ -26,10 +26,7 @@ const getElkPortSide = (position: Position): string => {
 
 const elk = new ELK()
 
-export const getFormattedNodes = async (
-    nodes: Node<HogFlowAction>[],
-    edges: Edge<HogFlowEdge>[]
-): Promise<Node<HogFlowAction>[]> => {
+export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<Node<HogFlowAction>[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
@@ -58,18 +55,21 @@ export const getFormattedNodes = async (
                 ...node,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
+                targetPosition: 'top',
+                sourcePosition: 'bottom',
                 properties: {
                     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
                 },
-                ports: [{ id: node.id }, ...handles],
+                ports: handles,
             }
         }),
-        edges: edges.map((edge) => ({
-            ...edge,
-            id: edge.id,
-            sources: [edge.sourceHandle || edge.source],
-            targets: [edge.targetHandle || edge.target],
-        })) as ElkExtendedEdge[],
+        edges: nodes.flatMap((node) =>
+            Object.entries(node.data.next_actions).map(([branch, next_action_id]) => ({
+                id: `${node.id}->${next_action_id}`,
+                sources: [`${branch}_${node.id}`],
+                targets: [`target_${next_action_id}`],
+            }))
+        ),
     }
 
     const layoutedGraph = await elk.layout(graph)

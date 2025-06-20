@@ -1,6 +1,6 @@
 import { Edge, MarkerType, Node } from '@xyflow/react'
 
-import { HogFlowAction, HogFlowEdge } from './types'
+import { HogFlowAction } from './types'
 
 export const getDefaultNodeOptions = (isEntryOrExit?: boolean): Partial<Node<HogFlowAction>> => ({
     deletable: !isEntryOrExit,
@@ -9,7 +9,7 @@ export const getDefaultNodeOptions = (isEntryOrExit?: boolean): Partial<Node<Hog
     connectable: false,
 })
 
-export const getDefaultEdgeOptions = (): Partial<Edge<HogFlowEdge>> => ({
+export const getDefaultEdgeOptions = (): Partial<Edge> => ({
     type: 'smoothstep',
     deletable: false,
     reconnectable: false,
