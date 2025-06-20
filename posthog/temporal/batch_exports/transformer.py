@@ -100,18 +100,19 @@ class JSONLStreamTransformer:
                         continue
 
                     for future in done:
-                        chunk = await future
+                        chunks = await future
                         self._semaphore.release()
                         self._futures_pending.remove(future)
 
-                        yield Chunk(chunk, False)
+                        for chunk in chunks:
+                            yield Chunk(chunk, False)
 
-                        if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                            yield Chunk(b"", True)
-                            current_file_size = 0
+                            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                                yield Chunk(b"", True)
+                                current_file_size = 0
 
-                        else:
-                            current_file_size += len(chunk)
+                            else:
+                                current_file_size += len(chunk)
 
     @contextlib.asynccontextmanager
     async def _record_batches_producer(
@@ -185,23 +186,24 @@ class JSONLBrotliStreamTransformer:
                         continue
 
                     for future in done:
-                        chunk = await future
+                        chunks = await future
                         self._semaphore.release()
                         self._futures_pending.remove(future)
 
-                        chunk = self._compress(chunk)
-                        await asyncio.sleep(0)  # In case compressing took too long.
+                        for chunk in chunks:
+                            chunk = self._compress(chunk)
+                            await asyncio.sleep(0)  # In case compressing took too long.
 
-                        yield Chunk(chunk, False)
+                            yield Chunk(chunk, False)
 
-                        if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                            data = await asyncio.to_thread(self._finish_brotli_compressor)
+                            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                                data = await asyncio.to_thread(self._finish_brotli_compressor)
 
-                            yield Chunk(data, True)
-                            current_file_size = 0
+                                yield Chunk(data, True)
+                                current_file_size = 0
 
-                        else:
-                            current_file_size += len(chunk)
+                            else:
+                                current_file_size += len(chunk)
 
         data = self._finish_brotli_compressor()
         await asyncio.sleep(0)
@@ -258,7 +260,7 @@ def dump_record_batch(
     record_batch: pa.RecordBatch,
     compression: str | None,
     include_inserted_at: bool = False,
-) -> bytes:
+) -> list[bytes]:
     """Dump all records in a record batch to JSON lines."""
     column_names = record_batch.column_names
     if not include_inserted_at:
@@ -273,17 +275,14 @@ def dump_record_batch(
             case _:
                 raise ValueError(f"Unsupported compression: '{compression}'")
 
-    dumped = b""
-    for record_dict in record_batch.select(column_names).to_pylist():
-        if not record_dict:
-            continue
-
-        if compression:
-            dumped += compress(dump_dict(record_dict))
-        else:
-            dumped += dump_dict(record_dict)
-
-    return dumped
+    if compression:
+        return [
+            compress(dump_dict(record_dict))
+            for record_dict in record_batch.select(column_names).to_pylist()
+            if record_dict
+        ]
+    else:
+        return [dump_dict(record_dict) for record_dict in record_batch.select(column_names).to_pylist() if record_dict]
 
 
 def dump_dict(d: dict[str, typing.Any]) -> bytes:
