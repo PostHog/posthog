@@ -157,7 +157,7 @@ jobs:
     frontend-eslint:
         name: ESLint checks
         needs: [changes, frontend-build-and-typegen]
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
@@ -177,6 +177,19 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -213,6 +226,19 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -258,6 +284,19 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
