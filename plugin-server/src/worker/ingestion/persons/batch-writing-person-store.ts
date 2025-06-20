@@ -32,7 +32,12 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
+import {
+    fromInternalPerson,
+    mergePersonPropertiesWithChangeset,
+    PersonUpdate,
+    toInternalPerson,
+} from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -162,7 +167,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 case 'ASSERT_VERSION':
                                     await promiseRetry(
                                         () => this.updatePersonAssertVersion(update),
-                                        'updatePersonOptimistically',
+                                        'updatePersonAssertVersion',
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval,
                                         undefined,
@@ -530,6 +535,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                       properties_last_operation: result.properties_last_operation
                           ? { ...result.properties_last_operation }
                           : {},
+                      property_changeset: { ...result.property_changeset },
                   }
         } else {
             this.cacheMetrics.updateCacheMisses++
@@ -600,8 +606,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             // Create new PersonUpdate from the person and apply the update
             personUpdate = fromInternalPerson(person, distinctId)
 
-            // Merge properties specifically to avoid overwriting
+            // Track property changes in changeset and merge into full properties
             if (update.properties) {
+                personUpdate.property_changeset = { ...personUpdate.property_changeset, ...update.properties }
                 personUpdate.properties = { ...personUpdate.properties, ...update.properties }
             }
 
@@ -615,8 +622,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             // Merge updates into existing cached PersonUpdate
             personUpdate = existingUpdate
 
-            // Merge properties specifically to avoid overwriting
+            // Track property changes in changeset and merge into full properties
             if (update.properties) {
+                personUpdate.property_changeset = { ...personUpdate.property_changeset, ...update.properties }
                 personUpdate.properties = { ...personUpdate.properties, ...update.properties }
             }
 
@@ -694,13 +702,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
 
         if (latestPerson) {
-            // We need to recompute our property changes against the latest person data
-            // Similar to how group store uses calculateUpdate, we should use calculatePersonPropertyUpdate
-            // However, since we don't store the original property operations that led to this PersonUpdate,
-            // we'll do a simple merge for now - our cached properties override the latest ones
-            const mergedProperties = { ...latestPerson.properties, ...personUpdate.properties }
+            // Use changeset-based merge: start with latest properties from DB and apply only our changes
+            const mergedProperties = mergePersonPropertiesWithChangeset(latestPerson.properties, personUpdate)
 
-            // Update the PersonUpdate with latest data
+            // Update the PersonUpdate with latest data and merged properties
             personUpdate.properties = mergedProperties
             personUpdate.properties_last_updated_at = latestPerson.properties_last_updated_at || {}
             personUpdate.properties_last_operation = latestPerson.properties_last_operation || {}
