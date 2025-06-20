@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import {
+    BillingPlan,
     BillingPlanType,
     BillingProductV2AddonType,
     BillingProductV2Type,
@@ -45,6 +46,15 @@ export const randomizeReasons = (reasons: UnsubscribeReason[]): UnsubscribeReaso
     const shuffledReasons = reasons.slice(0, -1).sort(() => Math.random() - 0.5)
     shuffledReasons.push(reasons[reasons.length - 1])
     return shuffledReasons
+}
+
+export const isPlatformAndSupportAddon = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+    return (
+        product.type === BillingPlan.Boost ||
+        product.type === BillingPlan.Teams ||
+        product.type === BillingPlan.Scale ||
+        product.type === BillingPlan.Enterprise
+    )
 }
 
 export interface BillingProductLogicProps {
