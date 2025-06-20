@@ -334,7 +334,6 @@ describe('BatchWritingPersonStore', () => {
                     existing_prop: 'existing_value',
                     new_prop: 'new_value',
                     shared_prop: 'new_value',
-                    test: 'test',
                 },
             }),
             undefined,
