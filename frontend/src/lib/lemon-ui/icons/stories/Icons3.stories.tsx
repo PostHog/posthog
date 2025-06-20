@@ -5,12 +5,12 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import * as React from 'react'
 
-import * as icons from './icons'
+import * as icons from '../icons'
 
 const { IconWithCount } = icons
 
 const meta: Meta = {
-    title: 'Lemon UI/Icons',
+    title: 'Lemon UI/Icons3',
     parameters: {
         docs: {
             description: {
@@ -104,66 +104,6 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
     )
 }
 
-// This is for actual Storybook users
-export const Library: LibraryType = LibraryTemplate.bind({})
-Library.tags = ['autodocs', 'test-skip']
-
-// These are just for snapshots. As opposed to the full library, the stories below are segmented by the first letter
-// of the icon name, which greatly optimizes both the UX and storage aspects of diffing snapshots.
-export const ShelfA: LibraryType = LibraryTemplate.bind({})
-ShelfA.args = { letter: 'a' }
-ShelfA.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfB: LibraryType = LibraryTemplate.bind({})
-ShelfB.args = { letter: 'b' }
-ShelfB.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfC: LibraryType = LibraryTemplate.bind({})
-ShelfC.args = { letter: 'c' }
-ShelfC.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfD: LibraryType = LibraryTemplate.bind({})
-ShelfD.args = { letter: 'd' }
-ShelfD.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfE: LibraryType = LibraryTemplate.bind({})
-ShelfE.args = { letter: 'e' }
-ShelfE.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfF: LibraryType = LibraryTemplate.bind({})
-ShelfF.args = { letter: 'f' }
-ShelfF.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfG: LibraryType = LibraryTemplate.bind({})
-ShelfG.args = { letter: 'g' }
-ShelfG.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfH: LibraryType = LibraryTemplate.bind({})
-ShelfH.args = { letter: 'h' }
-ShelfH.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfI: LibraryType = LibraryTemplate.bind({})
-ShelfI.args = { letter: 'i' }
-ShelfI.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfJ: LibraryType = LibraryTemplate.bind({})
-ShelfJ.args = { letter: 'j' }
-ShelfJ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfK: LibraryType = LibraryTemplate.bind({})
-ShelfK.args = { letter: 'k' }
-ShelfK.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfL: LibraryType = LibraryTemplate.bind({})
-ShelfL.args = { letter: 'l' }
-ShelfL.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfM: LibraryType = LibraryTemplate.bind({})
-ShelfM.args = { letter: 'm' }
-ShelfM.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfN: LibraryType = LibraryTemplate.bind({})
-ShelfN.args = { letter: 'n' }
-ShelfN.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfO: LibraryType = LibraryTemplate.bind({})
-ShelfO.args = { letter: 'o' }
-ShelfO.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfP: LibraryType = LibraryTemplate.bind({})
-ShelfP.args = { letter: 'p' }
-ShelfP.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfQ: LibraryType = LibraryTemplate.bind({})
-ShelfQ.args = { letter: 'q' }
-ShelfQ.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
-export const ShelfR: LibraryType = LibraryTemplate.bind({})
-ShelfR.args = { letter: 'r' }
-ShelfR.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
 export const ShelfS: LibraryType = LibraryTemplate.bind({})
 ShelfS.args = { letter: 's' }
 ShelfS.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tbody' } }
