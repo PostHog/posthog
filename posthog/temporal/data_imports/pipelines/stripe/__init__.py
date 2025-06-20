@@ -359,7 +359,7 @@ def stripe_source_v2(
     db_incremental_field_last_value: Optional[Any],
     db_incremental_field_earliest_value: Optional[Any],
     logger: FilteringBoundLogger,
-    is_incremental: bool = False,
+    should_use_incremental_field: bool = False,
 ):
     def get_rows():
         client = StripeClient(api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia")
@@ -381,7 +381,7 @@ def stripe_source_v2(
 
         logger.debug(f"Stripe: reading from resource {resource}")
 
-        if not is_incremental or (
+        if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
             logger.debug(f"Stripe: iterating all objects from resource")

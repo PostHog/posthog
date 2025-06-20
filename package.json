@@ -72,8 +72,8 @@
     "pnpm": {
         "overrides": {
             "playwright": "1.45.0",
-            "typescript": "~4.9.5",
-            "@posthog/icons": "0.21.0"
+            "typescript": "5.2.2",
+            "@posthog/icons": "0.22.0"
         },
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",

@@ -3643,3 +3643,667 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
+    // This test specifically addresses the bug where super condition property overrides
+    // were ignored when evaluating flags. The bug was that if you sent:
+    // "$feature_enrollment/discussions": false
+    // as an override, it would be ignored if the flag's super_groups checked for that property.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "super_condition_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with the super condition property set to true in the database
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "$feature_enrollment/discussions": true,  // DB has it as true
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create a flag with a super condition that checks the enrollment property
+    let flag_json = json!([{
+        "id": 1,
+        "key": "discussions-flag",
+        "name": "Discussions Feature Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "super_groups": [{
+                "properties": [{
+                    "key": "$feature_enrollment/discussions",
+                    "type": "person",
+                    "value": ["true"],
+                    "operator": "exact"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // First, test without overrides - should be true (DB value is true)
+    let payload_no_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload_no_override.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    // Should be enabled because DB has $feature_enrollment/discussions = true
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "super_condition_value"
+                    }
+                }
+            }
+        })
+    );
+
+    // Now test the key bug: override the super condition property to false
+    // This should make the flag evaluate to false, respecting the override
+    let payload_with_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": false  // Override to false
+        }
+    });
+
+    let res_override = server
+        .send_flags_request(payload_with_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_override.status() != StatusCode::OK {
+        let status = res_override.status();
+        let text = res_override.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_override = res_override.json::<Value>().await?;
+
+    // This is the key test: the flag should now be false because we overrode
+    // the super condition property. Before our fix, this would incorrectly be true
+    // because the override was ignored.
+    assert_json_include!(
+        actual: json_override,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": false  // Should be false due to the override
+                }
+            }
+        })
+    );
+
+    // Test the reverse: override to true when DB has false
+    // First update DB to have false
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        "another_user".to_string(),
+        Some(json!({
+            "$feature_enrollment/discussions": false,  // DB has it as false
+            "email": "another@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let payload_reverse_override = json!({
+        "token": token,
+        "distinct_id": "another_user",
+        "person_properties": {
+            "$feature_enrollment/discussions": true  // Override to true
+        }
+    });
+
+    let res_reverse = server
+        .send_flags_request(payload_reverse_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_reverse.status() != StatusCode::OK {
+        let status = res_reverse.status();
+        let text = res_reverse.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_reverse = res_reverse.json::<Value>().await?;
+
+    // Should be enabled because we overrode the property to true
+    assert_json_include!(
+        actual: json_reverse,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": true,  // Should be true due to the override
+                    "reason": {
+                        "code": "super_condition_value"
+                    }
+                }
+            }
+        })
+    );
+
+    // This test verifies that our fix properly merges super condition property overrides
+    // with cached properties, ensuring that overrides take precedence over DB values.
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_property_override_bug_real_scenario() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_real_bug".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with TWO properties in the database
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "plan": "premium",  // Flag will check this property
+            "$feature_enrollment/discussions": true,  // We'll override this property
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create two flags:
+    // 1. Flag that checks "plan" property (should be true with DB value)
+    // 2. Flag that checks "$feature_enrollment/discussions" property (should respect override)
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "plan-flag",
+            "name": "Flag that checks plan",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "plan",
+                                "value": "premium",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 2,
+            "key": "discussions-flag",
+            "name": "Flag that checks discussions enrollment",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/discussions",
+                                "value": "true",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Send override for ONLY the discussions property, not the plan property
+    // This is the real bug scenario: overriding a property that only ONE flag checks
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": false  // Override to false, but flag expects true
+        }
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "plan-flag": {
+                    "key": "plan-flag",
+                    "enabled": true,  // Should be true from DB value
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                },
+                "discussions-flag": {
+                    "key": "discussions-flag",
+                    "enabled": false,  // Should be false from override
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_super_condition_with_cohort_filters() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "super_condition_cohort_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with the super condition property
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "$feature_enrollment/discussions": false,  // Super condition property in DB
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Create a flag that matches your production example:
+    // - Has a super condition that checks "$feature_enrollment/discussions"
+    // - Has a regular condition with a cohort filter
+    let flag_json = json!([{
+        "id": 1,
+        "key": "discussions-with-cohort",
+        "name": "Discussions with Cohort Filter",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "variant": null,
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": 98  // Cohort filter that requires DB lookup
+                }],
+                "rollout_percentage": 100
+            }],
+            "payloads": {},
+            "multivariate": null,
+            "super_groups": [{
+                "properties": [{
+                    "key": "$feature_enrollment/discussions",
+                    "type": "person",
+                    "value": ["true"],
+                    "operator": "exact"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test WITHOUT overrides first - should evaluate super condition using DB value (false)
+    let payload_no_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload_no_override.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    // Should be disabled because DB has $feature_enrollment/discussions = false
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-with-cohort": {
+                    "key": "discussions-with-cohort",
+                    "enabled": false
+                }
+            }
+        })
+    );
+
+    // Now test WITH override - this is the key scenario that was broken
+    // We override the super condition property to true, but the flag also has cohort filters
+    // Before the fix: super condition evaluation would see the cohort filter and fall back to DB
+    // After the fix: super condition evaluation only looks at super condition properties
+    let payload_with_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": true  // Override super condition property to true
+        }
+    });
+
+    let res_override = server
+        .send_flags_request(payload_with_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_override.status() != StatusCode::OK {
+        let status = res_override.status();
+        let text = res_override.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_override = res_override.json::<Value>().await?;
+
+    // This is the key test: the flag should now be enabled because:
+    // 1. Super condition can be evaluated from override (discussions = true)
+    // 2. Super condition matches, so we return early with super_condition_value
+    // 3. We don't even need to evaluate the cohort filter in the regular condition
+    assert_json_include!(
+        actual: json_override,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-with-cohort": {
+                    "key": "discussions-with-cohort",
+                    "enabled": true,
+                    "reason": {
+                        "code": "super_condition_value"
+                    }
+                }
+            }
+        })
+    );
+
+    // Test the reverse: override to false
+    let payload_false_override = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "$feature_enrollment/discussions": false  // Override to false
+        }
+    });
+
+    let res_false = server
+        .send_flags_request(payload_false_override.to_string(), Some("2"), None)
+        .await;
+
+    if res_false.status() != StatusCode::OK {
+        let status = res_false.status();
+        let text = res_false.text().await?;
+        panic!("Non-200 response: {}\nBody: {}", status, text);
+    }
+
+    let json_false = res_false.json::<Value>().await?;
+
+    // Should be disabled because super condition doesn't match
+    assert_json_include!(
+        actual: json_false,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "discussions-with-cohort": {
+                    "key": "discussions-with-cohort",
+                    "enabled": false
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert flags that should be filtered out (deleted and inactive)
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "deleted_flag",
+            "name": "Deleted Flag",
+            "active": true,
+            "deleted": true,  // This flag should be filtered out
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 2,
+            "key": "inactive_flag",
+            "name": "Inactive Flag",
+            "active": false,  // This flag should be filtered out
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 3,
+            "key": "both_inactive_and_deleted",
+            "name": "Both Inactive and Deleted Flag",
+            "active": false,  // This flag should be filtered out
+            "deleted": true,  // This flag should be filtered out
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test legacy response (no version param)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {}
+        })
+    );
+
+    // Test v2 response (version=2)
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {}
+        })
+    );
+
+    // Test with config=true to ensure config is still returned
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {},
+            "supportedCompression": ["gzip", "gzip-js"],
+            "autocapture_opt_out": false,
+            "config": {
+                "enable_collect_everything": true
+            },
+            "toolbarParams": {},
+            "isAuthenticated": false,
+            "defaultIdentifiedOnly": true
+        })
+    );
+
+    Ok(())
+}

@@ -23,7 +23,7 @@ export type LemonTagType =
 export interface LemonTagProps {
     type?: LemonTagType
     children: React.ReactNode
-    size?: 'xsmall' | 'small' | 'medium'
+    size?: 'small' | 'medium'
     weight?: 'normal'
     icon?: JSX.Element
     closable?: boolean

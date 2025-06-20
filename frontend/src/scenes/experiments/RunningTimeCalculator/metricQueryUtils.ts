@@ -23,6 +23,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.EventsNode,
                 event: source.event,
+                properties: source.properties || [],
             }
         }
 
@@ -30,6 +31,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.ActionsNode,
                 id: source.id,
+                properties: source.properties || [],
             }
         }
 
@@ -37,6 +39,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.ExperimentDataWarehouseNode,
                 table_name: source.table_name,
+                properties: source.properties || [],
             }
         }
     }
@@ -53,6 +56,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.EventsNode,
                 event: step.event,
+                properties: step.properties || [],
             }
         }
 
@@ -60,6 +64,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.ActionsNode,
                 id: step.id,
+                properties: step.properties || [],
             }
         }
     }
