@@ -150,7 +150,7 @@ jobs:
               with:
                   name: frontend-build
                   path: |
-                      frontend/**/*Type.ts
+                      **/*Type.ts
                       frontend/src/products.tsx
                   retention-days: 1
 
