@@ -4,7 +4,6 @@ import collections
 from collections.abc import Iterator
 from typing import Any, Optional
 import math
-from datetime import datetime
 
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -38,27 +37,6 @@ def _process_nested_value(value: Any) -> Any:
         return [_process_nested_value(item) for item in value]
     else:
         return value
-
-
-def _infer_field_type(value: Any) -> str:
-    """Infer MongoDB field type from a value."""
-    if isinstance(value, bool):
-        return "boolean"
-    elif isinstance(value, int):
-        return "integer"
-    elif isinstance(value, float):
-        return "double"
-    elif isinstance(value, datetime):
-        return "timestamp"
-    elif isinstance(value, ObjectId):
-        return "string"  # ObjectId as string
-    elif isinstance(value, list):
-        return "array"
-    elif isinstance(value, dict):
-        return "object"
-
-    else:
-        return "string"
 
 
 def get_indexes(connection_string: str, collection_name: str) -> list[str]:
@@ -204,27 +182,84 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
     }
 
 
-def _infer_schema_from_sample(sample: list[dict]) -> list[tuple[str, str]]:
-    """Infer schema from a sample of MongoDB documents."""
-    if not sample:
+def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
+    """Infer schema from MongoDB collection using aggregation to get all document keys and types."""
+    try:
+        # Use aggregation pipeline to get all unique keys and their types
+        pipeline = [
+            # Convert each document to an array of key-value pairs
+            {"$project": {"arrayofkeyvalue": {"$objectToArray": "$$ROOT"}}},
+            # Unwind the array to get individual key-value pairs
+            {"$unwind": "$arrayofkeyvalue"},
+            # Group by key name and collect unique types
+            {
+                "$group": {
+                    "_id": "$arrayofkeyvalue.k",
+                    "types": {"$addToSet": {"$type": "$arrayofkeyvalue.v"}},
+                }
+            },
+            # Sort by field name for consistent output
+            {"$sort": {"_id": 1}},
+        ]
+
+        result = list(collection.aggregate(pipeline))
+
+        if not result:
+            return [("_id", "string")]
+
+        schema_info = []
+        for field_info in result:
+            field_name = field_info["_id"]
+            types = field_info["types"]
+
+            # Determine the most appropriate type
+            # MongoDB $type returns BSON type names, map them to our type system
+            field_type = _determine_field_type_from_bson_types(types)
+            schema_info.append((field_name, field_type))
+
+        return schema_info
+
+    except Exception:
+        # Fallback to basic schema if aggregation fails
         return [("_id", "string")]
 
-    # Get all field names from sample
-    fields = set()
-    for doc in sample:
-        fields.update(doc.keys())
 
-    schema_info = []
-    for field in fields:
-        # Infer type from first document that has this field
-        field_type = "string"  # default
-        for doc in sample:
-            if field in doc:
-                field_type = _infer_field_type(doc[field])
-                break
-        schema_info.append((field, field_type))
+def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
+    """Determine field type from BSON types."""
+    # If multiple types exist, prioritize based on hierarchy
+    type_priority = {
+        "objectId": "string",
+        "string": "string",
+        "int": "integer",
+        "long": "integer",
+        "double": "double",
+        "decimal": "double",
+        "bool": "boolean",
+        "date": "timestamp",
+        "timestamp": "timestamp",
+        "object": "object",
+        "array": "array",
+        "null": "string",
+    }
 
-    return schema_info
+    # Find the highest priority type
+    for bson_type in [
+        "objectId",
+        "timestamp",
+        "date",
+        "double",
+        "decimal",
+        "long",
+        "int",
+        "bool",
+        "array",
+        "object",
+        "string",
+    ]:
+        if bson_type in bson_types:
+            return type_priority.get(bson_type, "string")
+
+    return "string"
 
 
 def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
@@ -245,9 +280,8 @@ def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
 
     for collection_name in collection_names:
         collection = db[collection_name]
-        # Sample a few documents to infer schema
-        sample = list(collection.find().limit(100))
-        schema_info = _infer_schema_from_sample(sample)
+        # Use aggregation query to get all document keys and types
+        schema_info = _get_schema_from_query(collection)
         schema_list[collection_name].extend(schema_info)
 
     client.close()
