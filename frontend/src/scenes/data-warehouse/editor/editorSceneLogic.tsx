@@ -1,5 +1,5 @@
 import { IconDatabase, IconDocument } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
@@ -271,8 +271,18 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       {
                                           label: 'Delete',
                                           status: 'danger',
+
                                           onClick: () => {
-                                              actions.deleteDataWarehouseSavedQuery(view.id)
+                                              LemonDialog.open({
+                                                  title: 'Delete view',
+                                                  description:
+                                                      'Are you sure you want to delete this view? The query will be lost.',
+                                                  primaryButton: {
+                                                      status: 'danger',
+                                                      children: 'Delete',
+                                                      onClick: () => actions.deleteDataWarehouseSavedQuery(view.id),
+                                                  },
+                                              })
                                           },
                                       },
                                   ]
