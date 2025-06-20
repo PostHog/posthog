@@ -5,7 +5,7 @@ const TOOLBAR_NODES = [
     { type: 'message', name: 'Message', icon: <IconSend /> },
     { type: 'conditional_branch', name: 'Condition', icon: <IconDecisionTree /> },
     { type: 'delay', name: 'Wait', icon: <IconClock /> },
-    { type: 'wait_for_condition', name: 'Wait for condition', icon: <IconHourglass /> },
+    { type: 'wait_until_condition', name: 'Wait for condition', icon: <IconHourglass /> },
 ] as const
 export type ToolbarNode = (typeof TOOLBAR_NODES)[number]
 

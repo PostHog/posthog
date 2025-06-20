@@ -21,40 +21,27 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { OnWorkflowChange } from '../campaignLogic'
+import { HogFlowActionManager } from './actions/hogFlowActionManager'
+import { NodeDetailsPanel } from './actions/NodeDetailsPanel'
+import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './actions/Nodes'
 import { getFormattedNodes } from './autolayout'
 import { getDefaultEdgeOptions } from './constants'
-import { HogFlowActionManager } from './Nodes/hogFlowActionManager'
-import { NodeDetailsPanel } from './Nodes/NodeDetailsPanel'
-import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
 import { Toolbar, ToolbarNode } from './Toolbar'
-import type { HogFlow, HogFlowAction, HogFlowEdge } from './types'
+import type { HogFlow, HogFlowAction } from './types'
 
 // Inner component that encapsulates React Flow
-function WorkflowEditorContent({
-    initialValues,
-    onChange,
-}: {
-    initialValues: HogFlow
-    onChange: OnWorkflowChange
-}): JSX.Element {
+function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChange: OnWorkflowChange }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const initialNodes = useMemo(() => HogFlowActionManager.getNodesFromHogFlow(initialValues), [initialValues])
-    const initialEdges = useMemo(() => HogFlowActionManager.getEdgesFromHogFlow(initialValues), [initialValues])
+    const initialNodes = useMemo(() => HogFlowActionManager.getNodesFromHogFlow(hogFlow), [hogFlow])
+    const initialEdges = useMemo(() => HogFlowActionManager.getEdgesFromHogFlow(hogFlow), [hogFlow])
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(initialNodes)
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(initialEdges)
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges)
 
     useEffect(() => {
         onChange({
-            actions: nodes.map((node) => node.data),
-            edges: edges.map((edge) => ({
-                from: edge.source,
-                to: edge.target,
-                // TODO(team-messaging): Decide if we need this edge type
-                type: 'continue',
-                index: edge.data?.index || 0,
-            })),
+            actions: nodes.filter((node) => !DROPZONE_NODE_TYPES.includes(node.type || '')).map((node) => node.data),
         })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [nodes.length, edges.length])
@@ -227,7 +214,7 @@ function WorkflowEditorContent({
 
     return (
         <div ref={reactFlowWrapper} className="h-full w-full">
-            <ReactFlow<Node<HogFlowAction>, Edge<HogFlowEdge>>
+            <ReactFlow<Node<HogFlowAction>, Edge>
                 fitView
                 nodes={nodes}
                 edges={edges}
@@ -272,17 +259,10 @@ function WorkflowEditorContent({
     )
 }
 
-// TODO: Set up workflow update callback
-export function WorkflowEditor({
-    initialValues,
-    onChange,
-}: {
-    initialValues: HogFlow
-    onChange: OnWorkflowChange
-}): JSX.Element {
+export function HogFlowEditor({ hogFlow, onChange }: { hogFlow: HogFlow; onChange: OnWorkflowChange }): JSX.Element {
     return (
         <ReactFlowProvider>
-            <WorkflowEditorContent initialValues={initialValues} onChange={onChange} />
+            <HogFlowEditorContent hogFlow={hogFlow} onChange={onChange} />
         </ReactFlowProvider>
     )
 }

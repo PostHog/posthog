@@ -13,7 +13,7 @@ import {
     TOP_HANDLE_POSITION,
 } from '../constants'
 import { ToolbarNode } from '../Toolbar'
-import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
+import type { HogFlow, HogFlowAction } from '../types'
 
 type NodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
@@ -41,18 +41,18 @@ export const HogFlowActionManager = {
                 return new MessageAction(action)
             case 'delay':
                 return new DelayAction(action)
-            case 'wait_for_condition':
-                return new WaitForConditionAction(action)
+            case 'wait_until_condition':
+                return new WaitUntilConditionAction(action)
             case 'conditional_branch':
                 return new ConditionalBranchAction(action)
             case 'exit':
                 return new ExitAction(action)
-            case 'hog_function': {
+            case 'function': {
                 // TODO: Implement HogFunctionAction
                 throw new Error('HogFunctionAction not implemented yet')
             }
             default: {
-                throw new Error(`Unsupported action type: ${action}`)
+                throw new Error(`Unsupported action type: ${action.type}`)
             }
         }
     },
@@ -63,8 +63,8 @@ export const HogFlowActionManager = {
                 return MessageAction.fromToolbarNode(toolbarNode)
             case 'delay':
                 return DelayAction.fromToolbarNode(toolbarNode)
-            case 'wait_for_condition':
-                return WaitForConditionAction.fromToolbarNode(toolbarNode)
+            case 'wait_until_condition':
+                return WaitUntilConditionAction.fromToolbarNode(toolbarNode)
             case 'conditional_branch':
                 return ConditionalBranchAction.fromToolbarNode(toolbarNode)
             default:
@@ -72,49 +72,10 @@ export const HogFlowActionManager = {
         }
     },
 
-    createDefaultHogflowNodesAndEdges(): { nodes: Node<HogFlowAction>[]; edges: Edge<HogFlowEdge>[] } {
-        const triggerNodeId = this.generateActionId('trigger')
-        const exitNodeId = this.generateActionId('exit')
-        const nodes = [
-            new TriggerAction({
-                id: triggerNodeId,
-                name: 'Trigger',
-                description: '',
-                type: 'trigger',
-                on_error: 'continue',
-                created_at: Date.now(),
-                updated_at: Date.now(),
-            }).toReactFlowNode(),
-            new ExitAction({
-                id: exitNodeId,
-                name: 'Exit',
-                description: '',
-                type: 'exit',
-                config: { reason: 'Default exit' },
-                on_error: 'continue',
-                created_at: Date.now(),
-                updated_at: Date.now(),
-            }).toReactFlowNode(),
-        ]
-
-        const edges = [
-            {
-                id: `${triggerNodeId}->${exitNodeId}`,
-                source: triggerNodeId,
-                sourceHandle: `${triggerNodeId}_source`,
-                target: exitNodeId,
-                targetHandle: `${exitNodeId}_target`,
-                ...getDefaultEdgeOptions(),
-            },
-        ]
-
-        return { nodes, edges }
-    },
-
     createNodeAndEdgesFromToolbarNode(
         toolbarNode: ToolbarNode,
-        edgeToInsertNodeInto: Edge<HogFlowEdge>
-    ): { node: Node<HogFlowAction>; edges: Edge<HogFlowEdge>[] } {
+        edgeToInsertNodeInto: Edge
+    ): { node: Node<HogFlowAction>; edges: Edge[] } {
         const node = this.fromToolbarNode(toolbarNode)
         const edges = node.createEdgesForNewNode(edgeToInsertNodeInto)
 
@@ -122,7 +83,7 @@ export const HogFlowActionManager = {
     },
 
     // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
-    addDropzoneNodes(nodes: Node<HogFlowAction>[], edges: Edge<HogFlowEdge>[]): Node<HogFlowAction>[] {
+    addDropzoneNodes(nodes: Node<HogFlowAction>[], edges: Edge[]): Node<HogFlowAction>[] {
         const newNodes = [...nodes]
 
         edges.forEach((edge) => {
@@ -157,6 +118,7 @@ export const HogFlowActionManager = {
                         on_error: 'continue',
                         created_at: 0,
                         updated_at: 0,
+                        next_actions: {},
                     },
                     draggable: false,
                     selectable: false,
@@ -168,26 +130,31 @@ export const HogFlowActionManager = {
     },
 
     getNodesFromHogFlow(hogFlow: HogFlow): Node<HogFlowAction>[] {
-        return hogFlow.actions.map((action: HogFlowAction) => {
-            return {
-                id: action.id,
-                type: action.type,
-                data: action,
-                position: { x: 0, y: 0 },
-                ...getDefaultNodeOptions(['trigger', 'exit'].includes(action.type)),
-            }
-        })
+        return hogFlow.actions
+            .map((action: HogFlowAction) => HogFlowActionManager.fromAction(action))
+            .map((hogFlowAction: BaseNode<HogFlowAction['type']>) => {
+                return {
+                    id: hogFlowAction.action.id,
+                    type: hogFlowAction.action.type,
+                    data: hogFlowAction.action,
+                    position: { x: 0, y: 0 },
+                    handles: hogFlowAction.getHandles(),
+                    ...getDefaultNodeOptions(['trigger', 'exit'].includes(hogFlowAction.action.type)),
+                }
+            })
     },
 
-    getEdgesFromHogFlow(hogFlow: HogFlow): Edge<HogFlowEdge>[] {
-        return hogFlow.edges.map((edge: any) => ({
-            id: `${edge.from}->${edge.to}`,
-            source: edge.from,
-            target: edge.to,
-            sourceHandle: edge.sourceHandle,
-            targetHandle: edge.targetHandle,
-            ...getDefaultEdgeOptions(),
-        }))
+    getEdgesFromHogFlow(hogFlow: HogFlow): Edge[] {
+        return hogFlow.actions.flatMap((action: HogFlowAction) =>
+            Object.entries(action.next_actions).map(([branch, next_action_id]) => ({
+                id: `${action.id}->${next_action_id}`,
+                source: action.id,
+                target: next_action_id,
+                sourceHandle: branch,
+                targetHandle: 'target',
+                ...getDefaultEdgeOptions(),
+            }))
+        )
     },
 }
 
@@ -209,7 +176,7 @@ abstract class BaseNode<T extends HogFlowAction['type']> {
         }
     }
 
-    createEdgesForNewNode(edgeToInsertNodeInto: Edge<HogFlowEdge>): Edge<HogFlowEdge>[] {
+    createEdgesForNewNode(edgeToInsertNodeInto: Edge): Edge[] {
         const handles = this.getHandles()
 
         return handles.map((handle) => {
@@ -320,6 +287,7 @@ class MessageAction extends BaseNode<'message'> {
             on_error: 'continue',
             created_at: Date.now(),
             updated_at: Date.now(),
+            next_actions: {},
         })
     }
 
@@ -392,10 +360,11 @@ class DelayAction extends BaseNode<'delay'> {
             name: '',
             description: '',
             type: 'delay',
-            config: { delay_seconds: 15 },
+            config: { delay_duration: '15s' },
             on_error: 'continue',
             created_at: Date.now(),
             updated_at: Date.now(),
+            next_actions: {},
         })
     }
 
@@ -419,7 +388,7 @@ class DelayAction extends BaseNode<'delay'> {
     getInputs(): Record<string, CyclotronJobInputType> {
         return {
             name: { value: this.action.name || '' },
-            duration: { value: this.action.config?.delay_seconds || '1h' },
+            duration: { value: this.action.config?.delay_duration || '1h' },
         }
     }
 
@@ -446,24 +415,25 @@ class DelayAction extends BaseNode<'delay'> {
                 this.action.name = value
                 break
             case 'duration':
-                this.action.config.delay_seconds = value
+                this.action.config.delay_duration = value
                 break
         }
     }
 }
 
-class WaitForConditionAction extends BaseNode<'wait_for_condition'> {
-    public static fromToolbarNode(toolbarNode: ToolbarNode): WaitForConditionAction {
+class WaitUntilConditionAction extends BaseNode<'wait_until_condition'> {
+    public static fromToolbarNode(toolbarNode: ToolbarNode): WaitUntilConditionAction {
         const id = HogFlowActionManager.generateActionId(toolbarNode.type)
-        return new WaitForConditionAction({
+        return new WaitUntilConditionAction({
             id,
             name: '',
             description: '',
-            type: 'wait_for_condition',
-            config: { condition: null, timeout_seconds: 300 },
+            type: 'wait_until_condition',
+            config: { condition: { filter: null }, max_wait_duration: '300s' },
             on_error: 'continue',
             created_at: Date.now(),
             updated_at: Date.now(),
+            next_actions: {},
         })
     }
 
@@ -523,6 +493,7 @@ class ConditionalBranchAction extends BaseNode<'conditional_branch'> {
             on_error: 'continue',
             created_at: Date.now(),
             updated_at: Date.now(),
+            next_actions: {},
         })
     }
 
