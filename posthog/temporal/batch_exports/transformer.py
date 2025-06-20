@@ -406,6 +406,7 @@ class ParquetStreamTransformer:
     def finish_parquet_file(self) -> bytes:
         """Ensure underlying Parquet writer is closed before flushing buffer."""
         self.parquet_writer.close()
+        self._parquet_writer = None
 
         final_data = self._parquet_buffer.getvalue()
 
