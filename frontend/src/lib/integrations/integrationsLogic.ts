@@ -161,6 +161,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'linear') || []
             },
         ],
+        githubIntegrations: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.filter((x) => x.kind == 'linear') || []
+            },
+        ],
 
         slackAvailable: [
             (s) => [s.preflight],

@@ -63,6 +63,7 @@ class Integration(models.Model):
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
+        GITHUB = "github"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
