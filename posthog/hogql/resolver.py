@@ -13,7 +13,6 @@ from posthog.hogql.database.models import (
     SavedQuery,
     StringJSONDatabaseField,
 )
-from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
@@ -370,15 +369,6 @@ class Resolver(CloningVisitor):
             if node.table_args is not None:
                 node.table_args = [self.visit(arg) for arg in node.table_args]
             node.next_join = self.visit(node.next_join)
-
-            # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-            if isinstance(node.type, ast.TableAliasType):
-                is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
-            else:
-                is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
-
-            if is_global:
-                node.next_join.join_type = "GLOBAL JOIN"
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -845,16 +835,6 @@ class Resolver(CloningVisitor):
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType(nullable=False)
 
-        if (
-            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
-            and self._is_events_table(node.left)
-            and self._is_s3_cluster(node.right)
-        ):
-            if node.op == ast.CompareOperationOp.In:
-                node.op = ast.CompareOperationOp.GlobalIn
-            else:
-                node.op = ast.CompareOperationOp.GlobalNotIn
-
         return node
 
     # Used to find events table in current scope for action functions
@@ -871,34 +851,3 @@ class Resolver(CloningVisitor):
                     return alias, table_type.table_type.table
 
         return None, None
-
-    def _is_events_table(self, node: ast.Expr) -> bool:
-        while isinstance(node, ast.Alias):
-            node = node.expr
-        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.table_type, ast.TableAliasType):
-                return isinstance(node.type.table_type.table_type.table, EventsTable)
-            if isinstance(node.type.table_type, ast.TableType):
-                return isinstance(node.type.table_type.table, EventsTable)
-        return False
-
-    def _is_s3_cluster(self, node: ast.Expr) -> bool:
-        while isinstance(node, ast.Alias):
-            node = node.expr
-        if (
-            isinstance(node, ast.SelectQuery)
-            and node.select_from
-            and isinstance(node.select_from.type, ast.BaseTableType)
-        ):
-            if isinstance(node.select_from.type, ast.TableAliasType):
-                return isinstance(node.select_from.type.table_type.table, S3Table)
-            elif isinstance(node.select_from.type, ast.TableType):
-                return isinstance(node.select_from.type.table, S3Table)
-        return False
-
-    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
-        if node is None:
-            return False
-        if isinstance(node.type, ast.TableAliasType):
-            return isinstance(node.type.table_type.table, S3Table)
-        return False

@@ -144,7 +144,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_s3_table_select_alias_escaped(self):
@@ -194,7 +194,7 @@ class TestS3Table(BaseTest):
         )
         self.assertEqual(
             hogql,
-            f"SELECT uuid, event FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT uuid, event FROM events WHERE in(event, (SELECT Date FROM aapl_stock)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         clickhouse = self._select(
@@ -204,7 +204,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_s3_build_function_call_without_context(self):
