@@ -8,7 +8,6 @@ from ee.session_recordings.session_summary.input_data import (
     add_context_and_filter_events,
     get_session_events,
     get_session_metadata,
-    get_team,
 )
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
@@ -73,18 +72,16 @@ class SingleSessionSummaryLlmInputs:
 async def get_session_data_from_db(
     session_id: str, team_id: int, timer: ServerTimingsGathered, local_reads_prod: bool
 ) -> _SessionSummaryDBData:
-    with timer("get_team"):
-        team = await database_sync_to_async(get_team)(team_id)
     with timer("get_metadata"):
         session_metadata = await database_sync_to_async(get_session_metadata)(
             session_id=session_id,
-            team=team,
+            team_id=team_id,
             local_reads_prod=local_reads_prod,
         )
     try:
         with timer("get_events"):
             session_events_columns, session_events = await database_sync_to_async(get_session_events)(
-                team=team,
+                team_id=team_id,
                 session_metadata=session_metadata,
                 session_id=session_id,
                 local_reads_prod=local_reads_prod,
