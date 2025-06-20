@@ -54,7 +54,7 @@ jobs:
                         - stylelint*
 
     frontend-linting:
-        name: Linting checks
+        name: Frontend linting checks
         needs: changes
         runs-on: depot-ubuntu-24.04
         steps:
@@ -100,7 +100,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend lint:css
 
     frontend-build-and-typegen:
-        name: Build and generate types
+        name: Frontend build and typegen
         needs: changes
         runs-on: depot-ubuntu-24.04-8 # kea typegen needs a lot of oomph
         steps:
@@ -155,7 +155,7 @@ jobs:
                   retention-days: 1
 
     frontend-eslint:
-        name: ESLint checks
+        name: Frontend ESLint checks
         needs: [changes, frontend-build-and-typegen]
         runs-on: depot-ubuntu-24.04-4
         steps:
@@ -204,17 +204,11 @@ jobs:
                   NODE_OPTIONS: --max-old-space-size=16384
 
     frontend-toolbar-checks:
-        name: Toolbar checks
-        needs: [changes, frontend-build-and-typegen]
+        name: Frontend toolbar checks
+        needs: [changes]
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-
-            - name: Download frontend build artifacts
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
-              with:
-                  name: frontend-build
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -246,6 +240,10 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
+            - name: Build products
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend build:products
+
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
               uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
@@ -262,7 +260,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
     frontend-typescript-checks:
-        name: TypeScript and schema checks
+        name: Frontend typescript and schema checks
         needs: [changes, frontend-build-and-typegen]
         runs-on: depot-ubuntu-24.04
         steps:
