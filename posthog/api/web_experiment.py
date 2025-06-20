@@ -30,6 +30,26 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         model = WebExperiment
         fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
 
+    name = serializers.CharField()
+
+    variants = serializers.JSONField(
+        help_text="""Variants for the web experiment. Example:
+
+        {
+            "control": {
+                "transforms": [
+                    {
+                        "text": "Here comes Superman!",
+                        "html": "",
+                        "selector": "#page > #body > .header h1"
+                    }
+                ],
+                "conditions": "None",
+                "rollout_percentage": 50
+            },
+        }""",
+    )
+
     # Validates that the `variants` property in the request follows this known object format.
     # {
     #     "name": "create-params-debug",
