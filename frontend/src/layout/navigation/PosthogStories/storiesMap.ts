@@ -1,13 +1,25 @@
 // This should eventually be moved to a DB.
+import React from 'react'
+
+export interface SeeMoreOptions {
+    text?: string
+    textColor?: 'black' | 'white'
+    backgroundColor?: 'black' | 'white'
+    arrowIcon?: 'right' | 'up'
+    hideDefaultClose?: boolean
+}
+
 export interface story {
     id: string
     title: string
     thumbnailUrl: string
     description?: string
-    mediaUrl: string
-    type: 'image' | 'video'
+    mediaUrl?: string
+    type: 'image' | 'video' | 'overlay'
     durationMs?: number
     link?: string
+    seeMoreComponent?: (closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void) => JSX.Element
+    seeMoreOptions?: SeeMoreOptions
 }
 
 export interface storyGroup {
@@ -33,6 +45,108 @@ export const storiesMap: storyGroup[] = [
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_save_filters_replay_wide_684b8b7844_82b2ffd07c.mp4',
                 type: 'video',
                 durationMs: 29000,
+                link: 'https://posthog.com/docs',
+                seeMoreOptions: {
+                    text: 'See more',
+                    textColor: 'white',
+                    backgroundColor: 'white',
+                    arrowIcon: 'right',
+                },
+            },
+            {
+                id: 'features_overlay',
+                title: 'Changelog',
+                description: 'New PostHog features',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                type: 'overlay',
+                durationMs: 20000,
+                seeMoreComponent: (closeOverlay) =>
+                    React.createElement(
+                        'div',
+                        { className: 'p-8 max-w-4xl mx-auto' },
+                        React.createElement(
+                            'div',
+                            { className: 'text-center mb-6' },
+                            React.createElement(
+                                'h2',
+                                { className: 'text-3xl font-bold text-gray-900 mb-2' },
+                                '🎉 New Feature Alert!'
+                            ),
+                            React.createElement(
+                                'p',
+                                { className: 'text-lg text-gray-600' },
+                                'Interactive Story Overlays'
+                            )
+                        ),
+                        React.createElement(
+                            'div',
+                            { className: 'bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 mb-6' },
+                            React.createElement(
+                                'h3',
+                                { className: 'text-xl font-semibold text-gray-900 mb-3' },
+                                "What's New?"
+                            ),
+                            React.createElement(
+                                'ul',
+                                { className: 'space-y-2 text-gray-700' },
+                                React.createElement(
+                                    'li',
+                                    { className: 'flex items-center' },
+                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
+                                    'Custom React components in story overlays'
+                                ),
+                                React.createElement(
+                                    'li',
+                                    { className: 'flex items-center' },
+                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
+                                    'Story pauses automatically when overlay opens'
+                                )
+                            )
+                        ),
+                        React.createElement(
+                            'div',
+                            { className: 'flex gap-3 justify-center' },
+                            React.createElement(
+                                'button',
+                                {
+                                    className:
+                                        'px-6 py-3 bg-red-600  text-white rounded-lg hover:bg-blue-700 transition-colors font-medium',
+                                    onClick: () => closeOverlay(),
+                                },
+                                'Continue Story'
+                            ),
+                            React.createElement(
+                                'button',
+                                {
+                                    className:
+                                        'px-6 py-3 bg-red-600  text-white rounded-lg hover:bg-green-700 transition-colors font-medium',
+                                    onClick: () => closeOverlay('next'),
+                                },
+                                'Next Story'
+                            ),
+                            React.createElement(
+                                'button',
+                                {
+                                    className:
+                                        'px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium',
+                                    onClick: () => closeOverlay('modal'),
+                                },
+                                'Close Stories'
+                            )
+                        ),
+                        React.createElement(
+                            'div',
+                            { className: 'mt-6 text-center text-sm text-gray-500' },
+                            'This overlay demonstrates the new seeMoreComponent feature'
+                        )
+                    ),
+                seeMoreOptions: {
+                    text: 'Explore Feature',
+                    textColor: 'black',
+                    backgroundColor: 'black',
+                    arrowIcon: 'up',
+                    hideDefaultClose: true,
+                },
             },
             {
                 id: 'changelog_linear_share_1',
@@ -43,6 +157,13 @@ export const storiesMap: storyGroup[] = [
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_linear_share_wide_0d3520bba5_64049c56b6.mp4',
                 type: 'video',
                 durationMs: 44000,
+                link: 'https://posthog.com/docs',
+                seeMoreOptions: {
+                    text: 'CHECK IT OUT',
+                    textColor: 'white',
+                    backgroundColor: 'black',
+                    arrowIcon: 'up',
+                },
             },
             {
                 id: 'changelog_cta',
@@ -52,6 +173,102 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
                 type: 'image',
                 durationMs: 5500,
+                link: 'https://posthog.com/docs',
+            },
+            {
+                id: 'asdfasdfasdf-x',
+                title: 'Changelog',
+                description: 'New feature showcase with component overlay',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
+                type: 'image',
+                durationMs: 20000,
+                seeMoreComponent: (closeOverlay) =>
+                    React.createElement(
+                        'div',
+                        { className: 'p-8 max-w-4xl mx-auto' },
+                        React.createElement(
+                            'div',
+                            { className: 'text-center mb-6' },
+                            React.createElement(
+                                'h2',
+                                { className: 'text-3xl font-bold text-gray-900 mb-2' },
+                                '🎉 New Feature Alert!'
+                            ),
+                            React.createElement(
+                                'p',
+                                { className: 'text-lg text-gray-600' },
+                                'Interactive Story Overlays'
+                            )
+                        ),
+                        React.createElement(
+                            'div',
+                            { className: 'bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 mb-6' },
+                            React.createElement(
+                                'h3',
+                                { className: 'text-xl font-semibold text-gray-900 mb-3' },
+                                "What's New?"
+                            ),
+                            React.createElement(
+                                'ul',
+                                { className: 'space-y-2 text-gray-700' },
+                                React.createElement(
+                                    'li',
+                                    { className: 'flex items-center' },
+                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
+                                    'Custom React components in story overlays'
+                                ),
+                                React.createElement(
+                                    'li',
+                                    { className: 'flex items-center' },
+                                    React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
+                                    'Story pauses automatically when overlay opens'
+                                )
+                            )
+                        ),
+                        React.createElement(
+                            'div',
+                            { className: 'flex gap-3 justify-center' },
+                            React.createElement(
+                                'button',
+                                {
+                                    className:
+                                        'px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium',
+                                    onClick: () => closeOverlay(),
+                                },
+                                'Try It Now'
+                            ),
+                            React.createElement(
+                                'button',
+                                {
+                                    className:
+                                        'px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium',
+                                    onClick: () => closeOverlay(),
+                                },
+                                'Learn More'
+                            ),
+                            React.createElement(
+                                'button',
+                                {
+                                    className:
+                                        'px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium',
+                                    onClick: () => closeOverlay('modal'),
+                                },
+                                'Close Stories'
+                            )
+                        ),
+                        React.createElement(
+                            'div',
+                            { className: 'mt-6 text-center text-sm text-gray-500' },
+                            'This overlay demonstrates the new seeMoreComponent feature'
+                        )
+                    ),
+                seeMoreOptions: {
+                    text: 'Explore Feature',
+                    textColor: 'black',
+                    backgroundColor: 'black',
+                    arrowIcon: 'up',
+                },
             },
         ],
     },

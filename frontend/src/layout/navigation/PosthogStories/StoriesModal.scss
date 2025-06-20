@@ -18,6 +18,25 @@
         animation-play-state: paused;
     }
 
+    .animate-slide-up {
+        animation: StoriesModal__SlideUp 0.5s ease-out forwards;
+    }
+
+    .animate-slide-down {
+        animation: StoriesModal__SlideDown 0.5s ease-in forwards;
+    }
+
+    // Overlay positioning classes
+    .overlay-slide-up {
+        transition: transform 0.3s ease-out;
+        transform: translateY(0);
+    }
+
+    .overlay-slide-down {
+        transition: transform 0.3s ease-out;
+        transform: translateY(100%);
+    }
+
     // CSS animation for progress bar
     @keyframes StoriesModal__ProgressFill {
         from {
@@ -26,6 +45,28 @@
 
         to {
             width: 100%;
+        }
+    }
+
+    // Slide up animation for overlay
+    @keyframes StoriesModal__SlideUp {
+        from {
+            transform: translateY(100%);
+        }
+
+        to {
+            transform: translateY(0);
+        }
+    }
+
+    // Slide down animation for overlay
+    @keyframes StoriesModal__SlideDown {
+        from {
+            transform: translateY(0);
+        }
+
+        to {
+            transform: translateY(100%);
         }
     }
 }

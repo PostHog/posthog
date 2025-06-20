@@ -1,5 +1,6 @@
 import './StoriesModal.scss'
 
+import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -21,6 +22,7 @@ interface StoryEndEventProps extends StoryEndEventPropsExtraProps {
     story_id: string
     story_title: string
     story_thumbnail_url: string
+    story_type: 'image' | 'video' | 'overlay'
     time_spent_ms: number
     time_spent_seconds: number
     story_group_id: string
@@ -48,6 +50,9 @@ export const StoriesModal = (): JSX.Element | null => {
         useActions(storiesLogic)
     const storyStartTimeRef = useRef<number>(Date.now())
     const [isPaused, setIsPaused] = useState(false)
+    const [showOverlay, setShowOverlay] = useState(false)
+    const [overlayComponent, setOverlayComponent] = useState<(() => JSX.Element) | null>(null)
+    const [overlayAnimating, setOverlayAnimating] = useState(false)
 
     // Calculate dimensions based on window size and aspect ratio
     const dimensions = useMemo(() => {
@@ -100,6 +105,7 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_id: activeGroup?.stories[activeStoryIndex].id,
                 story_title: activeGroup?.stories[activeStoryIndex].title,
                 story_thumbnail_url: activeGroup?.stories[activeStoryIndex].thumbnailUrl,
+                story_type: activeGroup?.stories[activeStoryIndex].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
                 time_spent_ms: timeSpentMs,
@@ -127,6 +133,7 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_id: activeGroup?.stories[activeStoryIndex].id,
                 story_title: activeGroup?.stories[activeStoryIndex].title,
                 story_thumbnail_url: activeGroup?.stories[activeStoryIndex].thumbnailUrl,
+                story_type: activeGroup?.stories[activeStoryIndex].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
                 time_spent_ms: timeSpentMs,
@@ -160,12 +167,42 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_id: activeGroup?.stories[index].id,
                 story_title: activeGroup?.stories[index].title,
                 story_thumbnail_url: activeGroup?.stories[index].thumbnailUrl,
+                story_type: activeGroup?.stories[index].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
             })
             setActiveStoryIndex(index)
+
+            // Auto-trigger overlay for 'overlay' type stories
+            const story = activeGroup?.stories[index]
+            if (story?.type === 'overlay' && story.seeMoreComponent) {
+                setTimeout(() => {
+                    const closeHandler = (action?: 'overlay' | 'modal' | 'next'): void => {
+                        setShowOverlay(false)
+                        setOverlayComponent(null)
+                        setIsPaused(false)
+                        if (action === 'modal') {
+                            setOpenStoriesModal(false)
+                        } else if (action === 'next') {
+                            // Go to next story
+                            if (activeGroup && index < activeGroup.stories.length - 1) {
+                                setActiveStoryIndex(index + 1)
+                            } else {
+                                // Last story in group - close the modal
+                                setOpenStoriesModal(false)
+                            }
+                        }
+                    }
+                    setOverlayComponent(() => () => story.seeMoreComponent!(closeHandler))
+                    setShowOverlay(true)
+                    setOverlayAnimating(true) // Start off-screen
+                    setIsPaused(true)
+                    // Trigger slide-up animation
+                    setTimeout(() => setOverlayAnimating(false), 10)
+                }, 100) // Small delay to ensure story is rendered first
+            }
         },
-        [setActiveStoryIndex, activeGroup]
+        [setActiveStoryIndex, activeGroup, setOverlayComponent, setShowOverlay, setIsPaused, setOpenStoriesModal]
     )
 
     const handlePrevious = useCallback(() => {
@@ -186,7 +223,39 @@ export const StoriesModal = (): JSX.Element | null => {
     // Reset pause state when active story changes
     useEffect(() => {
         setIsPaused(false)
+        setShowOverlay(false)
+        setOverlayComponent(null)
+        setOverlayAnimating(false)
     }, [activeStoryIndex, activeGroupIndex])
+
+    // Handle overlay close
+    const handleOverlayClose = useCallback(
+        (action?: 'overlay' | 'modal' | 'next') => {
+            setOverlayAnimating(true)
+
+            // Wait for slide-down animation to complete
+            setTimeout(() => {
+                setShowOverlay(false)
+                setOverlayComponent(null)
+                setOverlayAnimating(false)
+                setIsPaused(false)
+
+                if (action === 'modal') {
+                    setOpenStoriesModal(false)
+                } else if (action === 'next') {
+                    // Go to next story
+                    if (activeStoryIndex < maxStoryIndex - 1) {
+                        setActiveStoryIndex(activeStoryIndex + 1)
+                    } else {
+                        // Last story in group - close the modal
+                        setOpenStoriesModal(false)
+                    }
+                }
+            }, 300) // Match animation duration
+            // Default action 'overlay' or undefined just closes the overlay and continues current story
+        },
+        [setOpenStoriesModal, activeStoryIndex, maxStoryIndex, setActiveStoryIndex]
+    )
 
     if (!openStoriesModal || !activeGroup) {
         return null
@@ -196,19 +265,31 @@ export const StoriesModal = (): JSX.Element | null => {
         (story: story): Story => ({
             url: story.mediaUrl,
             type: story.type,
+            duration: story.durationMs,
             header: {
                 heading: story.title,
                 subheading: story.description || '',
                 profileImage: story.thumbnailUrl,
             },
-            seeMore: story.link
-                ? () => {
-                      sendStoryEndEvent('see_more')
-                      setOpenStoriesModal(false)
-                      window.open(story.link, '_self')
-                      return null
-                  }
-                : undefined,
+            seeMore:
+                story.link || story.seeMoreComponent
+                    ? () => {
+                          sendStoryEndEvent('see_more')
+                          if (story.seeMoreComponent) {
+                              setOverlayComponent(() => () => story.seeMoreComponent!(handleOverlayClose))
+                              setShowOverlay(true)
+                              setOverlayAnimating(true) // Start off-screen
+                              setIsPaused(true)
+                              // Trigger slide-up animation
+                              setTimeout(() => setOverlayAnimating(false), 10)
+                          } else if (story.link) {
+                              window.open(story.link, '_blank')
+                              setIsPaused(true)
+                          }
+                          return null
+                      }
+                    : undefined,
+            seeMoreOptions: story.seeMoreOptions,
             preloadResource: true,
         })
     )
@@ -267,6 +348,26 @@ export const StoriesModal = (): JSX.Element | null => {
                         onPauseToggle={() => setIsPaused(!isPaused)}
                         onClose={() => handleClose(true)}
                     />
+
+                    {/* Overlay Component */}
+                    {(showOverlay || overlayAnimating) && overlayComponent && (
+                        <div
+                            className={`absolute inset-0 z-50 bg-white ${
+                                overlayAnimating ? 'overlay-slide-down' : 'overlay-slide-up'
+                            }`}
+                        >
+                            {!activeGroup?.stories[activeStoryIndex]?.seeMoreOptions?.hideDefaultClose && (
+                                <button
+                                    onClick={() => handleOverlayClose()}
+                                    className="absolute top-4 right-4 z-10 bg-black/20 hover:bg-black/30 text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                                    aria-label="Close overlay"
+                                >
+                                    <IconX className="w-5 h-5" />
+                                </button>
+                            )}
+                            <div className="w-full h-full overflow-auto">{overlayComponent()}</div>
+                        </div>
+                    )}
                 </div>
             </div>
         </LemonModal>

@@ -2,9 +2,11 @@ import { IconArrowRight, IconChevronLeft, IconChevronRight, IconPauseFilled, Ico
 import { useCallback, useEffect, useRef, useState } from 'react'
 import React from 'react'
 
+import type { SeeMoreOptions } from './storiesMap'
+
 export interface Story {
     url: string
-    type: 'image' | 'video'
+    type: 'image' | 'video' | 'overlay'
     duration?: number // Duration in milliseconds
     header?: {
         heading: string
@@ -12,6 +14,8 @@ export interface Story {
         profileImage: string
     }
     seeMore?: () => JSX.Element | null
+    seeMoreOptions?: SeeMoreOptions
+    seeMoreText?: string
     preloadResource?: boolean
 }
 
@@ -59,16 +63,15 @@ const ProgressBar = ({
         if (story.type === 'video' && isCurrentStory && videoDuration) {
             return videoDuration
         }
-        return story.duration || defaultInterval
+        // Component and image stories: prioritize durationMs, fallback to default interval
+        if (story.duration && story.duration > 0) {
+            return story.duration
+        }
+        return defaultInterval
     }
 
-    // Set CSS custom property for duration
-    useEffect(() => {
-        if (progressRef.current && isCurrentStory) {
-            const duration = getDuration()
-            progressRef.current.style.setProperty('--duration', `${duration}ms`)
-        }
-    }, [isCurrentStory, videoDuration, story, defaultInterval])
+    // Get current duration for this story
+    const currentDuration = getDuration()
 
     // Determine progress bar state classes
     const getProgressBarClasses = (): string => {
@@ -86,9 +89,10 @@ const ProgressBar = ({
         <div className="flex-1 h-0.75 bg-white/[0.45] rounded-full overflow-hidden">
             <div
                 ref={progressRef}
-                key={isCurrentStory ? `${animationKey}-progress` : 'progress'}
+                key={isCurrentStory ? `${animationKey}-progress-${currentDuration}` : 'progress'}
                 className={getProgressBarClasses()}
                 onAnimationEnd={onAnimationEnd}
+                style={isCurrentStory ? ({ '--duration': `${currentDuration}ms` } as React.CSSProperties) : undefined} // eslint-disable-line react/forbid-dom-props
             />
         </div>
     )
@@ -163,32 +167,6 @@ export const StoriesPlayer = ({
         }
     }, [currentIndex, stories.length, onNext, onStoryEnd, onAllStoriesEnd])
 
-    // Handle click navigation
-    const handleContainerClick = useCallback(
-        (e: React.MouseEvent) => {
-            const rect = e.currentTarget.getBoundingClientRect()
-            const clickX = e.clientX - rect.left
-            const containerWidth = rect.width
-            const fifthWidth = containerWidth / 5
-
-            if (clickX < fifthWidth) {
-                // Left 20% - previous
-                if (currentIndex > 0) {
-                    onPrevious()
-                }
-            } else if (clickX > containerWidth - fifthWidth) {
-                // Right 20% - next (only if not last story)
-                if (currentIndex < stories.length - 1) {
-                    onNext()
-                }
-            } else {
-                // Middle 60% - pause/play
-                onPauseToggle()
-            }
-        },
-        [currentIndex, stories.length, onNext, onPrevious, onPauseToggle]
-    )
-
     if (!currentStory) {
         return <div>No story to display</div>
     }
@@ -196,8 +174,7 @@ export const StoriesPlayer = ({
     return (
         <div
             ref={containerRef}
-            className="relative rounded overflow-hidden select-none"
-            onClick={handleContainerClick}
+            className="relative rounded overflow-hidden select-none bg-bg-3000"
             style={{ width, height }} // eslint-disable-line react/forbid-dom-props
         >
             {/* header wrapper with gradient */}
@@ -272,7 +249,7 @@ export const StoriesPlayer = ({
 
             {/* Media content */}
             <div className="w-full h-full flex items-center justify-center">
-                {currentStory.type === 'video' ? (
+                {currentStory.type === 'overlay' ? null : currentStory.type === 'video' ? (
                     <video
                         ref={videoRef}
                         src={currentStory.url}
@@ -304,12 +281,26 @@ export const StoriesPlayer = ({
                             e.stopPropagation()
                             currentStory.seeMore?.()
                         }}
-                        className="flex items-center gap-2 bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-full text-sm font-medium transition-all duration-200"
+                        className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer ${
+                            currentStory.seeMoreOptions?.textColor === 'black'
+                                ? 'text-black/70 hover:text-black'
+                                : 'text-white/70 hover:text-white'
+                        } ${
+                            currentStory.seeMoreOptions?.backgroundColor === 'black'
+                                ? 'bg-black/20 hover:bg-black/30'
+                                : currentStory.seeMoreOptions?.backgroundColor === 'white'
+                                ? 'bg-white/20 hover:bg-white/30'
+                                : 'hover:bg-white/20'
+                        }`}
                         role="button"
                         aria-label="See more about this story - swipe up for more"
                     >
-                        <span>See More</span>
-                        <IconArrowRight className="w-4 h-4" />
+                        <span>{currentStory.seeMoreOptions?.text || currentStory.seeMoreText || 'See more'}</span>
+                        {currentStory.seeMoreOptions?.arrowIcon === 'up' ? (
+                            <IconChevronRight className="w-3 h-3 transform -rotate-90" />
+                        ) : (
+                            <IconArrowRight className="w-3 h-3" />
+                        )}
                     </button>
                 </div>
             )}
@@ -324,15 +315,16 @@ export const StoriesPlayer = ({
                     }`}
                     onMouseEnter={() => setHoveredZone('left')}
                     onMouseLeave={() => setHoveredZone(null)}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        if (currentIndex > 0) {
+                            onPrevious()
+                        }
+                    }}
                 >
                     {/* Previous story button - only visible when hovering and navigation is possible */}
                     {currentIndex > 0 && (
                         <button
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                                onPrevious()
-                            }}
                             onMouseDown={(e) => e.preventDefault()}
                             className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer select-none ${
                                 hoveredZone === 'left' ? 'opacity-100' : 'opacity-0'
@@ -346,7 +338,14 @@ export const StoriesPlayer = ({
 
                 {/* MIDDLE ZONE - Clears hover state and allows pause/play functionality */}
                 {/* When user hovers over middle, it clears hoveredZone so navigation arrows hide */}
-                <div className="w-3/5 h-full" onMouseEnter={() => setHoveredZone(null)} />
+                <div
+                    className="w-3/5 h-full"
+                    onMouseEnter={() => setHoveredZone(null)}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onPauseToggle()
+                    }}
+                />
 
                 {/* RIGHT NAVIGATION ZONE */}
                 {/* Only shows navigation if there's a next story to go to */}
@@ -356,15 +355,16 @@ export const StoriesPlayer = ({
                     }`}
                     onMouseEnter={() => setHoveredZone('right')}
                     onMouseLeave={() => setHoveredZone(null)}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        if (currentIndex < stories.length - 1) {
+                            onNext()
+                        }
+                    }}
                 >
                     {/* Next story button - only visible when hovering and navigation is possible */}
                     {currentIndex < stories.length - 1 && (
                         <button
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                                onNext()
-                            }}
                             onMouseDown={(e) => e.preventDefault()}
                             className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer select-none ${
                                 hoveredZone === 'right' ? 'opacity-100' : 'opacity-0'
