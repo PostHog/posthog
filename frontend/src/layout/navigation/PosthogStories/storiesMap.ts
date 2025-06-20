@@ -1,64 +1,5 @@
 // This should eventually be moved to a DB.
-import React from 'react'
-
-// Simple reusable overlay helpers
-const createExampleOverlay = (
-    title: string,
-    description: string,
-    features?: string[]
-): ((closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void) => JSX.Element) => {
-    const ExampleOverlay = (closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void): JSX.Element =>
-        React.createElement(
-            'div',
-            { className: 'p-6 max-w-lg mx-auto text-center' },
-            React.createElement('h2', { className: 'text-2xl font-bold mb-2' }, title),
-            React.createElement('p', { className: 'text-gray-600 mb-4' }, description),
-            features &&
-                React.createElement(
-                    'ul',
-                    { className: 'space-y-1 mb-4 text-left' },
-                    ...features.map((f) =>
-                        React.createElement(
-                            'li',
-                            { key: f, className: 'flex items-center' },
-                            React.createElement('span', { className: 'text-green-500 mr-2' }, '✓'),
-                            f
-                        )
-                    )
-                ),
-            React.createElement(
-                'div',
-                { className: 'flex gap-2 justify-center' },
-                React.createElement(
-                    'button',
-                    {
-                        className: 'px-4 py-2 bg-red-600 text-white rounded cursor-pointer',
-                        onClick: () => closeOverlay(),
-                    },
-                    'Continue story'
-                ),
-                React.createElement(
-                    'button',
-                    {
-                        className: 'px-4 py-2 bg-red-600 text-white rounded cursor-pointer',
-                        onClick: () => closeOverlay('next'),
-                    },
-                    'Next story'
-                ),
-                React.createElement(
-                    'button',
-                    {
-                        className: 'px-4 py-2 bg-red-600 text-white rounded cursor-pointer',
-                        onClick: () => closeOverlay('modal'),
-                    },
-                    'Close modal'
-                )
-            )
-        )
-
-    ExampleOverlay.displayName = 'ExampleOverlay'
-    return ExampleOverlay
-}
+import { createExampleOverlay } from './createExampleOverlay'
 
 export interface SeeMoreOptions {
     text?: string
@@ -103,33 +44,6 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_save_filters_replay_wide_684b8b7844_82b2ffd07c.mp4',
                 type: 'video',
-                durationMs: 29000,
-                seeMoreLink: 'https://posthog.com/docs',
-                seeMoreOptions: {
-                    text: 'See more',
-                    textColor: 'white',
-                    backgroundColor: 'white',
-                    arrowIcon: 'right',
-                },
-            },
-            {
-                id: 'features_overlay',
-                title: 'Changelog',
-                description: 'New PostHog features',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
-                type: 'overlay',
-                durationMs: 20000,
-                seeMoreOverlay: createExampleOverlay('🎉 New Feature Alert!', 'Interactive Story Overlays', [
-                    'Custom React components',
-                    'Story pauses automatically',
-                ]),
-                seeMoreOptions: {
-                    text: 'Explore Feature',
-                    textColor: 'black',
-                    backgroundColor: 'black',
-                    arrowIcon: 'up',
-                    hideDefaultClose: true,
-                },
             },
             {
                 id: 'changelog_linear_share_1',
@@ -139,33 +53,15 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_linear_share_wide_0d3520bba5_64049c56b6.mp4',
                 type: 'video',
-                durationMs: 44000,
-                seeMoreLink: 'https://posthog.com/docs',
-                seeMoreOptions: {
-                    text: 'CHECK IT OUT',
-                    textColor: 'white',
-                    backgroundColor: 'black',
-                    arrowIcon: 'up',
-                },
             },
             {
-                id: 'changelog_cta',
-                title: 'Changelog',
-                description: 'Read our changelog!',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
-                type: 'image',
-                durationMs: 5500,
-                seeMoreLink: 'https://posthog.com/docs',
-            },
-            {
-                id: 'asdfasdfasdf-x',
+                id: 'overlay_example',
                 title: 'Changelog',
                 description: 'New feature showcase with component overlay',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
                 type: 'image',
-                durationMs: 20000,
+                durationMs: 6000,
                 seeMoreOverlay: createExampleOverlay('🚀 Feature Showcase', "See what's new in PostHog", [
                     'Advanced analytics',
                     'Real-time insights',
@@ -176,6 +72,18 @@ export const storiesMap: storyGroup[] = [
                     textColor: 'black',
                     backgroundColor: 'black',
                     arrowIcon: 'up',
+                },
+            },
+            {
+                id: 'changelog_cta',
+                title: 'Changelog',
+                description: 'Read our changelog!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
+                type: 'video',
+                seeMoreLink: 'https://posthog.com/changelog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
                 },
             },
         ],
