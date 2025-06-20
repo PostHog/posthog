@@ -788,7 +788,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "roundAge": HogQLFunctionMeta("roundAge", 1, 1),
     "roundDown": HogQLFunctionMeta("roundDown", 2, 2),
     # maps
-    "map": HogQLFunctionMeta("map", 0, 2, None),
+    "map": HogQLFunctionMeta("map", 0, 2),
     "mapFromArrays": HogQLFunctionMeta("mapFromArrays", 2, 2),
     "mapAdd": HogQLFunctionMeta("mapAdd", 2, None),
     "mapSubtract": HogQLFunctionMeta("mapSubtract", 2, None),
