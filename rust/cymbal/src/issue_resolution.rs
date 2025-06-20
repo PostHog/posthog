@@ -8,7 +8,7 @@ use common_kafka::kafka_producer::send_iter_to_kafka;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
-use crate::assignment_rules::{try_assignment_rules, Assignment};
+use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
 use crate::types::FingerprintedErrProps;
 use crate::{
@@ -392,18 +392,11 @@ async fn send_internal_event(
     event.insert_prop("status", issue.status.as_str())?;
 
     if let Some(assignment) = new_assignment {
-        if let Some(user_id) = assignment.user_id {
-            let assignee = serialize_assignee_json("user", user_id);
-            event
-                .insert_prop("assignee", assignee)
-                .expect("Strings are serializable");
-        }
-        if let Some(role_id) = assignment.role_id {
-            let assignee = serialize_assignee_json("role", role_id);
-            event
-                .insert_prop("assignee", assignee)
-                .expect("Strings are serializable");
-        }
+        let assignee = Assignee::try_from(&assignment)?;
+
+        event
+            .insert_prop("assignee", assignee)
+            .expect("Strings are serializable");
     }
 
     send_iter_to_kafka(
@@ -420,10 +413,6 @@ async fn send_internal_event(
     .collect::<Result<Vec<_>, _>>()?;
 
     Ok(())
-}
-
-fn serialize_assignee_json<T: Display>(kind: &str, id: T) -> String {
-    format!(r#"{{"type":"{}","id":"{}"}}"#, kind, id)
 }
 
 impl From<String> for IssueStatus {
