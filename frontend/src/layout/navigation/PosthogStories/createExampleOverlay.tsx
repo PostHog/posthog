@@ -10,8 +10,8 @@ export const createExampleOverlay = (
             <p className="text-gray-600 mb-4">{description}</p>
             {features && (
                 <ul className="space-y-1 mb-4 text-left">
-                    {features.map((f) => (
-                        <li key={f} className="flex items-center">
+                    {features.map((f, index) => (
+                        <li key={index} className="flex items-center">
                             <span className="text-green-500 mr-2">✓</span>
                             {f}
                         </li>

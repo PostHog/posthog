@@ -2,11 +2,11 @@
 import { createExampleOverlay } from './createExampleOverlay'
 
 export interface SeeMoreOptions {
+    arrowIcon?: 'right' | 'up'
+    backgroundColor?: 'black' | 'white'
+    hideDefaultClose?: boolean
     text?: string
     textColor?: 'black' | 'white'
-    backgroundColor?: 'black' | 'white'
-    arrowIcon?: 'right' | 'up'
-    hideDefaultClose?: boolean
 }
 
 export interface story {

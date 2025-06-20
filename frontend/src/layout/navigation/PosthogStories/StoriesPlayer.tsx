@@ -116,6 +116,7 @@ export const StoriesPlayer = ({
     const [hoveredZone, setHoveredZone] = useState<'left' | 'right' | null>(null)
     const [videoDuration, setVideoDuration] = useState<number | null>(null)
     const [animationKey, setAnimationKey] = useState(0) // Force re-render when story changes
+    const [muted, setMuted] = useState(false)
     const videoRef = useRef<HTMLVideoElement | null>(null)
     const currentStory = stories[currentIndex]
     const containerRef = useRef<HTMLDivElement>(null)
@@ -124,15 +125,30 @@ export const StoriesPlayer = ({
     useEffect(() => {
         setVideoDuration(null) // Reset video duration
         setAnimationKey((prev) => prev + 1) // Force animation restart
+        setMuted(false) // Reset muted state for new story
         onStoryStart(currentIndex)
     }, [currentIndex, onStoryStart])
 
-    // Handle video duration loaded
+    // Handle video metadata loaded (duration info)
     const handleVideoLoadedMetadata = useCallback(() => {
         if (videoRef.current && currentStory?.type === 'video') {
             setVideoDuration(videoRef.current.duration * 1000) // Convert to milliseconds
         }
     }, [currentStory])
+
+    // Handle video data loaded (ready to play)
+    const handleVideoLoadedData = useCallback(() => {
+        if (videoRef.current && currentStory?.type === 'video') {
+            // Try to play the video, fallback to muted if autoplay blocked
+            if (!isPaused) {
+                videoRef.current.play().catch(() => {
+                    // Autoplay blocked, try with muted
+                    setMuted(true)
+                    void videoRef.current?.play()
+                })
+            }
+        }
+    }, [currentStory, isPaused])
 
     // Handle animation end for image stories
     const handleAnimationEnd = useCallback(() => {
@@ -255,9 +271,12 @@ export const StoriesPlayer = ({
                         src={currentStory.url}
                         className="w-full h-full object-contain rounded"
                         autoPlay
+                        muted={muted}
                         playsInline
                         onEnded={handleVideoEnd}
                         onLoadedMetadata={handleVideoLoadedMetadata}
+                        onLoadedData={handleVideoLoadedData}
+                        controls={false}
                     />
                 ) : (
                     <img src={currentStory.url} alt="Story content" className="w-full h-full object-cover" />
