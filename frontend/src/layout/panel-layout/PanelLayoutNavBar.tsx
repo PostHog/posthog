@@ -107,6 +107,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { isDev } = useValues(preflightLogic)
+    const { showKeyboardShortcuts } = useActions(universalKeyboardShortcutsLogic)
     const { isKeyboardShortcutsVisible } = useValues(universalKeyboardShortcutsLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -280,31 +281,54 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <OrganizationDropdownMenu />
                         </UniversalKeyboardShortcut>
 
-                        {!isLayoutNavCollapsed && (
-                            <div
-                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
-                                aria-label="Add a new item menu actions"
-                            >
-                                <ButtonPrimitive
-                                    size="base"
-                                    iconOnly
-                                    onClick={toggleSearchBar}
-                                    data-attr="tree-navbar-search-button"
-                                    tooltip={
-                                        <div className="flex flex-col gap-0.5">
-                                            <span>
-                                                For search, press <KeyboardShortcut command k />
-                                            </span>
-                                            <span>
-                                                For commands, press <KeyboardShortcut command shift k />
-                                            </span>
-                                        </div>
-                                    }
-                                >
-                                    <IconSearch className="text-secondary" />
-                                </ButtonPrimitive>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-px">
+                            {!isLayoutNavCollapsed && (
+                                <>
+                                    <div
+                                        className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                        aria-label="Add a new item menu actions"
+                                    >
+                                        <ButtonPrimitive
+                                            size="base"
+                                            iconOnly
+                                            onClick={toggleSearchBar}
+                                            data-attr="tree-navbar-search-button"
+                                            tooltip={
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span>
+                                                        For search, press <KeyboardShortcut command k />
+                                                    </span>
+                                                    <span>
+                                                        For commands, press <KeyboardShortcut command shift k />
+                                                    </span>
+                                                </div>
+                                            }
+                                        >
+                                            <IconSearch className="text-secondary" />
+                                        </ButtonPrimitive>
+                                    </div>
+                                    <ButtonPrimitive
+                                        size="base"
+                                        iconOnly
+                                        onClick={() => showKeyboardShortcuts(!isKeyboardShortcutsVisible)}
+                                        tooltip={
+                                            <div className="flex flex-col gap-0.5">
+                                                <span>
+                                                    For quick activation <KeyboardShortcut command shift /> + key
+                                                </span>
+                                                <span>
+                                                    {isKeyboardShortcutsVisible
+                                                        ? 'Hide keyboard shortcuts'
+                                                        : 'Show keyboard shortcuts'}
+                                                </span>
+                                            </div>
+                                        }
+                                    >
+                                        <KeyboardShortcut command />
+                                    </ButtonPrimitive>
+                                </>
+                            )}
+                        </div>
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
