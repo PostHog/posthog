@@ -717,12 +717,12 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
     describe('compareUpdateResults', () => {
         const logger = require('../../../utils/logger').logger
-        const { personShadowModeReturnStepOutcomeCounter } = require('./metrics')
+        const { personShadowModeReturnIntermediateOutcomeCounter } = require('./metrics')
 
         beforeEach(() => {
             jest.clearAllMocks()
             // Mock the metric counter
-            personShadowModeReturnStepOutcomeCounter.labels = jest.fn().mockReturnValue({
+            personShadowModeReturnIntermediateOutcomeCounter.labels = jest.fn().mockReturnValue({
                 inc: jest.fn(),
             })
         })
@@ -737,7 +737,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
 
             // Verify metric was incremented for consistent outcome
-            expect(personShadowModeReturnStepOutcomeCounter.labels).toHaveBeenCalledWith(
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
                 'updatePersonForUpdate',
                 'consistent'
             )
@@ -768,7 +768,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
 
             // Verify metric was incremented for inconsistent outcome
-            expect(personShadowModeReturnStepOutcomeCounter.labels).toHaveBeenCalledWith(
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
                 'updatePersonForUpdate',
                 'inconsistent'
             )
@@ -808,7 +808,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             batchStoreForBatch.updatePersonForMerge = originalUpdatePersonForMerge
 
             // Verify metric was incremented for inconsistent outcome
-            expect(personShadowModeReturnStepOutcomeCounter.labels).toHaveBeenCalledWith(
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
                 'updatePersonForMerge',
                 'inconsistent'
             )
@@ -838,7 +838,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Mock secondary store to return null (no person found)
             const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
-            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([null as any, [], false])
+            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([null, [], false])
 
             await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
 
@@ -846,7 +846,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
 
             // Verify metric was incremented for inconsistent outcome
-            expect(personShadowModeReturnStepOutcomeCounter.labels).toHaveBeenCalledWith(
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
                 'updatePersonForUpdate',
                 'inconsistent'
             )
@@ -938,7 +938,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
 
             // Verify result is considered consistent despite version difference
-            expect(personShadowModeReturnStepOutcomeCounter.labels).toHaveBeenCalledWith(
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
                 'updatePersonForUpdate',
                 'consistent'
             )

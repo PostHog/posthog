@@ -107,7 +107,11 @@ export function mergePersonPropertiesWithChangeset(
 
     // Apply only the properties that were changed in this batch
     Object.entries(personUpdate.property_changeset).forEach(([key, value]) => {
-        mergedProperties[key] = value
+        if (value === undefined || value === null) {
+            delete mergedProperties[key]
+        } else {
+            mergedProperties[key] = value
+        }
     })
 
     return mergedProperties
