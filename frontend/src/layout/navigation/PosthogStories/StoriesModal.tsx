@@ -177,7 +177,7 @@ export const StoriesModal = (): JSX.Element | null => {
             const story = activeGroup?.stories[index]
             if (story?.type === 'overlay' && story.seeMoreOverlay) {
                 setTimeout(() => {
-                    const closeHandler = (action?: 'overlay' | 'modal' | 'next'): void => {
+                    const closeHandler = (action?: 'overlay' | 'modal' | 'next' | 'previous'): void => {
                         setShowOverlay(false)
                         setOverlayComponent(null)
                         setIsPaused(false)
@@ -190,6 +190,14 @@ export const StoriesModal = (): JSX.Element | null => {
                             } else {
                                 // Last story in group - close the modal
                                 setOpenStoriesModal(false)
+                            }
+                        } else if (action === 'previous') {
+                            // Go to previous story
+                            if (index > 0) {
+                                setActiveStoryIndex(index - 1)
+                            } else {
+                                // First story in group - just close overlay and continue current story
+                                // Default behavior (overlay closes, story continues)
                             }
                         }
                     }
@@ -230,7 +238,7 @@ export const StoriesModal = (): JSX.Element | null => {
 
     // Handle overlay close
     const handleOverlayClose = useCallback(
-        (action?: 'overlay' | 'modal' | 'next') => {
+        (action?: 'overlay' | 'modal' | 'next' | 'previous') => {
             setOverlayAnimating(true)
 
             // Wait for slide-down animation to complete
@@ -249,6 +257,14 @@ export const StoriesModal = (): JSX.Element | null => {
                     } else {
                         // Last story in group - close the modal
                         setOpenStoriesModal(false)
+                    }
+                } else if (action === 'previous') {
+                    // Go to previous story
+                    if (activeStoryIndex > 0) {
+                        setActiveStoryIndex(activeStoryIndex - 1)
+                    } else {
+                        // First story in group - just close overlay and continue current story
+                        // Default behavior (overlay closes, story continues)
                     }
                 }
             }, 300) // Match animation duration

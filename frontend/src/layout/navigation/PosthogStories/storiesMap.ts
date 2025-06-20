@@ -18,7 +18,7 @@ export interface story {
     type: 'image' | 'video' | 'overlay'
     durationMs?: number
     seeMoreLink?: string
-    seeMoreOverlay?: (closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void) => JSX.Element
+    seeMoreOverlay?: (closeOverlay: (action?: 'overlay' | 'modal' | 'next' | 'previous') => void) => JSX.Element
     seeMoreOptions?: SeeMoreOptions
 }
 
