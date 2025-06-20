@@ -3,7 +3,6 @@ from __future__ import annotations
 import collections
 from collections.abc import Iterator
 from typing import Any, Optional
-import math
 
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -16,10 +15,7 @@ from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-)
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+from posthog.warehouse.types import IncrementalFieldType
 
 
 @config.config
@@ -109,36 +105,6 @@ def _create_mongo_client(connection_string: str, connection_params: dict[str, An
         connection_kwargs["tls"] = True
 
     return MongoClient(**connection_kwargs)
-
-
-def _get_partition_settings(
-    collection: Collection, collection_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
-) -> PartitionSettings | None:
-    """Get partition settings for given MongoDB collection."""
-    try:
-        # Get collection stats
-        stats = collection.database.command("collStats", collection_name)
-
-        collection_size = stats.get("size", 0)  # size in bytes
-        row_count = stats.get("count", 0)
-
-        if collection_size == 0 or row_count == 0:
-            return None
-
-        # Calculate partition count based on size
-        partition_count = max(1, math.ceil(collection_size / partition_size_bytes))
-
-        # Cap at reasonable limit
-        partition_count = min(partition_count, 100)
-
-        partition_size = math.ceil(row_count / partition_count)
-
-        return PartitionSettings(
-            partition_count=partition_count,
-            partition_size=partition_size,
-        )
-    except Exception:
-        return None
 
 
 def _parse_connection_string(connection_string: str) -> dict[str, Any]:
@@ -337,7 +303,6 @@ def mongo_source(
 
     # Get collection metadata
     primary_keys = _get_primary_keys(collection, collection_name)
-    partition_settings = _get_partition_settings(collection, collection_name) if is_incremental else None
     rows_to_sync = _get_rows_to_sync(collection, query, logger)
 
     client.close()
@@ -349,9 +314,8 @@ def mongo_source(
         read_db = read_client[connection_params["database"]]
         read_collection = read_db[collection_name]
 
-        # TODO: update to pymongoarrow when pyarrow major version is bumped
         try:
-            cursor = read_collection.find({})
+            cursor = read_collection.find(query)
 
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
@@ -392,7 +356,5 @@ def mongo_source(
         name=name,
         items=get_rows(),
         primary_keys=primary_keys,
-        partition_count=partition_settings.partition_count if partition_settings else None,
-        partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
     )
