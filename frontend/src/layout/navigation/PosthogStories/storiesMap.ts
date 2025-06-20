@@ -17,8 +17,8 @@ export interface story {
     mediaUrl?: string
     type: 'image' | 'video' | 'overlay'
     durationMs?: number
-    link?: string
-    seeMoreComponent?: (closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void) => JSX.Element
+    seeMoreLink?: string
+    seeMoreOverlay?: (closeOverlay: (action?: 'overlay' | 'modal' | 'next') => void) => JSX.Element
     seeMoreOptions?: SeeMoreOptions
 }
 
@@ -45,7 +45,7 @@ export const storiesMap: storyGroup[] = [
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_save_filters_replay_wide_684b8b7844_82b2ffd07c.mp4',
                 type: 'video',
                 durationMs: 29000,
-                link: 'https://posthog.com/docs',
+                seeMoreLink: 'https://posthog.com/docs',
                 seeMoreOptions: {
                     text: 'See more',
                     textColor: 'white',
@@ -60,7 +60,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 type: 'overlay',
                 durationMs: 20000,
-                seeMoreComponent: (closeOverlay) =>
+                seeMoreOverlay: (closeOverlay) =>
                     React.createElement(
                         'div',
                         { className: 'p-8 max-w-4xl mx-auto' },
@@ -157,7 +157,7 @@ export const storiesMap: storyGroup[] = [
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_linear_share_wide_0d3520bba5_64049c56b6.mp4',
                 type: 'video',
                 durationMs: 44000,
-                link: 'https://posthog.com/docs',
+                seeMoreLink: 'https://posthog.com/docs',
                 seeMoreOptions: {
                     text: 'CHECK IT OUT',
                     textColor: 'white',
@@ -173,7 +173,7 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
                 type: 'image',
                 durationMs: 5500,
-                link: 'https://posthog.com/docs',
+                seeMoreLink: 'https://posthog.com/docs',
             },
             {
                 id: 'asdfasdfasdf-x',
@@ -183,7 +183,7 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
                 type: 'image',
                 durationMs: 20000,
-                seeMoreComponent: (closeOverlay) =>
+                seeMoreOverlay: (closeOverlay) =>
                     React.createElement(
                         'div',
                         { className: 'p-8 max-w-4xl mx-auto' },

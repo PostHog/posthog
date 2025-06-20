@@ -175,7 +175,7 @@ export const StoriesModal = (): JSX.Element | null => {
 
             // Auto-trigger overlay for 'overlay' type stories
             const story = activeGroup?.stories[index]
-            if (story?.type === 'overlay' && story.seeMoreComponent) {
+            if (story?.type === 'overlay' && story.seeMoreOverlay) {
                 setTimeout(() => {
                     const closeHandler = (action?: 'overlay' | 'modal' | 'next'): void => {
                         setShowOverlay(false)
@@ -193,7 +193,7 @@ export const StoriesModal = (): JSX.Element | null => {
                             }
                         }
                     }
-                    setOverlayComponent(() => () => story.seeMoreComponent!(closeHandler))
+                    setOverlayComponent(() => () => story.seeMoreOverlay!(closeHandler))
                     setShowOverlay(true)
                     setOverlayAnimating(true) // Start off-screen
                     setIsPaused(true)
@@ -263,7 +263,7 @@ export const StoriesModal = (): JSX.Element | null => {
 
     const stories = activeGroup.stories.map(
         (story: story): Story => ({
-            url: story.mediaUrl,
+            url: story.mediaUrl || '',
             type: story.type,
             duration: story.durationMs,
             header: {
@@ -272,18 +272,18 @@ export const StoriesModal = (): JSX.Element | null => {
                 profileImage: story.thumbnailUrl,
             },
             seeMore:
-                story.link || story.seeMoreComponent
+                story.seeMoreLink || story.seeMoreOverlay
                     ? () => {
                           sendStoryEndEvent('see_more')
-                          if (story.seeMoreComponent) {
-                              setOverlayComponent(() => () => story.seeMoreComponent!(handleOverlayClose))
+                          if (story.seeMoreOverlay) {
+                              setOverlayComponent(() => () => story.seeMoreOverlay!(handleOverlayClose))
                               setShowOverlay(true)
                               setOverlayAnimating(true) // Start off-screen
                               setIsPaused(true)
                               // Trigger slide-up animation
                               setTimeout(() => setOverlayAnimating(false), 10)
-                          } else if (story.link) {
-                              window.open(story.link, '_blank')
+                          } else if (story.seeMoreLink) {
+                              window.open(story.seeMoreLink, '_blank')
                               setIsPaused(true)
                           }
                           return null
