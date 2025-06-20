@@ -89,7 +89,7 @@ def google_sheets_source(
     config: GoogleSheetsServiceAccountSourceConfig,
     worksheet_name: str,
     db_incremental_field_last_value: Optional[Any],
-    is_incremental: bool = False,
+    should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     worksheets = get_schemas(config)
     selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
@@ -115,7 +115,7 @@ def google_sheets_source(
 
         values = worksheet.get_all_records()
 
-        if is_incremental and db_incremental_field_last_value is not None:
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
 
         yield table_from_py_list(values)
