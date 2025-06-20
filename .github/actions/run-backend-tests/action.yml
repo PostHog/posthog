@@ -183,7 +183,7 @@ runs:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
-              pytest ${{
+              pytest -n auto ${{
                   inputs.person-on-events == 'true'
                   && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
                   || 'posthog products'
