@@ -329,7 +329,7 @@ class ParquetStreamTransformer(StreamTransformer):
 def transform_record_batch(record_batch, transformer: StreamTransformer):
     """Top level function to run transformers in multiprocessing.
 
-    Record batches are accessed from shared memory.
+    Record batches are processed in separate processes.
     """
     processed = list(transformer.transform_batch(record_batch))
     return processed
