@@ -1,5 +1,4 @@
 name: Rust CI
-
 on:
     workflow_dispatch:
     push:
@@ -253,3 +252,15 @@ jobs:
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.rust == 'true'
+        needs: [test, build, shear, linting] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

@@ -5,16 +5,14 @@ import { CyclotronJobInputSchemaType, CyclotronJobInputType, Optional } from '~/
 
 import {
     BOTTOM_HANDLE_POSITION,
-    DEFAULT_EDGE_OPTIONS,
-    DEFAULT_NODE_OPTIONS,
+    getDefaultEdgeOptions,
+    getDefaultNodeOptions,
     LEFT_HANDLE_POSITION,
-    NODE_HEIGHT,
-    NODE_WIDTH,
     RIGHT_HANDLE_POSITION,
     TOP_HANDLE_POSITION,
 } from '../constants'
 import { ToolbarNode } from '../Toolbar'
-import type { HogFlowAction, HogFlowEdge } from '../types'
+import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
 
 // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
 export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFlowEdge>[]): Node<HogFlowAction>[] => {
@@ -41,7 +39,7 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
             newNodes.push({
                 id: dropzoneId,
                 type: 'dropzone',
-                position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                position: { x: labelX, y: labelY },
                 data: {
                     id: dropzoneId,
                     description: '',
@@ -276,7 +274,7 @@ export const createNewNode = (
             x: position?.x || 0,
             y: position?.y || 0,
         },
-        ...DEFAULT_NODE_OPTIONS,
+        ...getDefaultNodeOptions(false),
     }
 }
 
@@ -296,7 +294,7 @@ export const createEdgesForNewNode = (
                 target: nodeId,
                 sourceHandle: edgeToInsertNodeInto.sourceHandle,
                 targetHandle: handle.id,
-                ...DEFAULT_EDGE_OPTIONS,
+                ...getDefaultEdgeOptions(),
                 label: edgeToInsertNodeInto?.label,
             }
         }
@@ -307,7 +305,7 @@ export const createEdgesForNewNode = (
             target: edgeToInsertNodeInto.target,
             sourceHandle: handle.id,
             targetHandle: edgeToInsertNodeInto.targetHandle,
-            ...DEFAULT_EDGE_OPTIONS,
+            ...getDefaultEdgeOptions(),
             label: handle.label,
         }
     })
@@ -329,9 +327,7 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
         },
         handles: getNodeHandles('trigger_node', 'trigger'),
         position: { x: 0, y: 0 },
-        ...DEFAULT_NODE_OPTIONS,
-        selectable: false,
-        deletable: false,
+        ...getDefaultNodeOptions(true),
     },
     {
         id: 'exit_node',
@@ -348,9 +344,7 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
         },
         handles: getNodeHandles('exit_node', 'exit'),
         position: { x: 0, y: 100 },
-        ...DEFAULT_NODE_OPTIONS,
-        selectable: false,
-        deletable: false,
+        ...getDefaultNodeOptions(true),
     },
 ]
 
@@ -361,6 +355,27 @@ export const DEFAULT_EDGES: Edge<HogFlowEdge>[] = [
         sourceHandle: 'trigger_node_source',
         target: 'exit_node',
         targetHandle: 'exit_node_target',
-        ...DEFAULT_EDGE_OPTIONS,
+        ...getDefaultEdgeOptions(),
     },
 ]
+
+export const getNodesFromHogFlow = (hogFlow: HogFlow): Node<HogFlowAction>[] => {
+    return hogFlow.actions.map((action) => {
+        return {
+            id: action.id,
+            type: action.type,
+            data: action,
+            position: { x: 0, y: 0 },
+            ...getDefaultNodeOptions(['trigger', 'exit'].includes(action.type)),
+        }
+    })
+}
+
+export const getEdgesFromHogFlow = (hogFlow: HogFlow): Edge<HogFlowEdge>[] => {
+    return hogFlow.edges.map((edge) => ({
+        id: `${edge.from}->${edge.to}`,
+        source: edge.from,
+        target: edge.to,
+        ...getDefaultEdgeOptions(),
+    }))
+}

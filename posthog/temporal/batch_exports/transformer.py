@@ -13,10 +13,9 @@ import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
+from django.conf import settings
 
-from posthog.temporal.batch_exports.utils import (
-    cast_record_batch_json_columns,
-)
+from posthog.temporal.batch_exports.utils import cast_record_batch_json_columns
 
 logger = structlog.get_logger()
 
@@ -220,7 +219,7 @@ class JSONLStreamTransformer(StreamTransformer):
                 yield t
             return
 
-        max_workers = 2
+        max_workers = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS
         task_queue: asyncio.Queue[asyncio.Future[list[bytes]]] = asyncio.Queue(max_workers)
         loop = asyncio.get_running_loop()
 

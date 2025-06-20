@@ -1,5 +1,4 @@
 name: Backend CI - Update test timing
-
 on:
     workflow_dispatch:
 
@@ -40,6 +39,7 @@ jobs:
                   name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
                   path: .test_durations
                   retention-days: 2
+                  include-hidden-files: true
             # - name: Save test durations
             #   uses: stefanzweifel/git-auto-commit-action@v5
             #   with:
