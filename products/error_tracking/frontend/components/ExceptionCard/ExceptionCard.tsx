@@ -1,10 +1,8 @@
-
-import { IconLogomark, IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { IconLogomark } from '@posthog/icons'
+import { LemonCard } from '@posthog/lemon-ui'
+import { BindLogic, useActions } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { useEffect } from 'react'
@@ -12,27 +10,9 @@ import { useEffect } from 'react'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { exceptionCardLogic } from './exceptionCardLogic'
-
-import { FixModal } from './FixModal'
-import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './Stacktrace/StacktraceBase'
-import { StacktraceGenericDisplay } from './Stacktrace/StacktraceGenericDisplay'
-import { StacktraceJsonDisplay } from './Stacktrace/StacktraceJsonDisplay'
-import { StacktraceTextDisplay } from './Stacktrace/StacktraceTextDisplay'
-
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { RawTab } from './Tabs/RawTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
-
-
-// Helper function to check if any exception has resolved stack frames
-function hasResolvedStackFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some((exception) => {
-        if (exception.stacktrace?.type === 'resolved' && exception.stacktrace?.frames) {
-            return exception.stacktrace.frames.some((frame) => frame.resolved)
-        }
-        return false
-    })
-}
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
@@ -75,11 +55,6 @@ export function ExceptionCard({ issue, issueLoading, label, event, eventLoading 
 }
 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
-    const { loading, showContext, isExpanded, showFixModal } = useValues(exceptionCardLogic)
-    const { setShowFixModal } = useActions(exceptionCardLogic)
-    const { properties, exceptionAttributes, additionalProperties, sessionId, exceptionList } =
-        useValues(errorPropertiesLogic)
-    const showFixButton = hasResolvedStackFrames(exceptionList)
     return (
         <LemonCard hoverEffect={false} className="group p-0 relative overflow-hidden">
             <TabsPrimitive defaultValue="stacktrace">
@@ -101,27 +76,14 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
-                            {showFixButton && (
-                                <LemonButton
-                                    icon={<IconMagicWand />}
-                                    size="xsmall"
-                                    type="secondary"
-                                    onClick={() => setShowFixModal(true)}
-                                    tooltip="Generate AI prompt to fix this error"
-                                >
-                                    Fix
-                                </LemonButton>
-                            )}
                             {label}
                         </div>
                     </TabsPrimitiveList>
                 </div>
-                <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} />
+                <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
                 <PropertiesTab value="properties" />
                 <RawTab value="raw" />
-
             </TabsPrimitive>
-            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} />
         </LemonCard>
     )
 }
