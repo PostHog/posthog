@@ -186,7 +186,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     // if we have person properties, set them
-    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props {
+    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
+    {
         person_props
             .as_object()
             .unwrap_or(&serde_json::Map::new())
@@ -196,8 +197,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     } else {
         HashMap::new()
     };
-    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id.clone()));
-    
+    all_person_properties.insert(
+        "distinct_id".to_string(),
+        Value::String(distinct_id.clone()),
+    );
+
     flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
 
