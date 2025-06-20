@@ -11,7 +11,7 @@
         "cypress-network-idle": "^1.14.2",
         "cypress-terminal-report": "^6.1.0",
         "eslint-plugin-posthog": "workspace:*",
-        "typescript": "4.8.8"
+        "typescript": "5.2.2"
     },
     "devDependencies": {
         "@babel/core": "^7.22.10",

@@ -1,3 +1,9 @@
+import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import {
+    UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
+    UTM_SOURCE_NAME_SCHEMA_FIELD,
+} from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+
 import { CoreFilterDefinition } from '~/types'
 
 import * as coreFilterDefinitionsByGroup from './core-filter-definitions-by-group.json'
@@ -6,10 +12,16 @@ import { transformFilterDefinitions } from './transformations'
 type CoreFilterDefinitionsGroup = keyof typeof coreFilterDefinitionsByGroup
 
 export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.entries(coreFilterDefinitionsByGroup).reduce(
-    (acc, [key, group]) => ({
-        ...acc,
-        [key]: transformFilterDefinitions(group),
-    }),
+    (acc, [key, group]) => {
+        if (key === '//' || typeof group === 'string') {
+            // ignore the comment
+            return acc
+        }
+        return {
+            ...acc,
+            [key]: transformFilterDefinitions(group),
+        }
+    },
     {} as Record<CoreFilterDefinitionsGroup, Record<string, CoreFilterDefinition>>
 )
 
@@ -158,3 +170,16 @@ export function isPostHogProperty(propertyKey: string, isCloudOrDev: boolean | u
     const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(propertyKey)
     return isPostHogProperty || isNonDollarPostHogProperty
 }
+
+export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
+    {
+        key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
+        label: 'UTM Campaign Name',
+        type: 'string',
+    },
+    {
+        key: UTM_SOURCE_NAME_SCHEMA_FIELD,
+        label: 'UTM Source Name',
+        type: 'string',
+    },
+]

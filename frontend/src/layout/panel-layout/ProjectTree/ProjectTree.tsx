@@ -1,4 +1,4 @@
-import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -32,6 +32,7 @@ import { RefObject, useEffect, useRef, useState } from 'react'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -162,19 +163,28 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
-        const showSelectMenuItems =
-            item.record?.protocol === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
+        const showSelectMenuItems = root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
+
+        // Show product menu items if the item is a product or shortcut (and the item is a product, products have 1 slash in the href)
+        const showProductMenuItems =
+            root === 'products://' ||
+            (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
-            item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
+            showProductMenuItems && item.name === 'Product analytics' ? (
                 <>
                     <ProductAnalyticsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
-            ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
+            ) : showProductMenuItems && item.name === 'Session replay' ? (
                 <>
                     <SessionReplayMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <MenuSeparator />
+                </>
+            ) : showProductMenuItems && item.name === 'Dashboards' ? (
+                <>
+                    <DashboardsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
             ) : null
@@ -487,12 +497,24 @@ export function ProjectTree({
                     </DropdownMenuGroup>
                 )
             }}
-            itemSideActionIcon={(item) => {
-                if (item.record?.protocol === 'products://') {
+            itemSideActionButton={(item) => {
+                const showProductMenuItems =
+                    root === 'products://' ||
+                    (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
+
+                if (showProductMenuItems) {
                     if (item.name === 'Product analytics') {
-                        return <IconPlusSmall className="text-tertiary" />
+                        return (
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                                <IconPlusSmall className="text-tertiary" />
+                            </ButtonPrimitive>
+                        )
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                        return (
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                            </ButtonPrimitive>
+                        )
                     }
                 }
             }}
@@ -636,11 +658,7 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon
-                            item={item}
-                            expandedItemIds={expandedFolders}
-                            defaultNodeIcon={<IconFolder />}
-                        />
+                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                     </>
                 )
             }}

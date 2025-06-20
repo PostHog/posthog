@@ -1,3 +1,5 @@
+import { MaxContextShape } from 'scenes/max/maxTypes'
+
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -21,6 +23,7 @@ export interface BaseAssistantMessage {
 export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
+    ui_context?: MaxContextShape
 }
 
 export interface AssistantFormOption {
@@ -115,3 +118,4 @@ export type AssistantContextualTool =
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
+    | 'create_hog_transformation_function'

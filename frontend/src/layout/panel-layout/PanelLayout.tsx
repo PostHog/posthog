@@ -4,6 +4,7 @@ import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { DatabaseTree } from './DatabaseTree/DatabaseTree'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
@@ -162,7 +163,8 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'PanelShortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
                     )}
-                    {activePanelIdentifier === 'PanelData' && (
+                    {activePanelIdentifier === 'PanelDatabase' && <DatabaseTree />}
+                    {activePanelIdentifier === 'PanelDataManagement' && (
                         <ProjectTree root="data://" searchPlaceholder="Search data tools" />
                     )}
                     {activePanelIdentifier === 'PanelPeople' && (

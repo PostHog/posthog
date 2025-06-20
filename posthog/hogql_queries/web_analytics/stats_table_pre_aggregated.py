@@ -25,7 +25,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.COUNTRY,
         WebStatsBreakdown.REGION,
         WebStatsBreakdown.CITY,
-        WebStatsBreakdown.TIMEZONE,
         WebStatsBreakdown.INITIAL_PAGE,
         WebStatsBreakdown.PAGE,
         WebStatsBreakdown.EXIT_PAGE,
@@ -219,13 +218,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return ast.Field(chain=["utm_content"])
             case WebStatsBreakdown.COUNTRY:
-                return ast.Field(chain=["country_name"])
+                return ast.Field(chain=["country_code"])
             case WebStatsBreakdown.REGION:
                 return ast.Field(chain=["region_code"])
             case WebStatsBreakdown.CITY:
                 return ast.Field(chain=["city_name"])
-            case WebStatsBreakdown.TIMEZONE:
-                return ast.Field(chain=["time_zone"])
             case WebStatsBreakdown.EXIT_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
 

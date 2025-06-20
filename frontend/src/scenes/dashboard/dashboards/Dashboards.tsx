@@ -20,6 +20,7 @@ import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
+    settingSectionId: 'environment-product-analytics',
 }
 
 export function Dashboards(): JSX.Element {

@@ -13,7 +13,7 @@ from .scorers import ToolRelevance
 
 
 @pytest.fixture
-def call_node(demo_org_team_user):
+def call_root(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
@@ -42,10 +42,10 @@ def call_node(demo_org_team_user):
 
 
 @pytest.mark.django_db
-def eval_root(call_node):
+def eval_root(call_root):
     MaxEval(
         experiment_name="root",
-        task=call_node,
+        task=call_root,
         scores=[ToolRelevance(semantic_similarity_args={"query_description"})],
         data=[
             EvalCase(

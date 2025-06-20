@@ -1590,16 +1590,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
-  '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -1608,7 +1598,7 @@
     AND version = 0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
   '''
   /* cohort_calculation: */
   SELECT metric_events.variant AS variant,
@@ -1681,7 +1671,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
   '''
   /* cohort_calculation: */
   SELECT metric_events.variant AS variant,
@@ -2712,16 +2702,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = NULL
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.1
-  '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -2730,7 +2710,7 @@
     AND version = 0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.2
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.1
   '''
   /* cohort_calculation: */
   SELECT metric_events.variant AS variant,
@@ -2808,7 +2788,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.3
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.2
   '''
   /* cohort_calculation: */
   SELECT metric_events.variant AS variant,

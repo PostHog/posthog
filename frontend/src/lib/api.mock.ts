@@ -7,6 +7,7 @@ import {
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -129,7 +130,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
     revenue_analytics_config: {
-        base_currency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',
@@ -144,6 +144,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 currencyAwareDecimal: true,
             },
         ],
+        filter_test_accounts: false,
         goals: [
             {
                 due_date: '2020-12-31',
@@ -158,7 +159,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ],
     },
     flags_persistence_default: false,
-    access_control_version: 'v1',
     has_completed_onboarding_for: {
         product_analytics: true,
     },
@@ -166,6 +166,10 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ingest_first_event: ActivationTaskStatus.COMPLETED,
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
+    marketing_analytics_config: {
+        sources_map: {},
+    },
+    base_currency: CurrencyCode.USD,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -192,6 +196,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     available_product_features: [],
     member_count: 2,
     logo_media_id: null,
+    default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {

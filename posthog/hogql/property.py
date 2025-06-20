@@ -57,8 +57,11 @@ from django.db import models
 
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsInvoiceItemView,
+    RevenueAnalyticsProductView,
+)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -404,7 +407,10 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.type == "person" and scope != "person":
+        if property.key.startswith("$virt") and property.type == "person":
+            # we pretend virtual person properties are regular properties, but they are ExpressionFields on the Persons table
+            chain = ["person"] if scope != "person" else []
+        elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
@@ -653,10 +659,24 @@ def property_to_expr(
 
 
 def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
-    if property.key == "product":
-        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
-    elif property.key == "amount":
+    if property.key == "amount":
         return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"])
+    elif property.key == "country":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
+    elif property.key == "cohort":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
+    elif property.key == "coupon":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon"])
+    elif property.key == "coupon_id":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "coupon_id"])
+    elif property.key == "initial_coupon":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon"])
+    elif property.key == "initial_coupon_id":
+        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon_id"])
+    elif property.key == "product":
+        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
+    elif property.key == "source":
+        return ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "source_label"])
     else:
         raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 

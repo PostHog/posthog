@@ -8,17 +8,22 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
-import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import {
+    InspectorListItemAnnotationComment,
+    RecordingComment,
+} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
+    processAllSnapshotsRaw,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { annotationsModel } from '~/models/annotationsModel'
+import { hogql, HogQLQueryString } from '~/queries/utils'
 import {
+    AnnotationScope,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
@@ -60,7 +65,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
         actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+            annotationsModel,
+            ['annotations', 'annotationsLoading'],
+        ],
     })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -287,24 +299,20 @@ AND (empty ($session_id) OR isNull($session_id))
 AND properties.$lib != 'web'`
 
                     if (person?.uuid) {
-                        relatedEventsQuery += `
-AND person_id = '${person.uuid}'`
+                        relatedEventsQuery = (relatedEventsQuery +
+                            hogql`\nAND person_id = ${person.uuid}`) as HogQLQueryString
                     }
                     if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
-                        relatedEventsQuery += `
-AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`
+                        relatedEventsQuery = (relatedEventsQuery +
+                            hogql`\nAND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`) as HogQLQueryString
                     }
 
-                    relatedEventsQuery += `
-ORDER BY timestamp ASC
-LIMIT 1000000
-                    `
+                    relatedEventsQuery = (relatedEventsQuery +
+                        hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
+
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        api.query({
-                            kind: NodeKind.HogQLQuery,
-                            query: sessionEventsQuery,
-                        }),
+                        api.queryHogQL(sessionEventsQuery),
                         // make a second for all events from that person,
                         // not marked as part of the session
                         // but in the same time range
@@ -312,10 +320,7 @@ LIMIT 1000000
                         // but with no session id
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
-                        api.query({
-                            kind: NodeKind.HogQLQuery,
-                            query: relatedEventsQuery,
-                        }),
+                        api.queryHogQL(relatedEventsQuery),
                     ])
 
                     return [...sessionEvents.results, ...relatedEvents.results].map(
@@ -373,23 +378,19 @@ LIMIT 1000000
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
                     try {
-                        const query: HogQLQuery = {
-                            kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT properties, uuid
-                                         FROM events
-                                         -- the timestamp range here is only to avoid querying too much of the events table
-                                         -- we don't really care about the absolute value,
-                                         -- but we do care about whether timezones have an odd impact
-                                         -- so, we extend the range by a day on each side so that timezones don't cause issues
-                                         WHERE timestamp
-                                             > ${dayjs(earliestTimestamp).subtract(1, 'day')}
-                                           AND timestamp
-                                             < ${dayjs(latestTimestamp).add(1, 'day')}
-                                           AND event in ${eventNames}
-                                           AND uuid in ${eventIds}`,
-                        }
+                        const query = hogql`
+                            SELECT properties, uuid
+                            FROM events
+                            -- the timestamp range here is only to avoid querying too much of the events table
+                            -- we don't really care about the absolute value,
+                            -- but we do care about whether timezones have an odd impact
+                            -- so, we extend the range by a day on each side so that timezones don't cause issues
+                            WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                            AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
+                            AND event in ${eventNames}
+                            AND uuid in ${eventIds}`
 
-                        const response = await api.query(query)
+                        const response = await api.queryHogQL(query)
                         if (response.error) {
                             throw new Error(response.error)
                         }
@@ -502,7 +503,7 @@ LIMIT 1000000
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 50))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
                 }
 
                 if (!props.blobV2PollingDisabled) {
@@ -590,6 +591,42 @@ LIMIT 1000000
         },
     })),
     selectors(({ cache }) => ({
+        sessionAnnotations: [
+            (s) => [s.annotations, s.start, s.end],
+            (annotations, start, end): InspectorListItemAnnotationComment[] => {
+                const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
+                const startValue = start?.valueOf()
+                const endValue = end?.valueOf()
+
+                const result: InspectorListItemAnnotationComment[] = []
+                for (const annotation of annotations) {
+                    if (!allowedScopes.includes(annotation.scope)) {
+                        continue
+                    }
+
+                    if (!annotation.date_marker || !startValue || !endValue || !annotation.content) {
+                        continue
+                    }
+
+                    const annotationTime = dayjs(annotation.date_marker).valueOf()
+                    if (annotationTime < startValue || annotationTime > endValue) {
+                        continue
+                    }
+
+                    result.push({
+                        type: 'comment',
+                        source: 'annotation',
+                        data: annotation,
+                        timestamp: dayjs(annotation.date_marker),
+                        timeInRecording: annotation.date_marker.valueOf() - startValue,
+                        search: annotation.content,
+                        highlightColor: 'primary',
+                    })
+                }
+
+                return result
+            },
+        ],
         webVitalsEvents: [
             (s) => [s.sessionEventsData],
             (sessionEventsData): RecordingEventType[] =>
@@ -841,6 +878,22 @@ LIMIT 1000000
                     sessionRecordingId
                 )
                 return processedSnapshots['processed'].snapshots || []
+            },
+        ],
+
+        snapshotsRaw: [
+            (s) => [s.snapshotSources, s.viewportForTimestamp],
+            (
+                sources,
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                _snapshotsBySourceSuccessCount
+            ): RecordingSnapshot[] => {
+                if (!sources || !cache.snapshotsBySource) {
+                    return []
+                }
+
+                const processedSnapshots = processAllSnapshotsRaw(sources, cache.snapshotsBySource || {})
+                return processedSnapshots || []
             },
         ],
 

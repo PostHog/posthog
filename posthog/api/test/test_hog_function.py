@@ -191,6 +191,41 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert update_response.status_code == status.HTTP_200_OK, update_response.json()
         assert update_response.json()["inputs"]["url"]["value"] == "https://example.com/posthog-webhook-updated"
 
+    def test_internal_destinations_can_be_managed_without_addon(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "My custom function",
+                "hog": "fetch('https://example.com');",
+                "type": "internal_destination",
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        function_id = response.json()["id"]
+
+        # Update it
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"name": "New name"},
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
+        self.assertEqual(update_response.json()["name"], "New name")
+
+        # Delete it
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"deleted": True},
+        )
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
@@ -254,7 +289,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "id": ANY,
             "type": "destination",
-            "kind": None,
             "name": "Fetch URL",
             "description": "Test description",
             "created_at": ANY,
@@ -319,7 +353,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["hog"] == "fetch(inputs.url);"
         assert response.json()["template"] == {
             "type": "destination",
-            "kind": None,
             "free": False,
             "name": webhook_template["name"],
             "description": webhook_template["description"],
@@ -1123,6 +1156,57 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
         assert len(response.json()["results"]) == 1
 
+    def test_list_with_filter_groups_filter(self, *args):
+        action1 = Action.objects.create(
+            team=self.team,
+            name="test action",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        )
+        hog_function_id_1 = response.json()["id"]
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "actions": [{"id": f"{action1.id}", "name": "Test Action", "type": "actions", "order": 1}],
+                },
+            },
+        )
+        hog_function_id_2 = response.json()["id"]
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        filter_groups: Any = [{"events": [{"id": "$pageview", "type": "events"}]}]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps(filter_groups)}"
+        )
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == hog_function_id_1
+
+        filter_groups = [{"actions": [{"id": f"{action1.id}", "type": "actions"}]}]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps(filter_groups)}"
+        )
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == hog_function_id_2
+
+        filter_groups = [
+            {"actions": [{"id": f"{action1.id}", "type": "actions"}]},
+            {"events": [{"id": "$pageview", "type": "events"}]},
+        ]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps(filter_groups)}"
+        )
+        assert len(response.json()["results"]) == 2
+
     def test_list_with_type_filter(self, *args):
         response_destination = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1209,75 +1293,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true,false")
         assert len(response.json()["results"]) == 2
-
-    def test_list_with_kind_filters(self, *args):
-        # Create functions with different kinds
-        response_messaging = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "name": "Messaging Campaign",
-                "kind": "messaging_campaign",
-            },
-        )
-        messaging_id = response_messaging.json()["id"]
-
-        response_other = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "name": "Other Function",
-                "kind": "other_kind",
-            },
-        )
-        other_id = response_other.json()["id"]
-
-        response_no_kind = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "name": "No Kind Function",
-            },
-        )
-        no_kind_id = response_no_kind.json()["id"]
-
-        # Test listing all functions
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
-        assert len(response.json()["results"]) == 3
-
-        # Test filtering by kind
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?kind=messaging_campaign")
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["id"] == messaging_id
-
-        # Test filtering by multiple kinds
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?kind=messaging_campaign,other_kind")
-        assert len(response.json()["results"]) == 2
-        result_ids = [r["id"] for r in response.json()["results"]]
-        assert messaging_id in result_ids
-        assert other_id in result_ids
-
-        # Test excluding by kind
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?exclude_kind=messaging_campaign")
-        assert len(response.json()["results"]) == 2
-        result_ids = [r["id"] for r in response.json()["results"]]
-        assert other_id in result_ids
-        assert no_kind_id in result_ids
-        assert messaging_id not in result_ids
-
-        # Test excluding multiple kinds
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/hog_functions/?exclude_kind=messaging_campaign,other_kind"
-        )
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["id"] == no_kind_id
-
-        # Test combining kind and exclude_kind (should exclude take precedence)
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/hog_functions/?kind=messaging_campaign,other_kind&exclude_kind=messaging_campaign"
-        )
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["id"] == other_id
 
     def test_create_hog_function_with_site_app_type(self):
         response = self.client.post(

@@ -10,6 +10,7 @@ from posthog.models.error_tracking.error_tracking import ErrorTrackingSymbolSet
 class SymbolSetSelectionConfig(dagster.Config):
     days_old: int = 30
     delete_unused: bool = False  # Delete symbol sets with null last_used
+    batch_size: int = 10000  # Maximum number of sets to process, to prevent ooms
 
 
 class SymbolSetDeletionConfig(dagster.Config):
@@ -25,7 +26,7 @@ def symbol_sets_to_delete(config: SymbolSetSelectionConfig) -> list[ErrorTrackin
     if config.delete_unused:
         query_filter = query_filter | Q(last_used__isnull=True)
 
-    symbol_sets = ErrorTrackingSymbolSet.objects.filter(query_filter).order_by("last_used")
+    symbol_sets = ErrorTrackingSymbolSet.objects.filter(query_filter).order_by("last_used")[: config.batch_size]
 
     return list(symbol_sets)
 
@@ -130,16 +131,17 @@ symbol_set_cleanup_job = dagster.define_asset_job(
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
-def daily_symbol_set_cleanup_schedule():
+def daily_symbol_set_cleanup_schedule(context):
     """Schedule the symbol set cleanup job to run daily at 3 AM UTC."""
     return dagster.RunRequest(
-        run_key=f"symbol_set_cleanup_{dagster.get_context().scheduled_execution_time.strftime('%Y%m%d_%H%M%S')}",
+        run_key=f"symbol_set_cleanup_{context.scheduled_execution_time.strftime('%Y%m%d_%H%M%S')}",
         run_config={
             "ops": {
                 "symbol_sets_to_delete": {
                     "config": SymbolSetSelectionConfig(
                         days_old=30,
                         delete_unused=False,  # TODO (olly) - switch this to True eventually (any time after July 1st 2025)
+                        batch_size=10000,
                     ).model_dump()
                 },
                 "symbol_set_cleanup_results": {

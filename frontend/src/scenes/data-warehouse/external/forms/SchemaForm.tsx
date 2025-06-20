@@ -2,7 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
+import { syncAnchorIntervalToHumanReadable, SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
@@ -151,7 +151,7 @@ export default function SchemaForm(): JSX.Element {
                                                 type="secondary"
                                                 onClick={() => openSyncMethodModal(schema)}
                                             >
-                                                {schema.sync_type === 'full_refresh' ? 'Full refresh' : 'Incremental'}
+                                                {SyncTypeLabelMap[schema.sync_type]}
                                             </LemonButton>
                                         </div>
                                     )

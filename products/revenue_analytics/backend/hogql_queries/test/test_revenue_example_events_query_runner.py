@@ -214,12 +214,13 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_c",
         )
 
-        self.team.revenue_analytics_config.base_currency = CurrencyCode.EUR.value
+        self.team.base_currency = CurrencyCode.EUR.value
         self.team.revenue_analytics_config.events = [
             event.model_copy(update={"currencyAwareDecimal": True}).model_dump()
             for event in REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
         ]
         self.team.revenue_analytics_config.save()
+        self.team.save()
 
         results = self._run_revenue_example_events_query().results
 
@@ -273,11 +274,12 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_c",
         )
 
-        self.team.revenue_analytics_config.base_currency = CurrencyCode.EUR.value
+        self.team.base_currency = CurrencyCode.EUR.value
         self.team.revenue_analytics_config.events = [
             event.model_dump() for event in REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
         ]
         self.team.revenue_analytics_config.save()
+        self.team.save()
 
         results = self._run_revenue_example_events_query().results
 
@@ -331,12 +333,13 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_c",
         )
 
-        self.team.revenue_analytics_config.base_currency = CurrencyCode.EUR.value
+        self.team.base_currency = CurrencyCode.EUR.value
         self.team.revenue_analytics_config.events = [
             event.model_copy(update={"currencyAwareDecimal": True}).model_dump()
             for event in REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
         ]
         self.team.revenue_analytics_config.save()
+        self.team.save()
 
         results = self._run_revenue_example_events_query().results
 

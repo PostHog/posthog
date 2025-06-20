@@ -24,13 +24,15 @@ import {
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createMailjetRequest } from '../utils/hog-mailjet-request'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { LiquidRenderer } from '../utils/liquid'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
 export const DEFAULT_TIMEOUT_MS = 100
+
+export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -58,7 +60,7 @@ export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
     })
 }
 
-export const formatInput = (bytecode: any, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
+export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
@@ -80,17 +82,55 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocationGlobals
     }
 
     if (Array.isArray(bytecode)) {
-        return bytecode.map((item) => formatInput(item, globals, key))
+        return bytecode.map((item) => formatHogInput(item, globals, key))
     } else if (typeof bytecode === 'object' && bytecode !== null) {
-        return Object.fromEntries(
-            Object.entries(bytecode).map(([key2, value]) => [
-                key2,
-                formatInput(value, globals, key ? `${key}.${key2}` : key2),
-            ])
-        )
+        let ret: Record<string, any> = {}
+
+        if (bytecode[EXTEND_OBJECT_KEY]) {
+            const res = formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
+            if (res && typeof res === 'object') {
+                ret = {
+                    ...res,
+                }
+            }
+        }
+
+        for (const [subkey, value] of Object.entries(bytecode)) {
+            if (subkey === EXTEND_OBJECT_KEY) {
+                continue
+            }
+            ret[subkey] = formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+        }
+
+        return ret
     } else {
         return bytecode
     }
+}
+
+const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
+    if (value === null || value === undefined) {
+        return value
+    }
+
+    if (typeof value === 'string') {
+        return LiquidRenderer.renderWithHogFunctionGlobals(value, globals)
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => formatLiquidInput(item, globals, key))
+    }
+
+    if (typeof value === 'object' && value !== null) {
+        return Object.fromEntries(
+            Object.entries(value).map(([key2, value]) => [
+                key2,
+                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2),
+            ])
+        )
+    }
+
+    return value
 }
 
 export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
@@ -128,9 +168,12 @@ export const buildGlobalsWithInputs = (
 
         newGlobals.inputs[key] = input.value
 
-        if (input?.bytecode) {
-            // Use the bytecode to compile the field
-            newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
+        const templating = input.templating ?? 'hog'
+
+        if (templating === 'liquid') {
+            newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
+        } else if (templating === 'hog' && input?.bytecode) {
+            newGlobals.inputs[key] = formatHogInput(input.bytecode, newGlobals, key)
         }
     }
 
@@ -379,7 +422,6 @@ export class HogExecutorService {
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
-
             const eventId = invocation?.state.globals?.event?.uuid || 'Unknown event'
 
             try {
@@ -387,11 +429,11 @@ export class HogExecutorService {
 
                 execRes = execHog(invocationInput, {
                     globals,
+                    timeout: this.config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
-                        sendEmail: async () => Promise.resolve(),
                     },
                     functions: {
                         print: (...args) => {
@@ -531,30 +573,6 @@ export class HogExecutorService {
                                 method,
                                 body,
                                 headers,
-                                return_queue: 'hog',
-                            })
-
-                            result.invocation.queue = 'fetch'
-                            result.invocation.queueParameters = fetchQueueParameters
-                            break
-                        }
-                        case 'sendEmail': {
-                            // Sanitize the args
-                            const [inputs] = args
-
-                            if (!inputs) {
-                                throw new Error('sendEmail: Invalid inputs')
-                            }
-
-                            const { auth, email } = inputs
-
-                            if (!auth) {
-                                throw new Error('sendEmail: Must provide a mail integration')
-                            }
-
-                            const fetchQueueParameters = this.enrichFetchRequest({
-                                // TODO: Add support for other providers
-                                ...createMailjetRequest(email, auth),
                                 return_queue: 'hog',
                             })
 

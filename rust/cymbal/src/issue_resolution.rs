@@ -5,11 +5,10 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
 
-use serde_json::json;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
-use crate::assignment_rules::{try_assignment_rules, Assignment};
+use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
 use crate::types::FingerprintedErrProps;
 use crate::{
@@ -393,30 +392,11 @@ async fn send_internal_event(
     event.insert_prop("status", issue.status.as_str())?;
 
     if let Some(assignment) = new_assignment {
-        if let Some(user_id) = assignment.user_id {
-            event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "user", "id": user_id.to_string()}),
-                )
-                .expect("Strings are serializable");
-        }
-        if let Some(group_id) = assignment.user_group_id {
-            event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "user_group", "id": group_id.to_string()}),
-                )
-                .expect("Strings are serializable");
-        }
-        if let Some(role_id) = assignment.role_id {
-            event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "role", "id": role_id.to_string()}),
-                )
-                .expect("Strings are serializable");
-        }
+        let assignee = Assignee::try_from(&assignment)?;
+
+        event
+            .insert_prop("assignee", assignee)
+            .expect("Strings are serializable");
     }
 
     send_iter_to_kafka(

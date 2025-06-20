@@ -2,13 +2,16 @@ import datetime
 import uuid
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
 
+from ee.api.conversation import ConversationViewSet
 from ee.hogai.assistant import Assistant
 from ee.models.assistant import Conversation
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.test.base import APIBaseTest
 
 
@@ -159,19 +162,47 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_streaming_error_handling(self):
-        def raise_error():
-            yield "some content"
-            raise Exception("Streaming error")
+    def test_streaming_error_after_content_yields_proper_message(self):
+        """Test that errors occurring after streaming content yield proper SSE-formatted error messages."""
 
-        with patch.object(Assistant, "_stream", side_effect=raise_error):
+        def stream_then_error():
+            yield 'event: message\ndata: {"type": "human", "content": "Hello"}\n\n'
+            yield 'event: message\ndata: {"type": "assistant", "content": "Hi there"}\n\n'
+            raise RuntimeError("Backend processing error")
+
+        with patch.object(Assistant, "_stream", side_effect=stream_then_error):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
                 {"content": "test query", "trace_id": str(uuid.uuid4())},
             )
-            with self.assertRaises(Exception) as context:
-                b"".join(response.streaming_content)
-            self.assertTrue("Streaming error" in str(context.exception))
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Get all streaming content
+            content = self._get_streaming_content(response).decode("utf-8")
+
+            # Should contain original messages
+            self.assertIn('{"type": "human", "content": "Hello"}', content)
+            self.assertIn('{"type": "assistant", "content": "Hi there"}', content)
+
+            # Should contain error message at the end
+            self.assertIn("event: message", content)
+            self.assertIn('"type":"ai/failure"', content)
+            self.assertIn("It looks like I'm having trouble answering this", content)
+
+            # Verify the error message is the last thing the client sees
+            # Split content into lines and find the last message event
+            lines = content.strip().split("\n")
+            last_message_event = None
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].startswith("event: message"):
+                    # Find the corresponding data line
+                    if i + 1 < len(lines) and lines[i + 1].startswith("data: "):
+                        last_message_event = lines[i + 1]
+                        break
+
+            self.assertIsNotNone(last_message_event, "Should have a last message event")
+            self.assertIn('"type":"ai/failure"', last_message_event)
+            self.assertIn("It looks like I'm having trouble answering this", last_message_event)
 
     def test_cancel_conversation(self):
         conversation = Conversation.objects.create(
@@ -195,8 +226,8 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Generation has already been cancelled.")
+        # should be idempotent
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_cancel_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
@@ -356,3 +387,25 @@ class TestConversation(APIBaseTest):
             # Second result should be the older conversation
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
+
+    @override_settings(DEBUG=False)
+    def test_get_throttles_applies_rate_limits_for_create_action(self):
+        """Test that rate limits are applied for create action in non-debug, non-exempt conditions."""
+
+        viewset = ConversationViewSet()
+        viewset.action = "create"
+        viewset.team_id = 12345
+        throttles = viewset.get_throttles()
+        self.assertIsInstance(throttles[0], AIBurstRateThrottle)
+        self.assertIsInstance(throttles[1], AISustainedRateThrottle)
+
+    @override_settings(DEBUG=True)
+    def test_get_throttles_skips_rate_limits_for_debug_mode(self):
+        """Test that rate limits are skipped in debug mode."""
+
+        viewset = ConversationViewSet()
+        viewset.action = "create"
+        viewset.team_id = 12345
+        throttles = viewset.get_throttles()
+        self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
+        self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)

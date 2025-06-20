@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from posthog.admin.admins import (
     OrganizationAdmin,
+    OrganizationDomainAdmin,
     UserAdmin,
     TeamAdmin,
     DashboardAdmin,
@@ -26,9 +27,11 @@ from posthog.admin.admins import (
     GroupTypeMappingAdmin,
     EventIngestionRestrictionConfigAdmin,
     LinkAdmin,
+    BatchImportAdmin,
 )
 from posthog.models import (
     Organization,
+    OrganizationDomain,
     User,
     Team,
     Dashboard,
@@ -53,9 +56,11 @@ from posthog.models import (
     GroupTypeMapping,
     EventIngestionRestrictionConfig,
     Link,
+    BatchImport,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
+admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(Team, TeamAdmin)
 admin.site.register(User, UserAdmin)
@@ -86,3 +91,4 @@ admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
 admin.site.register(HogFunction, HogFunctionAdmin)
 admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
 admin.site.register(Link, LinkAdmin)
+admin.site.register(BatchImport, BatchImportAdmin)

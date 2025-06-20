@@ -10,7 +10,6 @@ from django.db.models import F
 from django.utils import timezone
 from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated
-from sentry_sdk import capture_message
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
@@ -164,7 +163,10 @@ class BillingManager:
                 .first()
             )
             if not first_owner_membership:
-                capture_message(f"No owner membership found for organization {organization.id}")
+                capture_exception(
+                    Exception(f"No owner membership found for organization"),
+                    {"organization_id": organization.id},
+                )
                 return
             first_owner = first_owner_membership.user
 

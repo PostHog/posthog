@@ -16,16 +16,17 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -106,7 +107,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { isDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { showKeyboardShortcuts } = useActions(universalKeyboardShortcutsLogic)
     const { isKeyboardShortcutsVisible } = useValues(universalKeyboardShortcutsLogic)
 
@@ -203,13 +204,29 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             ref: projectRef,
             keybind: ['command', 'shift', 'p'],
         },
+        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
+            ? [
+                  {
+                      identifier: 'PanelDatabase',
+                      id: 'Database',
+                      icon: <IconDatabase />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('PanelDatabase')
+                          }
+                      },
+                      showChevron: true,
+                      keybind: ['command', 'shift', 'e'],
+                  },
+              ]
+            : []),
         {
-            identifier: 'PanelData',
-            id: <>Data</>,
+            identifier: 'DataManagement',
+            id: 'Data management',
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('PanelData')
+                    handlePanelTriggerClick('PanelDataManagement')
                 }
             },
             showChevron: true,
@@ -310,21 +327,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <ButtonPrimitive
                                         size="base"
                                         iconOnly
+                                        active={isKeyboardShortcutsVisible}
                                         onClick={() => showKeyboardShortcuts(!isKeyboardShortcutsVisible)}
                                         tooltip={
                                             <div className="flex flex-col gap-0.5">
+                                                <span>Toggle showing keyboard shortcuts</span>
                                                 <span>
                                                     For quick activation <KeyboardShortcut command shift /> + key
-                                                </span>
-                                                <span>
-                                                    {isKeyboardShortcutsVisible
-                                                        ? 'Hide keyboard shortcuts'
-                                                        : 'Show keyboard shortcuts'}
                                                 </span>
                                             </div>
                                         }
                                     >
-                                        <KeyboardShortcut command />
+                                        <KeyboardShortcut
+                                            command
+                                            className={cn(!isKeyboardShortcutsVisible && 'bg-transparent')}
+                                        />
                                     </ButtonPrimitive>
                                 </>
                             )}
@@ -467,7 +484,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div
                                     className={cn(
-                                        'flex flex-col gap-px h-full',
+                                        'relative flex flex-col gap-px h-full',
                                         !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
                                     )}
                                 >
@@ -478,15 +495,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-primary h-px " />
 
-                        {/* 
-                            Extra padding to compensate for dev mode debug notice... 
-                            not sure how better to do this other than lower the notices z-index.. 
-                        */}
-                        <div
-                            className={`pt-1 px-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
-                                isDev ? 'pb-10' : 'pb-2'
-                            }`}
-                        >
+                        <div className="p-1 flex flex-col gap-px items-center">
+                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}
@@ -519,6 +529,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
                                 tooltipDocLink="https://posthog.com/docs/toolbar"
                                 tooltipPlacement="right"
+                                data-attr="menu-item-toolbar"
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${
@@ -537,12 +548,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     iconOnly: isLayoutNavCollapsed,
                                 }}
                                 to={urls.settings('project')}
-                                data-attr={Scene.Settings}
                                 onClick={() => {
                                     handleStaticNavbarItemClick(urls.settings('project'), true)
                                 }}
                                 tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
                                 tooltipPlacement="right"
+                                data-attr="menu-item-settings"
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${
@@ -568,6 +579,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
                                     tooltipPlacement="right"
                                     iconOnly={isLayoutNavCollapsed}
+                                    data-attr="menu-item-me"
                                 >
                                     <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
                                     {!isLayoutNavCollapsed && (

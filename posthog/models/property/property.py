@@ -33,6 +33,7 @@ PropertyType = Literal[
     "cohort",
     "element",
     "static-cohort",
+    "dynamic-cohort",
     "precalculated-cohort",
     "group",
     "recording",
@@ -82,6 +83,7 @@ PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
+    "dynamic-cohort",
     "precalculated-cohort",
     "behavioral",
     "recording",
@@ -97,6 +99,7 @@ VALIDATE_PROP_TYPES = {
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
+    "dynamic-cohort": ["key", "value"],
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
