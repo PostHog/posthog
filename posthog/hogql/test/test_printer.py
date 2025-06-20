@@ -27,7 +27,8 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.test.base import BaseTest, _create_event, materialized
+from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest
+from posthog.hogql.query import execute_hogql_query
 
 
 class TestPrinter(BaseTest):
@@ -2396,7 +2397,6 @@ class TestPrinter(BaseTest):
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
         )
-        # TODO this needs to be constant, not added as a variable
         assert printed == (
             "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
         )
@@ -2473,3 +2473,22 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
             )
+
+    def test_fails_on_parametric_function_with_evil_placeholder(self):
+        query = parse_select("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="evil")})
+        with pytest.raises(QueryError, match="Invalid parametric function in 'arrayReduce', 'evil' is not supported."):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+
+class TestPrinted(APIBaseTest):
+    def test_can_call_parametric_function(self):
+        query = parse_select("SELECT arrayReduce('sum', [1, 2, 3])")
+        query_response = execute_hogql_query(
+            team=self.team,
+            query=query,
+        )
+        assert query_response.results == [(6,)]

@@ -1897,6 +1897,30 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
+# The list of functions allowed in parametric functions, e.g. sum in "arrayReduce('sum', [1, 2, 3])"
+HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS: set[str] = {
+    "count",
+    "countMap",
+    "countMapState",
+    "sum",
+    "sumMap",
+    "sumMapState",
+    "min",
+    "minMap",
+    "minMapState",
+    "max",
+    "maxMap",
+    "maxMapState",
+    "avg",
+    "avgState",
+    "avgMap",
+    "avgMapState",
+    "uniq",
+    "uniqState",
+    "uniqMap",
+    "uniqMapState",
+}
+
 
 UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
@@ -1970,20 +1994,5 @@ def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
 
 
 def is_allowed_parametric_function(name: str) -> bool:
-    # Allow any function where the HogQL version and Clickhouse version are straighforwardly mapped
-    # This might end up being a subset of the functions we want to support long-term, but for now it's a good compromise
-    # because:
-    # * It's only functions we're already happy to support
-    # * We don't have to figure out how to map functions with different names, or suffixed args
-    #
-    # One major downside of this approach is that this does't support functions like uniqUpTo(3), though adding those
-    # would be doable if we needed to
-
-    meta = find_hogql_aggregation(name) or find_hogql_function(name)
-    return (
-        meta
-        and meta.clickhouse_name == name
-        and not meta.suffix_args
-        and not meta.tz_aware
-        and not meta.parametric_first_arg
-    )
+    # No case-insensitivity for parametric functions
+    return name in HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS
