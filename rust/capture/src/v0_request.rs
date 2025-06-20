@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use bytes::{Buf, Bytes};
 use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use flate2::read::GzDecoder;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::{debug, error, instrument, warn, Span};
@@ -16,16 +16,40 @@ use crate::{
     },
 };
 
-#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum Compression {
     #[default]
     Unsupported,
-
-    #[serde(rename = "gzip", alias = "gzip-js")]
     Gzip,
-
-    #[serde(rename = "lz64")]
     LZString,
+    Base64,
+}
+
+// implement Deserialize directly on the enum so
+// Axum form and URL query parsing don't fail upstream
+// of handler code
+impl<'de> Deserialize<'de> for Compression {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value =
+            String::deserialize(deserializer).unwrap_or("deserialization_error".to_string());
+
+        Ok(match value.to_lowercase().as_str() {
+            "gzip" | "gzip-js" => Compression::Gzip,
+            "lz64" | "lz-string" => Compression::LZString,
+            "base64" | "b64" => Compression::Base64,
+            "deserialization_error" => {
+                debug!("compression value did not deserialize");
+                Compression::Unsupported
+            }
+            _ => {
+                debug!("unsupported compression value: {}", value);
+                Compression::Unsupported
+            }
+        })
+    }
 }
 
 impl std::fmt::Display for Compression {
@@ -33,6 +57,7 @@ impl std::fmt::Display for Compression {
         match self {
             Compression::Gzip => write!(f, "gzip"),
             Compression::LZString => write!(f, "lz64"),
+            Compression::Base64 => write!(f, "base64"),
             Compression::Unsupported => write!(f, "unsupported"),
         }
     }
