@@ -4,6 +4,7 @@ import {
     IconClockRewind,
     IconExternal,
     IconGear,
+    IconMinus,
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
@@ -82,6 +83,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
         useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         conversationId: threadLogicKey,
@@ -104,13 +106,15 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
 
     const headerButtons = (
         <>
-            <LemonButton
-                size="small"
-                icon={<IconPlus />}
-                onClick={() => startNewConversation()}
-                tooltip="Start a new chat"
-                tooltipPlacement="bottom"
-            />
+            {!conversationHistoryVisible && !threadVisible && (
+                <LemonButton
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={() => startNewConversation()}
+                    tooltip="Start a new chat"
+                    tooltipPlacement="bottom"
+                />
+            )}
             <LemonButton
                 size="small"
                 sideIcon={<IconClockRewind />}
@@ -168,20 +172,30 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 <LemonSkeleton className="h-5 w-48 ml-1" />
                             )}
                         </div>
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={() => startNewConversation()}
-                            tooltip="Start a new chat"
-                            tooltipPlacement="bottom"
-                        />
+                        {!conversationHistoryVisible && !threadVisible && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconPlus />}
+                                onClick={() => startNewConversation()}
+                                tooltip="Start a new chat"
+                                tooltipPlacement="bottom"
+                            />
+                        )}
                         <LemonButton
                             size="small"
                             sideIcon={<IconExternal />}
                             to={urls.max()}
                             onClick={() => closeSidePanel()}
                             tooltip="Open as main focus"
-                            tooltipPlacement="bottom-end"
+                        />
+                        <LemonButton
+                            size="small"
+                            sideIcon={<IconMinus />}
+                            onClick={() => {
+                                closeSidePanel()
+                                setIsFloatingMaxExpanded(true)
+                            }}
+                            tooltip="Minimize to floating Max"
                         />
                     </div>
                 </SidePanelPaneHeader>

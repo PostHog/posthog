@@ -80,10 +80,8 @@ export const maxLogic = kea<maxLogicType>([
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
-        setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
         setActiveStreamingThreads: (inc: 1 | -1) => ({ inc }),
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
-        setShowSuggestions: (showSuggestions: boolean) => ({ showSuggestions }),
 
         /**
          * Save the logic ID for a conversation ID in a cache.
@@ -101,7 +99,6 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     reducers({
-        showSuggestions: [false, { setShowSuggestions: (_, { showSuggestions }) => showSuggestions }],
         activeStreamingThreads: [
             0,
             {
@@ -155,13 +152,6 @@ export const maxLogic = kea<maxLogicType>([
          * When the focus counter updates, the input component will rerender and refocus the input.
          */
         focusCounter: [0, { focusInput: (state) => state + 1 }],
-
-        activeSuggestionGroup: [
-            null as SuggestionGroup | null,
-            {
-                setActiveGroup: (_, { group }) => group,
-            },
-        ],
 
         /**
          * Identifies the logic ID for each conversation ID.

@@ -51,7 +51,6 @@ function useSuggestionHandling(): {
 
 interface SuggestionsDisplayProps {
     compact?: boolean
-    showSuggestions: boolean
     dataProcessingAccepted: boolean
     type?: 'primary' | 'secondary' | 'tertiary'
     additionalSuggestions?: React.ReactNode[]
@@ -60,17 +59,12 @@ interface SuggestionsDisplayProps {
 export function SuggestionsDisplay({
     compact = false,
     type = 'secondary',
-    showSuggestions,
     dataProcessingAccepted,
     additionalSuggestions,
 }: SuggestionsDisplayProps): JSX.Element | null {
     const { activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
     const { handleSuggestionGroupClick, handleSuggestionClick } = useSuggestionHandling()
-
-    if (!showSuggestions) {
-        return null
-    }
 
     return (
         <>

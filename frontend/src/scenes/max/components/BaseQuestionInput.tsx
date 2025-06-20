@@ -1,9 +1,11 @@
+import { offset } from '@floating-ui/react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconTools } from 'lib/lemon-ui/icons'
-import { ReactNode } from 'react'
+import React, { ReactNode } from 'react'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -17,29 +19,30 @@ interface BaseQuestionInputProps {
     placeholder?: string
     children?: ReactNode
     contextDisplaySize?: 'small' | 'default'
-    showTopActions?: boolean
     topActions?: ReactNode
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     wrapperClassName?: string
 }
 
-export function BaseQuestionInput({
-    isFloating,
-    placeholder,
-    children,
-    contextDisplaySize,
-    showTopActions = false,
-    topActions,
-    textAreaRef,
-    containerClassName,
-    wrapperClassName,
-}: BaseQuestionInputProps): JSX.Element {
-    const { tools } = useValues(maxGlobalLogic)
+export const BaseQuestionInput = React.forwardRef<HTMLDivElement, BaseQuestionInputProps>(function BaseQuestionInput(
+    {
+        isFloating,
+        placeholder,
+        children,
+        contextDisplaySize,
+        topActions,
+        textAreaRef,
+        containerClassName,
+        wrapperClassName,
+    },
+    ref
+) {
+    const { tools, dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration } = useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
 
     return (
         <div
@@ -49,6 +52,7 @@ export function BaseQuestionInput({
                         ? 'px-3 w-[min(44rem,100%)]'
                         : 'px-1 sticky bottom-0 z-10 w-full max-w-[45rem] self-center')
             )}
+            ref={ref}
         >
             <div
                 className={clsx(
@@ -71,13 +75,14 @@ export function BaseQuestionInput({
                             isFloating && 'border-primary'
                         )}
                     >
-                        {showTopActions && (
+                        {topActions ? (
                             <div className="flex items-start justify-between">
                                 <ContextDisplay size={contextDisplaySize} />
                                 <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
                             </div>
+                        ) : (
+                            <ContextDisplay size={contextDisplaySize} />
                         )}
-                        {!showTopActions && <ContextDisplay size={contextDisplaySize} />}
                         <LemonTextArea
                             ref={textAreaRef}
                             value={question}
@@ -100,28 +105,46 @@ export function BaseQuestionInput({
                         />
                     </div>
                     <div className="absolute flex items-center right-2 bottom-[7px]">
-                        <LemonButton
-                            type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
-                            onClick={() => {
-                                if (threadLoading) {
-                                    stopGeneration()
-                                } else {
-                                    askMax(question)
+                        <AIConsentPopoverWrapper
+                            placement="bottom-end"
+                            showArrow
+                            onApprove={() => askMax(question)}
+                            onDismiss={() => completeThreadGeneration()}
+                            middleware={[
+                                offset((state) => ({
+                                    mainAxis: state.placement.includes('top') ? 30 : 1,
+                                })),
+                            ]}
+                            hidden={!threadLoading}
+                        >
+                            <LemonButton
+                                type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
+                                onClick={() => {
+                                    if (threadLoading) {
+                                        stopGeneration()
+                                    } else {
+                                        askMax(question)
+                                    }
+                                }}
+                                tooltip={
+                                    threadLoading ? (
+                                        "Let's bail"
+                                    ) : (
+                                        <>
+                                            Let's go! <KeyboardShortcut enter />
+                                        </>
+                                    )
                                 }
-                            }}
-                            tooltip={
-                                threadLoading ? (
-                                    "Let's bail"
-                                ) : (
-                                    <>
-                                        Let's go! <KeyboardShortcut enter />
-                                    </>
-                                )
-                            }
-                            disabledReason={submissionDisabledReason}
-                            size="small"
-                            icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
-                        />
+                                loading={threadLoading && !dataProcessingAccepted}
+                                disabledReason={
+                                    threadLoading && !dataProcessingAccepted
+                                        ? 'Pending data processing approval'
+                                        : submissionDisabledReason
+                                }
+                                size="small"
+                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
+                            />
+                        </AIConsentPopoverWrapper>
                     </div>
                 </div>
                 {tools.length > 0 && (
@@ -145,4 +168,4 @@ export function BaseQuestionInput({
             </div>
         </div>
     )
-}
+})

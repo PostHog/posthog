@@ -33,7 +33,6 @@ export interface ToolDefinition {
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
-        actions: [organizationLogic, ['updateOrganization']],
         values: [organizationLogic, ['currentOrganization']],
     })),
     actions({
@@ -41,7 +40,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
-        setUserHasInteractedWithFloatingMax: (userHasInteracted: boolean) => ({ userHasInteracted }),
     }),
     reducers({
         toolMap: [
@@ -67,16 +65,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
             },
         ],
-        userHasInteractedWithFloatingMax: [
-            false,
-            {
-                setUserHasInteractedWithFloatingMax: (_, { userHasInteracted }) => userHasInteracted,
-            },
-        ],
     }),
-    listeners(({ actions }) => ({
-        acceptDataProcessing: ({ testOnlyOverride }) => {
-            actions.updateOrganization({ is_ai_data_processing_approved: testOnlyOverride ?? true })
+    listeners(() => ({
+        acceptDataProcessing: async ({ testOnlyOverride }) => {
+            await organizationLogic.asyncActions.updateOrganization({
+                is_ai_data_processing_approved: testOnlyOverride ?? true,
+            })
         },
     })),
     selectors({

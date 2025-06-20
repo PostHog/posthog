@@ -176,6 +176,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     listeners(({ actions, values, cache, props }) => ({
         askMax: async ({ prompt, generationAttempt }, breakpoint) => {
+            if (!values.dataProcessingAccepted) {
+                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
+            }
+
             // Clear the question
             actions.setQuestion('')
             // Set active streaming threads, so we now how many are running
@@ -503,10 +507,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
-                }
-
-                if (!dataProcessingAccepted) {
-                    return 'Please accept the data processing'
                 }
 
                 if (formPending) {

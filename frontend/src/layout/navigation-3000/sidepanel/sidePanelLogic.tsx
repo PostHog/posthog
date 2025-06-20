@@ -2,6 +2,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -53,11 +54,23 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.featureFlags,
                 s.sceneSidePanelContext,
                 s.currentTeam,
+                maxGlobalLogic.selectors.isFloatingMaxExpanded,
             ],
-            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
+            (
+                selectedTab,
+                sidePanelOpen,
+                isCloudOrDev,
+                featureFlags,
+                sceneSidePanelContext,
+                currentTeam,
+                isFloatingMaxExpanded
+            ) => {
                 const tabs: SidePanelTab[] = []
 
-                if (sidePanelOpen && (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || selectedTab === SidePanelTab.Max)) {
+                if (
+                    ((sidePanelOpen && selectedTab === SidePanelTab.Max) || !isFloatingMaxExpanded) &&
+                    (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || selectedTab === SidePanelTab.Max)
+                ) {
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
