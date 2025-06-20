@@ -10,7 +10,7 @@ export type ExportedSessionRecordingFileV1 = {
     }
 }
 
-export type ExportedSessionType = 'posthog' | 'rrweb'
+export type ExportedSessionType = 'posthog' | 'rrweb' | 'raw'
 
 export type ExportedSessionRecordingFileV2 = {
     version: '2023-04-28'
