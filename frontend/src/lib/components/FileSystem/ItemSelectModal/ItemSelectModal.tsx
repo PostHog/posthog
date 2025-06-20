@@ -1,3 +1,4 @@
+import { IconFolder, IconFolderOpen } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { SelectedFolder } from 'lib/components/FileSystem/SaveTo/saveToLogic'
@@ -10,7 +11,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
@@ -25,8 +26,6 @@ export interface ItemSelectModalProps {
     onChange?: (selectedFolder: SelectedFolder) => void
     /** Class name for the component */
     className?: string
-    /** Root for folder */
-    root?: string
     /** Include "products://" in the final path */
     includeProtocol?: boolean
     /** Include root item in the tree as a selectable item */
@@ -38,15 +37,37 @@ export interface ItemSelectModalProps {
 /** Input component for selecting a item */
 let counter = 0
 
+function RootFolderButton({
+    children,
+    onClick,
+    active,
+}: {
+    children: ReactNode
+    onClick: () => void
+    active: boolean
+}): JSX.Element {
+    return (
+        <ButtonPrimitive
+            className={cn('flex gap-2 px-2 py-1 border border-primary rounded hover:border-tertiary', {
+                'border-accent': active,
+            })}
+            onClick={onClick}
+        >
+            {active ? <IconFolderOpen className="text-accent" /> : <IconFolder />}
+            {children}
+        </ButtonPrimitive>
+    )
+}
+
 export function ItemSelectModal({
-    root,
     className,
     includeProtocol,
     includeRoot,
     buttonProps,
 }: ItemSelectModalProps): JSX.Element {
+    const [treeRoot, setTreeRoot] = useState('project://')
     const [key] = useState(() => `item-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, root, includeRoot, hideFolders: ['shortcuts://'] }
+    const props: ProjectTreeLogicProps = { key, root: treeRoot, includeRoot, hideFolders: ['shortcuts://'] }
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedItem, setSelectedItem] = useState<TreeDataItem | null>(null)
     const { isOpen } = useValues(itemSelectModalLogic)
@@ -84,11 +105,12 @@ export function ItemSelectModal({
                 onClose={closeItemSelectModal}
                 isOpen={isOpen}
                 title="Choose an item"
-                description={<>Select an item</>}
                 // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->
                 // "new dashboard template picker modal" -> "save dashboard to modal" wouldn't work.
                 // Since MoveToModal is added to the DOM earlier as part of global modals, it's below it in hierarchy.
                 zIndex="1169"
+                // Make modal hug the top of the page as the modal changes size
+                overlayClassName="items-start"
                 footer={
                     <>
                         <div className="flex-1" />
@@ -107,30 +129,69 @@ export function ItemSelectModal({
                     <Form logic={itemSelectModalLogic} formKey="form">
                         <LemonField name="item">
                             <div className="flex flex-col gap-2">
-                                <LemonInput
-                                    type="search"
-                                    placeholder="Search"
-                                    fullWidth
-                                    size="small"
-                                    onChange={(search) => setSearchTerm(search)}
-                                    value={searchTerm}
-                                    data-attr="folder-select-search-input"
-                                    autoFocus
-                                    inputRef={inputRef}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'ArrowDown') {
-                                            e.preventDefault() // Prevent scrolling
-                                            const visibleItems = treeRef?.current?.getVisibleItems()
-                                            if (visibleItems && visibleItems.length > 0) {
-                                                e.currentTarget.blur() // Remove focus from input
-                                                treeRef?.current?.focusItem(visibleItems[0].id)
+                                <div className="flex gap-2 overflow-auto">
+                                    <RootFolderButton
+                                        onClick={() => setTreeRoot('project://')}
+                                        active={treeRoot === 'project://'}
+                                    >
+                                        Project
+                                    </RootFolderButton>
+                                    <RootFolderButton
+                                        onClick={() => setTreeRoot('products://')}
+                                        active={treeRoot === 'products://'}
+                                    >
+                                        Products
+                                    </RootFolderButton>
+                                    <RootFolderButton
+                                        onClick={() => setTreeRoot('data://')}
+                                        active={treeRoot === 'data://'}
+                                    >
+                                        Data
+                                    </RootFolderButton>
+                                    <RootFolderButton
+                                        onClick={() => setTreeRoot('persons://')}
+                                        active={treeRoot === 'persons://'}
+                                    >
+                                        Persons
+                                    </RootFolderButton>
+                                    <RootFolderButton
+                                        onClick={() => setTreeRoot('new://')}
+                                        active={treeRoot === 'new://'}
+                                    >
+                                        New
+                                    </RootFolderButton>
+                                </div>
+
+                                {treeRoot === 'project://' && (
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search project"
+                                        fullWidth
+                                        size="small"
+                                        onChange={(search) => setSearchTerm(search)}
+                                        value={searchTerm}
+                                        data-attr="folder-select-search-input"
+                                        autoFocus
+                                        inputRef={inputRef}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'ArrowDown') {
+                                                e.preventDefault() // Prevent scrolling
+                                                const visibleItems = treeRef?.current?.getVisibleItems()
+                                                if (visibleItems && visibleItems.length > 0) {
+                                                    e.currentTarget.blur() // Remove focus from input
+                                                    treeRef?.current?.focusItem(visibleItems[0].id)
+                                                }
                                             }
-                                        }
-                                    }}
-                                />
+                                        }}
+                                    />
+                                )}
+
                                 <ScrollableShadows
                                     direction="vertical"
-                                    className={cn('bg-surface-primary border rounded', className)}
+                                    className={cn(
+                                        'bg-surface-primary border rounded group/colorful-product-icons colorful-product-icons-true',
+                                        className
+                                    )}
                                 >
                                     <LemonTree
                                         ref={treeRef}
