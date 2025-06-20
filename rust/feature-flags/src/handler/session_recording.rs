@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn test_session_recording_domain_not_allowed_with_empty_domains() {
+    fn test_session_recording_domain_allowed_with_empty_domains() {
         use axum::http::HeaderMap;
 
         let mut team = Team::default();
