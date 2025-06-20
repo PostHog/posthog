@@ -107,8 +107,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fetch_session_data_activity,
                 inputs,
-                start_to_close_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             return None
         except Exception as err:  # Activity retries exhausted
@@ -163,7 +163,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             return await temporalio.workflow.execute_activity(
                 get_llm_single_session_summary_activity,
                 inputs,
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except Exception as err:  # Activity retries exhausted
@@ -215,7 +215,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 user_pk=inputs.user_pk,
                 extra_summary_context=inputs.extra_summary_context,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return summary_of_summaries
