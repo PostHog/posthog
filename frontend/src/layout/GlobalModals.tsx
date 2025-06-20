@@ -12,6 +12,8 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { EnvironmentRollbackModal } from 'scenes/settings/environment/EnvironmentRollbackModal'
+import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
@@ -60,6 +62,7 @@ export function GlobalModals(): JSX.Element {
         useActions(globalModalsLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
+    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
 
     return (
         <>
@@ -78,6 +81,7 @@ export function GlobalModals(): JSX.Element {
             <GlobalCustomUnitModal />
             <SaveToModal />
             <MoveToModal />
+            {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
         </>
     )
 }
