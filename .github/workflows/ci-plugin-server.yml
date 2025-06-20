@@ -120,7 +120,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2, 3]
+                shard: [1, 2, 3, 4, 5, 6]
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -230,7 +230,7 @@ jobs:
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
-                  SHARD_COUNT: 3
+                  SHARD_COUNT: 6
                   LOG_LEVEL: info
               run: bin/turbo run test --filter=@posthog/plugin-server
 
