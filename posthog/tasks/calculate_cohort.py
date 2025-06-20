@@ -38,7 +38,9 @@ COHORTS_STALE_COUNT_GAUGE = Gauge(
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
-    "cohort_stuck_count", "Number of cohorts that are stuck calculating for more than 1 hour"
+    # TODO: rename to cohorts_stuck because this is a gauge not a counter
+    "cohort_stuck_count",
+    "Number of cohorts that are stuck calculating for more than 1 hour",
 )
 
 COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
@@ -46,6 +48,10 @@ COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
 )
 
 COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of stuck cohorts that have been reset")
+
+COHORT_MAXED_ERRORS_GAUGE = Gauge(
+    "cohort_maxed_errors", "Number of cohorts that have reached the maximum number of errors"
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -97,13 +103,13 @@ def reset_stuck_cohorts() -> None:
     logger.warning("reset_stuck_cohorts", cohort_ids=reset_cohort_ids, count=len(reset_cohort_ids))
 
 
-def update_stale_cohort_metrics() -> None:
+def update_cohort_metrics() -> None:
     now = timezone.now()
     base_queryset = Cohort.objects.filter(
         Q(last_calculation__isnull=False),
         deleted=False,
         is_calculating=False,
-        errors_calculating__lte=20,
+        errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
 
     for hours in [24, 36, 48]:
@@ -122,6 +128,13 @@ def update_stale_cohort_metrics() -> None:
     )
 
     COHORT_STUCK_COUNT_GAUGE.set(stuck_count)
+
+    maxed_error_count = (
+        Cohort.objects.filter(deleted=False, errors_calculating__gt=MAX_ERRORS_CALCULATING)
+        .exclude(is_static=True)
+        .count()
+    )
+    COHORT_MAXED_ERRORS_GAUGE.set(maxed_error_count)
 
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
@@ -155,9 +168,9 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
 
     try:
-        update_stale_cohort_metrics()
+        update_cohort_metrics()
     except Exception as e:
-        logger.exception("Failed to update stale cohort metrics", error=str(e))
+        logger.exception("failed_to_update_cohort_metrics", error=str(e))
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
