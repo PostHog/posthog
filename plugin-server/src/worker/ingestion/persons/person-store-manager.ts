@@ -24,22 +24,22 @@ export interface ShadowMetrics {
     sameOutcomeDifferentBatch: number
     logicErrors: Array<{
         key: string
-        measuringPerson: InternalPerson | null
-        batchPerson: InternalPerson | null
+        mainPerson: InternalPerson | null
+        secondaryPerson: InternalPerson | null
         differences: string[]
     }>
     concurrentModifications: Array<{
         key: string
         type: 'different_outcome' | 'same_outcome'
-        measuringPerson: InternalPerson | null
-        batchPerson: InternalPerson | null
+        mainPerson: InternalPerson | null
+        secondaryPerson: InternalPerson | null
     }>
 }
 
 export class PersonStoreManager {
     constructor(
         private hub: Hub,
-        private measuringPersonStore: MeasuringPersonsStore,
+        private mainPersonStore: MeasuringPersonsStore,
         private batchWritingPersonStore: BatchWritingPersonsStore
     ) {}
 
@@ -51,13 +51,13 @@ export class PersonStoreManager {
             random < this.hub.PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE
         ) {
             return new PersonStoreManagerForBatch(
-                this.measuringPersonStore.forBatch() as MeasuringPersonsStoreForBatch,
+                this.mainPersonStore.forBatch() as MeasuringPersonsStoreForBatch,
                 this.batchWritingPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
             )
         } else if (this.hub.PERSON_BATCH_WRITING_MODE === 'BATCH') {
             return this.batchWritingPersonStore.forBatch()
         }
-        return this.measuringPersonStore.forBatch()
+        return this.mainPersonStore.forBatch()
     }
 }
 
@@ -298,8 +298,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                     sampleErrors: this.shadowMetrics.logicErrors.slice(0, 5).map((error) => ({
                         key: error.key,
                         differences: error.differences,
-                        measuringPersonUuid: error.measuringPerson?.uuid,
-                        batchPersonUuid: error.batchPerson?.uuid,
+                        mainPersonUuid: error.mainPerson?.uuid,
+                        secondaryPersonUuid: error.secondaryPerson?.uuid,
                     })),
                 })
             }
@@ -317,8 +317,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                     sampleModifications: this.shadowMetrics.concurrentModifications.slice(0, 3).map((mod) => ({
                         key: mod.key,
                         type: mod.type,
-                        measuringPersonUuid: mod.measuringPerson?.uuid,
-                        batchPersonUuid: mod.batchPerson?.uuid,
+                        mainPersonUuid: mod.mainPerson?.uuid,
+                        secondaryPersonUuid: mod.secondaryPerson?.uuid,
                     })),
                 })
             }
@@ -342,18 +342,18 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.shadowMetrics.concurrentModifications = []
 
         // Compare each person we tracked in finalStates with what's in the batch cache
-        for (const [key, measuringUpdate] of this.finalStates.entries()) {
-            const batchPersonUpdate = batchUpdateCache.get(key)
-            const batchPerson = batchPersonUpdate ? toInternalPerson(batchPersonUpdate) : null
-            const measuringPerson = measuringUpdate?.person || null
-            const versionDisparity = measuringUpdate?.versionDisparity || false
+        for (const [key, mainUpdate] of this.finalStates.entries()) {
+            const secondaryPersonUpdate = batchUpdateCache.get(key)
+            const secondaryPerson = secondaryPersonUpdate ? toInternalPerson(secondaryPersonUpdate) : null
+            const mainPerson = mainUpdate?.person || null
+            const versionDisparity = mainUpdate?.versionDisparity || false
 
             this.shadowMetrics.totalComparisons++
 
             // Compare outcomes (excluding version for primary comparison)
-            const measuringComparable = this.getComparablePerson(measuringPerson)
-            const batchComparable = this.getComparablePerson(batchPerson)
-            const sameOutcome = this.deepEqual(measuringComparable, batchComparable)
+            const mainComparable = this.getComparablePerson(mainPerson)
+            const secondaryComparable = this.getComparablePerson(secondaryPerson)
+            const sameOutcome = this.deepEqual(mainComparable, secondaryComparable)
 
             if (sameOutcome && !versionDisparity) {
                 // Same outcome, same batch
@@ -365,9 +365,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                 personShadowModeComparisonCounter.labels('false_same_batch').inc()
                 this.shadowMetrics.logicErrors.push({
                     key,
-                    measuringPerson,
-                    batchPerson,
-                    differences: this.findDifferences(measuringComparable, batchComparable),
+                    mainPerson,
+                    secondaryPerson,
+                    differences: this.findDifferences(mainComparable, secondaryComparable),
                 })
             } else if (!sameOutcome && versionDisparity) {
                 // Different outcome, different batch (concurrent modification by another pod)
@@ -376,8 +376,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                 this.shadowMetrics.concurrentModifications.push({
                     key,
                     type: 'different_outcome',
-                    measuringPerson,
-                    batchPerson,
+                    mainPerson,
+                    secondaryPerson,
                 })
             } else if (sameOutcome && versionDisparity) {
                 // Same outcome, different batch (concurrent modification by another pod with same result)
@@ -386,8 +386,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                 this.shadowMetrics.concurrentModifications.push({
                     key,
                     type: 'same_outcome',
-                    measuringPerson,
-                    batchPerson,
+                    mainPerson,
+                    secondaryPerson,
                 })
             }
         }
