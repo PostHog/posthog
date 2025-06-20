@@ -8,7 +8,6 @@ import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
-import { currentSessionId } from 'lib/internalMetrics'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
@@ -27,7 +26,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     DashboardFilter,
@@ -53,38 +52,25 @@ import {
     ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
-    TileLayout,
 } from '~/types'
 
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
-
-export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
-    sm: 1024,
-    xs: 0,
-}
-export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
-
-/**
- * The minimum interval between manual dashboard refreshes.
- * This is used to block the dashboard refresh button.
- */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
-
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-
-const QUERY_VARIABLES_KEY = 'query_variables'
-
-/**
- * Once a dashboard has more tiles than this,
- * we don't automatically preview dashboard date/filter/breakdown changes.
- * Users will need to click the 'Apply and preview filters' button.
- */
-const MAX_TILES_FOR_AUTOPREVIEW = 5
-
-const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+import {
+    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    BREAKPOINT_COLUMN_COUNTS,
+    DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
+    encodeURLVariables,
+    getInsightWithRetry,
+    IS_TEST_MODE,
+    layoutsByTile,
+    MAX_TILES_FOR_AUTOPREVIEW,
+    parseURLVariables,
+    QUERY_VARIABLES_KEY,
+    runWithLimit,
+} from './dashboardUtils'
 
 export interface DashboardLogicProps {
     id: number
@@ -102,130 +88,8 @@ export interface RefreshStatus {
     timer?: Date | null
 }
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
-
-// Helper function for exponential backoff
-const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
-
-/**
- * Run a set of tasks **in order** with a limit on the number of concurrent tasks.
- * Important to be in order so that we poll dashboard insights in the
- * same order as they are calculated on the backend.
- *
- * @param tasks - An array of functions that return promises.
- * @param limit - The maximum number of concurrent tasks.
- * @returns A promise that resolves to an array of results from the tasks.
- */
-async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
-    const results: T[] = []
-    const activePromises: Set<Promise<void>> = new Set()
-    const remainingTasks = [...tasks]
-
-    const startTask = async (task: () => Promise<T>): Promise<void> => {
-        const promise = task()
-            .then((result) => {
-                results.push(result)
-            })
-            .catch((error) => {
-                console.error('Error executing task:', error)
-            })
-            .finally(() => {
-                void activePromises.delete(promise)
-            })
-        activePromises.add(promise)
-        await promise
-    }
-
-    while (remainingTasks.length > 0 || activePromises.size > 0) {
-        if (activePromises.size < limit && remainingTasks.length > 0) {
-            void startTask(remainingTasks.shift()!)
-        } else {
-            await Promise.race(activePromises)
-        }
-    }
-
-    return results
-}
-
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
-
-const layoutsByTile = (layouts: Layouts): Record<number, Record<DashboardLayoutSize, TileLayout>> => {
-    const itemLayouts: Record<number, Record<DashboardLayoutSize, TileLayout>> = {}
-
-    Object.entries(layouts).forEach(([col, layout]) => {
-        layout.forEach((layoutItem) => {
-            if (!itemLayouts[layoutItem.i]) {
-                itemLayouts[layoutItem.i] = {}
-            }
-            itemLayouts[layoutItem.i][col] = layoutItem
-        })
-    })
-    return itemLayouts
-}
-
-async function getInsightWithRetry(
-    currentTeamId: number | null,
-    insight: QueryBasedInsightModel,
-    dashboardId: number,
-    queryId: string,
-    refresh: RefreshType,
-    methodOptions?: ApiMethodOptions,
-    filtersOverride?: DashboardFilter,
-    variablesOverride?: Record<string, HogQLVariable>,
-    maxAttempts: number = 5,
-    initialDelay: number = 1200
-): Promise<QueryBasedInsightModel | null> {
-    let attempt = 0
-
-    while (attempt < maxAttempts) {
-        try {
-            const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
-                refresh,
-                from_dashboard: dashboardId, // needed to load insight in correct context
-                client_query_id: queryId,
-                session_id: currentSessionId(),
-                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-            })}`
-            const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
-
-            if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
-                attempt++
-                if (attempt >= maxAttempts) {
-                    lemonToast.error(
-                        `Insight "${
-                            insight.name || insight.derived_name || insight.short_id
-                        }" failed to load after ${maxAttempts} attempts due to high load. Please try again later.`,
-                        { toastId: `insight-concurrency-error-${insight.short_id}` }
-                    )
-                    return result // Return the rate-limited result
-                }
-                const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
-                await wait(delay)
-                continue // Retry
-            }
-
-            return result
-        } catch (e: any) {
-            if (shouldCancelQuery(e)) {
-                throw e // Re-throw cancellation errors
-            }
-
-            attempt++
-            if (attempt >= maxAttempts) {
-                throw e // Re-throw the error after max attempts
-            }
-
-            const delay = initialDelay * Math.pow(1.2, attempt - 1)
-            await wait(delay)
-        }
-    }
-
-    return null
-}
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
@@ -1507,7 +1371,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             insight,
                             dashboardId,
                             queryId,
-                            manualDashboardRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available
+                            manualDashboardRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
                             action === 'preview' ? values.temporaryFilters : undefined,
                             action === 'preview' ? values.temporaryVariables : undefined
@@ -1852,31 +1716,3 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 ])
-
-// URL can have a "query_variables" param that contains a JSON object of variables
-// we need to parse this and set the variables
-
-const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
-    const variables: Record<string, Partial<HogQLVariable>> = {}
-
-    if (searchParams[QUERY_VARIABLES_KEY]) {
-        try {
-            const parsedVariables = JSON.parse(searchParams[QUERY_VARIABLES_KEY])
-            Object.assign(variables, parsedVariables)
-        } catch (e) {
-            console.error('Failed to parse query_variables from URL:', e)
-        }
-    }
-
-    return variables
-}
-
-const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
-    const encodedVariables: Record<string, string> = {}
-
-    if (Object.keys(variables).length > 0) {
-        encodedVariables[QUERY_VARIABLES_KEY] = JSON.stringify(variables)
-    }
-
-    return encodedVariables
-}

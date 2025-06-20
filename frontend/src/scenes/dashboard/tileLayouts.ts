@@ -1,5 +1,5 @@
 import { Layout } from 'react-grid-layout'
-import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardLogic'
+import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
