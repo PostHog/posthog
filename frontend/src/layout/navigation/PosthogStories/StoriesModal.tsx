@@ -93,9 +93,36 @@ export const StoriesModal = (): JSX.Element | null => {
     const maxStoryIndex = useMemo(() => activeGroup?.stories.length || 0, [activeGroup])
     const isLastStoryGroup = useMemo(() => activeGroupIndex === storyGroups.length - 1, [activeGroupIndex, storyGroups])
 
+    const sendStoryEndEvent = useCallback(
+        (reason: string, extraProps?: StoryEndEventPropsExtraProps) => {
+            const timeSpentMs = Date.now() - storyStartTimeRef.current
+            const props: StoryEndEventProps = {
+                reason: reason,
+                story_id: activeGroup?.stories[activeStoryIndex].id,
+                story_title: activeGroup?.stories[activeStoryIndex].title,
+                story_thumbnail_url: activeGroup?.stories[activeStoryIndex].thumbnailUrl,
+                story_group_id: activeGroup?.id,
+                story_group_title: activeGroup?.title,
+                time_spent_ms: timeSpentMs,
+                time_spent_seconds: Math.round(timeSpentMs / 1000),
+                story_watched_percentage:
+                    activeStory?.durationMs && activeStory?.durationMs > 0
+                        ? Math.round((timeSpentMs / activeStory.durationMs) * 100)
+                        : undefined,
+                ...(extraProps || {}),
+            }
+            posthog.capture('posthog_story_ended', props)
+        },
+        [activeGroup, activeStoryIndex, activeStory]
+    )
+
     const handleClose = useCallback(
         (forceClose: boolean) => {
             const timeSpentMs = Date.now() - storyStartTimeRef.current
+
+            // Send story end event
+            sendStoryEndEvent(forceClose ? 'force_close' : 'natural_close')
+
             posthog.capture('posthog_story_closed', {
                 reason: forceClose ? 'force_close' : 'natural_close',
                 story_id: activeGroup?.stories[activeStoryIndex].id,
@@ -122,15 +149,9 @@ export const StoriesModal = (): JSX.Element | null => {
             activeGroupIndex,
             activeGroup,
             activeStoryIndex,
+            sendStoryEndEvent,
         ]
     )
-
-    const handlePrevious = useCallback(() => {
-        if (activeStoryIndex > 0) {
-            setActiveStoryIndex(activeStoryIndex - 1)
-            setIsPaused(false)
-        }
-    }, [activeStoryIndex, setActiveStoryIndex])
 
     const handleStoryStart = useCallback(
         (index: number) => {
@@ -148,28 +169,13 @@ export const StoriesModal = (): JSX.Element | null => {
         [setActiveStoryIndex, activeGroup]
     )
 
-    const sendStoryEndEvent = useCallback(
-        (reason: string, extraProps?: StoryEndEventPropsExtraProps) => {
-            const timeSpentMs = Date.now() - storyStartTimeRef.current
-            const props: StoryEndEventProps = {
-                reason: reason,
-                story_id: activeGroup?.stories[activeStoryIndex].id,
-                story_title: activeGroup?.stories[activeStoryIndex].title,
-                story_thumbnail_url: activeGroup?.stories[activeStoryIndex].thumbnailUrl,
-                story_group_id: activeGroup?.id,
-                story_group_title: activeGroup?.title,
-                time_spent_ms: timeSpentMs,
-                time_spent_seconds: Math.round(timeSpentMs / 1000),
-                story_watched_percentage:
-                    activeStory?.durationMs && activeStory?.durationMs > 0
-                        ? Math.round((timeSpentMs / activeStory.durationMs) * 100)
-                        : undefined,
-                ...(extraProps || {}),
-            }
-            posthog.capture('posthog_story_ended', props)
-        },
-        [activeGroup, activeStoryIndex, activeStory]
-    )
+    const handlePrevious = useCallback(() => {
+        if (activeStoryIndex > 0) {
+            sendStoryEndEvent('previous')
+            setActiveStoryIndex(activeStoryIndex - 1)
+            setIsPaused(false)
+        }
+    }, [activeStoryIndex, setActiveStoryIndex, sendStoryEndEvent])
 
     // Reset pause state when modal opens or story changes
     useEffect(() => {
