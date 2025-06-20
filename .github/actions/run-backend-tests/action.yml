@@ -192,7 +192,7 @@ runs:
                   --ignore=common/hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=1000 --durations-min=1.0 --store-durations \
-                  --splitting-algorithm=least_duration \
+                  --splitting-algorithm=duration_based_chunks \
                   $PYTEST_ARGS
 
         # Uncomment this code to create an ssh-able console so you can debug issues with github actions
@@ -226,7 +226,7 @@ runs:
               pytest posthog/temporal -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
-                  --splitting-algorithm=least_duration \
+                  --splitting-algorithm=duration_based_chunks \
                   $PYTEST_ARGS
 
         # Post tests
