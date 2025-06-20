@@ -1,3 +1,4 @@
+import { TZLabel } from 'lib/components/TZLabel'
 import { dateFilterToText } from 'lib/utils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
@@ -10,7 +11,7 @@ import {
     isInsightVizNode,
 } from '~/queries/utils'
 
-export function TopHeading({ query }: { query: Node | null }): JSX.Element {
+export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRefresh?: string | null }): JSX.Element {
     let insightType: InsightTypeMetadata
 
     if (query?.kind) {
@@ -46,6 +47,15 @@ export function TopHeading({ query }: { query: Node | null }): JSX.Element {
                 <>
                     {' '}
                     • <span className="whitespace-nowrap">{dateText}</span>
+                </>
+            ) : null}
+            {lastRefresh ? (
+                <>
+                    {' '}
+                    •{' '}
+                    <span className="whitespace-nowrap text-muted">
+                        computed <TZLabel time={lastRefresh} />
+                    </span>
                 </>
             ) : null}
         </>
