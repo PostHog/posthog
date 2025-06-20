@@ -21,7 +21,6 @@ import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxContextLogic } from './maxContextLogic'
 import { MaxFloatingInput } from './MaxFloatingInput'
-import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -385,7 +384,7 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
     useEffect(() => {
         // The largest group is the set up group
         setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
-    }, [])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }
@@ -443,7 +442,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
 
         // Enable current page context to show active insights/dashboard
         enableCurrentPageContext()
-    }, [])
+    }, [addOrUpdateActiveInsight, addOrUpdateContextInsight, enableCurrentPageContext])
 
     return <Template sidePanel />
 }
@@ -493,8 +492,7 @@ ThreadScrollsToBottomOnNewMessages.parameters = {
     },
 }
 
-// Floating Input Stories
-export const FloatingInputCollapsed: StoryFn = () => {
+export const FloatingInput: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/organizations/@current/': () => [
@@ -506,88 +504,10 @@ export const FloatingInputCollapsed: StoryFn = () => {
             ],
         },
     })
-
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-
-    useEffect(() => {
-        setIsFloatingMaxExpanded(false)
-    }, [setIsFloatingMaxExpanded])
-
     return <MaxFloatingInput />
 }
-FloatingInputCollapsed.parameters = {
-    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
-}
 
-export const FloatingInputExpanded: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/organizations/@current/': () => [
-                200,
-                {
-                    ...MOCK_DEFAULT_ORGANIZATION,
-                    is_ai_data_processing_approved: true,
-                },
-            ],
-        },
-    })
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-
-    useEffect(() => {
-        setIsFloatingMaxExpanded(true)
-    }, [setIsFloatingMaxExpanded])
-
-    return <MaxFloatingInput />
-}
-FloatingInputExpanded.parameters = {
-    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
-}
-
-export const FloatingInputWithUserInteraction: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/organizations/@current/': () => [
-                200,
-                {
-                    ...MOCK_DEFAULT_ORGANIZATION,
-                    is_ai_data_processing_approved: true,
-                },
-            ],
-        },
-    })
-
-    const { setUserHasInteractedWithFloatingMax } = useActions(maxGlobalLogic)
-    useEffect(() => {
-        setUserHasInteractedWithFloatingMax(true)
-    }, [setUserHasInteractedWithFloatingMax])
-
-    return <MaxFloatingInput />
-}
-FloatingInputWithUserInteraction.parameters = {
-    featureFlags: ['artificial-hog', 'floating-artificial-hog'],
-}
-
-export const FloatingInputWithSuggestions: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/organizations/@current/': () => [
-                200,
-                {
-                    ...MOCK_DEFAULT_ORGANIZATION,
-                    is_ai_data_processing_approved: true,
-                },
-            ],
-        },
-    })
-
-    const { setShowSuggestions } = useActions(maxLogic)
-    useEffect(() => {
-        setShowSuggestions(true)
-    }, [setShowSuggestions])
-
-    return <MaxFloatingInput />
-}
-FloatingInputWithSuggestions.parameters = {
+FloatingInput.parameters = {
     featureFlags: ['artificial-hog', 'floating-artificial-hog'],
 }
 

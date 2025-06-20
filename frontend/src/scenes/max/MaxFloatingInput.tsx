@@ -1,10 +1,9 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useRef, useState } from 'react'
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { useEffect, useRef } from 'react'
+import React from 'react'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
@@ -18,65 +17,17 @@ import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
 
-interface UseConsentPopoverReturn {
-    showConsentPopover: boolean
-    setShowConsentPopover: (show: boolean) => void
-}
-
-export function useConsentPopover(
-    userHasInteracted: boolean,
-    showAuthModal: boolean,
-    questionLength: number
-): UseConsentPopoverReturn {
-    const [showConsentPopover, setShowConsentPopover] = useState(false)
-    const consentDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-    useEffect(() => {
-        if (userHasInteracted && !showAuthModal) {
-            if (consentDelayTimeoutRef.current) {
-                clearTimeout(consentDelayTimeoutRef.current)
-            }
-
-            if (questionLength > 0) {
-                consentDelayTimeoutRef.current = setTimeout(() => {
-                    setShowConsentPopover(true)
-                }, 1000)
-            } else {
-                setShowConsentPopover(true)
-            }
-        } else {
-            setShowConsentPopover(false)
-        }
-
-        return () => {
-            if (consentDelayTimeoutRef.current) {
-                clearTimeout(consentDelayTimeoutRef.current)
-            }
-        }
-    }, [userHasInteracted, showAuthModal, questionLength])
-
-    return {
-        showConsentPopover,
-        setShowConsentPopover,
-    }
-}
-
 interface MaxQuestionInputProps {
     placeholder?: string
-    onUserInteraction: () => void
     suggestions?: React.ReactNode
     hideTopActions?: boolean
 }
 
-function MaxQuestionInput({
-    placeholder,
-    onUserInteraction,
-    suggestions,
-    hideTopActions = false,
-}: MaxQuestionInputProps): JSX.Element {
-    const { question, focusCounter } = useValues(maxLogic)
-    const { showAuthenticationModal } = useValues(timeSensitiveAuthenticationLogic)
-    const previousQuestionRef = useRef(question)
+const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>(function MaxQuestionInput(
+    { placeholder, suggestions, hideTopActions = false }: MaxQuestionInputProps,
+    ref
+) {
+    const { focusCounter } = useValues(maxLogic)
     const { showSuggestions } = useValues(maxLogic)
     const { setShowSuggestions } = useActions(maxLogic)
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
@@ -88,14 +39,6 @@ function MaxQuestionInput({
     }
 
     useEffect(() => {
-        // Only track if user actually typed something new and no auth modal is open
-        if (question !== previousQuestionRef.current && question.length > 0 && !showAuthenticationModal) {
-            onUserInteraction()
-        }
-        previousQuestionRef.current = question
-    }, [question, onUserInteraction, showAuthenticationModal])
-
-    useEffect(() => {
         if (textAreaRef.current) {
             textAreaRef.current.focus()
             textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
@@ -104,6 +47,7 @@ function MaxQuestionInput({
 
     return (
         <BaseQuestionInput
+            ref={ref}
             isFloating={true}
             placeholder={placeholder}
             contextDisplaySize="small"
@@ -123,30 +67,18 @@ function MaxQuestionInput({
             {suggestions}
         </BaseQuestionInput>
     )
-}
+})
 
 function MaxFloatingInputContent(): JSX.Element {
-    const { showAuthenticationModal } = useValues(timeSensitiveAuthenticationLogic)
-    const { dataProcessingAccepted, showSuggestions, threadVisible, question } = useValues(maxLogic)
+    const { dataProcessingAccepted, showSuggestions, threadVisible } = useValues(maxLogic)
     const { setShowSuggestions, setActiveGroup } = useActions(maxLogic)
-    const { isFloatingMaxExpanded, userHasInteractedWithFloatingMax } = useValues(maxGlobalLogic)
-    const { setIsFloatingMaxExpanded, setUserHasInteractedWithFloatingMax } = useActions(maxGlobalLogic)
+    const { isFloatingMaxExpanded } = useValues(maxGlobalLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
     const { startNewConversation } = useActions(maxLogic)
     const { conversation } = useValues(maxThreadLogic)
 
-    const { showConsentPopover, setShowConsentPopover } = useConsentPopover(
-        userHasInteractedWithFloatingMax,
-        showAuthenticationModal,
-        question.length
-    )
-
     const handleExpand = (): void => {
-        setUserHasInteractedWithFloatingMax(true)
         setIsFloatingMaxExpanded(true)
-    }
-
-    const handleUserInteraction = (): void => {
-        setUserHasInteractedWithFloatingMax(true)
     }
 
     const handleDismiss = (): void => {
@@ -161,14 +93,11 @@ function MaxFloatingInputContent(): JSX.Element {
         startNewConversation()
     }
 
-    // Removed automatic sidebar opening - conversations now show in floating view
-
     if (!isFloatingMaxExpanded) {
         return <HedgehogAvatar onExpand={handleExpand} isExpanded={isFloatingMaxExpanded} />
     }
 
-    // Expanded state - show thread and input
-    const expandedContent = (
+    return (
         <div
             className="relative flex flex-col"
             onBlur={(e) => {
@@ -180,7 +109,6 @@ function MaxFloatingInputContent(): JSX.Element {
         >
             <MaxQuestionInput
                 placeholder="Ask Max AI"
-                onUserInteraction={handleUserInteraction}
                 hideTopActions={threadVisible}
                 suggestions={
                     showSuggestions ? (
@@ -213,24 +141,6 @@ function MaxFloatingInputContent(): JSX.Element {
             />
         </div>
     )
-
-    if (showConsentPopover) {
-        return (
-            <AIConsentPopoverWrapper
-                placement="top-start"
-                fallbackPlacements={['top-end', 'bottom-start', 'bottom-end']}
-                showArrow
-                onDismiss={() => {
-                    setUserHasInteractedWithFloatingMax(false)
-                    setShowConsentPopover(false)
-                }}
-            >
-                {expandedContent}
-            </AIConsentPopoverWrapper>
-        )
-    }
-
-    return expandedContent
 }
 
 export function MaxFloatingInput(): JSX.Element | null {
@@ -257,7 +167,7 @@ export function MaxFloatingInput(): JSX.Element | null {
         // `right:` gets 1px removed to account for border
         <div
             className={clsx(
-                'fixed bottom-0 z-[var(--z-popover)] max-w-sm w-80 transition-all right-[calc(1rem-1px)]',
+                'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm w-80 transition-all right-[calc(1rem-1px)]',
                 isFloatingMaxExpanded && 'md:right-[calc(4rem-1px)]',
                 !isFloatingMaxExpanded && 'md:right-[calc(3rem-1px)]'
             )}
