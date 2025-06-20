@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Compression {
     #[default]
     Unsupported,
@@ -36,7 +36,7 @@ impl<'de> Deserialize<'de> for Compression {
         let value =
             String::deserialize(deserializer).unwrap_or("deserialization_error".to_string());
 
-        Ok(match value.to_lowercase().as_str() {
+        let result = match value.to_lowercase().as_str() {
             "gzip" | "gzip-js" => Compression::Gzip,
             "lz64" | "lz-string" => Compression::LZString,
             "base64" | "b64" => Compression::Base64,
@@ -48,7 +48,9 @@ impl<'de> Deserialize<'de> for Compression {
                 debug!("unsupported compression value: {}", value);
                 Compression::Unsupported
             }
-        })
+        };
+
+        Ok(result)
     }
 }
 
@@ -436,7 +438,7 @@ mod tests {
 
     #[test]
     fn decode_compression_param() {
-        #[derive(Deserialize)]
+        #[derive(Deserialize, Debug)]
         struct TestConfig {
             compression: Option<Compression>,
         }
@@ -492,15 +494,28 @@ mod tests {
                 output: Some(Compression::Unsupported),
             },
             CompressionUnit {
-                input: "",
+                input: "{}", // no compression param set
                 output: None,
             },
         ];
 
         for unit in units {
             let result: Result<TestConfig, _> = serde_json::from_str(unit.input);
-            assert!(result.is_ok());
-            assert!(result.unwrap().compression == unit.output);
+
+            assert!(
+                result.is_ok(),
+                "result was not OK for input({}): {:?}",
+                unit.input,
+                result
+            );
+
+            let got = result.unwrap().compression;
+            assert!(
+                got == unit.output,
+                "result {:?} didn't match expected {:?}",
+                got,
+                unit.output
+            );
         }
     }
 
