@@ -5211,15 +5211,10 @@ export type HogFunctionTypeType =
     | 'site_destination'
     | 'site_app'
     | 'transformation'
-    | 'broadcast'
-    | 'messaging_campaign'
-
-export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string
@@ -5274,7 +5269,7 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'kind' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
