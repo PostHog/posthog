@@ -16,6 +16,7 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -24,7 +25,6 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -79,7 +79,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -372,15 +371,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-primary h-px " />
 
-                        {/* 
-                            Extra padding to compensate for dev mode debug notice... 
-                            not sure how better to do this other than lower the notices z-index.. 
-                        */}
-                        <div
-                            className={`pt-1 px-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
-                                isDev ? 'pb-10' : 'pb-2'
-                            }`}
-                        >
+                        <div className="p-1 flex flex-col gap-px items-center">
+                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}

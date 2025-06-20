@@ -30,7 +30,6 @@ EXPECTED_FIRST_RESULT = {
     "mappings": template.mappings,
     "mapping_templates": template.mapping_templates,
     "icon_url": template.icon_url,
-    "kind": template.kind,
 }
 
 
