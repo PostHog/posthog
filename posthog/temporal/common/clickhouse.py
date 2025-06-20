@@ -16,7 +16,10 @@ import pyarrow as pa
 import requests
 import structlog
 from django.conf import settings
+from temporalio import activity
 
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import get_query_tags, QueryTags
 from posthog.exceptions_capture import capture_exception
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_internal_logger
@@ -236,6 +239,32 @@ class ClickHouseQueryNotFound(ClickHouseError):
         super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
 
 
+def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
+    """
+    Updates query_tags with a temporal workflow's properties.
+
+    :param query_tags: QueryTags object to update, if None, then the global object is updated.
+    :return:
+    """
+    if not activity.in_activity():
+        return
+    if not query_tags:
+        query_tags = get_query_tags()
+    info = activity.info()
+    query_tags.kind = "temporal"
+    query_tags.workflow = info.workflow_type
+    query_tags.workflow_id = info.workflow_id
+    query_tags.workflow_run_id = info.workflow_run_id
+    query_tags.activity = info.activity_type
+    query_tags.activity_id = info.activity_id
+
+
+def add_log_comment_param(params: dict[str, typing.Any]):
+    query_tags = query_tagging.get_query_tags().model_copy()
+    update_query_tags_with_temporal_info(query_tags)
+    params["log_comment"] = query_tags.to_json()
+
+
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -405,6 +434,8 @@ class ClickHouseClient:
                 if key in query:
                     params[f"param_{key}"] = str(value)
 
+        add_log_comment_param(params)
+
         async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
             yield response
@@ -444,6 +475,7 @@ class ClickHouseClient:
             for key, value in query_parameters.items():
                 if key in query:
                     params[f"param_{key}"] = str(value)
+        add_log_comment_param(params)
 
         request_data = self.prepare_request_data(data)
 
@@ -501,6 +533,7 @@ class ClickHouseClient:
             for key, value in query_parameters.items():
                 if key in query:
                     params[f"param_{key}"] = str(value)
+        add_log_comment_param(params)
 
         with requests.Session() as s:
             response = s.post(
