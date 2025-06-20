@@ -3,6 +3,8 @@ import './EditorScene.scss'
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useRef, useState } from 'react'
 
@@ -23,6 +25,7 @@ import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryWindow } from './QueryWindow'
+import { EditorSidebar } from './sidebar/EditorSidebar'
 import { editorSidebarLogic } from './sidebar/editorSidebarLogic'
 
 export function EditorScene(): JSX.Element {
@@ -30,6 +33,7 @@ export function EditorScene(): JSX.Element {
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
     const sidebarRef = useRef(null)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const editorSizingLogicProps = {
         editorSceneRef: ref,
@@ -126,6 +130,12 @@ export function EditorScene(): JSX.Element {
                                                 className="EditorScene w-full h-full flex flex-row overflow-hidden"
                                                 ref={ref}
                                             >
+                                                {!featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] && (
+                                                    <EditorSidebar
+                                                        sidebarRef={sidebarRef}
+                                                        codeEditorKey={codeEditorKey}
+                                                    />
+                                                )}
                                                 <QueryWindow
                                                     onSetMonacoAndEditor={(monaco, editor) =>
                                                         setMonacoAndEditor([monaco, editor])

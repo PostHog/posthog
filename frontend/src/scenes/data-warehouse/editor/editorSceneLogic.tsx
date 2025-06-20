@@ -4,7 +4,9 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
@@ -85,6 +87,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 'viewsMapById',
                 'managedViews',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             queryDatabaseLogic,
@@ -496,11 +500,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
-    urlToAction({
+    urlToAction(({ values }) => ({
         [urls.sqlEditor()]: () => {
-            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
+                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+            }
         },
-    }),
+    })),
     subscriptions({
         allTables: (allTables: DatabaseSchemaTable[]) => {
             const tables = allTables.filter((n) => n.type === 'posthog' || n.type === 'data_warehouse')

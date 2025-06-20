@@ -21,7 +21,7 @@ export function QueryVariables(): JSX.Element {
     const { openExistingVariableModal } = useActions(variableModalLogic)
 
     return (
-        <div className="flex flex-col gap-3 max-w-1/2" data-attr="sql-editor-sidebar-query-variables-pane">
+        <div className="flex flex-col gap-1.5" data-attr="sql-editor-sidebar-query-variables-pane">
             <div className="flex flex-col items-start">
                 <h3 className="mb-0">Query variables</h3>
                 <span className="text-xs">

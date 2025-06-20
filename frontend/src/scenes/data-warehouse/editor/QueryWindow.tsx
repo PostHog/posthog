@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -17,11 +17,13 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { FixErrorButton } from './components/FixErrorButton'
+import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
+import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -62,6 +64,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+    const { sidebarWidth } = useValues(editorSizingLogic)
+    const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+    const { setActiveTab } = useActions(editorSidebarLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
@@ -71,6 +76,72 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 editingView.status === 'Failed' ||
                 editingView.status === 'Cancelled' ||
                 editingView.status === 'Running'))
+
+    const renderSidebarButton = (): JSX.Element => {
+        if (activePanelIdentifier !== 'Database' && featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
+            return (
+                <LemonButton
+                    onClick={() => setActivePanelIdentifier('Database')}
+                    className="rounded-none"
+                    icon={<IconSidebarClose />}
+                    type="tertiary"
+                    size="small"
+                />
+            )
+        }
+
+        if (sidebarWidth === 0) {
+            return (
+                <LemonButton
+                    onClick={() => resetDefaultSidebarWidth()}
+                    className="rounded-none"
+                    icon={<IconSidebarClose />}
+                    type="tertiary"
+                    size="small"
+                />
+            )
+        }
+
+        return <></>
+    }
+
+    const renderAddSQLVariablesButton = (): JSX.Element => {
+        if (featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
+            return <></>
+        }
+
+        return (
+            <LemonButton
+                onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
+                icon={<IconBrackets />}
+                type="tertiary"
+                size="xsmall"
+                id="sql-editor-query-window-add-variables"
+                data-attr="sql-editor-query-window-add-variables-button"
+            >
+                Add SQL variables
+            </LemonButton>
+        )
+    }
+
+    const renderMaterializeButton = (): JSX.Element => {
+        if (featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
+            return <></>
+        }
+
+        return (
+            <LemonButton
+                onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+                icon={<IconBolt />}
+                type="tertiary"
+                size="xsmall"
+                id="sql-editor-query-window-materialize"
+                data-attr="sql-editor-query-window-materialize-button"
+            >
+                Materialize
+            </LemonButton>
+        )
+    }
 
     const editingViewDisabledReason = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -91,15 +162,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
             <div className="flex flex-row overflow-x-auto">
-                {activePanelIdentifier !== 'Database' && (
-                    <LemonButton
-                        onClick={() => setActivePanelIdentifier('Database')}
-                        className="rounded-none"
-                        icon={<IconSidebarClose />}
-                        type="tertiary"
-                        size="small"
-                    />
-                )}
+                {renderSidebarButton()}
                 <QueryTabs
                     models={allTabs}
                     onClick={selectTab}
@@ -152,6 +215,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                         </LemonButton>
+                        {!isMaterializedView && renderMaterializeButton()}
                         <LemonButton
                             onClick={() => openHistoryModal()}
                             icon={<IconBook />}
@@ -163,6 +227,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         </LemonButton>
                     </>
                 )}
+                {editingInsight && renderAddSQLVariablesButton()}
                 {!editingInsight && !editingView && (
                     <>
                         <LemonButton
@@ -175,6 +240,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
+                        {renderMaterializeButton()}
+                        {renderAddSQLVariablesButton()}
                     </>
                 )}
                 {featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] && (

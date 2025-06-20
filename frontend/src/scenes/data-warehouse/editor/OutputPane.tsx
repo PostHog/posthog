@@ -275,7 +275,7 @@ export function OutputPane(): JSX.Element {
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-
+    const { featureFlags } = useValues(featureFlagLogic)
     const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
@@ -397,14 +397,18 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        {
-                            key: OutputTab.Variables,
-                            label: 'Variables',
-                        },
-                        {
-                            key: OutputTab.Materialization,
-                            label: 'Materialization',
-                        },
+                        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
+                            ? [
+                                  {
+                                      key: OutputTab.Variables,
+                                      label: 'Variables',
+                                  },
+                                  {
+                                      key: OutputTab.Materialization,
+                                      label: 'Materialization',
+                                  },
+                              ]
+                            : []),
                     ].map((tab) => (
                         <div
                             key={tab.key}
@@ -687,7 +691,7 @@ const Content = ({
     if (activeTab === OutputTab.Variables) {
         return (
             <TabScroller>
-                <div className="px-6 py-4 border-t">
+                <div className="px-6 py-4 border-t max-w-1/2">
                     <QueryVariables />
                 </div>
             </TabScroller>
