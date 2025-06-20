@@ -15,8 +15,7 @@ export const PaymentForm = (): JSX.Element => {
     const stripe = useStripe()
     const elements = useElements()
 
-    // @ts-expect-error
-    const handleSubmit = async (event): Promise<void> => {
+    const handleSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
         clearErrors()
         event.preventDefault()
         if (!stripe || !elements) {
