@@ -301,6 +301,7 @@ class ParquetStreamTransformer(StreamTransformer):
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
+                write_statistics=False,  # Disable statistics to improve performance
             )
         assert self._parquet_writer is not None
         return self._parquet_writer
