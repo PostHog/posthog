@@ -127,6 +127,8 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     actions.setAuthorizationStatus(status)
 
                     if (status === 'success') {
+                        // Load before doing anything to reload in entitlements on the organization
+                        await billingLogic.asyncActions.loadBilling()
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
@@ -136,7 +138,6 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                                 ...router.values.searchParams,
                                 success: true,
                             })
-                            await billingLogic.asyncActions.loadBilling()
                             actions.loadCurrentOrganization()
                             actions.loadUser()
                             actions.hidePaymentEntryModal()
