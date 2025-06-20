@@ -4,7 +4,6 @@ import collections.abc
 import concurrent.futures
 import gzip
 import json
-import multiprocessing.shared_memory as sm
 import typing
 from io import BytesIO
 
@@ -14,8 +13,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
 from django.conf import settings
-
-from posthog.temporal.batch_exports.utils import cast_record_batch_json_columns
 
 logger = structlog.get_logger()
 
@@ -206,13 +203,13 @@ class JSONLStreamTransformer(StreamTransformer):
 
         The multiprocess pipeline works as follows:
         1. Start a `ProcessPoolExecutor` with a number of workers to distribute
-           the workload. This is hardcoded to 5 at the moment, but should be
-           configurable later.
+           the workload.
         2. Spawn a producer asyncio task to iterate through record batches,
-           spawn multiprocessing tasks for the workers, and pass the futures
-           along to the consumer main thread using a queue.
-        3. The consumer main thread reads the futures from the queue and awaits
-           their result before yielding chunks along.
+           and spawn multiprocessing tasks for the workers.
+        3. We use a `asyncio.Semaphore` to block the producer loop to avoid
+           spawning up too many multiprocessing tasks at a time.
+        4. The consumer main thread waits on futures as they are done, and
+           iterates through chunks.
         """
         if self.compression == "brotli":
             async for t in super().iter_transformed_record_batches(record_batches, max_file_size_bytes):
@@ -220,65 +217,64 @@ class JSONLStreamTransformer(StreamTransformer):
             return
 
         max_workers = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS
-        task_queue: asyncio.Queue[asyncio.Future[list[bytes]]] = asyncio.Queue(max_workers)
         loop = asyncio.get_running_loop()
+        current_file_size = 0
+        futures_pending = set()
+        semaphore = asyncio.Semaphore(max_workers)
 
-        async def producer(executor):
+        async def producer(executor: concurrent.futures.ProcessPoolExecutor):
+            nonlocal futures_pending
+
             async for record_batch in record_batches:
-                sink = pa.MockOutputStream()
-                with pa.ipc.new_stream(sink, record_batch.schema) as writer:
-                    writer.write_batch(record_batch)
-                size = sink.size()
+                _ = await semaphore.acquire()
 
-                try:
-                    shm = sm.SharedMemory(create=True, size=size)
-
-                    stream = pa.FixedSizeBufferWriter(pa.py_buffer(shm.buf))
-                    with pa.RecordBatchStreamWriter(stream, record_batch.schema) as writer:
-                        writer.write_batch(record_batch)
-
-                    future = loop.run_in_executor(executor, transform_record_batch_from_shared_memory, shm.name, self)
-                    await task_queue.put(future)
-
-                    del stream
-                    del writer
-                    del record_batch
-                    del sink
-
-                finally:
-                    if "shm" in locals():
-                        locals()["shm"].close()
+                future = loop.run_in_executor(executor, transform_record_batch, record_batch, self)
+                futures_pending.add(future)
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
             producer_task = asyncio.create_task(producer(executor))
 
-            current_file_size = 0
-            while True:
-                try:
-                    future = task_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    if producer_task.done():
-                        if exception := producer_task.exception():
-                            raise exception
-                        else:
-                            break
+            try:
+                while True:
+                    try:
+                        done, _ = await asyncio.wait(futures_pending, return_when=asyncio.FIRST_COMPLETED)
+                    except ValueError:
+                        if producer_task.done():
+                            if exception := producer_task.exception():
+                                raise exception
+                            else:
+                                break
 
-                    await asyncio.sleep(0.0)
-                    continue
+                        await asyncio.sleep(0)
+                        continue
 
-                chunks = await future
-                task_queue.task_done()
+                    for future in done:
+                        chunks = await future
+                        semaphore.release()
+                        futures_pending.remove(future)
 
-                for chunk in chunks:
+                        for chunk in chunks:
+                            yield (chunk, False)
+
+                            current_file_size += len(chunk)
+
+                            if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                                for chunk in self.finalize():
+                                    yield (chunk, False)
+
+                                yield (b"", True)
+                                current_file_size = 0
+
+                for chunk in self.finalize():
                     yield (chunk, False)
-                    current_file_size += len(chunk)
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
 
-                    if max_file_size_bytes and current_file_size > max_file_size_bytes:
-                        # Nothing to finalize for JSONL. We just inform caller.
-                        yield (b"", True)
-                        current_file_size = 0
-
-            await producer_task
+                    try:
+                        await producer_task
+                    except asyncio.CancelledError:
+                        pass
 
 
 class ParquetStreamTransformer(StreamTransformer):
@@ -338,36 +334,13 @@ class ParquetStreamTransformer(StreamTransformer):
         yield data
 
 
-def transform_record_batch_from_shared_memory(shm_name: str, transformer: StreamTransformer):
+def transform_record_batch(record_batch, transformer: StreamTransformer):
     """Top level function to run transformers in multiprocessing.
 
-    Record batches are accessed from shared memory.
+    Record batches are processed in separate processes.
     """
-    shm = None
-    record_batch = None
-    buffer_reader = None
-    reader = None
-
-    try:
-        shm = sm.SharedMemory(name=shm_name)
-
-        buffer_reader = pa.BufferReader(shm.buf)
-        with pa.RecordBatchStreamReader(buffer_reader) as reader:
-            record_batch = reader.read_next_batch()
-
-        record_batch = cast_record_batch_json_columns(record_batch)
-        return list(transformer.transform_batch(record_batch))
-    finally:
-        if buffer_reader:
-            del buffer_reader
-        if record_batch:
-            del record_batch
-        if reader:
-            del reader
-
-        if shm:
-            shm.close()
-            shm.unlink()
+    processed = list(transformer.transform_batch(record_batch))
+    return processed
 
 
 # TODO: Implement other transformers
