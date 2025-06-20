@@ -8,6 +8,7 @@ import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHe
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
+    CalendarHeatmapResponse,
     EventsHeatMapColumnAggregationResult,
     EventsHeatMapDataResult,
     EventsHeatMapRowAggregationResult,
@@ -45,9 +46,10 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
         cachedResults: props.cachedResults,
     })
 
-    const { response, responseLoading, queryId } = useValues(logic)
+    const { response: _response, responseLoading, queryId } = useValues(logic)
+    const response = _response as CalendarHeatmapResponse | null
 
-    if (responseLoading) {
+    if (responseLoading || !response?.results) {
         return (
             <InsightsWrapper>
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context?.insightProps ?? {}} />
@@ -55,7 +57,7 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
         )
     }
 
-    const data = processData(weekStartDay, response?.results ?? {}, HoursAbbreviated.values, rowLabels(weekStartDay))
+    const data = processData(weekStartDay, response.results, HoursAbbreviated.values, rowLabels(weekStartDay))
 
     return (
         <CalendarHeatMap

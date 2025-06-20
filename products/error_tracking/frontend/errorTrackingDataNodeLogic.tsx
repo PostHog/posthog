@@ -44,7 +44,10 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     }),
 
     selectors({
-        results: [(s) => [s.response], (response): ErrorTrackingIssue[] => (response ? response.results : [])],
+        results: [
+            (s) => [s.response],
+            (response): ErrorTrackingIssue[] => (response && 'results' in response ? response.results : []),
+        ],
     }),
 
     listeners(({ values, actions }) => ({
@@ -125,7 +128,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
         updateIssueAssignee: ({ id, assignee }) => {
             const response = values.response
             if (response) {
-                const results = response.results as ErrorTrackingIssue[]
+                const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
                 const recordIndex = results.findIndex((r) => r.id === id)
                 if (recordIndex > -1) {
                     const issue = { ...results[recordIndex], assignee }
@@ -139,7 +142,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
         updateIssueStatus: ({ id, status }) => {
             const response = values.response
             if (response) {
-                const results = response.results as ErrorTrackingIssue[]
+                const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
                 const recordIndex = results.findIndex((r) => r.id === id)
                 if (recordIndex > -1) {
                     const issue = { ...results[recordIndex], status }
