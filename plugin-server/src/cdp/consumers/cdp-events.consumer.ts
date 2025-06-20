@@ -168,20 +168,25 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-            const uniqueEventMetrics: MinimalAppMetric[] = notMaskedInvocations.map(
-                ({
-                    state: {
-                        globals: { event, project },
+            const uniqueEventMetrics: MinimalAppMetric[] = [
+                ...new Set(notMaskedInvocations.map((invocation) => invocation.state.globals.event.uuid)),
+            ].reduce((acc, eventId) => {
+                const invocation = notMaskedInvocations.find(({ state }) => state.globals.event.uuid === eventId)
+                if (!invocation) {
+                    return acc
+                }
+                return [
+                    ...acc,
+                    {
+                        app_source: 'cdp_destinations',
+                        metric_kind: 'success',
+                        metric_name: 'event_triggered_destination',
+                        team_id: invocation!.state.globals.project.id,
+                        app_source_id: eventId,
+                        count: 1,
                     },
-                }) => ({
-                    app_source: 'cdp_destinations',
-                    metric_kind: 'success',
-                    metric_name: 'event_triggered_destination',
-                    team_id: project.id,
-                    app_source_id: event.uuid,
-                    count: 1,
-                })
-            )
+                ]
+            }, [] as MinimalAppMetric[])
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
 
             const uniqueDestinationMetrics: MinimalAppMetric[] = [
