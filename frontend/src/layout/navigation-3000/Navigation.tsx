@@ -75,7 +75,7 @@ export function Navigation({
                 <UniversalKeyboardShortcut
                     name="MainContent"
                     category="nav"
-                    keybind="command shift g"
+                    keybind={['command', 'shift', 'g']}
                     asChild
                     intent="shortcut to focus main content"
                     interaction="focus"

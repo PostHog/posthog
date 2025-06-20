@@ -41,11 +41,14 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
-import { universalKeyboardShortcutsLogic } from '../UniversalKeyboardShortcuts/universalKeyboardShortcutsLogic'
+import {
+    UniversalKeyboardShortcutItem,
+    universalKeyboardShortcutsLogic,
+} from '../UniversalKeyboardShortcuts/universalKeyboardShortcutsLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
+    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -65,12 +68,11 @@ type PanelLayoutNavBarItem = {
     onClick: (e?: React.KeyboardEvent) => void
     tooltip?: string | React.ReactNode
     tooltipDocLink?: string
-    keyboardShortcut: string
     showChevron?: boolean
     to?: string
     // itemSideAction?: (item: PanelLayoutNavIdentifier) => React.ReactNode
     ref?: React.RefObject<HTMLButtonElement>
-}
+} & Pick<UniversalKeyboardShortcutItem, 'keybind'>
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
@@ -144,7 +146,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                       onClick: () => {
                           toggleSearchBar()
                       },
-                      keyboardShortcut: 'cmd k',
+                      keybind: ['command', 'k'],
                       tooltip: (
                           <div className="flex flex-col gap-0.5">
                               <span>
@@ -160,18 +162,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             : []),
         {
             identifier: 'ProjectHomepage',
-            id: <>Home {isKeyboardShortcutsVisible ? <KeyboardShortcut command shift h /> : null}</>,
+            id: <>Home</>,
             icon: <IconHome />,
             to: urls.projectHomepage(),
             onClick: () => {
                 handleStaticNavbarItemClick(urls.projectHomepage(), true)
             },
             tooltip: isLayoutNavCollapsed ? 'Home' : null,
-            keyboardShortcut: 'command shift h',
+            keybind: ['command', 'shift', 'h'],
         },
         {
             identifier: 'PanelProducts',
-            id: <>Products {isKeyboardShortcutsVisible ? <KeyboardShortcut command shift o /> : null}</>,
+            id: <>Products</>,
             icon: <IconCdCase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -180,11 +182,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             showChevron: true,
             ref: productsRef,
-            keyboardShortcut: 'command shift o',
+            keybind: ['command', 'shift', 'o'],
         },
         {
             identifier: 'PanelProject',
-            id: <>Project {isKeyboardShortcutsVisible ? <KeyboardShortcut command shift p /> : null}</>,
+            id: <>Project</>,
             icon: <IconFolderOpen className="stroke-[1.2]" />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -198,11 +200,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     : 'Open project tree'
                 : null,
             ref: projectRef,
-            keyboardShortcut: 'command shift p',
+            keybind: ['command', 'shift', 'p'],
         },
         {
             identifier: 'PanelData',
-            id: <>Data {isKeyboardShortcutsVisible ? <KeyboardShortcut command shift d /> : null}</>,
+            id: <>Data</>,
             icon: <IconDatabase />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -211,11 +213,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             showChevron: true,
             ref: dataRef,
-            keyboardShortcut: 'command shift d',
+            keybind: ['command', 'shift', 'd'],
         },
         {
             identifier: 'PanelPeople',
-            id: <>People {isKeyboardShortcutsVisible ? <KeyboardShortcut command shift u /> : null}</>,
+            id: <>People</>,
             icon: <IconPeople />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -225,11 +227,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
             ref: peopleRef,
-            keyboardShortcut: 'command shift u',
+            keybind: ['command', 'shift', 'u'],
         },
         {
             identifier: 'PanelShortcuts',
-            id: <>Shortcuts {isKeyboardShortcutsVisible ? <KeyboardShortcut command shift s /> : null}</>,
+            id: <>Shortcuts</>,
             icon: <IconShortcut />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -238,11 +240,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             showChevron: true,
             ref: shortcutsRef,
-            keyboardShortcut: 'command shift s',
+            keybind: ['command', 'shift', 's'],
         },
         {
             identifier: 'Activity',
-            id: <>Activity {isKeyboardShortcutsVisible ? <KeyboardShortcut command shift a /> : null}</>,
+            id: <>Activity</>,
             icon: <IconClock />,
             to: urls.activity(),
             onClick: () => {
@@ -250,7 +252,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             tooltip: 'Activity',
             tooltipDocLink: 'https://posthog.com/docs/data/events',
-            keyboardShortcut: 'command shift a',
+            keybind: ['command', 'shift', 'a'],
         },
     ]
 
@@ -270,7 +272,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <UniversalKeyboardShortcut
                             name="PanelLayoutNavBar"
                             category="nav"
-                            keybind="command shift f"
+                            keybind={['command', 'shift', 'f']}
                             asChild
                             intent="shortcut to focus first nav item"
                             interaction="focus"
@@ -332,7 +334,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             <UniversalKeyboardShortcut
                                                 name={item.identifier}
                                                 category="nav"
-                                                keybind={item.keyboardShortcut}
+                                                keybind={item.keybind}
                                                 ref={item.ref}
                                                 asChild
                                                 intent={`shortcut to open ${item.identifier}`}
@@ -367,7 +369,19 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                                         {!isLayoutNavCollapsed && (
                                                             <>
-                                                                <span className="truncate">{item.id}</span>
+                                                                <span className="truncate">
+                                                                    {item.id}{' '}
+                                                                    {isKeyboardShortcutsVisible ? (
+                                                                        <KeyboardShortcut
+                                                                            {...Object.fromEntries(
+                                                                                item.keybind.map((k) => [
+                                                                                    k.toLowerCase(),
+                                                                                    true,
+                                                                                ])
+                                                                            )}
+                                                                        />
+                                                                    ) : null}
+                                                                </span>
                                                                 <span className="ml-auto pr-1">
                                                                     <IconChevronRight className="size-3 text-tertiary" />
                                                                 </span>
@@ -403,7 +417,19 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             </span>
 
                                                             {!isLayoutNavCollapsed && (
-                                                                <span className="truncate">{item.id}</span>
+                                                                <span className="truncate">
+                                                                    {item.id}{' '}
+                                                                    {isKeyboardShortcutsVisible ? (
+                                                                        <KeyboardShortcut
+                                                                            {...Object.fromEntries(
+                                                                                item.keybind.map((k) => [
+                                                                                    k.toLowerCase(),
+                                                                                    true,
+                                                                                ])
+                                                                            )}
+                                                                        />
+                                                                    ) : null}
+                                                                </span>
                                                             )}
                                                         </Link>
                                                     </ButtonGroupPrimitive>

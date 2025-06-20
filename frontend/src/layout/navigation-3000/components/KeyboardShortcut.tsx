@@ -9,6 +9,7 @@ const IS_MAC = isMac()
 const KEY_TO_SYMBOL: Partial<Record<HotKeyOrModifier, string>> = {
     shift: '⇧',
     command: IS_MAC ? '⌘' : 'ctrl',
+    ctrl: IS_MAC ? '⌘' : 'ctrl',
     option: IS_MAC ? '⌥' : 'alt',
     arrowup: '↑',
     arrowdown: '↓',
@@ -43,7 +44,7 @@ export function KeyboardShortcut({ className, ...keys }: KeyboardShortcutProps):
     return (
         <kbd className={clsx('KeyboardShortcut gap-x-0.5', className)}>
             {sortedKeys.map((key) => (
-                <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
+                <span key={key}>{KEY_TO_SYMBOL[key.toLowerCase() as HotKeyOrModifier] || key}</span>
             ))}
         </kbd>
     )

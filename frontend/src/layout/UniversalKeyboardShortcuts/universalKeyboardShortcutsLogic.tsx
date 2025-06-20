@@ -3,7 +3,7 @@ import { actions, afterMount, beforeUnmount, connect, kea, path, reducers } from
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import type { universalKeyboardShortcutsLogicType } from './universalKeyboardShortcutsLogicType'
 
-export type UniversalKeyboardShortcutCategory = 'nav' | 'product'
+export type UniversalKeyboardShortcutCategory = 'nav' | 'product' | 'sidepanel'
 export interface UniversalKeyboardShortcutItem {
     // The ref to the element to focus on
     ref: React.RefObject<HTMLElement>
@@ -12,7 +12,7 @@ export interface UniversalKeyboardShortcutItem {
     // The category of the shortcut, used to group shortcuts in the UI
     category: UniversalKeyboardShortcutCategory
     // The keybind to use for the shortcut
-    keybind: string
+    keybind: string[]
     // Describe what the shortcut does
     intent: string
     // The type of interaction to trigger
@@ -50,9 +50,10 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
             if (event.shiftKey && event.metaKey) {
                 event.preventDefault()
                 actions.showKeyboardShortcuts(true)
-                const keybind = `command shift ${event.key}`
+                const keybind = [`command`, `shift`, `${event.key}`]
+
                 const thisRegisteredKeyboardShortcut = values.registeredKeyboardShortcuts.find(
-                    (shortcut) => shortcut.keybind === keybind
+                    (shortcut) => shortcut.keybind.join('+') === keybind.join('+')
                 )
 
                 if (thisRegisteredKeyboardShortcut) {

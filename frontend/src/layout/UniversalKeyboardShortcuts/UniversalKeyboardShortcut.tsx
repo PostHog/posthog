@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { isMac } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import React, {
     cloneElement,
@@ -12,6 +13,7 @@ import React, {
 } from 'react'
 
 import { UniversalKeyboardShortcutItem, universalKeyboardShortcutsLogic } from './universalKeyboardShortcutsLogic'
+const IS_MAC = isMac()
 
 interface UniversalShortcutProps extends React.HTMLAttributes<HTMLElement>, Omit<UniversalKeyboardShortcutItem, 'ref'> {
     children: ReactNode
@@ -52,7 +54,16 @@ export const UniversalKeyboardShortcut = forwardRef<HTMLElement, UniversalShortc
                 // Check if already registered to prevent duplicates
                 const isAlreadyRegistered = registeredKeyboardShortcuts.some((shortcut) => shortcut.name === name)
                 if (!isAlreadyRegistered) {
-                    registerKeyboardShortcut({ name, category, keybind, ref: internalRef, intent, interaction })
+                    // Replace 'command' with 'ctrl' when not on Mac
+                    const platformAgnosticKeybind = keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key))
+                    registerKeyboardShortcut({
+                        name,
+                        category,
+                        keybind: platformAgnosticKeybind,
+                        ref: internalRef,
+                        intent,
+                        interaction,
+                    })
                 }
             }
         }, [isRefReady, name, category, keybind, intent, interaction])
@@ -67,9 +78,9 @@ export const UniversalKeyboardShortcut = forwardRef<HTMLElement, UniversalShortc
         const elementProps = {
             'data-shortcut-name': name,
             'data-shortcut-category': category,
-            'data-shortcut-keybind': keybind,
+            'data-shortcut-keybind': keybind.join('+'),
             'data-shortcut-intent': intent,
-            'aria-keyshortcuts': keybind.replaceAll(' ', '+'),
+            'aria-keyshortcuts': keybind.join('+'),
             ref: handleRef,
             className: cn(className),
             ...props,
