@@ -7,7 +7,7 @@ import { TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
-import { personShadowModeComparisonCounter } from './metrics'
+import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -164,13 +164,24 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const [[personResult, kafkaMessages, versionDisparity], _] = await Promise.all([
-            this.mainStore.updatePersonForUpdate(person, update, distinctId, tx),
-            this.secondaryStore.updatePersonForUpdate(person, update, distinctId, tx),
-        ])
+        const [[mainPersonResult, mainKafkaMessages, mainVersionDisparity], [secondaryPersonResult]] =
+            await Promise.all([
+                this.mainStore.updatePersonForUpdate(person, update, distinctId, tx),
+                this.secondaryStore.updatePersonForUpdate(person, update, distinctId, tx),
+            ])
 
-        this.updateFinalState(person.team_id, distinctId, personResult, versionDisparity)
-        return [personResult, kafkaMessages, versionDisparity]
+        // Compare results to ensure consistency between stores
+        this.compareUpdateResults(
+            'updatePersonForUpdate',
+            person.team_id,
+            distinctId,
+            mainPersonResult,
+            secondaryPersonResult,
+            mainVersionDisparity
+        )
+
+        this.updateFinalState(person.team_id, distinctId, mainPersonResult, mainVersionDisparity)
+        return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
 
     async updatePersonForMerge(
@@ -179,13 +190,24 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const [[personResult, kafkaMessages, versionDisparity], _] = await Promise.all([
-            this.mainStore.updatePersonForMerge(person, update, distinctId, tx),
-            this.secondaryStore.updatePersonForMerge(person, update, distinctId, tx),
-        ])
+        const [[mainPersonResult, mainKafkaMessages, mainVersionDisparity], [secondaryPersonResult]] =
+            await Promise.all([
+                this.mainStore.updatePersonForMerge(person, update, distinctId, tx),
+                this.secondaryStore.updatePersonForMerge(person, update, distinctId, tx),
+            ])
 
-        this.updateFinalState(person.team_id, distinctId, personResult, versionDisparity)
-        return [personResult, kafkaMessages, versionDisparity]
+        // Compare results to ensure consistency between stores
+        this.compareUpdateResults(
+            'updatePersonForMerge',
+            person.team_id,
+            distinctId,
+            mainPersonResult,
+            secondaryPersonResult,
+            mainVersionDisparity
+        )
+
+        this.updateFinalState(person.team_id, distinctId, mainPersonResult, mainVersionDisparity)
+        return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
 
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
@@ -390,6 +412,44 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                     secondaryPerson,
                 })
             }
+        }
+    }
+
+    private compareUpdateResults(
+        methodName: string,
+        teamId: number,
+        distinctId: string,
+        mainPerson: InternalPerson,
+        secondaryPerson: InternalPerson,
+        mainVersionDisparity: boolean
+    ): void {
+        const key = this.getPersonKey(teamId, distinctId)
+
+        // Compare the person results (excluding version for primary comparison)
+        const mainComparable = this.getComparablePerson(mainPerson)
+        const secondaryComparable = this.getComparablePerson(secondaryPerson)
+        const samePersonResult = this.deepEqual(mainComparable, secondaryComparable)
+
+        if (!samePersonResult) {
+            const differences = this.findDifferences(mainComparable, secondaryComparable, 'person')
+
+            // Track inconsistent results in metrics
+            personShadowModeReturnIntermediateOutcomeCounter.labels(methodName, 'inconsistent').inc()
+
+            logger.error(`${methodName} returned inconsistent results between stores`, {
+                key,
+                teamId,
+                distinctId,
+                methodName,
+                samePersonResult,
+                differences,
+                mainPersonUuid: mainPerson?.uuid,
+                secondaryPersonUuid: secondaryPerson?.uuid,
+                mainVersionDisparity,
+            })
+        } else {
+            // Track consistent results in metrics
+            personShadowModeReturnIntermediateOutcomeCounter.labels(methodName, 'consistent').inc()
         }
     }
 
