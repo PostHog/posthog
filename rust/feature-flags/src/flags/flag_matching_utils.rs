@@ -185,7 +185,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     }
 
-    // Set person properties with distinct_id, similar to Python implementation
+    // if we have person properties, set them
     let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props {
         person_props
             .as_object()
@@ -196,8 +196,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     } else {
         HashMap::new()
     };
-    
-    // Always add distinct_id to person properties
     all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id.clone()));
     
     flag_evaluation_state.set_person_properties(all_person_properties);
