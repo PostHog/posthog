@@ -64,10 +64,10 @@ export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<N
             }
         }),
         edges: nodes.flatMap((node) =>
-            Object.entries(node.data.next_actions).map(([branch, next_action_id]) => ({
-                id: `${node.id}->${next_action_id}`,
+            Object.entries(node.data.next_actions).map(([branch, next_action]) => ({
+                id: `${node.id}->${next_action.action_id}`,
                 sources: [`${branch}_${node.id}`],
-                targets: [`target_${next_action_id}`],
+                targets: [`target_${next_action.action_id}`],
             }))
         ),
     }

@@ -87,7 +87,10 @@ export const HogFlowActionManager = {
         }
 
         Object.keys(edgeSourceNode.next_actions).forEach((key) => {
-            edgeSourceNode.next_actions[key] = newNode.action.id
+            edgeSourceNode.next_actions[key] = {
+                action_id: newNode.action.id,
+                label: edgeSourceNode.next_actions[key].label,
+            }
         })
 
         return [...actions.slice(0, -1), newNode.action, actions[actions.length - 1]]
@@ -147,12 +150,13 @@ export const HogFlowActionManager = {
 
     getEdgesFromHogFlow(hogFlow: HogFlow): Edge[] {
         return hogFlow.actions.flatMap((action: HogFlowAction) =>
-            Object.entries(action.next_actions).map(([branch, next_action_id]) => ({
-                id: `${branch}_${action.id}->${next_action_id}`,
+            Object.entries(action.next_actions).map(([branch, next_action]) => ({
+                id: `${branch}_${action.id}->${next_action.action_id}`,
+                label: next_action.label,
                 source: action.id,
                 sourceHandle: `${branch}_${action.id}`,
-                target: next_action_id,
-                targetHandle: `target_${next_action_id}`,
+                target: next_action.action_id,
+                targetHandle: `target_${next_action.action_id}`,
                 ...getDefaultEdgeOptions(),
             }))
         )
@@ -262,7 +266,9 @@ class MessageAction extends BaseNode<'message'> {
             created_at: Date.now(),
             updated_at: Date.now(),
             next_actions: {
-                continue: edgeToInsertNodeInto.target,
+                continue: {
+                    action_id: edgeToInsertNodeInto.target,
+                },
             },
         })
     }
@@ -279,7 +285,6 @@ class MessageAction extends BaseNode<'message'> {
                 id: `continue_${this.action.id}`,
                 type: 'source',
                 position: Position.Bottom,
-                label: 'Successful delivery',
                 ...BOTTOM_HANDLE_POSITION,
             },
         ]
@@ -326,7 +331,7 @@ class DelayAction extends BaseNode<'delay'> {
         const id = HogFlowActionManager.generateActionId(toolbarNode.type)
         return new DelayAction({
             id,
-            name: 'Delay',
+            name: 'Wait',
             description: '',
             type: 'delay',
             config: { delay_duration: '15s' },
@@ -334,7 +339,9 @@ class DelayAction extends BaseNode<'delay'> {
             created_at: Date.now(),
             updated_at: Date.now(),
             next_actions: {
-                continue: edgeToInsertNodeInto.target,
+                continue: {
+                    action_id: edgeToInsertNodeInto.target,
+                },
             },
         })
     }
@@ -405,7 +412,9 @@ class WaitUntilConditionAction extends BaseNode<'wait_until_condition'> {
             created_at: Date.now(),
             updated_at: Date.now(),
             next_actions: {
-                continue: edgeToInsertNodeInto.target,
+                continue: {
+                    action_id: edgeToInsertNodeInto.target,
+                },
             },
         })
     }
@@ -422,14 +431,12 @@ class WaitUntilConditionAction extends BaseNode<'wait_until_condition'> {
                 id: `continue_${this.action.id}`,
                 type: 'source',
                 position: Position.Left,
-                label: 'Match',
                 ...LEFT_HANDLE_POSITION,
             },
             {
                 id: `abort_${this.action.id}`,
                 type: 'source',
                 position: Position.Right,
-                label: 'Max checks reached',
                 ...RIGHT_HANDLE_POSITION,
             },
         ]
@@ -467,8 +474,14 @@ class ConditionalBranchAction extends BaseNode<'conditional_branch'> {
             created_at: Date.now(),
             updated_at: Date.now(),
             next_actions: {
-                condition_0: edgeToInsertNodeInto.target,
-                continue: edgeToInsertNodeInto.target,
+                condition_0: {
+                    action_id: edgeToInsertNodeInto.target,
+                    label: 'Match condition 1',
+                },
+                continue: {
+                    action_id: edgeToInsertNodeInto.target,
+                    label: 'No match',
+                },
             },
         })
     }
@@ -485,14 +498,12 @@ class ConditionalBranchAction extends BaseNode<'conditional_branch'> {
                 id: `condition_0_${this.action.id}`,
                 type: 'source',
                 position: Position.Left,
-                label: 'Match condition 1',
                 ...LEFT_HANDLE_POSITION,
             },
             {
                 id: `continue_${this.action.id}`,
                 type: 'source',
                 position: Position.Right,
-                label: 'No match',
                 ...RIGHT_HANDLE_POSITION,
             },
         ]

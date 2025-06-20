@@ -38,36 +38,24 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
 
     const [toolbarNodeUsed, setToolbarNodeUsed] = useState<ToolbarNode>()
     const [selectedNode, setSelectedNode] = useState<Node<HogFlowAction>>()
-    const { screenToFlowPosition, deleteElements, setCenter, getIntersectingNodes, fitView } = useReactFlow()
+    const { screenToFlowPosition, deleteElements, getIntersectingNodes, fitView } = useReactFlow()
 
     const nodeTypes = useMemo(() => REACT_FLOW_NODE_TYPES, [])
 
     // Layout the graph on node changes.
     useEffect(() => {
         void (async () => {
-            const nodes = HogFlowActionManager.getNodesFromHogFlow(hogFlow)
-            const formattedNodes = await getFormattedNodes(nodes)
+            const formattedNodes = await getFormattedNodes(HogFlowActionManager.getNodesFromHogFlow(hogFlow))
             setNodes(formattedNodes)
             setEdges(HogFlowActionManager.getEdgesFromHogFlow(hogFlow))
-
-            void fitView()
         })()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hogFlow])
+    }, [hogFlow.actions])
 
-    // When a node is selected, center the view on it
+    // Center content whenever nodes positions change
     useEffect(() => {
-        if (selectedNode) {
-            void setCenter(
-                (selectedNode?.position.x || 0) + (selectedNode?.measured?.width || 0) / 2,
-                (selectedNode?.position.y || 0) + 100,
-                {
-                    duration: 300,
-                    zoom: 2,
-                }
-            )
-        }
-    }, [selectedNode, setCenter])
+        void fitView()
+    }, [fitView, nodes])
 
     const findIntersectingDropzone = useCallback(
         (event: React.DragEvent): Node<{ edge: Edge }> | undefined => {
@@ -134,7 +122,7 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
             )
             onChange({ actions: updatedActions })
         },
-        [findIntersectingDropzone, edges, nodes, toolbarNodeUsed, setNodes]
+        [findIntersectingDropzone, toolbarNodeUsed, hogFlow.actions, onChange, setNodes, nodes]
     )
 
     // When a node is deleted, connect the middle nodes to their incomers and outgoers to avoid orphaned nodes
@@ -151,17 +139,17 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
                 .filter((action) => !deletedNodeIds.includes(action.id))
                 .map((action) => {
                     // For each action, update its next_actions to skip deleted nodes
-                    const updatedNextActions: Record<string, string> = {}
+                    const updatedNextActions: Record<string, { action_id: string; label?: string }> = {}
 
-                    Object.entries(action.next_actions).forEach(([branch, nextActionId]) => {
-                        if (deletedNodeIds.includes(nextActionId)) {
+                    Object.entries(action.next_actions).forEach(([branch, nextAction]) => {
+                        if (deletedNodeIds.includes(nextAction.action_id)) {
                             // Find the deleted node's continue action and use that instead
-                            const deletedNode = hogFlow.actions.find((a) => a.id === nextActionId)
+                            const deletedNode = hogFlow.actions.find((a) => a.id === nextAction.action_id)
                             if (deletedNode?.next_actions.continue) {
                                 updatedNextActions[branch] = deletedNode.next_actions.continue
                             }
                         } else {
-                            updatedNextActions[branch] = nextActionId
+                            updatedNextActions[branch] = nextAction
                         }
                     })
 
@@ -173,7 +161,7 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
 
             onChange({ actions: updatedActions })
         },
-        [nodes, edges, selectedNode?.id, setSelectedNode, onChange]
+        [hogFlow.actions, selectedNode?.id, setSelectedNode, onChange]
     )
 
     return (

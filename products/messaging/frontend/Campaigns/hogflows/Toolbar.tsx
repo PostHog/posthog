@@ -32,7 +32,7 @@ function ToolbarNode({
                 {node.icon}
                 {node.name}
             </div>
-            <IconDrag className="text-lg" />
+            <IconDrag className="text-lg text-muted" />
         </div>
     )
 }

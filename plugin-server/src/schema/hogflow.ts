@@ -8,7 +8,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
-    next_actions: z.record(z.literal('continue').or(z.string().startsWith('branch_')), z.string()),
+    next_actions: z.record(
+        z.literal('continue').or(z.string().startsWith('branch_')),
+        z.object({
+            action_id: z.string(),
+            label: z.string().optional(),
+        })
+    ),
 }
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -81,6 +87,17 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             ]),
         }),
     }),
+
+    // Native message
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('message'),
+        config: z.object({
+            message: z.any(),
+            channel: z.string(),
+        }),
+    }),
+
     // Function
     z.object({
         ..._commonActionFields,
@@ -92,7 +109,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('exit'),
-        config: z.object({}),
+        config: z.object({
+            reason: z.string(),
+        }),
     }),
 ])
 

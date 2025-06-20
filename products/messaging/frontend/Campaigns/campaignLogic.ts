@@ -26,7 +26,9 @@ const NEW_CAMPAIGN: HogFlow = {
             created_at: 0,
             updated_at: 0,
             next_actions: {
-                continue: 'exit_node',
+                continue: {
+                    action_id: 'exit_node',
+                },
             },
         },
         {

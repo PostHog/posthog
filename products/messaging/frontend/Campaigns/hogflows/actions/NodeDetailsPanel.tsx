@@ -3,7 +3,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
 import { Form } from 'kea-forms'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
 
 import type { HogFlowAction } from '../types'
@@ -50,7 +49,7 @@ export function NodeDetailsPanel({
                 className="bg-surface-primary rounded-md shadow-md p-4 gap-2 flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-3/4 overflow-y-scroll"
             >
                 <div className="flex justify-between items-center">
-                    <h3 className="font-semibold">Edit {capitalizeFirstLetter(hogFlowAction.action.type)} step</h3>
+                    <h3 className="font-semibold">Edit {hogFlowAction.action.name} step</h3>
                     <div className="flex gap-1 items-center">
                         {node.deletable && (
                             <LemonButton
