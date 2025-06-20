@@ -11,7 +11,6 @@ import type { story } from './storiesMap'
 import { StoriesPlayer, Story } from './StoriesPlayer'
 
 const IMAGE_STORY_INTERVAL = 3500
-const CRAZY_VIDEO_DURATION = 1000000 // this is a hack to make the video play for as long as a video would play
 const MIN_WIDTH = 320 // Minimum width in pixels
 const MAX_WIDTH = 854 // Maximum width in pixels
 const ASPECT_RATIO = 16 / 9 // 16:9 aspect ratio
@@ -209,7 +208,7 @@ export const StoriesModal = (): JSX.Element | null => {
                       window.open(story.link, '_self')
                       return null
                   }
-                : () => <></>, // this is hack to hide the swipe component and not hide the profile component on stories
+                : undefined,
             preloadResource: true,
         })
     )
@@ -226,7 +225,7 @@ export const StoriesModal = (): JSX.Element | null => {
                 <div className="relative flex-1 stories-container">
                     <StoriesPlayer
                         stories={stories}
-                        defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
+                        defaultInterval={IMAGE_STORY_INTERVAL}
                         currentIndex={activeStoryIndex}
                         isPaused={isPaused}
                         width={dimensions.width}

@@ -7,17 +7,6 @@
     border-radius: 6px;
     box-shadow: none;
 
-    // This will change the opacity of the swipe component so it's not visible until hovered
-    .stories-container [role='button'][aria-label*='swipe'] {
-        cursor: pointer;
-        opacity: 0;
-        transition: opacity 0.3s ease-in-out;
-
-        &:hover {
-            opacity: 1;
-        }
-    }
-
     // Progress bar styles
     .progress-bar-active {
         width: 0%;

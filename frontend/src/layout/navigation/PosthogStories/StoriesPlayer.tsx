@@ -196,7 +196,7 @@ export const StoriesPlayer = ({
     return (
         <div
             ref={containerRef}
-            className="relative rounded overflow-hidden"
+            className="relative rounded overflow-hidden select-none"
             onClick={handleContainerClick}
             style={{ width, height }} // eslint-disable-line react/forbid-dom-props
         >
@@ -316,6 +316,8 @@ export const StoriesPlayer = ({
 
             {/* Navigation zones with arrows */}
             <div className="absolute inset-0 flex">
+                {/* LEFT NAVIGATION ZONE */}
+                {/* Only shows navigation if there's a previous story to go to */}
                 <div
                     className={`w-1/5 h-full relative flex items-center justify-start pl-4 ${
                         currentIndex > 0 ? 'cursor-pointer' : ''
@@ -323,13 +325,16 @@ export const StoriesPlayer = ({
                     onMouseEnter={() => setHoveredZone('left')}
                     onMouseLeave={() => setHoveredZone(null)}
                 >
+                    {/* Previous story button - only visible when hovering and navigation is possible */}
                     {currentIndex > 0 && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation()
+                                e.preventDefault()
                                 onPrevious()
                             }}
-                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer ${
+                            onMouseDown={(e) => e.preventDefault()}
+                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer select-none ${
                                 hoveredZone === 'left' ? 'opacity-100' : 'opacity-0'
                             }`}
                             title="Previous story"
@@ -338,7 +343,13 @@ export const StoriesPlayer = ({
                         </button>
                     )}
                 </div>
+
+                {/* MIDDLE ZONE - Clears hover state and allows pause/play functionality */}
+                {/* When user hovers over middle, it clears hoveredZone so navigation arrows hide */}
                 <div className="w-3/5 h-full" onMouseEnter={() => setHoveredZone(null)} />
+
+                {/* RIGHT NAVIGATION ZONE */}
+                {/* Only shows navigation if there's a next story to go to */}
                 <div
                     className={`w-1/5 h-full relative flex items-center justify-end pr-4 ${
                         currentIndex < stories.length - 1 ? 'cursor-pointer' : ''
@@ -346,13 +357,16 @@ export const StoriesPlayer = ({
                     onMouseEnter={() => setHoveredZone('right')}
                     onMouseLeave={() => setHoveredZone(null)}
                 >
+                    {/* Next story button - only visible when hovering and navigation is possible */}
                     {currentIndex < stories.length - 1 && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation()
+                                e.preventDefault()
                                 onNext()
                             }}
-                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer ${
+                            onMouseDown={(e) => e.preventDefault()}
+                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer select-none ${
                                 hoveredZone === 'right' ? 'opacity-100' : 'opacity-0'
                             }`}
                             title="Next story"
