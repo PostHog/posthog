@@ -5,7 +5,6 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
 
-use serde_json::json;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
@@ -394,27 +393,15 @@ async fn send_internal_event(
 
     if let Some(assignment) = new_assignment {
         if let Some(user_id) = assignment.user_id {
+            let assignee = serialize_assignee_json("user", user_id);
             event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "user", "id": user_id}).to_string(),
-                )
-                .expect("Strings are serializable");
-        }
-        if let Some(group_id) = assignment.user_group_id {
-            event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "user_group", "id": group_id.to_string()}).to_string(),
-                )
+                .insert_prop("assignee", assignee)
                 .expect("Strings are serializable");
         }
         if let Some(role_id) = assignment.role_id {
+            let assignee = serialize_assignee_json("role", role_id);
             event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "role", "id": role_id.to_string()}).to_string(),
-                )
+                .insert_prop("assignee", assignee)
                 .expect("Strings are serializable");
         }
     }
@@ -433,6 +420,10 @@ async fn send_internal_event(
     .collect::<Result<Vec<_>, _>>()?;
 
     Ok(())
+}
+
+fn serialize_assignee_json<T: Display>(kind: &str, id: T) -> String {
+    format!(r#"{{"type":"{}","id":"{}"}}"#, kind, id)
 }
 
 impl From<String> for IssueStatus {
@@ -462,7 +453,6 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::sanitize_string;
 
     #[test]
     fn it_replaces_null_characters() {
