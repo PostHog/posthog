@@ -8,14 +8,16 @@ import { paymentEntryLogic } from './paymentEntryLogic'
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
 
 export const PaymentForm = (): JSX.Element => {
-    const { error, isLoading } = useValues(paymentEntryLogic)
-    const { setError, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } = useActions(paymentEntryLogic)
+    const { stripeError, isLoading } = useValues(paymentEntryLogic)
+    const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
+        useActions(paymentEntryLogic)
 
     const stripe = useStripe()
     const elements = useElements()
 
     // @ts-expect-error
     const handleSubmit = async (event): Promise<void> => {
+        clearErrors()
         event.preventDefault()
         if (!stripe || !elements) {
             return
@@ -31,7 +33,7 @@ export const PaymentForm = (): JSX.Element => {
 
         if (result.error) {
             setLoading(false)
-            setError(result.error.message)
+            setStripeError(result.error.message)
         } else {
             pollAuthorizationStatus(result.paymentIntent.id)
         }
@@ -44,7 +46,7 @@ export const PaymentForm = (): JSX.Element => {
                 Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
                 in 7 days.
             </p>
-            {error && <LemonBanner type="error">{error}</LemonBanner>}
+            {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
             <div className="flex justify-end deprecated-space-x-2 mt-2">
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
@@ -58,7 +60,7 @@ export const PaymentForm = (): JSX.Element => {
 }
 
 export const PaymentEntryModal = (): JSX.Element => {
-    const { clientSecret, paymentEntryModalOpen, error } = useValues(paymentEntryLogic)
+    const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
 
@@ -93,13 +95,13 @@ export const PaymentEntryModal = (): JSX.Element => {
                     <Elements stripe={stripePromise} options={{ clientSecret }}>
                         <PaymentForm />
                     </Elements>
-                ) : error ? (
+                ) : apiError ? (
                     <div className="flex flex-col gap-2 my-2">
                         <p className="text-md">
                             We could not complete your upgrade at this time. Please review the error below and contact
                             support if you need help.
                         </p>
-                        <LemonBanner type="error">{error}</LemonBanner>
+                        <LemonBanner type="error">{apiError}</LemonBanner>
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
