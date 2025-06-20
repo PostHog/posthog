@@ -99,7 +99,10 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         filterTestAccounts: !!experiment.exposure_criteria?.filterTestAccounts,
                         dateRange: getExperimentDateRange(experiment),
                         breakdownFilter: {
-                            breakdown: `$feature/${experiment.feature_flag_key}`,
+                            breakdown:
+                                exposureEventNode.event === '$feature_flag_called'
+                                    ? '$feature_flag_response'
+                                    : `$feature/${experiment.feature_flag_key}`,
                             breakdown_type: 'event',
                         },
                         funnelsFilter: {

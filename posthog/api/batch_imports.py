@@ -312,6 +312,19 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def create(self, request: Request, **kwargs) -> Response:
         """Create a new managed migration/batch import."""
+        existing_running_import = BatchImport.objects.filter(
+            team_id=self.team_id, status=BatchImport.Status.RUNNING
+        ).first()
+
+        if existing_running_import:
+            return Response(
+                {
+                    "error": "Cannot create a new batch import while another import is already running for this organization.",
+                    "detail": f"Please wait for the current import (ID: {existing_running_import.id}) to complete or pause it before starting a new one.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         migration = serializer.save()

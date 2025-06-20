@@ -38,6 +38,7 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    QueryBasedInsightModel,
     RetentionDashboardDisplayType,
     RetentionFilterType,
     RevenueAnalyticsPropertyFilter,
@@ -285,6 +286,7 @@ export type AnyResponseType =
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
+    | Partial<QueryBasedInsightModel>
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {

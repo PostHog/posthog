@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ProjectTreeRef } from '~/types'
@@ -110,8 +111,15 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         end_date: values.end_date,
                     }
                 }
-                const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
-                return response
+                try {
+                    const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
+                    return response
+                } catch (error: any) {
+                    if (error.status === 400 && error.data?.error) {
+                        throw new Error(error.data.error)
+                    }
+                    throw error
+                }
             },
         },
     }),
@@ -120,8 +128,17 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             actions.loadMigrations()
             router.actions.push(urls.managedMigration())
         },
+        submitManagedMigrationFailure: async ({ error }) => {
+            if (error?.message) {
+                lemonToast.error(error.message)
+            } else {
+                lemonToast.error('Failed to create migration. Please try again.')
+            }
+        },
         loadMigrationsSuccess: () => {
-            const hasRunningMigrations = values.migrations.some((migration) => migration.status === 'running')
+            const hasRunningMigrations = values.migrations.some(
+                (migration: ManagedMigration) => migration.status === 'running'
+            )
             if (hasRunningMigrations && !values.isPolling) {
                 actions.startPolling()
             } else if (!hasRunningMigrations && values.isPolling) {
@@ -149,7 +166,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     selectors({
         breadcrumbs: [
             (_, p) => [p.managedMigrationId],
-            (managedMigrationId): Breadcrumb[] => [
+            (managedMigrationId: string | null): Breadcrumb[] => [
                 {
                     key: 'managed-migrations',
                     name: 'Managed Migrations',
@@ -168,7 +185,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         ],
         projectTreeRef: [
             (_, p) => [p.managedMigrationId],
-            (managedMigrationId): ProjectTreeRef => ({
+            (managedMigrationId: string | null): ProjectTreeRef => ({
                 type: 'managed-migration',
                 ref: managedMigrationId,
             }),
