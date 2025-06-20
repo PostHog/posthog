@@ -687,8 +687,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                         expect.objectContaining({
                             key: '1:person2-distinct',
                             differences: expect.any(Array),
-                            measuringPersonUuid: expect.any(String),
-                            batchPersonUuid: expect.any(String),
+                            mainPersonUuid: expect.any(String),
+                            secondaryPersonUuid: expect.any(String),
                         }),
                     ]),
                 })
