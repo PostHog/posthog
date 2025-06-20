@@ -259,8 +259,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.mainStore.reportBatch()
         this.secondaryStore.reportBatch()
 
-        // Log metrics if available
-        if (this.shadowMetrics) {
+        // Log metrics only if we actually made comparisons
+        if (this.shadowMetrics && this.shadowMetrics.totalComparisons > 0) {
             const logicErrorRate =
                 this.shadowMetrics.totalComparisons > 0
                     ? (
@@ -461,7 +461,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             return differences
         }
         if (obj1 == null || obj2 == null) {
-            differences.push(`${path}: ${obj1} !== ${obj2}`)
+            differences.push(`${path}: ${this.stringifyValue(obj1)} !== ${this.stringifyValue(obj2)}`)
             return differences
         }
 
@@ -471,7 +471,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
 
         if (typeof obj1 !== 'object') {
-            differences.push(`${path}: ${obj1} !== ${obj2}`)
+            differences.push(`${path}: ${this.stringifyValue(obj1)} !== ${this.stringifyValue(obj2)}`)
             return differences
         }
 
@@ -483,6 +483,19 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             return differences
         }
 
+        // Handle arrays
+        if (Array.isArray(obj1) && Array.isArray(obj2)) {
+            if (obj1.length !== obj2.length) {
+                differences.push(`${path}: array length mismatch ${obj1.length} !== ${obj2.length}`)
+            } else {
+                for (let i = 0; i < obj1.length; i++) {
+                    differences.push(...this.findDifferences(obj1[i], obj2[i], `${path}[${i}]`))
+                }
+            }
+            return differences
+        }
+
+        // Handle regular objects
         const keys1 = Object.keys(obj1)
         const keys2 = Object.keys(obj2)
         const allKeys = new Set([...keys1, ...keys2])
@@ -499,6 +512,35 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
 
         return differences
+    }
+
+    private stringifyValue(value: any): string {
+        if (value === null) {
+            return 'null'
+        }
+        if (value === undefined) {
+            return 'undefined'
+        }
+        if (typeof value === 'string') {
+            return `"${value}"`
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            return String(value)
+        }
+        if (typeof value === 'function') {
+            return '[Function]'
+        }
+        if (typeof value === 'symbol') {
+            return '[Symbol]'
+        }
+        if (typeof value === 'object') {
+            try {
+                return JSON.stringify(value)
+            } catch (error) {
+                return '[Circular or non-serializable object]'
+            }
+        }
+        return String(value)
     }
 
     getFinalStates(): Map<string, PersonUpdate | null> {
