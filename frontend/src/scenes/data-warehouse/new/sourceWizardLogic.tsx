@@ -729,6 +729,23 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                     },
                 ],
             },
+            {
+                type: 'switch-group',
+                name: 'dataset_project',
+                label: 'Use a different project for the dataset than your service account project?',
+                caption:
+                    "If the dataset you're wanting to sync exists in a different project than that of your service account, use this to provide the project ID of the BigQuery dataset.",
+                default: false,
+                fields: [
+                    {
+                        type: 'text',
+                        name: 'dataset_project_id',
+                        label: 'Project ID for dataset',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+            },
         ],
         caption: '',
     },
@@ -1499,7 +1516,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues)
 
                 if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
                     actions.setSourceConnectionDetailsManualErrors({

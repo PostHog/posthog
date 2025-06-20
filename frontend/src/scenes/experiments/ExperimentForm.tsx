@@ -33,14 +33,8 @@ import { featureFlagEligibleForExperiment } from './utils'
 const ExperimentFormFields = (): JSX.Element => {
     const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
         useValues(experimentLogic)
-    const {
-        addVariant,
-        removeExperimentGroup,
-        setExperiment,
-        submitExperiment,
-        setExperimentType,
-        validateFeatureFlag,
-    } = useActions(experimentLogic)
+    const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -294,7 +288,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                                                 <LemonButton
                                                                     size="small"
                                                                     icon={<IconTrash />}
-                                                                    onClick={() => removeExperimentGroup(index)}
+                                                                    onClick={() => removeVariant(index)}
                                                                 />
                                                             </Tooltip>
                                                         )}
