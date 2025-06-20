@@ -589,6 +589,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 dataset_id=bq_config.dataset_id,
                 table_prefix=destination_table_prefix,
                 project_id=bq_config.project_id,
+                dataset_project_id=bq_config.dataset_project_id,
                 private_key=bq_config.private_key,
                 private_key_id=bq_config.private_key_id,
                 client_email=bq_config.client_email,
@@ -600,6 +601,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 source = bigquery_source(
                     dataset_id=bq_config.dataset_id,
                     project_id=bq_config.project_id,
+                    dataset_project_id=bq_config.dataset_project_id,
                     private_key=bq_config.private_key,
                     private_key_id=bq_config.private_key_id,
                     client_email=bq_config.client_email,

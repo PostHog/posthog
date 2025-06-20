@@ -1,10 +1,11 @@
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlow } from '~/schema/hogflow'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresUse } from '~/utils/db/postgres'
 
-import { insertHogFlow } from '../_tests/fixtures-hogflows'
+import { insertHogFlow } from '../../_tests/fixtures-hogflows'
 import { HogFlowManagerService } from './hogflow-manager.service'
 
 describe('HogFlowManager', () => {
@@ -30,24 +31,36 @@ describe('HogFlowManager', () => {
         hogFlows = []
 
         hogFlows.push(
-            await insertHogFlow(hub.postgres, teamId1, {
-                name: 'Test Hog Flow team 1',
-                status: 'active',
-            })
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test Hog Flow team 1')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .build()
+            )
         )
 
         hogFlows.push(
-            await insertHogFlow(hub.postgres, teamId1, {
-                name: 'Test Hog Flow team 1 - other',
-                status: 'active',
-            })
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test Hog Flow team 1 - other')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .build()
+            )
         )
 
         hogFlows.push(
-            await insertHogFlow(hub.postgres, teamId2, {
-                name: 'Test Hog Flow team 2',
-                status: 'active',
-            })
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test Hog Flow team 2')
+                    .withTeamId(teamId2)
+                    .withStatus('active')
+                    .build()
+            )
         )
 
         await manager.start()
