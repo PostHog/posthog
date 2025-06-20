@@ -43,26 +43,26 @@ import { SummaryTable } from './SummaryTable'
 const ResultsTab = (): JSX.Element => {
     const {
         experiment,
-        legacyMetricResults,
+        legacyPrimaryMetricsResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
-        metricResultsLoading,
+        primaryMetricsResultsLoading,
         hasMinimumExposureForResults,
         statsMethod,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
-     * in the metricResults state key. We'll eventually move into using the new state.
+     * in the primaryMetricsResults state key. We'll eventually move into using the new state.
      */
-    const hasSomeResults = legacyMetricResults?.some((result) => result?.insight)
+    const hasSomeResults = legacyPrimaryMetricsResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
-    const firstPrimaryMetricResult = legacyMetricResults?.[0]
+    const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
 
     return (
         <>
-            {!experiment.start_date && !metricResultsLoading && (
+            {!experiment.start_date && !primaryMetricsResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />

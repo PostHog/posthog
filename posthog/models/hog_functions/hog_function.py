@@ -47,22 +47,18 @@ class HogFunctionType(models.TextChoices):
     SOURCE_WEBHOOK = "source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
-    EMAIL = "email"
-    BROADCAST = "broadcast"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
-    HogFunctionType.BROADCAST,
     HogFunctionType.SOURCE_WEBHOOK,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.TRANSFORMATION,
-    HogFunctionType.BROADCAST,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
@@ -83,6 +79,8 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
     type = models.CharField(max_length=24, null=True, blank=True)
+
+    # DEPRECATED: This was an idea that is no longer used
     kind = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
@@ -130,13 +128,6 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         elif self.type == HogFunctionType.SOURCE_WEBHOOK:
             folder = "Unfiled/Sources"
             href = f"/functions/{self.pk}/configuration"
-        elif self.type == HogFunctionType.BROADCAST:
-            folder = "Unfiled/Broadcasts"
-            href = f"/messaging/broadcasts/{self.pk}"
-        elif self.kind == "messaging_campaign":
-            folder = "Unfiled/Campaigns"
-            href = f"/messaging/campaigns/{self.pk}"
-            type = "campaign"
 
         return FileSystemRepresentation(
             base_folder=self._get_assigned_folder(folder),

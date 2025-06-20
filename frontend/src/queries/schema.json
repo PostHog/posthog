@@ -14309,17 +14309,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "number"
-                },
-                {
-                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
-                }
-            ]
+            "type": ["string", "number"]
         },
         "PropertyFilterType": {
             "enum": [

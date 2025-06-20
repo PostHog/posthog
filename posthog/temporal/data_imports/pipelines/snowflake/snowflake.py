@@ -134,12 +134,12 @@ def _build_query(
     database: str,
     schema: str,
     table_name: str,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
 ) -> tuple[str, tuple[Any, ...]]:
-    if not is_incremental:
+    if not should_use_incremental_field:
         return "SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
 
     if incremental_field is None or incremental_field_type is None:
@@ -206,7 +206,7 @@ def snowflake_source(
     warehouse: str,
     schema: str,
     table_names: list[str],
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     role: Optional[str] = None,
@@ -225,7 +225,7 @@ def snowflake_source(
                 database,
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -242,7 +242,7 @@ def snowflake_source(
                     database,
                     schema,
                     table_name,
-                    is_incremental,
+                    should_use_incremental_field,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,

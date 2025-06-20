@@ -1066,7 +1066,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.BIGQUERY:
             dataset_id = request.data.get("dataset_id", "")
             key_file = request.data.get("key_file", {})
-            if not validate_bigquery_credentials(dataset_id=dataset_id, key_file=key_file):
+
+            dataset_project = request.data.get("dataset_project", {})
+            dataset_project_id = dataset_project.get("dataset_project_id", None)
+
+            if not validate_bigquery_credentials(
+                dataset_id=dataset_id, key_file=key_file, dataset_project_id=dataset_project_id
+            ):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: BigQuery credentials are incorrect"},
@@ -1616,6 +1622,10 @@ def parse_bigquery_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
     using_temporary_dataset = temporary_dataset.get("enabled", False)
     temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
 
+    dataset_project = payload.get("dataset_project", {})
+    using_custom_dataset_project = dataset_project.get("enabled", False)
+    dataset_project_id = dataset_project.get("dataset_project_id", None)
+
     job_inputs = {
         "dataset_id": dataset_id,
         "project_id": project_id,
@@ -1625,6 +1635,8 @@ def parse_bigquery_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
         "token_uri": token_uri,
         "using_temporary_dataset": using_temporary_dataset,
         "temporary_dataset_id": temporary_dataset_id,
+        "using_custom_dataset_project": using_custom_dataset_project,
+        "dataset_project_id": dataset_project_id,
     }
 
     required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
