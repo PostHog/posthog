@@ -206,8 +206,10 @@ mod tests {
     fn test_session_recording_domain_allowed_with_empty_domains() {
         use axum::http::HeaderMap;
 
-        let mut team = Team::default();
-        team.recording_domains = Some(vec![]);
+        let team = Team {
+            recording_domains: Some(vec![]),
+            ..Team::default()
+        };
 
         let headers = HeaderMap::new();
 

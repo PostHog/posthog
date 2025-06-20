@@ -796,7 +796,7 @@ mod tests {
 
         // Should return config (enabled) when recording_domains is empty list
         if let Some(SessionRecordingField::Config(_)) = result {
-            assert!(true); // Dummy assertion, test passes if we get here
+            // Test passes if we reach this point
         } else {
             panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
         }
@@ -814,7 +814,7 @@ mod tests {
 
         // Should return config (enabled) when recording_domains is empty list
         if let Some(SessionRecordingField::Config(_)) = result {
-            assert!(true); // Dummy assertion, test passes if we get here
+            // Test passes if we reach this point
         } else {
             panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
         }
