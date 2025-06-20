@@ -103,24 +103,6 @@ describe('PersonStoreManager', () => {
         jest.clearAllMocks()
     })
 
-    describe('getPersonStore', () => {
-        it('should return measuring store by default', () => {
-            hub.PERSON_BATCH_WRITING_MODE = 'NONE'
-            manager = new PersonStoreManager(hub, measuringStore, batchStore)
-
-            const store = manager.getPersonStore()
-            expect(store).toBe(measuringStore)
-        })
-
-        it('should return batch store when mode is BATCH', () => {
-            hub.PERSON_BATCH_WRITING_MODE = 'BATCH'
-            manager = new PersonStoreManager(hub, measuringStore, batchStore)
-
-            const store = manager.getPersonStore()
-            expect(store).toBe(batchStore)
-        })
-    })
-
     describe('forBatch', () => {
         it('should return measuring store forBatch by default', () => {
             hub.PERSON_BATCH_WRITING_MODE = 'NONE'
@@ -142,12 +124,22 @@ describe('PersonStoreManager', () => {
             expect(batchStoreForBatch.constructor.name).toBe('BatchWritingPersonsStoreForBatch')
         })
 
-        it('should return PersonStoreManagerForBatch when mode is SHADOW', () => {
+        it('should return PersonStoreManagerForBatch when mode is SHADOW and within shadow mode percentage', () => {
             hub.PERSON_BATCH_WRITING_MODE = 'SHADOW'
+            hub.PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE = 100
             manager = new PersonStoreManager(hub, measuringStore, batchStore)
 
             const shadowStore = manager.forBatch()
             expect(shadowStore).toBeInstanceOf(PersonStoreManagerForBatch)
+        })
+
+        it('should return MeasuringPersonsStoreForBatch when mode is SHADOW and outside shadow mode percentage', () => {
+            hub.PERSON_BATCH_WRITING_MODE = 'SHADOW'
+            hub.PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE = 0
+            manager = new PersonStoreManager(hub, measuringStore, batchStore)
+
+            const shadowStore = manager.forBatch()
+            expect(shadowStore).toBeInstanceOf(MeasuringPersonsStoreForBatch)
         })
     })
 })

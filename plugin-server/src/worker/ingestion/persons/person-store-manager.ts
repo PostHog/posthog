@@ -2,21 +2,13 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
-import {
-    Hub,
-    InternalPerson,
-    PersonBatchWritingMode,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-} from '../../../types'
+import { Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { personShadowModeComparisonCounter } from './metrics'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
-import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 interface PersonUpdate {
@@ -45,41 +37,27 @@ export interface ShadowMetrics {
 }
 
 export class PersonStoreManager {
-    private mode: PersonBatchWritingMode
-
     constructor(
         private hub: Hub,
         private measuringPersonStore: MeasuringPersonsStore,
         private batchWritingPersonStore: BatchWritingPersonsStore
-    ) {
-        if (hub.PERSON_BATCH_WRITING_MODE === 'SHADOW') {
-            // Shadow mode is only applied PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE amount of times (0-100)
-            const random = Math.random() * 100
-            if (random > hub.PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE) {
-                this.mode = 'BATCH'
-            } else {
-                this.mode = 'SHADOW'
-            }
-        } else {
-            this.mode = hub.PERSON_BATCH_WRITING_MODE
-        }
-    }
-
-    getPersonStore(): PersonsStore {
-        if (this.mode === 'BATCH') {
-            return this.batchWritingPersonStore
-        }
-        return this.measuringPersonStore
-    }
+    ) {}
 
     forBatch(): PersonsStoreForBatch {
-        if (this.mode === 'SHADOW') {
+        // Shadow mode is only applied PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE amount of times (0-100)
+        const random = Math.random() * 100
+        if (
+            this.hub.PERSON_BATCH_WRITING_MODE === 'SHADOW' &&
+            random < this.hub.PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE
+        ) {
             return new PersonStoreManagerForBatch(
                 this.measuringPersonStore.forBatch() as MeasuringPersonsStoreForBatch,
                 this.batchWritingPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
             )
+        } else if (this.hub.PERSON_BATCH_WRITING_MODE === 'BATCH') {
+            return this.batchWritingPersonStore.forBatch()
         }
-        return this.getPersonStore().forBatch()
+        return this.measuringPersonStore.forBatch()
     }
 }
 
@@ -88,8 +66,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     private shadowMetrics: ShadowMetrics
 
     constructor(
-        private measuringStore: MeasuringPersonsStoreForBatch,
-        private batchStore: BatchWritingPersonsStoreForBatch
+        private mainStore: MeasuringPersonsStoreForBatch,
+        private secondaryStore: BatchWritingPersonsStoreForBatch
     ) {
         this.shadowMetrics = {
             totalComparisons: 0,
@@ -117,26 +95,26 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
-        return await this.measuringStore.inTransaction(description, transaction)
+        return await this.mainStore.inTransaction(description, transaction)
     }
 
     async fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null> {
-        const measuringResult = await this.measuringStore.fetchForChecking(teamId, distinctId)
-        this.batchStore.setCheckCachedPerson(teamId, distinctId, measuringResult)
-        return measuringResult
+        const mainResult = await this.mainStore.fetchForChecking(teamId, distinctId)
+        this.secondaryStore.setCheckCachedPerson(teamId, distinctId, mainResult)
+        return mainResult
     }
 
     async fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null> {
-        const measuringResult = await this.measuringStore.fetchForUpdate(teamId, distinctId)
+        const mainResult = await this.mainStore.fetchForUpdate(teamId, distinctId)
         // If the batch store doesn't have a cached person for update, set it
-        if (this.batchStore.getCachedPersonForUpdate(teamId, distinctId) === undefined) {
-            this.batchStore.setCachedPersonForUpdate(
+        if (this.secondaryStore.getCachedPersonForUpdate(teamId, distinctId) === undefined) {
+            this.secondaryStore.setCachedPersonForUpdate(
                 teamId,
                 distinctId,
-                measuringResult ? fromInternalPerson(measuringResult, distinctId) : null
+                mainResult ? fromInternalPerson(mainResult, distinctId) : null
             )
         }
-        return measuringResult
+        return mainResult
     }
 
     async createPerson(
@@ -151,7 +129,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        const measuringResult = await this.measuringStore.createPerson(
+        const mainResult = await this.mainStore.createPerson(
             createdAt,
             properties,
             propertiesLastUpdatedAt,
@@ -164,17 +142,20 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             tx
         )
 
-        if (distinctIds && this.batchStore.getCachedPersonForUpdate(teamId, distinctIds![0].distinctId) === undefined) {
-            this.batchStore.setCachedPersonForUpdate(
+        if (
+            distinctIds &&
+            this.secondaryStore.getCachedPersonForUpdate(teamId, distinctIds![0].distinctId) === undefined
+        ) {
+            this.secondaryStore.setCachedPersonForUpdate(
                 teamId,
                 distinctIds[0].distinctId,
-                fromInternalPerson(measuringResult[0], distinctIds![0].distinctId)
+                fromInternalPerson(mainResult[0], distinctIds![0].distinctId)
             )
         }
 
-        this.updateFinalState(teamId, distinctIds![0].distinctId, measuringResult[0], false)
+        this.updateFinalState(teamId, distinctIds![0].distinctId, mainResult[0], false)
 
-        return measuringResult
+        return mainResult
     }
 
     async updatePersonForUpdate(
@@ -184,8 +165,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const [[personResult, kafkaMessages, versionDisparity], _] = await Promise.all([
-            this.measuringStore.updatePersonForUpdate(person, update, distinctId, tx),
-            this.batchStore.updatePersonForUpdate(person, update, distinctId, tx),
+            this.mainStore.updatePersonForUpdate(person, update, distinctId, tx),
+            this.secondaryStore.updatePersonForUpdate(person, update, distinctId, tx),
         ])
 
         this.updateFinalState(person.team_id, distinctId, personResult, versionDisparity)
@@ -199,8 +180,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const [[personResult, kafkaMessages, versionDisparity], _] = await Promise.all([
-            this.measuringStore.updatePersonForMerge(person, update, distinctId, tx),
-            this.batchStore.updatePersonForMerge(person, update, distinctId, tx),
+            this.mainStore.updatePersonForMerge(person, update, distinctId, tx),
+            this.secondaryStore.updatePersonForMerge(person, update, distinctId, tx),
         ])
 
         this.updateFinalState(person.team_id, distinctId, personResult, versionDisparity)
@@ -208,10 +189,10 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
-        const kafkaMessages = await this.measuringStore.deletePerson(person, distinctId, tx)
+        const kafkaMessages = await this.mainStore.deletePerson(person, distinctId, tx)
 
         // Clear cache for the person
-        this.batchStore.clearCache(person.team_id, distinctId)
+        this.secondaryStore.clearCache(person.team_id, distinctId)
         this.updateFinalState(person.team_id, distinctId, null, false)
 
         return kafkaMessages
@@ -223,8 +204,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         version: number,
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
-        const measuringResult = await this.measuringStore.addDistinctId(person, distinctId, version, tx)
-        return measuringResult
+        const mainResult = await this.mainStore.addDistinctId(person, distinctId, version, tx)
+        return mainResult
     }
 
     async moveDistinctIds(
@@ -233,9 +214,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctId: string,
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
-        const measuringResult = await this.measuringStore.moveDistinctIds(source, target, distinctId, tx)
+        const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
 
-        return measuringResult
+        return mainResult
     }
 
     async updateCohortsAndFeatureFlagsForMerge(
@@ -245,7 +226,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctId: string,
         tx?: TransactionClient
     ): Promise<void> {
-        return this.measuringStore.updateCohortsAndFeatureFlagsForMerge(
+        return this.mainStore.updateCohortsAndFeatureFlagsForMerge(
             teamID,
             sourcePersonID,
             targetPersonID,
@@ -255,7 +236,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
-        return this.measuringStore.addPersonlessDistinctId(teamId, distinctId)
+        return this.mainStore.addPersonlessDistinctId(teamId, distinctId)
     }
 
     async addPersonlessDistinctIdForMerge(
@@ -263,11 +244,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctId: string,
         tx?: TransactionClient
     ): Promise<boolean> {
-        return this.measuringStore.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
+        return this.mainStore.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
     }
 
     async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
-        return await this.measuringStore.personPropertiesSize(teamId, distinctId)
+        return await this.mainStore.personPropertiesSize(teamId, distinctId)
     }
 
     getShadowMetrics(): ShadowMetrics {
@@ -275,8 +256,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     reportBatch(): void {
-        this.measuringStore.reportBatch()
-        this.batchStore.reportBatch()
+        this.mainStore.reportBatch()
+        this.secondaryStore.reportBatch()
 
         // Log metrics if available
         if (this.shadowMetrics) {
@@ -349,7 +330,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     compareFinalStates(): void {
-        const batchUpdateCache = this.batchStore.getUpdateCache()
+        const batchUpdateCache = this.secondaryStore.getUpdateCache()
 
         // Initialize metrics
         this.shadowMetrics.totalComparisons = 0
