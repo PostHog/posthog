@@ -48,15 +48,17 @@ export function SummaryTable({
     const {
         experimentId,
         experiment,
-        legacyMetricResults,
-        legacySecondaryMetricResults,
+        legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
         tabularExperimentResults,
         getInsightType,
         experimentMathAggregationForTrends,
         featureFlags,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
-    const result = isSecondary ? legacySecondaryMetricResults?.[metricIndex] : legacyMetricResults?.[metricIndex]
+    const result = isSecondary
+        ? legacySecondaryMetricsResults?.[metricIndex]
+        : legacyPrimaryMetricsResults?.[metricIndex]
     if (!result) {
         return <></>
     }
