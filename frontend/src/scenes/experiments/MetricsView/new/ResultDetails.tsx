@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
+import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
 import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
@@ -130,9 +131,10 @@ export function ResultDetails({
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
             {metric.metric_type === 'funnel' && (
                 <ResultsBreakdown result={result} experiment={experiment}>
-                    {({ query, breakdownResults }) => {
+                    {({ query, breakdownResultsLoading, breakdownResults }) => {
                         return (
                             <>
+                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                 {query && breakdownResults && (
                                     <ResultsQuery query={query} breakdownResults={breakdownResults} />
                                 )}

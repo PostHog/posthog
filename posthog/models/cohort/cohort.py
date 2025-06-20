@@ -352,11 +352,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         # Grab uuids for this batch of distinct IDs
+        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
+        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
+        # don't insert people that are already in the cohort efficiently.
         uuids = [
             str(uuid)
             for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id, id__in=person_ids_qs)
-            .exclude(id__in=CohortPeople.objects.filter(cohort_id=self.id).values_list("person_id", flat=True))
             .values_list("uuid", flat=True)
         ]
 
@@ -392,7 +394,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return self._get_uuids_for_distinct_ids_batch(batch_distinct_ids, team_id)
 
         # Use FunctionBatchIterator to process distinct IDs in batches
-        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size)
+        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
 
         # Call the batching method with ClickHouse insertion enabled
         self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
