@@ -53,13 +53,56 @@ jobs:
                         - webpack.config.js
                         - stylelint*
 
-    frontend-code-quality:
-        name: Code quality checks
+    frontend-linting:
+        name: Linting checks
         needs: changes
-        # kea typegen and typescript:check need some more oomph
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-24.04
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+
+            - name: Check formatting with prettier
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend prettier:check
+
+            - name: Lint with Stylelint
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend lint:css
+
+    frontend-build-and-typegen:
+        name: Build and generate types
+        needs: changes
+        runs-on: depot-ubuntu-24.04-8 # kea typegen needs a lot of oomph
+        steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Install pnpm
@@ -92,14 +135,6 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Check formatting with prettier
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend prettier:check
-
-            - name: Lint with Stylelint
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend lint:css
-
             - name: Build products
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend build:products
@@ -108,11 +143,44 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend typegen:write
 
-            - name: Run typescript with strict
+            - name: Upload frontend build artifacts
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend typescript:check
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
+              uses: actions/upload-artifact@v3
+              with:
+                  name: frontend-build
+                  path: |
+                      frontend/
+                      products/
+                  retention-days: 1
+
+    frontend-eslint:
+        name: ESLint checks
+        needs: [changes, frontend-build-and-typegen]
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Download frontend build artifacts
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/download-artifact@v3
+              with:
+                  name: frontend-build
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
@@ -120,13 +188,34 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
-            - name: Check if "schema.json" is up to date
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+    frontend-toolbar-checks:
+        name: Toolbar checks
+        needs: [changes, frontend-build-and-typegen]
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
-            - name: Check if mobile replay "schema.json" is up to date
+            - name: Download frontend build artifacts
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
+              uses: actions/download-artifact@v3
+              with:
+                  name: frontend-build
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
@@ -142,6 +231,49 @@ jobs:
             - name: Check toolbar for CSP eval violations
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
+
+    frontend-typescript-checks:
+        name: TypeScript and schema checks
+        needs: [changes, frontend-build-and-typegen]
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Download frontend build artifacts
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/download-artifact@v3
+              with:
+                  name: frontend-build
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: 'pnpm'
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+
+            - name: Run typescript with strict
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend typescript:check
+              env:
+                  NODE_OPTIONS: --max-old-space-size=16384
+
+            - name: Check if "schema.json" is up to date
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+
+            - name: Check if mobile replay "schema.json" is up to date
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
 
     jest:
         runs-on: depot-ubuntu-24.04
@@ -188,7 +320,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-code-quality, changes]
+        needs: [jest, frontend-typescript-checks, frontend-linting, frontend-toolbar-checks, frontend-eslint, changes]
         runs-on: depot-ubuntu-24.04
         if: needs.changes.outputs.frontend == 'true'
         steps:
