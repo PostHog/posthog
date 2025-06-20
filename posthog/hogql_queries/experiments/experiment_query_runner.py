@@ -652,8 +652,10 @@ class ExperimentQueryRunner(QueryRunner):
         sorted_results = self._evaluate_experiment_query()
 
         # Check if we should use the new Bayesian method
-        # TODO: use a field in stats_config for this
-        if self.stats_method == "bayesian":
+        use_new_bayesian_method = self.experiment.stats_config and self.experiment.stats_config.get(
+            "use_new_bayesian_method", False
+        )
+        if self.stats_method == "bayesian" and use_new_bayesian_method:
             bayesian_variants = get_new_variant_results(sorted_results)
 
             self._validate_event_variants(bayesian_variants)
