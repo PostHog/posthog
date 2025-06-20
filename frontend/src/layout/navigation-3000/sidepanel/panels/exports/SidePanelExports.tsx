@@ -75,6 +75,9 @@ const ExportsContent = (): JSX.Element => {
                                     {isNotDownloaded && (
                                         <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>
                                     )}
+                                    {asset.export_format === ExporterFormat.CSV && (
+                                        <span className="text-xs text-secondary mt-1"> · 300k row limit</span>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex gap-2 mr-2">
