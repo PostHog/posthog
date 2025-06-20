@@ -211,8 +211,6 @@ export function ItemSelectModal({
                                         checkedItemCount={0}
                                         onFolderClick={(folder, isExpanded) => {
                                             if (folder) {
-                                                // const folderPath = includeProtocol ? folder.id : folder.record?.path ?? ''
-
                                                 if (includeProtocol) {
                                                     toggleFolderOpen(folder.id, isExpanded)
                                                 } else {
