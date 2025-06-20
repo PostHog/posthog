@@ -268,6 +268,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 onClick={() => {
                                                     void (async () => {
+                                                        // We do not want to duplicate the dashboard filters that might be included in this insight
+                                                        // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
+                                                        // irreversibly in apply_dashboard_filters and return that to the front-end
                                                         if (insight.short_id) {
                                                             const cleanInsight = await insightsApi.getByShortId(
                                                                 insight.short_id
@@ -277,6 +280,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                                 return
                                                             }
                                                         }
+                                                        // Fallback to original behavior if load failed
                                                         duplicateInsight(insight as QueryBasedInsightModel, true)
                                                     })()
                                                 }}
@@ -387,9 +391,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         className="px-2 py-1"
                                         checked={showQueryEditor}
                                         onChange={() => {
+                                            // for an existing insight in view mode
                                             if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                // enter edit mode
                                                 setInsightMode(ItemMode.Edit, null)
 
+                                                // exit early if query editor doesn't need to be toggled
                                                 if (showQueryEditor) {
                                                     return
                                                 }
@@ -510,7 +517,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 placeholder="Description (optional)"
                                 onSave={(value) => setInsightMetadata({ description: value })}
                                 saveOnBlur={true}
-                                maxLength={400}
+                                maxLength={400} // Sync with Insight model
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
@@ -546,7 +553,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     </>
                 }
-                tabbedPage={insightMode === ItemMode.Edit}
+                tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
         </>
     )
