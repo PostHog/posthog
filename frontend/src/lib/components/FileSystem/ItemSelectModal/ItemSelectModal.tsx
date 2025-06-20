@@ -112,7 +112,7 @@ export function ItemSelectModal({
                         <LemonButton
                             type="primary"
                             onClick={submitForm}
-                            data-attr="move-to-modal-move-button"
+                            data-attr="item-select-modal-add-button"
                             disabledReason={!selectedItem ? 'Please select an item' : undefined}
                         >
                             Add {selectedItem?.displayName || selectedItem?.name}
