@@ -99,7 +99,11 @@ describe('BatchWritingPersonStore', () => {
             { properties: { new_value: 'new_value' } },
             'test'
         )
-        expect(response).toEqual([{ ...person, version: 1, properties: { test: 'test', new_value: 'new_value' } }, []])
+        expect(response).toEqual([
+            { ...person, version: 1, properties: { test: 'test', new_value: 'new_value' } },
+            [],
+            false,
+        ])
 
         // Validate cache - should contain a PersonUpdate object
         const cache = (personStoreForBatch as any)['personUpdateCache']

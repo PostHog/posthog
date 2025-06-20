@@ -154,6 +154,7 @@ export type IngestionConsumerConfig = {
  * WITH_TRANSACTION: Use SELECT FOR UPDATE in transaction to get the latest version of the person (locks the row)
  */
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION' | 'WITH_TRANSACTION'
+export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
@@ -164,8 +165,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     PERSON_CACHE_ENABLED_FOR_UPDATES: boolean // whether to cache persons for fetchForUpdate calls
     PERSON_CACHE_ENABLED_FOR_CHECKS: boolean // whether to cache persons for fetchForChecking calls
-    PERSON_BATCH_WRITING_ENABLED: boolean // whether to batch write persons Postgres updates/inserts
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode // the mode of db batch writes to use for person batch writing
+    PERSON_BATCH_WRITING_MODE: PersonBatchWritingMode // whether to batch write persons Postgres updates/inserts
+    PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: number // percentage of person batches to use shadow mode for
+    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean // whether to use optimistic updates for persons table
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to persons table per batch
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
