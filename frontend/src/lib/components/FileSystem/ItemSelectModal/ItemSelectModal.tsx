@@ -1,7 +1,6 @@
 import { IconFolder, IconFolderOpen } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { SelectedFolder } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -20,10 +19,6 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { itemSelectModalLogic } from './itemSelectModalLogic'
 
 export interface ItemSelectModalProps {
-    /** The folder to select */
-    value?: string
-    /** Callback when a folder is selected */
-    onChange?: (selectedFolder: SelectedFolder) => void
     /** Class name for the component */
     className?: string
     /** Include "products://" in the final path */

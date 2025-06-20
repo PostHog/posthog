@@ -11,13 +11,8 @@ import type { itemSelectModalLogicType } from './itemSelectModalLogicType'
 export const itemSelectModalLogic = kea<itemSelectModalLogicType>([
     path(['lib', 'components', 'FileSystem', 'ItemSelectModal', 'itemSelectModalLogic']),
     connect(() => ({
-        values: [
-            projectTreeDataLogic,
-            ['lastNewFolder', 'projectTreeRef', 'projectTreeRefEntry'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-        actions: [projectTreeDataLogic, ['setLastNewFolder', 'moveItem', 'addShortcutItem']],
+        values: [featureFlagLogic, ['featureFlags']],
+        actions: [projectTreeDataLogic, ['addShortcutItem']],
     })),
     actions({
         openItemSelectModal: true,
