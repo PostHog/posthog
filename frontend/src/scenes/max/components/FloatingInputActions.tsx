@@ -19,9 +19,8 @@ export function FloatingInputActions({
     onCollapse,
     isThreadVisible,
 }: FloatingInputActionsProps): JSX.Element {
-    const { setShowSuggestions, setActiveGroup } = useActions(maxLogic)
+    const { setShowSuggestions, setActiveGroup, startNewConversation } = useActions(maxLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
-    const { startNewConversation } = useActions(maxLogic)
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
 
     return (
