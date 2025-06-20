@@ -16,6 +16,7 @@ import {
 } from '../constants'
 import { ToolbarNode } from '../Toolbar'
 import type { HogFlow, HogFlowAction } from '../types'
+import { DROPZONE_NODE_TYPES } from './Nodes'
 
 type NodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
@@ -133,8 +134,8 @@ export const HogFlowActionManager = {
         return newNodes as Node<HogFlowAction>[]
     },
 
-    getNodesFromHogFlow(hogFlow: HogFlow): Node<HogFlowAction>[] {
-        return hogFlow.actions
+    getReactFlowFromHogFlow(hogFlow: HogFlow): { nodes: Node<HogFlowAction>[]; edges: Edge[] } {
+        const nodes = hogFlow.actions
             .map((action: HogFlowAction) => HogFlowActionManager.fromAction(action))
             .map((hogFlowAction: BaseNode<HogFlowAction['type']>) => {
                 return {
@@ -146,10 +147,7 @@ export const HogFlowActionManager = {
                     ...getDefaultNodeOptions(['trigger', 'exit'].includes(hogFlowAction.action.type)),
                 }
             })
-    },
-
-    getEdgesFromHogFlow(hogFlow: HogFlow): Edge[] {
-        return hogFlow.actions.flatMap((action: HogFlowAction) =>
+        const edges = hogFlow.actions.flatMap((action: HogFlowAction) =>
             Object.entries(action.next_actions).map(([branch, next_action]) => ({
                 id: `${branch}_${action.id}->${next_action.action_id}`,
                 label: next_action.label,
@@ -160,6 +158,92 @@ export const HogFlowActionManager = {
                 ...getDefaultEdgeOptions(),
             }))
         )
+
+        return { nodes, edges }
+    },
+
+    findIntersectingDropzone(
+        event: React.DragEvent,
+        screenToFlowPosition: (position: { x: number; y: number }) => { x: number; y: number },
+        getIntersectingNodes: (
+            rect: { x: number; y: number; width: number; height: number },
+            partial?: boolean
+        ) => Node[]
+    ): Node<{ edge: Edge }> | undefined {
+        const position = screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+        })
+        const intersectingNodes = getIntersectingNodes(
+            // an arbitrary rect to use for intersection detection
+            {
+                x: position.x,
+                y: position.y,
+                width: 10,
+                height: 10,
+            },
+            true // enable partial intersections
+        )
+
+        const intersectingDropzoneNode = intersectingNodes.find((node) => DROPZONE_NODE_TYPES.includes(node.type || ''))
+        return intersectingDropzoneNode as Node<{ edge: Edge }> | undefined
+    },
+
+    deleteActions(deleted: Node<HogFlowAction>[], hogFlow: HogFlow): HogFlowAction[] {
+        // Get the nodes that are incoming to the deleted nodes, and connect them to their deleted nodes' continue next action
+        const deletedNodeIds = deleted.map((node) => node.id)
+        return hogFlow.actions
+            .filter((action) => !deletedNodeIds.includes(action.id))
+            .map((action) => {
+                // For each action, update its next_actions to skip deleted nodes
+                const updatedNextActions: Record<string, { action_id: string; label?: string }> = {}
+
+                Object.entries(action.next_actions).forEach(([branch, nextAction]) => {
+                    if (deletedNodeIds.includes(nextAction.action_id)) {
+                        // Find the deleted node's continue action and use that instead
+                        const deletedNode = hogFlow.actions.find((a) => a.id === nextAction.action_id)
+                        if (deletedNode?.next_actions.continue) {
+                            updatedNextActions[branch] = {
+                                action_id: deletedNode.next_actions.continue.action_id,
+                                label:
+                                    action.type === deletedNode.type
+                                        ? deletedNode.next_actions.continue.label
+                                        : undefined,
+                            }
+                        }
+                    } else {
+                        updatedNextActions[branch] = nextAction
+                    }
+                })
+
+                return {
+                    ...action,
+                    next_actions: updatedNextActions,
+                }
+            })
+    },
+
+    highlightDropzoneNodes(
+        nodes: Node<HogFlowAction>[],
+        event: React.DragEvent,
+        screenToFlowPosition: (position: { x: number; y: number }) => { x: number; y: number },
+        getIntersectingNodes: (
+            rect: { x: number; y: number; width: number; height: number },
+            partial?: boolean
+        ) => Node[]
+    ): Node<HogFlowAction>[] {
+        const intersectingDropzone = this.findIntersectingDropzone(event, screenToFlowPosition, getIntersectingNodes)
+
+        return nodes.map((nd) => {
+            if (!DROPZONE_NODE_TYPES.includes(nd.type || '')) {
+                return nd
+            }
+            return { ...nd, type: nd.id === intersectingDropzone?.id ? 'dropzone_highlighted' : 'dropzone' }
+        })
+    },
+
+    removeDropzoneNodes(nodes: Node<HogFlowAction>[]): Node<HogFlowAction>[] {
+        return nodes.filter((nd) => !DROPZONE_NODE_TYPES.includes(nd.type || ''))
     },
 }
 
