@@ -104,20 +104,14 @@ class JSONLStreamTransformer:
                         self._semaphore.release()
                         self._futures_pending.remove(future)
 
-                        while chunk:
-                            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                                remaining = max_file_size_bytes - current_file_size
-                                smaller_chunk, chunk = chunk[:remaining], chunk[remaining:]
+                        yield Chunk(chunk, False)
 
-                                yield Chunk(smaller_chunk, False)
-                                yield Chunk(b"", True)
+                        if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                            yield Chunk(b"", True)
+                            current_file_size = 0
 
-                                current_file_size = 0
-
-                            else:
-                                yield Chunk(chunk, False)
-                                current_file_size += len(chunk)
-                                chunk = b""
+                        else:
+                            current_file_size += len(chunk)
 
     @contextlib.asynccontextmanager
     async def _record_batches_producer(
@@ -198,21 +192,16 @@ class JSONLBrotliStreamTransformer:
                         chunk = self._compress(chunk)
                         await asyncio.sleep(0)  # In case compressing took too long.
 
-                        while chunk:
-                            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                                remaining = max_file_size_bytes - current_file_size
-                                smaller_chunk, chunk = chunk[:remaining], chunk[remaining:]
+                        yield Chunk(chunk, False)
 
-                                yield Chunk(smaller_chunk, False)
+                        if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                            data = await asyncio.to_thread(self._finish_brotli_compressor)
 
-                                data = await asyncio.to_thread(self._finish_brotli_compressor)
+                            yield Chunk(data, True)
+                            current_file_size = 0
 
-                                yield Chunk(data, True)
-                                current_file_size = 0
-                            else:
-                                yield Chunk(chunk, False)
-                                current_file_size += len(chunk)
-                                chunk = b""
+                        else:
+                            current_file_size += len(chunk)
 
         data = self._finish_brotli_compressor()
         await asyncio.sleep(0)
@@ -389,22 +378,16 @@ class ParquetStreamTransformer:
         async for record_batch in record_batches:
             chunk = await asyncio.to_thread(self.write_record_batch, record_batch)
 
-            while chunk:
-                if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                    remaining = max_file_size_bytes - current_file_size
-                    smaller_chunk, chunk = chunk[:remaining], chunk[remaining:]
+            yield Chunk(chunk, False)
 
-                    yield Chunk(smaller_chunk, False)
+            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                footer = await asyncio.to_thread(self.finish_parquet_file)
 
-                    footer = await asyncio.to_thread(self.finish_parquet_file)
+                yield Chunk(footer, True)
+                current_file_size = 0
 
-                    yield Chunk(footer, True)
-                    current_file_size = 0
-
-                else:
-                    yield Chunk(chunk, False)
-                    current_file_size += len(chunk)
-                    chunk = b""
+            else:
+                current_file_size += len(chunk)
 
         footer = await asyncio.to_thread(self.finish_parquet_file)
         yield Chunk(footer, True)
