@@ -15,7 +15,7 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-small
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
@@ -89,6 +89,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
