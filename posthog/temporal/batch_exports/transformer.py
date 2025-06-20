@@ -14,7 +14,6 @@ import pyarrow.parquet as pq
 import structlog
 from django.conf import settings
 
-
 logger = structlog.get_logger()
 
 
@@ -235,38 +234,47 @@ class JSONLStreamTransformer(StreamTransformer):
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
             producer_task = asyncio.create_task(producer(executor))
 
-            while True:
-                try:
-                    done, _ = await asyncio.wait(futures_pending, return_when=asyncio.FIRST_COMPLETED)
-                except ValueError:
-                    if producer_task.done():
-                        if exception := producer_task.exception():
-                            raise exception
-                        else:
-                            break
+            try:
+                while True:
+                    try:
+                        done, _ = await asyncio.wait(futures_pending, return_when=asyncio.FIRST_COMPLETED)
+                    except ValueError:
+                        if producer_task.done():
+                            if exception := producer_task.exception():
+                                raise exception
+                            else:
+                                break
 
-                    await asyncio.sleep(0)
-                    continue
+                        await asyncio.sleep(0)
+                        continue
 
-                for future in done:
-                    chunks = await future
-                    semaphore.release()
-                    futures_pending.remove(future)
+                    for future in done:
+                        chunks = await future
+                        semaphore.release()
+                        futures_pending.remove(future)
 
-                    for chunk in chunks:
-                        yield (chunk, False)
+                        for chunk in chunks:
+                            yield (chunk, False)
 
-                        current_file_size += len(chunk)
+                            current_file_size += len(chunk)
 
-                        if max_file_size_bytes and current_file_size > max_file_size_bytes:
-                            for chunk in self.finalize():
-                                yield (chunk, False)
+                            if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                                for chunk in self.finalize():
+                                    yield (chunk, False)
 
-                            yield (b"", True)
-                            current_file_size = 0
+                                yield (b"", True)
+                                current_file_size = 0
 
-            for chunk in self.finalize():
-                yield (chunk, False)
+                for chunk in self.finalize():
+                    yield (chunk, False)
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
+
+                    try:
+                        await producer_task
+                    except asyncio.CancelledError:
+                        pass
 
 
 class ParquetStreamTransformer(StreamTransformer):
