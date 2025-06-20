@@ -197,7 +197,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     } else {
         HashMap::new()
     };
-    
+
     // Always add distinct_id to person properties to match Python implementation
     // This allows flags to filter on distinct_id even when no other person properties exist
     all_person_properties.insert(
