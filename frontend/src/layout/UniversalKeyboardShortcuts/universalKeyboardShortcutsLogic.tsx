@@ -70,12 +70,18 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
                 actions.showKeyboardShortcuts(false)
             }
         }
+
+        // Hide keyboard shortcuts when the window is blurred
+        cache.onBlur = () => actions.showKeyboardShortcuts(false)
+
         window.addEventListener('keydown', cache.onKeyDown)
         window.addEventListener('keyup', cache.onKeyUp)
+        window.addEventListener('blur', cache.onBlur)
     }),
     beforeUnmount(({ cache }) => {
         // unregister keyboard shortcuts
         window.removeEventListener('keydown', cache.onKeyDown)
         window.removeEventListener('keyup', cache.onKeyUp)
+        window.removeEventListener('blur', cache.onBlur)
     }),
 ])
