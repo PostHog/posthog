@@ -475,7 +475,7 @@ async def materialize_model(
             await mark_job_as_failed(job, error_message, logger)
 
             raise CannotCoerceColumnException(
-                f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision exceeding Delta Lake limits (max 38 precision, 18 scale)."
+                f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
