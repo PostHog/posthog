@@ -40,7 +40,7 @@ DLT_TO_PA_TYPE_MAP = {
 }
 
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
-DEFAULT_NUMERIC_SCALE = 18  # Delta Lake maximum scale
+DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
