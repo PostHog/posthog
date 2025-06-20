@@ -9,7 +9,6 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         setShowAsText: (showAsText: boolean) => ({ showAsText }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
         setLoading: (loading: boolean) => ({ loading }),
-        setShowFixModal: (showFixModal: boolean) => ({ showFixModal }),
     }),
 
     reducers({
@@ -29,12 +28,6 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             true,
             {
                 setLoading: (_, { loading }: { loading: boolean }) => loading,
-            },
-        ],
-        showFixModal: [
-            false,
-            {
-                setShowFixModal: (_, { showFixModal }: { showFixModal: boolean }) => showFixModal,
             },
         ],
     }),
