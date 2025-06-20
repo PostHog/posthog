@@ -148,9 +148,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
-        modifiers = HogQLQueryModifiers(
-            **self.DEFAULT_MODIFIERS,
-            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.ID,
+        modifiers = self.DEFAULT_MODIFIERS.model_copy(
+            update={"revenueAnalyticsPersonsJoinMode": RevenueAnalyticsPersonsJoinMode.ID}
         )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
@@ -178,10 +177,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_email_join(self):
         self.setup_schema_sources()
-
-        modifiers = HogQLQueryModifiers(
-            **self.DEFAULT_MODIFIERS,
-            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.EMAIL,
+        modifiers = self.DEFAULT_MODIFIERS.model_copy(
+            update={"revenueAnalyticsPersonsJoinMode": RevenueAnalyticsPersonsJoinMode.EMAIL}
         )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
@@ -217,10 +214,11 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_custom_join(self):
         self.setup_schema_sources()
-        modifiers = HogQLQueryModifiers(
-            **self.DEFAULT_MODIFIERS,
-            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.CUSTOM,
-            revenueAnalyticsPersonsJoinModeCustom="id",
+        modifiers = self.DEFAULT_MODIFIERS.model_copy(
+            update={
+                "revenueAnalyticsPersonsJoinMode": RevenueAnalyticsPersonsJoinMode.CUSTOM,
+                "revenueAnalyticsPersonsJoinModeCustom": "id",
+            }
         )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
@@ -256,9 +254,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
         self.setup_schema_sources()
-        modifiers = HogQLQueryModifiers(
-            **self.DEFAULT_MODIFIERS,
-            revenueAnalyticsPersonsJoinMode=RevenueAnalyticsPersonsJoinMode.EMAIL,
+        modifiers = self.DEFAULT_MODIFIERS.model_copy(
+            update={"revenueAnalyticsPersonsJoinMode": RevenueAnalyticsPersonsJoinMode.EMAIL}
         )
 
         # Person has several distinct IDs, but only one of them can be matched from the customer table

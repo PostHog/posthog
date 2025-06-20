@@ -446,6 +446,8 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return all(self.visit(arg) for arg in node.exprs)
 
     def visit_window_function(self, node: ast.WindowFunction) -> bool:
+        if not node.exprs:
+            return False
         return all(self.visit(arg) for arg in node.exprs)
 
 

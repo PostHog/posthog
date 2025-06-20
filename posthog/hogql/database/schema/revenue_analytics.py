@@ -1,3 +1,4 @@
+from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
@@ -57,23 +58,23 @@ def select_from_revenue_analytics_table(
     )
 
     if not context.database:
-        return ast.SelectQuery.empty(columns=REVENUE_ANALYTICS_FIELDS.keys())
+        return ast.SelectQuery.empty(columns=list(REVENUE_ANALYTICS_FIELDS.keys()))
 
     selects = revenue_selects_from_database(context.database)
     customer_selects: list[ast.SelectQuery] = [
-        selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY]
+        cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
         for selects in selects.values()
         if selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
     ]
 
     invoice_item_selects: list[ast.SelectQuery] = [
-        selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY]
+        cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY])
         for selects in selects.values()
         if selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY] is not None
     ]
 
     if not customer_selects or not invoice_item_selects:
-        return ast.SelectQuery.empty(columns=REVENUE_ANALYTICS_FIELDS.keys())
+        return ast.SelectQuery.empty(columns=list(REVENUE_ANALYTICS_FIELDS.keys()))
 
     customer_table = ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
     invoice_item_table = ast.SelectSetQuery.create_from_queries(invoice_item_selects, set_operator="UNION ALL")
