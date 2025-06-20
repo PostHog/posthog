@@ -453,6 +453,7 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
+    use crate::sanitize_string;
 
     #[test]
     fn it_replaces_null_characters() {
