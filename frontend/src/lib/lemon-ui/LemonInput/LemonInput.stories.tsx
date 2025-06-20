@@ -1,5 +1,6 @@
 import { IconCalendar, IconChevronDown } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { userEvent } from '@storybook/testing-library'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 
@@ -41,6 +42,13 @@ WithPrefixAndSuffixAction.args = {
 
 export const DisabledWithReason: Story = Template.bind({})
 DisabledWithReason.args = { disabledReason: "You're not cool enough to click this." }
+DisabledWithReason.play = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const inputWrapper = canvasElement.querySelector('.LemonInput')
+    if (inputWrapper) {
+        await userEvent.hover(inputWrapper)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+}
 
 export const Search: Story = Template.bind({})
 Search.args = { type: 'search', placeholder: 'Search your soul' }
