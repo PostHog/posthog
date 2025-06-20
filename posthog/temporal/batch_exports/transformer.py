@@ -25,7 +25,7 @@ class Chunk(typing.NamedTuple):
     is_eof: bool
 
 
-class Transformer(typing.Protocol):
+class _TransformerProtocol(typing.Protocol):
     """Transformer protocol iterating record batches into chunks of bytes."""
 
     async def iter(
@@ -35,7 +35,7 @@ class Transformer(typing.Protocol):
 
 def get_stream_transformer(
     format: str, compression: str | None = None, schema: pa.Schema | None = None, include_inserted_at: bool = False
-) -> Transformer:
+) -> _TransformerProtocol:
     match format.lower():
         case "jsonlines" if compression != "brotli":
             return JSONLStreamTransformer(compression=compression, include_inserted_at=include_inserted_at)
