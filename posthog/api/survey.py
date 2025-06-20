@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, UTC
 import re
 from typing import Any, cast, TypedDict
 from urllib.parse import urlparse
+import json
 
 import nh3
 import posthoganalytics
@@ -18,6 +19,7 @@ from nanoid import generate
 from rest_framework import request, serializers, status, viewsets, exceptions, filters
 from rest_framework.request import Request
 from rest_framework.response import Response
+from django.shortcuts import render
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
@@ -1430,6 +1432,80 @@ def surveys(request: Request, survey_id: str | None = None):
 
     # Return all surveys (existing behavior)
     return cors_response(request, JsonResponse(get_surveys_response(team)))
+
+
+@csrf_exempt
+def public_survey_page(request, survey_id: str):
+    """
+    Server-side rendered public survey page
+    """
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
+    try:
+        survey = Survey.objects.select_related("team", "linked_flag", "targeting_flag", "internal_targeting_flag").get(
+            id=survey_id
+        )
+    except Survey.DoesNotExist:
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey Not Found",
+                "error_message": "This survey could not be found.",
+            },
+            status=404,
+        )
+
+    # Check if survey is archived
+    if survey.archived:
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey Unavailable",
+                "error_message": "This survey is no longer available.",
+            },
+            status=404,
+        )
+
+    # Only full_screen surveys can be accessed publicly
+    is_shareable = survey.is_publicly_shareable or False
+    if is_shareable is False:
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey Not Available",
+                "error_message": "This survey is not available for public access.",
+            },
+            status=403,
+        )
+
+    # Get the team from the survey
+    team = survey.team
+
+    # Only send minimal data needed for PostHog SDK initialization
+    project_config = {
+        "api_host": request.build_absolute_uri("/").rstrip("/"),
+        "token": team.api_token,
+        "survey_id": str(survey.id),
+    }
+
+    # Add ui_host if the team has reverse proxy setup
+    if hasattr(team, "ui_host") and team.ui_host:
+        project_config["ui_host"] = team.ui_host
+
+    context = {
+        "survey": {
+            "id": str(survey.id),
+            "name": survey.name,
+        },
+        "project_config_json": json.dumps(project_config),
+        "debug": settings.DEBUG,
+    }
+
+    return render(request, "surveys/public_survey.html", context)
 
 
 @contextmanager

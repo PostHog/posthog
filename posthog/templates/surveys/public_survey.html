@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ survey.name }}</title>
+    <meta name="description" content="Take our survey: {{ survey.name }}">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .survey-title {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            color: #333;
+        }
+
+        .survey-description {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .survey-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #333;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Hide the loading message once PostHog survey is rendered */
+        .survey-container:has(.ph-survey) .loading {
+            display: none;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem 0.5rem;
+            }
+
+            .header {
+                padding: 1.5rem;
+            }
+
+            .survey-title {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="survey-title">{{ survey.name }}</h1>
+            <p class="survey-description">Please take a moment to share your feedback</p>
+        </div>
+
+        <div class="survey-container" id="posthog-survey-container">
+            <div class="loading">
+                <div class="loading-spinner"></div>
+                Loading survey...
+            </div>
+        </div>
+    </div>
+
+    <!-- PostHog JavaScript -->
+    <script>
+        // Project configuration from Django context
+        window.projectConfig = {{ project_config_json | safe }};
+
+        // Load PostHog from CDN
+        !function (t, e) { var o, n, p, r; e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) { function g(t, e) { var o = e.split("."); 2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () { t.push([e].concat(Array.prototype.slice.call(arguments, 0))) } } (p = t.createElement("script")).type = "text/javascript", p.crossOrigin = "anonymous", p.async = !0, p.src = s.api_host.replace(".i.posthog.com", "-assets.i.posthog.com") + "/static/array.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r); var u = e; for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) { var e = "posthog"; return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e }, u.people.toString = function () { return u.toString(1) + ".people (stub)" }, o = "init Ie Ts Ms Ee Es Rs capture Ge calculateEventProperties Os register register_once register_for_session unregister unregister_for_session js getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Ds Fs createPersonProfile Ls Ps opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Cs debug I As getPageViewId captureTraceFeedback captureTraceMetric".split(" "), n = 0; n < o.length; n++)g(u, o[n]); e._i.push([i, s, a]) }, e.__SV = 1) }(document, window.posthog || []);
+
+        // Initialize PostHog with project configuration
+        const config = {
+            api_host: window.projectConfig.api_host,
+            disable_popup_surveys: true,
+            debug: true,
+            advanced_disable_toolbar_metrics: true
+        };
+
+        // Add ui_host if available (for reverse proxy setups)
+        if (window.projectConfig.ui_host) {
+            config.ui_host = window.projectConfig.ui_host;
+        }
+
+        posthog.init(window.projectConfig.token, config);
+
+        posthog.onSurveysLoaded(() => {
+            // Once PostHog is loaded, render the survey
+            console.log('PostHog loaded, rendering survey id: ', window.projectConfig.survey_id);
+            try {
+                posthog.renderSurvey(window.projectConfig.survey_id, '#posthog-survey-container');
+            } catch (error) {
+                console.error('Error rendering survey:', error);
+                document.getElementById('posthog-survey-container').innerHTML =
+                    '<div style="text-align: center; padding: 2rem; color: #666;">Sorry, there was an error loading this survey.</div>';
+            }
+        });
+
+    </script>
+</body>
+
+</html>
