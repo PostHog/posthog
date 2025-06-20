@@ -239,7 +239,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest-8' || 'ubuntu-latest' }}
 
         strategy:
             fail-fast: false
@@ -249,8 +249,8 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [20]
-                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+                concurrency: [5]
+                group: [1, 2, 3, 4, 5]
                 include:
                     - segment: 'Core'
                       person-on-events: true
