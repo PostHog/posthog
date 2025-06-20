@@ -22,7 +22,7 @@ RS_SVC="$1"
 case "$RS_SVC" in
   property-defs-rs)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS=localhost:9092
     export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
@@ -32,6 +32,35 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  capture)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export ADDRESS=0.0.0.0:3303 # avoid port conflict in local dev
+    export KAFKA_HOSTS=localhost:9092
+    export REDIS_URL=redis://localhost:6379
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export CAPTURE_MODE=events
+    export LOG_LEVEL=debug
+    export DEBUG=1
+    ;;
+
+  capture-replay)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export ADDRESS=0.0.0.0:3306 # avoid port conflict in local dev
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=session_recording_snapshot_item_events
+    export KAFKA_OVERFLOW_TOPIC=session_recording_snapshot_item_overflow
+    export REDIS_URL=redis://localhost:6379
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export CAPTURE_MODE=recordings
+    export LOG_LEVEL=debug
+    export DEBUG=1
+    export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
+    ;;
+
   cymbal)
     # NOTE: to ensure the exceptions topic exists and avoid crash loops in dev:
     # cd rust
@@ -39,7 +68,7 @@ case "$RS_SVC" in
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_CONSUMER_GROUP=cymbal
-    export KAFKA_CONSUMER_TOPIC=exception_symbolification_events
+    export KAFKA_CONSUMER_TOPIC=exceptions_ingestion
     export OBJECT_STORAGE_BUCKET=posthog
     export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
     export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
@@ -78,6 +107,13 @@ case "$RS_SVC" in
     exit 1
     ;;
 esac
+
+# in some cases, we need to run the same underlying binary
+# with different configuration - if a given RS_SVC config
+# above sets the override env var, apply it here
+if [[ -n "${DEV_RUST_SVC_OVERRIDE:-}" ]]; then
+  export RS_SVC="$DEV_RUST_SVC_OVERRIDE"
+fi
 
 # ensure Rust services are in scope for "cargo run --bin <SERVICE_NAME>"
 cd rust

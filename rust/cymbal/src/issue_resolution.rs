@@ -397,7 +397,7 @@ async fn send_internal_event(
             event
                 .insert_prop(
                     "assignee",
-                    json!({"type": "user", "id": user_id.to_string()}),
+                    json!({"type": "user", "id": user_id}).to_string(),
                 )
                 .expect("Strings are serializable");
         }
@@ -405,7 +405,7 @@ async fn send_internal_event(
             event
                 .insert_prop(
                     "assignee",
-                    json!({"type": "user_group", "id": group_id.to_string()}),
+                    json!({"type": "user_group", "id": group_id.to_string()}).to_string(),
                 )
                 .expect("Strings are serializable");
         }
@@ -413,7 +413,7 @@ async fn send_internal_event(
             event
                 .insert_prop(
                     "assignee",
-                    json!({"type": "role", "id": role_id.to_string()}),
+                    json!({"type": "role", "id": role_id.to_string()}).to_string(),
                 )
                 .expect("Strings are serializable");
         }

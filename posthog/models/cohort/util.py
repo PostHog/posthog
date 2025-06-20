@@ -310,7 +310,6 @@ def recalculate_cohortpeople(
     for team in relevant_teams:
         _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, initiating_user_id=initiating_user_id)
         count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
-
         count_by_team_id[team.id] = count or 0
 
     return count_by_team_id[cohort.team_id]
@@ -318,7 +317,7 @@ def recalculate_cohortpeople(
 
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
-):
+) -> int:
     tag_queries(team_id=team.id)
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
@@ -348,7 +347,7 @@ def _recalculate_cohortpeople_for_team_hogql(
     tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL")
     hogql_global_settings = HogQLGlobalSettings()
 
-    sync_execute(
+    return sync_execute(
         recalculate_cohortpeople_sql,
         {
             **cohort_params,

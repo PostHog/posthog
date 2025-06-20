@@ -1,9 +1,10 @@
-import { IconBox, IconBrackets, IconDocument, IconList } from '@posthog/icons'
-import { LemonCard } from '@posthog/lemon-ui'
+import { IconBox, IconBrackets, IconDocument, IconList, IconMagicWand } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
 import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { ErrorEventType } from 'lib/components/Errors/types'
+import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
@@ -19,10 +20,21 @@ import { ContextDisplay } from '../ContextDisplay'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
 import { ToggleButtonPrimitive } from '../ToggleButton/ToggleButton'
 import { exceptionCardLogic } from './exceptionCardLogic'
+import { FixModal } from './FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from './Stacktrace/StacktraceGenericDisplay'
 import { StacktraceJsonDisplay } from './Stacktrace/StacktraceJsonDisplay'
 import { StacktraceTextDisplay } from './Stacktrace/StacktraceTextDisplay'
+
+// Helper function to check if any exception has resolved stack frames
+function hasResolvedStackFrames(exceptionList: ErrorTrackingException[]): boolean {
+    return exceptionList.some((exception) => {
+        if (exception.stacktrace?.type === 'resolved' && exception.stacktrace?.frames) {
+            return exception.stacktrace.frames.some((frame) => frame.resolved)
+        }
+        return false
+    })
+}
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
@@ -63,8 +75,11 @@ export function ExceptionCard({ issue, issueLoading, label, event, eventLoading 
 }
 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
-    const { loading, showContext, isExpanded } = useValues(exceptionCardLogic)
-    const { properties, exceptionAttributes, additionalProperties, sessionId } = useValues(errorPropertiesLogic)
+    const { loading, showContext, isExpanded, showFixModal } = useValues(exceptionCardLogic)
+    const { setShowFixModal } = useActions(exceptionCardLogic)
+    const { properties, exceptionAttributes, additionalProperties, sessionId, exceptionList } =
+        useValues(errorPropertiesLogic)
+    const showFixButton = hasResolvedStackFrames(exceptionList)
     return (
         <LemonCard hoverEffect={false} className="group py-2 px-3 relative overflow-hidden">
             <Collapsible isExpanded={isExpanded} className="pb-1 flex w-full" minHeight="calc(var(--spacing) * 12)">
@@ -91,6 +106,17 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                 </div>
                 <ExceptionCardActions>
                     {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
+                    {showFixButton && (
+                        <LemonButton
+                            icon={<IconMagicWand />}
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => setShowFixModal(true)}
+                            tooltip="Generate AI prompt to fix this error"
+                        >
+                            Fix
+                        </LemonButton>
+                    )}
                     <ViewRecordingButton
                         sessionId={sessionId}
                         timestamp={timestamp ?? undefined}
@@ -102,6 +128,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                     />
                 </ExceptionCardActions>
             </div>
+            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} />
         </LemonCard>
     )
 }
