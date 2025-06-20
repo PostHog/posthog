@@ -1,5 +1,4 @@
 name: Plugin Server CI
-
 on:
     pull_request:
     push:
@@ -112,6 +111,7 @@ jobs:
                   else
                       echo "✅ Build is valid - failed as expected without module errors"
                   fi
+
     tests:
         name: Plugin Server Tests (${{matrix.shard}}/3)
         needs: changes
@@ -233,3 +233,15 @@ jobs:
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
               run: bin/turbo run test --filter=@posthog/plugin-server
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.plugin-server == 'true'
+        needs: [tests, build, code-quality] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}
