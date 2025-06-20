@@ -47,9 +47,12 @@ export const universalKeyboardShortcutsLogic = kea<universalKeyboardShortcutsLog
     afterMount(({ actions, values, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if (event.shiftKey && event.metaKey) {
+            if (event.shiftKey && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault()
                 actions.showKeyboardShortcuts(true)
+
+                // We use & store 'command' instead of 'meta'/'ctrl' because it's more consistent with the rest of the app
+                // 'ctrl' is supported as functional keybind, just not here for comparison purposes
                 const keybind = [`command`, `shift`, `${event.key}`]
 
                 const thisRegisteredKeyboardShortcut = values.registeredKeyboardShortcuts.find(
