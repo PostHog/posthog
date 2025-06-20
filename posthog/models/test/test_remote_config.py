@@ -329,7 +329,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "enable_partial_responses": False,
                 },
             ],
-            key=lambda s: str(s["id"]),
+            key=lambda s: str(s["id"]),  # type: ignore
         )
 
         assert actual_surveys == expected_surveys
