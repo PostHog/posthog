@@ -15,7 +15,6 @@ import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { UniversalKeyboardShortcut } from '../UniversalKeyboardShortcuts/UniversalKeyboardShortcut'
-import { UniversalKeyboardShortcuts } from '../UniversalKeyboardShortcuts/UniversalKeyboardShortcuts'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
@@ -57,53 +56,51 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <UniversalKeyboardShortcuts>
-                <FlaggedFeature
-                    flag={FEATURE_FLAGS.TREE_VIEW}
-                    fallback={
-                        <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_RELEASE} fallback={<Navbar />}>
-                            <PanelLayout mainRef={mainRef} />
-                        </FlaggedFeature>
-                    }
-                >
-                    <PanelLayout mainRef={mainRef} />
-                </FlaggedFeature>
-                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
-                    {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
-                </FlaggedFeature>
+            <FlaggedFeature
+                flag={FEATURE_FLAGS.TREE_VIEW}
+                fallback={
+                    <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_RELEASE} fallback={<Navbar />}>
+                        <PanelLayout mainRef={mainRef} />
+                    </FlaggedFeature>
+                }
+            >
+                <PanelLayout mainRef={mainRef} />
+            </FlaggedFeature>
+            <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
+                {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
+            </FlaggedFeature>
 
-                <UniversalKeyboardShortcut
-                    name="MainContent"
-                    category="nav"
-                    keybind={['command', 'shift', 'g']}
-                    asChild
-                    intent="shortcut to focus main content"
-                    interaction="focus"
-                >
-                    <main ref={mainRef} role="main" tabIndex={0} id="main-content">
-                        {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
-                        <div
-                            className={clsx(
-                                'Navigation3000__scene',
-                                // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
-                                sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
-                                sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
-                            )}
-                        >
-                            {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                                <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
-                                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
-                                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
-                                </div>
-                            )}
+            <UniversalKeyboardShortcut
+                name="MainContent"
+                category="nav"
+                keybind={['command', 'shift', 'g']}
+                asChild
+                intent="shortcut to focus main content"
+                interaction="focus"
+            >
+                <main ref={mainRef} role="main" tabIndex={0} id="main-content">
+                    {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
+                    <div
+                        className={clsx(
+                            'Navigation3000__scene',
+                            // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
+                            sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
+                            sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
+                        )}
+                    >
+                        {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                            <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                                {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                                {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                            </div>
+                        )}
 
-                            {children}
-                        </div>
-                    </main>
-                </UniversalKeyboardShortcut>
-                <SidePanel />
-                <CommandBar />
-            </UniversalKeyboardShortcuts>
+                        {children}
+                    </div>
+                </main>
+            </UniversalKeyboardShortcut>
+            <SidePanel />
+            <CommandBar />
         </div>
     )
 }
