@@ -429,9 +429,80 @@ mod tests {
     use common_types::RawEvent;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
+    use serde::Deserialize;
     use serde_json::json;
 
     use super::{CaptureError, Compression, RawRequest};
+
+    #[test]
+    fn decode_compression_param() {
+        #[derive(Deserialize)]
+        struct TestConfig {
+            compression: Option<Compression>,
+        }
+
+        struct CompressionUnit {
+            input: &'static str,
+            output: Option<Compression>,
+        }
+
+        let units = vec![
+            CompressionUnit {
+                input: r#"{"compression": "gzip"}"#,
+                output: Some(Compression::Gzip),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "gzip-js"}"#,
+                output: Some(Compression::Gzip),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "GZIP"}"#,
+                output: Some(Compression::Gzip),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "lz64"}"#,
+                output: Some(Compression::LZString),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "lz-string"}"#,
+                output: Some(Compression::LZString),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "LZ64"}"#,
+                output: Some(Compression::LZString),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "base64"}"#,
+                output: Some(Compression::Base64),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "b64"}"#,
+                output: Some(Compression::Base64),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "BASE64"}"#,
+                output: Some(Compression::Base64),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "foobar"}"#,
+                output: Some(Compression::Unsupported),
+            },
+            CompressionUnit {
+                input: r#"{"compression": ""}"#,
+                output: Some(Compression::Unsupported),
+            },
+            CompressionUnit {
+                input: "",
+                output: None,
+            },
+        ];
+
+        for unit in units {
+            let result: Result<TestConfig, _> = serde_json::from_str(unit.input);
+            assert!(result.is_ok());
+            assert!(result.unwrap().compression == unit.output);
+        }
+    }
 
     #[test]
     fn decode_uncompressed_raw_event() {
@@ -463,6 +534,7 @@ mod tests {
                 .expect("cannot find distinct_id")
         );
     }
+
     #[test]
     fn decode_gzipped_raw_event() {
         let base64_payload = "H4sIADQSbmUCAz2MsQqAMAxE936FBEcnR2f/o4i9IRTb0AahiP9urcVMx3t3ucxQjxxn5bCrZUfLQEepYabpkzgRtOOWfyMpCpIyctVXY42PDifvsFoE73BF9hqFWuPu403YepT+WKNHmMnc5gENoFu2kwAAAA==";
