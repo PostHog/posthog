@@ -56,15 +56,15 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertNotIn(CurrencyCode.USD, ZERO_DECIMAL_CURRENCIES_IN_STRIPE)
 
     def test_schema_source_views(self):
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.team)
         self.assertEqual(len(views), 1)
         self.assertEqual(views[0].name, "stripe.charge_revenue_view")
 
-        charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source)
+        charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source, self.team)
         self.assertEqual(len(charge_views), 1)
         self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
 
-        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
+        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source, self.team)
         self.assertEqual(len(customer_views), 0)
 
         subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source)
@@ -75,14 +75,14 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.source.source_type = "Salesforce"
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.team)
         self.assertEqual(len(views), 0)
 
     def test_revenue_view_missing_schema(self):
         """Test that RevenueAnalyticsBaseView handles missing schema gracefully"""
         self.schema.delete()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.team)
         self.assertEqual(len(views), 0)
 
     def test_revenue_view_prefix(self):
@@ -90,7 +90,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.source.prefix = "prefix"
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.team)
         self.assertEqual(len(views), 1)
         self.assertEqual(views[0].name, "stripe.prefix.charge_revenue_view")
 
@@ -99,7 +99,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.source.prefix = None
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.team)
         self.assertEqual(len(views), 1)
         self.assertEqual(views[0].name, "stripe.charge_revenue_view")
 
@@ -117,7 +117,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.source.prefix = ""
         self.source.save()
 
-        views = RevenueAnalyticsBaseView.for_schema_source(self.source)
+        views = RevenueAnalyticsBaseView.for_schema_source(self.source, self.team)
         self.assertEqual(len(views), 1)
         self.assertEqual(views[0].name, "stripe.charge_revenue_view")
 
@@ -210,19 +210,19 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertIn("stripe.subscription_revenue_view", names)
 
         # Test individual views
-        charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source)
+        charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source, self.team)
         self.assertEqual(len(charge_views), 1)
         self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
 
-        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
+        customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source, self.team)
         self.assertEqual(len(customer_views), 1)
         self.assertEqual(customer_views[0].name, "stripe.customer_revenue_view")
 
-        product_views = RevenueAnalyticsProductView.for_schema_source(self.source)
+        product_views = RevenueAnalyticsProductView.for_schema_source(self.source, self.team)
         self.assertEqual(len(product_views), 1)
         self.assertEqual(product_views[0].name, "stripe.product_revenue_view")
 
-        invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source)
+        invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source, self.team)
         self.assertEqual(len(invoice_item_views), 1)
         self.assertEqual(invoice_item_views[0].name, "stripe.invoice_item_revenue_view")
 

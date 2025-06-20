@@ -53,7 +53,6 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 )
 from posthog.hogql.database.schema.revenue_analytics import (
     RawRevenueAnalyticsTable,
-    join_with_revenue_analytics_table,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
@@ -495,7 +494,7 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source, team)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
@@ -796,12 +795,12 @@ def create_hogql_database(
             except Exception as e:
                 capture_exception(e)
 
-    with timings.measure("revenue_analytics_tables"):
-        database.persons.fields["revenue_analytics"] = LazyJoin(
-            from_field=["pdi", "distinct_id"],
-            join_table=database.raw_revenue_analytics,
-            join_function=join_with_revenue_analytics_table,
-        )
+    # with timings.measure("revenue_analytics_tables"):
+    #     database.persons.fields["pdi"] = LazyJoin(
+    #         from_field=["pdi", "distinct_id"],
+    #         join_table=database.raw_revenue_analytics,
+    #         join_function=join_with_revenue_analytics_table,
+    #     )
 
     with timings.measure("virtual_properties"):
         with timings.measure("initial_domain_type"):
@@ -825,12 +824,22 @@ def create_hogql_database(
             )
         with timings.measure("revenue"):
             field_name = "$virt_revenue"
-            database.persons.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue"])
-            poe.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue"])
+            database.persons.fields[field_name] = ast.ExpressionField(
+                name=field_name, expr=parse_expr("sum(pdi.revenue_analytics.revenue) OVER(PARTITION BY persons.id)")
+            )
+            poe.fields[field_name] = ast.ExpressionField(
+                name=field_name, expr=parse_expr("sum(pdi.revenue_analytics.revenue) OVER(PARTITION BY persons.id)")
+            )
         with timings.measure("revenue_last_30_days"):
             field_name = "$virt_revenue_last_30_days"
-            database.persons.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
-            poe.fields[field_name] = FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+            database.persons.fields[field_name] = ast.ExpressionField(
+                name=field_name,
+                expr=parse_expr("sum(pdi.revenue_analytics.revenue_last_30_days) OVER(PARTITION BY persons.id)"),
+            )
+            poe.fields[field_name] = ast.ExpressionField(
+                name=field_name,
+                expr=parse_expr("sum(pdi.revenue_analytics.revenue_last_30_days) OVER(PARTITION BY persons.id)"),
+            )
 
     return database
 

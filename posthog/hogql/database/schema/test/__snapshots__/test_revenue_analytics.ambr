@@ -1,18 +1,11 @@
 # serializer version: 1
 # name: TestRevenueAnalytics.test_get_revenue_for_events
   '''
-  SELECT persons__revenue_analytics.revenue AS revenue
+  SELECT persons__pdi__revenue_analytics.revenue AS revenue
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
@@ -20,9 +13,15 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -37,7 +36,8 @@
                `revenue_analytics.purchase.customer_revenue_view_events`.country AS country,
                `revenue_analytics.purchase.customer_revenue_view_events`.cohort AS cohort,
                `revenue_analytics.purchase.customer_revenue_view_events`.initial_coupon AS initial_coupon,
-               `revenue_analytics.purchase.customer_revenue_view_events`.initial_coupon_id AS initial_coupon_id
+               `revenue_analytics.purchase.customer_revenue_view_events`.initial_coupon_id AS initial_coupon_id,
+               `revenue_analytics.purchase.customer_revenue_view_events`.distinct_id AS distinct_id
         FROM
           (SELECT events.distinct_id AS id,
                   'revenue_analytics.purchase' AS source_label,
@@ -50,10 +50,11 @@
                   NULL AS country,
                   NULL AS cohort,
                   NULL AS initial_coupon,
-                  NULL AS initial_coupon_id
+                  NULL AS initial_coupon_id,
+                  events.distinct_id AS distinct_id
            FROM events
            WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))
-           GROUP BY events.distinct_id
+           GROUP BY distinct_id
            ORDER BY timestamp DESC) AS `revenue_analytics.purchase.customer_revenue_view_events`) AS revenue_analytics_customer
      LEFT JOIN
        (SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
@@ -95,7 +96,7 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), persons__revenue_analytics.customer_id)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -111,18 +112,11 @@
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_events.1
   '''
-  SELECT persons__revenue_analytics.revenue AS `$virt_revenue`
+  SELECT sum(persons__pdi__revenue_analytics.revenue) OVER (PARTITION BY persons.id) AS `$virt_revenue`
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
@@ -130,9 +124,15 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -147,7 +147,8 @@
                `revenue_analytics.purchase.customer_revenue_view_events`.country AS country,
                `revenue_analytics.purchase.customer_revenue_view_events`.cohort AS cohort,
                `revenue_analytics.purchase.customer_revenue_view_events`.initial_coupon AS initial_coupon,
-               `revenue_analytics.purchase.customer_revenue_view_events`.initial_coupon_id AS initial_coupon_id
+               `revenue_analytics.purchase.customer_revenue_view_events`.initial_coupon_id AS initial_coupon_id,
+               `revenue_analytics.purchase.customer_revenue_view_events`.distinct_id AS distinct_id
         FROM
           (SELECT events.distinct_id AS id,
                   'revenue_analytics.purchase' AS source_label,
@@ -160,10 +161,11 @@
                   NULL AS country,
                   NULL AS cohort,
                   NULL AS initial_coupon,
-                  NULL AS initial_coupon_id
+                  NULL AS initial_coupon_id,
+                  events.distinct_id AS distinct_id
            FROM events
            WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))
-           GROUP BY events.distinct_id
+           GROUP BY distinct_id
            ORDER BY timestamp DESC) AS `revenue_analytics.purchase.customer_revenue_view_events`) AS revenue_analytics_customer
      LEFT JOIN
        (SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
@@ -205,7 +207,7 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), persons__revenue_analytics.customer_id)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -221,26 +223,25 @@
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_custom_join
   '''
-  SELECT persons__revenue_analytics.customer_id AS customer_id,
-         persons__revenue_analytics.revenue AS revenue
+  SELECT persons__pdi.distinct_id AS distinct_id,
+         persons__pdi__revenue_analytics.revenue AS revenue
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -255,7 +256,8 @@
                `stripe.posthog_test.customer_revenue_view`.country AS country,
                `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
                `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
         FROM
           (SELECT outer.id AS id,
                   'stripe.posthog_test' AS source_label,
@@ -268,7 +270,8 @@
                   JSONExtractString(address, 'country') AS country,
                   cohort_inner.cohort_readable AS cohort,
                   cohort_inner.initial_coupon AS initial_coupon,
-                  cohort_inner.initial_coupon_id AS initial_coupon_id
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  JSONExtractString(metadata, 'id') AS distinct_id
            FROM
              (SELECT *
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
@@ -329,7 +332,7 @@
                      JSONExtractString(data, 'price', 'product') AS product_id
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), JSONExtractString(persons__revenue_analytics.customer_metadata, 'id'))
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -345,26 +348,25 @@
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_custom_join.1
   '''
-  SELECT persons__revenue_analytics.customer_id AS customer_id,
-         persons__revenue_analytics.revenue AS `$virt_revenue`
+  SELECT persons__pdi.distinct_id AS distinct_id,
+         sum(persons__pdi__revenue_analytics.revenue) OVER (PARTITION BY persons.id) AS `$virt_revenue`
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -379,7 +381,8 @@
                `stripe.posthog_test.customer_revenue_view`.country AS country,
                `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
                `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
         FROM
           (SELECT outer.id AS id,
                   'stripe.posthog_test' AS source_label,
@@ -392,7 +395,8 @@
                   JSONExtractString(address, 'country') AS country,
                   cohort_inner.cohort_readable AS cohort,
                   cohort_inner.initial_coupon AS initial_coupon,
-                  cohort_inner.initial_coupon_id AS initial_coupon_id
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  JSONExtractString(metadata, 'id') AS distinct_id
            FROM
              (SELECT *
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
@@ -453,8 +457,257 @@
                      JSONExtractString(data, 'price', 'product') AS product_id
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), JSONExtractString(persons__revenue_analytics.customer_metadata, 'id'))
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   ORDER BY persons.id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids
+  '''
+  SELECT DISTINCT persons__pdi.distinct_id AS distinct_id,
+                  sum(persons__pdi__revenue_analytics.revenue) OVER (PARTITION BY persons.id) AS r
+  FROM
+    (SELECT argMax(person.id, person.version) AS persons___id,
+            person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 99999)
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+  LEFT JOIN
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
+            sum(revenue_analytics_invoice_item.amount) AS revenue,
+            sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+     FROM
+       (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+               `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.customer_revenue_view`.name AS name,
+               `stripe.posthog_test.customer_revenue_view`.email AS email,
+               `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+               `stripe.posthog_test.customer_revenue_view`.metadata AS metadata,
+               `stripe.posthog_test.customer_revenue_view`.address AS address,
+               `stripe.posthog_test.customer_revenue_view`.country AS country,
+               `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
+        FROM
+          (SELECT outer.id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+                  outer.name AS name,
+                  outer.email AS email,
+                  outer.phone AS phone,
+                  outer.metadata AS metadata,
+                  outer.address AS address,
+                  JSONExtractString(address, 'country') AS country,
+                  cohort_inner.cohort_readable AS cohort,
+                  cohort_inner.initial_coupon AS initial_coupon,
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  email AS distinct_id
+           FROM
+             (SELECT *
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
+           LEFT JOIN
+             (SELECT invoice.customer AS customer_id,
+                     toStartOfMonth(min(parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC'))) AS cohort,
+                     formatDateTime(cohort, '%Y-%m') AS cohort_readable,
+                     argMin(JSONExtractString(invoice.discount, 'coupon', 'name'), parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC')) AS initial_coupon,
+                     argMin(JSONExtractString(invoice.discount, 'coupon', 'id'), parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC')) AS initial_coupon_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
+              GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer
+     LEFT JOIN
+       (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+               `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
+               `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
+               `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        FROM
+          (SELECT invoice.invoice_item_id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  invoice.created_at AS timestamp,
+                  invoice.product_id AS product_id,
+                  invoice.customer_id AS customer_id,
+                  id AS invoice_id,
+                  NULL AS session_id,
+                  NULL AS event_name,
+                  JSONExtractString(invoice.discount, 'coupon', 'name') AS coupon,
+                  JSONExtractString(invoice.discount, 'coupon', 'id') AS coupon_id,
+                  upper(invoice.currency) AS original_currency,
+                  accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
+                  in(original_currency,
+                     ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                    if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                    divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                    'GBP' AS currency,
+                    if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
+           FROM
+             (SELECT posthog_test_stripe_invoice.id AS id,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                     posthog_test_stripe_invoice.customer AS customer_id,
+                     posthog_test_stripe_invoice.discount AS discount,
+                     arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                     JSONExtractString(data, 'id') AS invoice_item_id,
+                     JSONExtractString(data, 'amount') AS amount_captured,
+                     JSONExtractString(data, 'currency') AS currency,
+                     JSONExtractString(data, 'price', 'product') AS product_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+              WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
+  ORDER BY r ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids.1
+  '''
+  SELECT DISTINCT sum(persons__pdi__revenue_analytics.revenue) OVER (PARTITION BY persons.id) AS r
+  FROM
+    (SELECT argMax(person.id, person.version) AS persons___id,
+            person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 99999)
+     GROUP BY person.id
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+  LEFT JOIN
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
+            sum(revenue_analytics_invoice_item.amount) AS revenue,
+            sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+     FROM
+       (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+               `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.customer_revenue_view`.name AS name,
+               `stripe.posthog_test.customer_revenue_view`.email AS email,
+               `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+               `stripe.posthog_test.customer_revenue_view`.metadata AS metadata,
+               `stripe.posthog_test.customer_revenue_view`.address AS address,
+               `stripe.posthog_test.customer_revenue_view`.country AS country,
+               `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
+        FROM
+          (SELECT outer.id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+                  outer.name AS name,
+                  outer.email AS email,
+                  outer.phone AS phone,
+                  outer.metadata AS metadata,
+                  outer.address AS address,
+                  JSONExtractString(address, 'country') AS country,
+                  cohort_inner.cohort_readable AS cohort,
+                  cohort_inner.initial_coupon AS initial_coupon,
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  email AS distinct_id
+           FROM
+             (SELECT *
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
+           LEFT JOIN
+             (SELECT invoice.customer AS customer_id,
+                     toStartOfMonth(min(parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC'))) AS cohort,
+                     formatDateTime(cohort, '%Y-%m') AS cohort_readable,
+                     argMin(JSONExtractString(invoice.discount, 'coupon', 'name'), parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC')) AS initial_coupon,
+                     argMin(JSONExtractString(invoice.discount, 'coupon', 'id'), parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC')) AS initial_coupon_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
+              GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer
+     LEFT JOIN
+       (SELECT `stripe.posthog_test.invoice_item_revenue_view`.id AS id,
+               `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
+               `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
+               `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.session_id AS session_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.event_name AS event_name,
+               `stripe.posthog_test.invoice_item_revenue_view`.coupon AS coupon,
+               `stripe.posthog_test.invoice_item_revenue_view`.coupon_id AS coupon_id,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_currency AS original_currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.original_amount AS original_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_divider AS currency_aware_divider,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency_aware_amount AS currency_aware_amount,
+               `stripe.posthog_test.invoice_item_revenue_view`.currency AS currency,
+               `stripe.posthog_test.invoice_item_revenue_view`.amount AS amount
+        FROM
+          (SELECT invoice.invoice_item_id AS id,
+                  'stripe.posthog_test' AS source_label,
+                  invoice.created_at AS timestamp,
+                  invoice.product_id AS product_id,
+                  invoice.customer_id AS customer_id,
+                  id AS invoice_id,
+                  NULL AS session_id,
+                  NULL AS event_name,
+                  JSONExtractString(invoice.discount, 'coupon', 'name') AS coupon,
+                  JSONExtractString(invoice.discount, 'coupon', 'id') AS coupon_id,
+                  upper(invoice.currency) AS original_currency,
+                  accurateCastOrNull(invoice.amount_captured, 'Decimal64(10)') AS original_amount,
+                  in(original_currency,
+                     ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                    if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                    divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                    'GBP' AS currency,
+                    if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
+           FROM
+             (SELECT posthog_test_stripe_invoice.id AS id,
+                     parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
+                     posthog_test_stripe_invoice.customer AS customer_id,
+                     posthog_test_stripe_invoice.discount AS discount,
+                     arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
+                     JSONExtractString(data, 'id') AS invoice_item_id,
+                     JSONExtractString(data, 'amount') AS amount_captured,
+                     JSONExtractString(data, 'currency') AS currency,
+                     JSONExtractString(data, 'price', 'product') AS product_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+              WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
+  ORDER BY r ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -469,26 +722,25 @@
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_email_join
   '''
-  SELECT persons__revenue_analytics.customer_id AS customer_id,
-         persons__revenue_analytics.revenue AS revenue
+  SELECT persons__pdi.distinct_id AS distinct_id,
+         persons__pdi__revenue_analytics.revenue AS revenue
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -503,7 +755,8 @@
                `stripe.posthog_test.customer_revenue_view`.country AS country,
                `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
                `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
         FROM
           (SELECT outer.id AS id,
                   'stripe.posthog_test' AS source_label,
@@ -516,7 +769,8 @@
                   JSONExtractString(address, 'country') AS country,
                   cohort_inner.cohort_readable AS cohort,
                   cohort_inner.initial_coupon AS initial_coupon,
-                  cohort_inner.initial_coupon_id AS initial_coupon_id
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  email AS distinct_id
            FROM
              (SELECT *
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
@@ -577,7 +831,7 @@
                      JSONExtractString(data, 'price', 'product') AS product_id
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), persons__revenue_analytics.customer_email)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -593,26 +847,25 @@
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_email_join.1
   '''
-  SELECT persons__revenue_analytics.customer_id AS customer_id,
-         persons__revenue_analytics.revenue AS `$virt_revenue`
+  SELECT persons__pdi.distinct_id AS distinct_id,
+         sum(persons__pdi__revenue_analytics.revenue) OVER (PARTITION BY persons.id) AS `$virt_revenue`
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -627,7 +880,8 @@
                `stripe.posthog_test.customer_revenue_view`.country AS country,
                `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
                `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
         FROM
           (SELECT outer.id AS id,
                   'stripe.posthog_test' AS source_label,
@@ -640,7 +894,8 @@
                   JSONExtractString(address, 'country') AS country,
                   cohort_inner.cohort_readable AS cohort,
                   cohort_inner.initial_coupon AS initial_coupon,
-                  cohort_inner.initial_coupon_id AS initial_coupon_id
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  email AS distinct_id
            FROM
              (SELECT *
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
@@ -701,7 +956,7 @@
                      JSONExtractString(data, 'price', 'product') AS product_id
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), persons__revenue_analytics.customer_email)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -717,26 +972,25 @@
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join
   '''
-  SELECT persons__revenue_analytics.customer_id AS customer_id,
-         persons__revenue_analytics.revenue AS revenue
+  SELECT persons__pdi.distinct_id AS distinct_id,
+         persons__pdi__revenue_analytics.revenue AS revenue
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -751,7 +1005,8 @@
                `stripe.posthog_test.customer_revenue_view`.country AS country,
                `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
                `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
         FROM
           (SELECT outer.id AS id,
                   'stripe.posthog_test' AS source_label,
@@ -764,7 +1019,8 @@
                   JSONExtractString(address, 'country') AS country,
                   cohort_inner.cohort_readable AS cohort,
                   cohort_inner.initial_coupon AS initial_coupon,
-                  cohort_inner.initial_coupon_id AS initial_coupon_id
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  id AS distinct_id
            FROM
              (SELECT *
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
@@ -825,7 +1081,7 @@
                      JSONExtractString(data, 'price', 'product') AS product_id
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), persons__revenue_analytics.customer_id)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -841,26 +1097,25 @@
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join.1
   '''
-  SELECT persons__revenue_analytics.customer_id AS customer_id,
-         persons__revenue_analytics.revenue AS `$virt_revenue`
+  SELECT persons__pdi.distinct_id AS distinct_id,
+         sum(persons__pdi__revenue_analytics.revenue) OVER (PARTITION BY persons.id) AS `$virt_revenue`
   FROM
-    (SELECT argMax(raw_persons__pdi.distinct_id, person.version) AS persons___pdi___distinct_id,
+    (SELECT argMax(person.id, person.version) AS persons___id,
             person.id AS id
      FROM person
-     LEFT JOIN
-       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-               person_distinct_id2.distinct_id AS distinct_id
-        FROM person_distinct_id2
-        WHERE equals(person_distinct_id2.team_id, 99999)
-        GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_persons__pdi ON equals(person.id, raw_persons__pdi.person_id)
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
-    (SELECT revenue_analytics_customer.id AS customer_id,
-            argMax(revenue_analytics_customer.email, revenue_analytics_customer.timestamp) AS customer_email,
-            argMax(revenue_analytics_customer.metadata, revenue_analytics_customer.timestamp) AS customer_metadata,
+    (SELECT argMax(person_distinct_id2.distinct_id, person_distinct_id2.version) AS persons__pdi___distinct_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
+  LEFT JOIN
+    (SELECT revenue_analytics_customer.distinct_id AS distinct_id,
             sum(revenue_analytics_invoice_item.amount) AS revenue,
             sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
      FROM
@@ -875,7 +1130,8 @@
                `stripe.posthog_test.customer_revenue_view`.country AS country,
                `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
                `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+               `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id,
+               `stripe.posthog_test.customer_revenue_view`.distinct_id AS distinct_id
         FROM
           (SELECT outer.id AS id,
                   'stripe.posthog_test' AS source_label,
@@ -888,7 +1144,8 @@
                   JSONExtractString(address, 'country') AS country,
                   cohort_inner.cohort_readable AS cohort,
                   cohort_inner.initial_coupon AS initial_coupon,
-                  cohort_inner.initial_coupon_id AS initial_coupon_id
+                  cohort_inner.initial_coupon_id AS initial_coupon_id,
+                  id AS distinct_id
            FROM
              (SELECT *
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String')) AS outer
@@ -949,7 +1206,7 @@
                      JSONExtractString(data, 'price', 'product') AS product_id
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
-     GROUP BY revenue_analytics_customer.id) AS persons__revenue_analytics ON equals(toString(persons.persons___pdi___distinct_id), persons__revenue_analytics.customer_id)
+     GROUP BY distinct_id) AS persons__pdi__revenue_analytics ON equals(toString(persons__pdi.persons__pdi___distinct_id), persons__pdi__revenue_analytics.distinct_id)
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

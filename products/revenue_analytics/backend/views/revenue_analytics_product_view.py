@@ -35,7 +35,7 @@ class RevenueAnalyticsProductView(RevenueAnalyticsBaseView):
         return []
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(cls, source: ExternalDataSource, _team: Team) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []

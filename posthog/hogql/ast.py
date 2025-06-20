@@ -173,6 +173,7 @@ class BaseTableType(Type):
                     table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
                 )
             return FieldType(name=name, table_type=self)
+
         raise QueryError(f"Field not found: {name}")
 
 

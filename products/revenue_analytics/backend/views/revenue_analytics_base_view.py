@@ -28,7 +28,7 @@ class RevenueAnalyticsBaseView(SavedQuery):
         ]
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(cls, source: ExternalDataSource, team: Team) -> list["RevenueAnalyticsBaseView"]:
         from .revenue_analytics_charge_view import RevenueAnalyticsChargeView
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
         from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
@@ -36,11 +36,11 @@ class RevenueAnalyticsBaseView(SavedQuery):
         from .revenue_analytics_subscription_view import RevenueAnalyticsSubscriptionView
 
         return [
-            *RevenueAnalyticsChargeView.for_schema_source(source),
-            *RevenueAnalyticsCustomerView.for_schema_source(source),
-            *RevenueAnalyticsInvoiceItemView.for_schema_source(source),
-            *RevenueAnalyticsProductView.for_schema_source(source),
-            *RevenueAnalyticsSubscriptionView.for_schema_source(source),
+            *RevenueAnalyticsChargeView.for_schema_source(source, team),
+            *RevenueAnalyticsCustomerView.for_schema_source(source, team),
+            *RevenueAnalyticsInvoiceItemView.for_schema_source(source, team),
+            *RevenueAnalyticsProductView.for_schema_source(source, team),
+            *RevenueAnalyticsSubscriptionView.for_schema_source(source, team),
         ]
 
     # Used in child classes to generate view names
