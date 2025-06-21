@@ -1,5 +1,6 @@
 import { actions, kea, path, reducers, useActions, useValues } from 'kea'
 import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmUpgradeModal'
+import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
 import { SaveToModal } from 'lib/components/FileSystem/SaveTo/SaveTo'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
@@ -12,12 +13,13 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { EnvironmentRollbackModal } from 'scenes/settings/environment/EnvironmentRollbackModal'
+import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
-import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -61,6 +63,7 @@ export function GlobalModals(): JSX.Element {
         useActions(globalModalsLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
+    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
 
     return (
         <>
@@ -80,6 +83,7 @@ export function GlobalModals(): JSX.Element {
             <SaveToModal />
             <MoveToModal />
             <ItemSelectModal />
+            {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
         </>
     )
 }
