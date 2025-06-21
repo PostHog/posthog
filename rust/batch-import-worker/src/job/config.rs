@@ -130,6 +130,7 @@ pub struct KafkaEmitterConfig {
     pub topic: String,
     pub send_rate: u64,
     pub transaction_timeout_seconds: u64,
+    pub headers: Option<Vec<(String, String)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,13 +205,18 @@ impl SinkConfig {
             } => Ok(Box::new(
                 FileEmitter::new(path.clone(), *as_json, *cleanup).await?,
             )),
-            SinkConfig::Kafka(kafka_emitter_config) => Ok(Box::new(
-                // We use the job id as the kafka transactional id, since it's persistent across
-                // e.g. restarts and worker-job-passing, but still allows multiple jobs/workers to
-                // emit to kafka at the same time.
-                KafkaEmitter::new(kafka_emitter_config.clone(), &model.id.to_string(), context)
-                    .await?,
-            )),
+            SinkConfig::Kafka(kafka_emitter_config) => {
+                let mut config = kafka_emitter_config.clone();
+                let mut headers = config.headers.clone().unwrap_or_default();
+                headers.push((
+                    "batch_import_worker_job_id".to_string(),
+                    model.id.to_string(),
+                ));
+                config.headers = Some(headers);
+                Ok(Box::new(
+                    KafkaEmitter::new(config, &model.id.to_string(), context).await?,
+                ))
+            }
         }
     }
 }
