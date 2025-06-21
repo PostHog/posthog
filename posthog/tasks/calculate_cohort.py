@@ -274,7 +274,11 @@ def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Option
         team_id = cohort.team_id
 
     cohort.insert_users_by_list(items, team_id=team_id)
-    logger.warn("Calculating cohort {} from CSV took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
+    logger.warn(
+        "Calculating cohort {} with {} items from CSV took {:.2f} seconds".format(
+            cohort.pk, len(items), (time.time() - start_time)
+        )
+    )
 
 
 @shared_task(ignore_result=True, max_retries=1)
