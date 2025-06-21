@@ -29,6 +29,11 @@ pub struct AppContext {
     // aren't slated to migrate to the isolated PROPDEFS DB in production
     pub pool: PgPool,
 
+    // this points to the new, isolated Persons PG instance in CLOUD
+    // envs. It will point to the "pool" DB in dev envs. It is used
+    // to access the posthog_grouptypemappings table
+    pub persons_pool: PgPool,
+
     // this is only used by the property-defs-rs-v2 deployments, and
     // only when the enabled_v2 config is set. This maps to the new
     // PROPDEFS isolated PG instances in production, and the local
@@ -57,10 +62,20 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let orig_pool = options.connect(&config.database_url).await?;
 
-        let v2_pool = match config.enable_mirror {
+        let persons_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        let persons_pool = persons_options
+            .connect(&config.database_persons_url)
+            .await?;
+
+        let mirror_pool = match config.enable_mirror {
             true => {
-                let v2_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-                Some(v2_options.connect(&config.database_propdefs_url).await?)
+                let mirror_options =
+                    PgPoolOptions::new().max_connections(config.max_pg_connections);
+                Some(
+                    mirror_options
+                        .connect(&config.database_propdefs_url)
+                        .await?,
+                )
             }
             _ => None,
         };
@@ -74,7 +89,8 @@ impl AppContext {
 
         Ok(Self {
             pool: orig_pool,
-            propdefs_pool: v2_pool,
+            persons_pool,
+            propdefs_pool: mirror_pool,
             query_manager: qmgr,
             liveness,
             worker_liveness,
@@ -202,7 +218,7 @@ impl AppContext {
                 &group_names,
                 &team_ids
             )
-            .fetch_all(&self.pool)
+            .fetch_all(&self.persons_pool)
             .await?;
 
             // Create a lookup map for resolved group types

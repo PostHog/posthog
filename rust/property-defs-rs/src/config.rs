@@ -109,6 +109,11 @@ pub struct Config {
     // PROPDEFS isolated PG DB instances in production.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_propdefs_url: String,
+
+    // RO creds for the new isolated persons DB is required to access
+    // the posthog_grouptypemappings for the team -> group_meta cache.
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
+    pub database_persons_url: String,
 }
 
 #[derive(Clone)]
