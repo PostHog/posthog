@@ -73,7 +73,7 @@ export function PinnedFolder(): JSX.Element {
             {!isLayoutNavCollapsed &&
                 (showDefaultHeader ? (
                     <div className="flex justify-between items-center pl-3 pr-1 -mt-[3px] relative">
-                        <div className="flex items-center gap-1 pl-[1.3rem]">
+                        <div className="flex items-center gap-1 pl-2">
                             <span className="text-xs font-semibold text-tertiary uppercase">
                                 {formatUrlAsName(pinnedFolder)}
                             </span>
