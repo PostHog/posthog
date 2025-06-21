@@ -1,4 +1,5 @@
 use thiserror::Error;
+use tracing::debug;
 
 #[derive(Error, Debug, Clone)]
 #[error("User Error: {msg}")]
@@ -27,10 +28,20 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ToUserError<T> for Result<
 const DEFAULT_USER_ERROR_MESSAGE: &str = "An unknown error occurred";
 
 pub fn get_user_message(error: &anyhow::Error) -> &str {
-    for cause in error.chain() {
-        if let Some(user_error) = cause.downcast_ref::<UserError>() {
+    if let Some(user_error) = error.downcast_ref::<UserError>() {
+        debug!("Found UserError at root: {}", user_error.msg);
+        return &user_error.msg;
+    }
+    
+    let mut source = error.source();
+    while let Some(err) = source {
+        debug!("Checking source error: {}", err);
+        if let Some(user_error) = err.downcast_ref::<UserError>() {
+            debug!("Found UserError in source chain: {}", user_error.msg);
             return &user_error.msg;
         }
+        source = err.source();
     }
+    
     DEFAULT_USER_ERROR_MESSAGE
 }
