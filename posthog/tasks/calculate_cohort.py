@@ -273,10 +273,10 @@ def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Option
     if team_id is None:
         team_id = cohort.team_id
 
-    cohort.insert_users_by_list(items, team_id=team_id)
+    batch_count = cohort.insert_users_by_list(items, team_id=team_id)
     logger.warn(
-        "Calculating cohort {} with {} items from CSV took {:.2f} seconds".format(
-            cohort.pk, len(items), (time.time() - start_time)
+        "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
+            cohort.pk, len(items), batch_count, (time.time() - start_time)
         )
     )
 
