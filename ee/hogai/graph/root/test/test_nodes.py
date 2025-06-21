@@ -513,6 +513,30 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("contextual_tools", config_arg["configurable"])
             self.assertIn("search_session_recordings", config_arg["configurable"]["contextual_tools"])
 
+    def test_node_includes_project_org_user_context_in_prompt_template(self):
+        with (
+            # This test mocks deeper than ideal, and really it should be spying on the actual LLM call, rather than
+            # prompt template construction. However, LangChain's chaining mechanics make it even more painful to
+            # mock the "right" thing, so going for a kludge here.
+            patch("ee.hogai.graph.root.nodes.ChatPromptTemplate.from_messages") as mock_chat_prompt_template,
+            patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai,
+            patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+
+            node.run(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
+
+            mock_chat_prompt_template.assert_called_once()
+            system_content = "\n\n".join(
+                content for role, content in mock_chat_prompt_template.call_args[0][0] if role == "system"
+            )
+            self.assertIn("You are currently in project ", system_content)
+            self.assertIn("The user's name appears to be ", system_content)
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
@@ -868,7 +892,7 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=[insight])
+        ui_context = MaxContextShape(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
