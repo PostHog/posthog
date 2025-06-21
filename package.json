@@ -75,7 +75,7 @@
             "prettier --write"
         ],
         "{cypress,playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --quiet",
+            "oxlint --fix --fix-suggestions --fix-dangerously --quiet",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
