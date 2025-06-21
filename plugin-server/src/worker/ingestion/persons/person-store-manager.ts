@@ -313,7 +313,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
             // Log logic errors with high priority
             if (this.shadowMetrics.logicErrors.length > 0) {
-                logger.error('Shadow mode detected logic errors in batch writing store', {
+                logger.info('Shadow mode detected logic errors in batch writing store', {
                     logicErrorCount: this.shadowMetrics.logicErrors.length,
                     totalComparisons: this.shadowMetrics.totalComparisons,
                     errorRate: logicErrorRate,
@@ -436,7 +436,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             // Track inconsistent results in metrics
             personShadowModeReturnIntermediateOutcomeCounter.labels(methodName, 'inconsistent').inc()
 
-            logger.error(`${methodName} returned inconsistent results between stores`, {
+            logger.info(`${methodName} returned inconsistent results between stores`, {
                 key,
                 teamId,
                 distinctId,
