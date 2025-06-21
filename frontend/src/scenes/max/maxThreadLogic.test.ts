@@ -7,6 +7,7 @@ import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages
 import { initKeaTests } from '~/test/init'
 
 import { maxContextLogic } from './maxContextLogic'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
@@ -29,6 +30,12 @@ describe('maxThreadLogic', () => {
             },
         })
         initKeaTests()
+
+        // Mock the dataProcessingAccepted selector to return true
+        const maxGlobalLogicInstance = maxGlobalLogic()
+        maxGlobalLogicInstance.mount()
+        jest.spyOn(maxGlobalLogicInstance.selectors, 'dataProcessingAccepted').mockReturnValue(true)
+
         logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
         logic.mount()
     })
@@ -44,6 +51,12 @@ describe('maxThreadLogic', () => {
         // Stop any active streaming in the thread logic
         if (logic.cache?.generationController) {
             logic.cache.generationController.abort()
+        }
+
+        // Unmount the maxGlobalLogic
+        const maxGlobalLogicInstance = maxGlobalLogic.findMounted()
+        if (maxGlobalLogicInstance) {
+            maxGlobalLogicInstance.unmount()
         }
 
         sidePanelStateLogic.unmount()
