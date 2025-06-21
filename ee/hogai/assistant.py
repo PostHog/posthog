@@ -132,9 +132,9 @@ class Assistant:
         self._mode = mode
         match mode:
             case AssistantMode.ASSISTANT:
-                self._graph = AssistantGraph(team).compile_full_graph()
+                self._graph = AssistantGraph(team, user).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
-                self._graph = InsightsAssistantGraph(team).compile_full_graph()
+                self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
             case _:
                 raise ValueError(f"Invalid assistant mode: {mode}")
         self._chunks = AIMessageChunk(content="")
