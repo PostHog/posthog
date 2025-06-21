@@ -469,7 +469,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Test that reportBatch logs the errors
             shadowManager.reportBatch()
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'Shadow mode detected logic errors in batch writing store',
                 expect.objectContaining({
                     logicErrorCount: 1,
@@ -677,7 +677,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             )
 
             // Verify logic error was logged
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'Shadow mode detected logic errors in batch writing store',
                 expect.objectContaining({
                     logicErrorCount: 1,
@@ -774,7 +774,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             )
 
             // Verify error log was called with detailed information
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
                     key: '1:test-distinct',
@@ -814,7 +814,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             )
 
             // Verify error log was called
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForMerge returned inconsistent results between stores',
                 expect.objectContaining({
                     key: '1:test-distinct',
@@ -852,7 +852,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             )
 
             // Verify error log includes null comparison
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
                     samePersonResult: false,
@@ -910,7 +910,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
 
             // Verify specific nested property difference is captured
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
                     differences: expect.arrayContaining([
