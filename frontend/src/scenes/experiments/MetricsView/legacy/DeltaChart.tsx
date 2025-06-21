@@ -507,8 +507,8 @@ export function DeltaChart({
     const {
         experimentId,
         experiment,
-        metricResultsLoading,
-        secondaryMetricResultsLoading,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
@@ -517,7 +517,7 @@ export function DeltaChart({
     const { openVariantDeltaTimeseriesModal, duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
 
     // Loading state
-    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+    const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
 
     // Chart dimensions
     const dimensions = useChartDimensions(variants)

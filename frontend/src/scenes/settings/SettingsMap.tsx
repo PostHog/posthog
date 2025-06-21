@@ -429,7 +429,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-custom-grouping',
                 title: 'Custom grouping rules',
                 component: <ErrorTrackingCustomGrouping />,
-                flag: 'ERROR_TRACKING_CUSTOM_GROUPING',
             },
             {
                 id: 'error-tracking-integrations',

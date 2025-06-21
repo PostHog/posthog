@@ -1,12 +1,19 @@
 from typing import cast
+
 from django.test import override_settings
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from freezegun import freeze_time
+
+from posthog.hogql_queries.experiments.experiment_query_runner import (
+    ExperimentQueryRunner,
+)
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
+    ExperimentQueryRunnerBaseTest,
+)
 from posthog.schema import (
     EventsNode,
+    ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
-    ExperimentMeanMetric,
     ExperimentVariantResultFrequentist,
     NewExperimentQueryResponse,
 )
@@ -14,7 +21,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from freezegun import freeze_time
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -24,7 +30,7 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
     def test_frequentist_property_sum_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2, "method": "frequentist"}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(

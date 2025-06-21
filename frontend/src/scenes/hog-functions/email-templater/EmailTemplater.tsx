@@ -15,7 +15,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
+    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
 
     return (
         <>

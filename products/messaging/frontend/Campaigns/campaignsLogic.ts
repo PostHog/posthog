@@ -1,10 +1,6 @@
-import { actions, afterMount, kea, path, selectors } from 'kea'
+import { actions, afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-
-import { Breadcrumb } from '~/types'
 
 import type { campaignsLogicType } from './campaignsLogicType'
 import type { HogFlow } from './Workflows/types'
@@ -30,25 +26,6 @@ export const campaignsLogic = kea<campaignsLogicType>([
             },
         ],
     })),
-    selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.MessagingCampaigns,
-                        name: 'Messaging',
-                        path: urls.messagingCampaigns(),
-                    },
-                    {
-                        key: 'campaigns',
-                        name: 'Campaigns',
-                        path: urls.messagingCampaigns(),
-                    },
-                ]
-            },
-        ],
-    }),
     afterMount(({ actions }) => {
         actions.loadCampaigns()
     }),
