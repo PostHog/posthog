@@ -199,7 +199,7 @@ jobs:
 
             - name: Lint with Oxlint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend lint:js
+              run: pnpm --filter=@posthog/frontend lint:js -f github
 
     frontend-toolbar-checks:
         name: Frontend toolbar checks
