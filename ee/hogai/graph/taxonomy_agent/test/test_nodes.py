@@ -140,7 +140,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             _create_event(event="distinctevent", distinct_id="test", team=self.team)
         node = self._get_node()
         self.assertEqual(
-            node._events_prompt([]),
+            node._format_events_prompt([]),
             "<defined_events><event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
         )
 
@@ -148,8 +148,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         _create_person(distinct_ids=["test"], team=self.team)
         _create_event(event="distinctevent", distinct_id="test", team=self.team)
         node = self._get_node()
-        self.assertIn("distinctevent", node._events_prompt([]))
-        self.assertIn("all events", node._events_prompt([]))
+        self.assertIn("distinctevent", node._format_events_prompt([]))
+        self.assertIn("all events", node._format_events_prompt([]))
 
     def test_agent_scratchpad(self):
         node = self._get_node()
@@ -192,10 +192,10 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_node_outputs_all_events_prompt(self):
         node = self._get_node()
-        self.assertIn("All events", node._events_prompt([]))
+        self.assertIn("All events", node._format_events_prompt([]))
         self.assertIn(
             "<event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event>",
-            node._events_prompt([]),
+            node._format_events_prompt([]),
         )
 
     def test_format_prompt(self):
@@ -278,7 +278,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             MaxEventContext(id=2, name="another_context_event", description=None),
         ]
 
-        prompt = node._events_prompt(events_in_context)
+        prompt = node._format_events_prompt(events_in_context)
 
         self.assertIn("context_event", prompt)
         self.assertIn("another_context_event", prompt)
@@ -303,7 +303,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 MaxEventContext(id=1, name="test_system_event", description="System event from context"),
             ]
 
-            prompt = node._events_prompt(events_in_context)
+            prompt = node._format_events_prompt(events_in_context)
 
             # Should include the system event because it's in context
             self.assertIn("test_system_event", prompt)
@@ -318,7 +318,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             MaxEventContext(id=1, name="duplicate_event", description="Context description"),
         ]
 
-        prompt = node._events_prompt(events_in_context)
+        prompt = node._format_events_prompt(events_in_context)
 
         # Should only appear once in the prompt
         event_count = prompt.count("<name>duplicate_event</name>")
@@ -341,7 +341,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 MaxEventContext(id=2, name="context_only_event", description="Only in context"),
             ]
 
-            prompt = node._events_prompt(events_in_context)
+            prompt = node._format_events_prompt(events_in_context)
 
             # Should include both events
             self.assertIn("core_event", prompt)

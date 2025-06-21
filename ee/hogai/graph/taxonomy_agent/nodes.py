@@ -99,7 +99,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": self._team_group_types,
-                        "events": self._events_prompt(events_in_context),
+                        "events": self._format_events_prompt(events_in_context),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
@@ -158,7 +158,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
-    def _events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
+    def _format_events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
