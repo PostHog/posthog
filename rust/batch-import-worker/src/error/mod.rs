@@ -32,7 +32,7 @@ pub fn get_user_message(error: &anyhow::Error) -> &str {
         debug!("Found UserError at root: {}", user_error.msg);
         return &user_error.msg;
     }
-    
+
     let mut source = error.source();
     while let Some(err) = source {
         debug!("Checking source error: {}", err);
@@ -42,6 +42,6 @@ pub fn get_user_message(error: &anyhow::Error) -> &str {
         }
         source = err.source();
     }
-    
+
     DEFAULT_USER_ERROR_MESSAGE
 }
