@@ -1,5 +1,7 @@
-import { defaultConfig } from '~/src/config/config'
-import { GeoIp, GeoIPService } from '~/src/utils/geoip'
+import merge from 'deepmerge'
+
+import { defaultConfig } from '~/config/config'
+import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
@@ -154,6 +156,7 @@ export class TemplateTester {
             mappings: this.template.mappings || null,
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
+            is_addon_required: false,
             deleted: false,
         }
 
@@ -175,7 +178,8 @@ export class TemplateTester {
     async invokeMapping(
         mapping_name: string,
         _inputs: Record<string, any>,
-        _globals?: DeepPartialHogFunctionInvocationGlobals
+        _globals?: DeepPartialHogFunctionInvocationGlobals,
+        mapping_inputs?: Record<string, any>
     ) {
         if (!this.template.mapping_templates) {
             throw new Error('No mapping templates found')
@@ -185,7 +189,7 @@ export class TemplateTester {
 
         const compiledMappingInputs = {
             ...this.template.mapping_templates.find((mapping) => mapping.name === mapping_name),
-            inputs: {},
+            inputs: mapping_inputs ?? {},
         }
 
         if (!compiledMappingInputs.inputs_schema) {
@@ -196,10 +200,11 @@ export class TemplateTester {
             compiledMappingInputs.inputs_schema
                 .filter((input) => typeof input.default !== 'undefined')
                 .map(async (input) => {
+                    const value = mapping_inputs?.[input.key] ?? input.default
                     return {
                         key: input.key,
-                        value: input.default,
-                        bytecode: await this.compileObject(input.default),
+                        value,
+                        bytecode: await this.compileObject(value),
                     }
                 })
         )
@@ -227,6 +232,7 @@ export class TemplateTester {
             deleted: false,
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
+            is_addon_required: false,
         })
 
         return this.executor.execute(invocation)
@@ -242,4 +248,39 @@ export class TemplateTester {
 
         return this.executor.execute(modifiedInvocation)
     }
+}
+
+export const createAdDestinationPayload = (
+    globals?: DeepPartialHogFunctionInvocationGlobals
+): DeepPartialHogFunctionInvocationGlobals => {
+    let defaultPayload = {
+        event: {
+            properties: {},
+            event: 'Order Completed',
+            uuid: 'event-id',
+            timestamp: '2025-01-01T00:00:00Z',
+            distinct_id: 'distinct-id',
+            elements_chain: '',
+            url: 'https://us.posthog.com/projects/1/events/1234',
+        },
+        person: {
+            id: 'person-id',
+            properties: {
+                email: 'example@posthog.com',
+                ttclid: 'tiktok-id',
+                gclid: 'google-id',
+                sccid: 'snapchat-id',
+                rdt_cid: 'reddit-id',
+                phone: '+1234567890',
+                external_id: '1234567890',
+                first_name: 'Max',
+                last_name: 'AI',
+            },
+            url: 'https://us.posthog.com/projects/1/persons/1234',
+        },
+    }
+
+    defaultPayload = merge(defaultPayload, globals ?? {})
+
+    return defaultPayload
 }

@@ -505,9 +505,10 @@ def clean_stale_partials() -> None:
 
 @shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
     enqueue_cohorts_to_calculate(parallel_count)
+    reset_stuck_cohorts()
 
 
 class Polling:
@@ -843,10 +844,7 @@ def count_items_in_playlists() -> None:
 
 
 @shared_task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
-    try:
-        from posthog.tasks.warehouse import capture_external_data_rows_synced
-    except ImportError:
-        pass
-    else:
-        capture_external_data_rows_synced()
+def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
+    from posthog.tasks.environments_rollback import environments_rollback_migration
+
+    environments_rollback_migration(organization_id, environment_mappings, user_id)

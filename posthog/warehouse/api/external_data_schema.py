@@ -144,6 +144,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             sync_type is not None
             and sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
             and sync_type != ExternalDataSchema.SyncType.INCREMENTAL
+            and sync_type != ExternalDataSchema.SyncType.APPEND
         ):
             raise ValidationError("Invalid sync type")
 
@@ -151,7 +152,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         trigger_refresh = False
         # Update the validated_data with incremental fields
-        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL or sync_type == ExternalDataSchema.SyncType.APPEND:
             incremental_field_changed = (
                 instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
                 or instance.sync_type_config.get("incremental_field_last_value") is None
@@ -167,7 +168,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
                     if max_value:
-                        instance.update_incremental_field_last_value(max_value, save=False)
+                        instance.update_incremental_field_value(max_value, save=False)
                     else:
                         # if we can't get the max value, reset the table
                         payload["incremental_field_last_value"] = None

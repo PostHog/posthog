@@ -97,8 +97,9 @@ pub struct ConfigResponse {
     pub supported_compression: Vec<String>,
 
     /// If set, disables autocapture
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "autocapture_opt_out")]
-    pub autocapture_opt_out: bool,
+    pub autocapture_opt_out: Option<bool>,
 
     /// Originally capturePerformance was replay only and so boolean true
     /// is equivalent to { network_timing: true }
@@ -163,6 +164,17 @@ pub struct ConfigResponse {
     /// Whether to capture dead clicks
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_dead_clicks: Option<bool>,
+
+    /// Error tracking configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_tracking: Option<ErrorTrackingConfig>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorTrackingConfig {
+    pub autocapture_exceptions: bool,
+    pub suppression_rules: Vec<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -277,7 +289,7 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
-    fn create_error(flag: &FeatureFlag, error_reason: &str) -> Self;
+    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
@@ -301,14 +313,14 @@ impl FromFeatureAndMatch for FlagDetails {
         }
     }
 
-    fn create_error(flag: &FeatureFlag, error_reason: &str) -> Self {
+    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
             variant: None,
             reason: FlagEvaluationReason {
                 code: error_reason.to_string(),
-                condition_index: None,
+                condition_index,
                 description: None,
             },
             metadata: FlagDetailsMetadata {

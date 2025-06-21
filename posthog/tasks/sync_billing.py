@@ -1,6 +1,6 @@
 from celery import shared_task
 
-from sentry_sdk import capture_message
+from posthog.exceptions_capture import capture_exception
 
 
 @shared_task(ignore_result=True, rate_limit="5/s")
@@ -14,7 +14,7 @@ def sync_members_to_billing(organization_id: str) -> None:
     ).first()
 
     if not first_owner:
-        capture_message(f"Organization {organization.id} has no owner", level="error")
+        capture_exception(Exception(f"Organization has no owner", {"organization_id": organization.id}))
         return
 
     first_owner.update_billing_organization_users(organization)

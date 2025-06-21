@@ -21,11 +21,11 @@ from posthog.schema import (
     CurrencyCode,
     DateRange,
     HogQLQueryModifiers,
-    RevenueSources,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
     RevenueAnalyticsTopCustomersGroupBy,
     RevenueAnalyticsPropertyFilter,
+    PropertyOperator,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -150,9 +150,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             last_synced_at="2024-01-01",
         )
 
-        self.team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
+        self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
+        self.team.save()
 
     def tearDown(self):
         self.invoices_cleanup_filesystem()
@@ -165,15 +166,12 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         *,
         date_range: DateRange | None = None,
         group_by: RevenueAnalyticsTopCustomersGroupBy | None = None,
-        revenue_sources: RevenueSources | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range: DateRange = DateRange(date_from="all")
         if group_by is None:
             group_by: RevenueAnalyticsTopCustomersGroupBy = "month"
-        if revenue_sources is None:
-            revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
         if properties is None:
             properties = []
 
@@ -181,7 +179,6 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             query = RevenueAnalyticsTopCustomersQuery(
                 dateRange=date_range,
                 groupBy=group_by,
-                revenueSources=revenue_sources,
                 properties=properties,
             )
             runner = RevenueAnalyticsTopCustomersQueryRunner(
@@ -201,7 +198,13 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
     def test_no_crash_when_no_source_is_selected(self):
         results = self._run_revenue_analytics_top_customers_query(
-            revenue_sources=RevenueSources(events=[], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["non-existent-source"],
+                )
+            ],
         ).results
 
         self.assertEqual(results, [])
@@ -236,12 +239,12 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("John Doe", "cus_1", Decimal("393.7"), "all"),
-                ("Jane Doe", "cus_2", Decimal("336.2"), "all"),
-                ("John Smith", "cus_3", Decimal("21898.92"), "all"),
-                ("Jane Smith", "cus_4", Decimal("214.5"), "all"),
-                ("John Doe Jr", "cus_5", Decimal("686.5"), "all"),
-                ("John Doe Jr Jr", "cus_6", Decimal("10987.18"), "all"),
+                ("John Doe", "cus_1", Decimal("313.7789"), "all"),
+                ("Jane Doe", "cus_2", Decimal("267.9514"), "all"),
+                ("John Smith", "cus_3", Decimal("17453.43924"), "all"),
+                ("Jane Smith", "cus_4", Decimal("170.9565"), "all"),
+                ("John Doe Jr", "cus_5", Decimal("547.1405"), "all"),
+                ("John Doe Jr Jr", "cus_6", Decimal("8756.78246"), "all"),
             ],
         )
 
@@ -258,7 +261,13 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         results = self._run_revenue_analytics_top_customers_query(
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(
@@ -287,7 +296,13 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         results = self._run_revenue_analytics_top_customers_query(
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
-            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
         ).results
 
         self.assertEqual(

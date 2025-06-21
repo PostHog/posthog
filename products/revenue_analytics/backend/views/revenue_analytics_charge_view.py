@@ -23,7 +23,7 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     currency_aware_amount,
     is_zero_decimal_in_stripe,
 )
-from .revenue_analytics_base_view import RevenueAnalyticsBaseView
+from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_exprs_for_team
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
@@ -58,23 +58,34 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             return []
 
         revenue_config = team.revenue_analytics_config
+        generic_team_exprs = events_exprs_for_team(team)
 
         queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
             prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
 
             comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-                revenue_config, event, do_currency_conversion=False
+                team, event, do_currency_conversion=False
             )
             _, currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(
-                revenue_config,
+                team,
                 event,
                 amount_expr=ast.Field(chain=["currency_aware_amount"]),
             )
 
+            filter_exprs = [
+                comparison_expr,
+                *generic_team_exprs,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["amount"]),  # refers to the Alias above
+                    right=ast.Constant(value=None),
+                ),
+            ]
+
             query = ast.SelectQuery(
                 select=[
-                    ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
+                    ast.Alias(alias="id", expr=ast.Call(name="toString", args=[ast.Field(chain=["uuid"])])),
                     ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
@@ -85,7 +96,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
                     ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
-                    ast.Alias(alias="original_currency", expr=currency_expression_for_events(revenue_config, event)),
+                    ast.Alias(alias="original_currency", expr=currency_expression_for_events(team, event)),
                     ast.Alias(alias="original_amount", expr=value_expr),
                     # Being zero-decimal implies we will NOT divide the original amount by 100
                     # We should only do that if we've tagged the event with `currencyAwareDecimal`
@@ -98,20 +109,11 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                     ),
                     currency_aware_divider(),
                     currency_aware_amount(),
-                    ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                    ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
                     ast.Alias(alias="amount", expr=currency_aware_amount_expr),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.And(
-                    exprs=[
-                        comparison_expr,
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.NotEq,
-                            left=ast.Field(chain=["amount"]),  # refers to the Alias above
-                            right=ast.Constant(value=None),
-                        ),
-                    ]
-                ),
+                where=ast.And(exprs=filter_exprs),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             )
 
@@ -147,7 +149,6 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
 
         table = cast(DataWarehouseTable, charge_schema.table)
         team = table.team
-        revenue_config = team.revenue_analytics_config
 
         prefix = RevenueAnalyticsBaseView.get_view_prefix_for_source(source)
 
@@ -196,7 +197,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
                 currency_aware_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
-                ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
                 # Convert the adjusted original amount to the base currency
                 ast.Alias(
                     alias="amount",

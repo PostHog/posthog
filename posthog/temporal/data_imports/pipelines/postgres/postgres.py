@@ -19,13 +19,14 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-    QueryTimeout,
+    QueryTimeoutException,
+    TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
-from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
@@ -114,7 +115,7 @@ class RangeAsStringLoader(Loader):
 def _build_query(
     schema: str,
     table_name: str,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
@@ -122,7 +123,7 @@ def _build_query(
 ) -> sql.Composed:
     query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
 
-    if not is_incremental:
+    if not should_use_incremental_field:
         if add_limit:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
             return sql.SQL(query_with_limit).format()
@@ -198,6 +199,8 @@ def _has_duplicate_primary_keys(
         row = cursor.fetchone()
 
         return row is not None
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         capture_exception(e)
         return False
@@ -227,6 +230,8 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         )
 
         return min_chunk_size
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
@@ -252,9 +257,16 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
         logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
 
         return int(rows_to_sync)
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
+
+        if "temporary file size exceeds temp_file_limit" in str(e):
+            raise TemporaryFileSizeExceedsLimitException(
+                f"Error: {e}. Please ensure your incremental field has an appropriate index created"
+            )
 
         return 0
 
@@ -274,6 +286,8 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
 
     try:
         cursor.execute(query)
+    except psycopg.errors.QueryCanceled:
+        raise
     except Exception as e:
         capture_exception(e)
         return None
@@ -422,7 +436,7 @@ def postgres_source(
     sslmode: str,
     schema: str,
     table_names: list[str],
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     team_id: Optional[int] = None,
@@ -449,7 +463,7 @@ def postgres_source(
             inner_query_with_limit = _build_query(
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -459,7 +473,7 @@ def postgres_source(
             inner_query_without_limit = _build_query(
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -474,7 +488,9 @@ def postgres_source(
                 table = _get_table(cursor, schema, table_name)
                 chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                 rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
-                partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+                partition_settings = (
+                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                )
                 has_duplicate_primary_keys = False
 
                 # Fallback on checking for an `id` field on the table
@@ -482,8 +498,8 @@ def postgres_source(
                     primary_keys = ["id"]
                     has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
             except psycopg.errors.QueryCanceled:
-                if is_incremental:
-                    raise QueryTimeout(
+                if should_use_incremental_field:
+                    raise QueryTimeoutException(
                         f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
                     )
                 raise
@@ -519,7 +535,7 @@ def postgres_source(
                 query = _build_query(
                     schema,
                     table_name,
-                    is_incremental,
+                    should_use_incremental_field,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,

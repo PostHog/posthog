@@ -1,4 +1,5 @@
 from datetime import UTC, timedelta, datetime
+from typing import cast
 import uuid
 from unittest.mock import ANY, patch
 
@@ -17,13 +18,14 @@ import time
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from django_otp.plugins.otp_static.models import StaticDevice
-from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 from rest_framework.parsers import JSONParser
@@ -1035,3 +1037,233 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
+
+
+class TestOAuthAccessTokenAuthentication(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.factory = APIRequestFactory()
+
+        self.oauth_app = OAuthApplication.objects.create(
+            name="Test App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+
+        self.access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_app,
+            token="test_access_token_123",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+        )
+
+    def test_authenticate_with_valid_oauth_token(self):
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNotNone(result)
+        user, _ = cast(tuple[User, None], result)
+
+        self.assertEqual(user, self.user)
+        self.assertIsNone(_)
+
+    def test_authenticate_with_invalid_oauth_token(self):
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": "Bearer invalid_token_123"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+
+        # Should return None for nonexistent tokens to allow next auth method
+        self.assertIsNone(result)
+
+    def test_authenticate_with_expired_oauth_token(self):
+        expired_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_app,
+            token="expired_token_123",
+            expires=timezone.now() - timedelta(hours=1),
+            scope="openid profile",
+        )
+
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {expired_token.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+
+        with self.assertRaises(Exception) as context:
+            authenticator.authenticate(request)
+
+        self.assertIn("Access token has expired", str(context.exception))
+
+    def test_authenticate_with_inactive_user(self):
+        self.user.is_active = False
+        self.user.save()
+
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+
+        with self.assertRaises(Exception) as context:
+            authenticator.authenticate(request)
+
+        self.assertIn("User associated with access token is disabled", str(context.exception))
+
+    def test_authenticate_without_bearer_token(self):
+        wsgi_request = self.factory.get("/")
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
+
+    @patch("posthog.auth.tag_queries")
+    def test_authenticate_tags_queries_correctly(self, mock_tag_queries):
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNotNone(result)
+
+        mock_tag_queries.assert_called_once_with(
+            user_id=self.user.pk,
+            team_id=self.team.pk,
+            access_method="oauth",
+        )
+
+    def test_authenticate_header_returns_correct_value(self):
+        wsgi_request = self.factory.get("/")
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        header = authenticator.authenticate_header(request)
+
+        self.assertEqual(header, "Bearer")
+
+    def test_authenticate_with_nonexistent_token_returns_none_for_next_auth_method(self):
+        """Test that when a token doesn't exist in the database, the method returns None
+        to allow the next authentication method to have a go."""
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": "Bearer nonexistent_token_123"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+
+        # Should return None, not raise an exception
+        self.assertIsNone(result)
+
+    def test_authenticate_with_token_validation_error_raises_exception(self):
+        """Test that when there's an error during token validation (not just token not found),
+        an AuthenticationFailed exception is raised."""
+        # Create a token without an associated application
+        invalid_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=None,  # This will cause a validation error
+            token="invalid_app_token_123",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+        )
+
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {invalid_token.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+
+        with self.assertRaises(Exception) as context:
+            authenticator.authenticate(request)
+
+        self.assertIn("Access token is not associated with a valid application", str(context.exception))
+
+    def test_authenticate_with_user_not_found_raises_exception(self):
+        """Test that when the user associated with the token is not found,
+        an AuthenticationFailed exception is raised."""
+        # Create a token without a user
+        token_without_user = OAuthAccessToken.objects.create(
+            user=None,
+            application=self.oauth_app,
+            token="no_user_token_123",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+        )
+
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {token_without_user.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+
+        with self.assertRaises(Exception) as context:
+            authenticator.authenticate(request)
+
+        self.assertIn("User associated with access token not found", str(context.exception))
+
+    def test_oauth_access_token_user_properties_are_accessible(self):
+        """Test that user.id and user.current_team_id are accessible for tag_queries."""
+        # Test that the user has the required properties
+        self.assertIsNotNone(self.access_token.user.id)
+        self.assertIsInstance(self.access_token.user.id, int)
+        self.assertEqual(self.access_token.user.id, self.user.pk)
+
+        # Test that current_team_id is accessible
+        self.assertIsNotNone(self.access_token.user.current_team_id)
+        self.assertIsInstance(self.access_token.user.current_team_id, int)
+        self.assertEqual(self.access_token.user.current_team_id, self.team.pk)
+
+    def test_oauth_access_token_calls_tag_queries_with_correct_parameters(self):
+        """Test that tag_queries is called with the correct user_id and team_id."""
+        with patch("posthog.auth.tag_queries") as mock_tag_queries:
+            wsgi_request = self.factory.get(
+                "/",
+                headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
+            )
+            request = Request(wsgi_request)
+
+            authenticator = OAuthAccessTokenAuthentication()
+            result = authenticator.authenticate(request)
+
+            self.assertIsNotNone(result)
+            self.assertIsInstance(self.user.pk, int)
+            self.assertIsInstance(self.user.current_team_id, int)
+
+            # Verify tag_queries was called with correct parameters
+            mock_tag_queries.assert_called_once_with(
+                user_id=self.user.pk,
+                team_id=self.user.current_team_id,
+                access_method="oauth",
+            )

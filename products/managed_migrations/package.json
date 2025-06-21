@@ -1,0 +1,13 @@
+{
+    "name": "@posthog/products-managed-migrations",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*"
+    }
+}

@@ -10,17 +10,16 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
-function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
+function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
         return {}
     }
-    const sanitized: HogFunctionFiltersType = {}
+    const sanitized: CyclotronJobFiltersType = {}
 
     if (filters.events) {
         sanitized.events = filters.events.map((f) => ({
@@ -48,33 +47,6 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
 export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
-
-    if (type === 'broadcast') {
-        return (
-            <div className="p-3 border rounded deprecated-space-y-2 bg-surface-primary">
-                <LemonField name="filters" label="Filters">
-                    {({ value, onChange }) => (
-                        <PropertyFilters
-                            propertyFilters={value?.properties ?? []}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
-                            onChange={(properties: AnyPropertyFilter[]) => {
-                                onChange({
-                                    ...value,
-                                    properties,
-                                })
-                            }}
-                            pageKey={`HogFunctionPropertyFilters.${id}`}
-                            metadataSource={{ kind: NodeKind.ActorsQuery }}
-                        />
-                    )}
-                </LemonField>
-            </div>
-        )
-    }
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
@@ -105,7 +77,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 }
             >
                 {({ value, onChange }) => {
-                    const filters = (value ?? {}) as HogFunctionFiltersType
+                    const filters = (value ?? {}) as CyclotronJobFiltersType
                     return (
                         <>
                             {useMapping && (
@@ -149,7 +121,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
 
                             {!useMapping ? (
                                 <>
-                                    <div className="flex justify-between w-full gap-2">
+                                    <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
                                             {isTransformation ? 'Match events' : 'Match events and actions'}
                                         </LemonLabel>
@@ -203,7 +175,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     {showDropEvents && (
                                         <>
                                             <LemonLabel>
-                                                <span className="flex items-center justify-between flex-1 gap-2">
+                                                <span className="flex flex-1 gap-2 justify-between items-center">
                                                     Drop events that don't match
                                                     <LemonSwitch
                                                         checked={value?.drop_events ?? false}
@@ -243,7 +215,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (
-                        <div className="flex flex-wrap items-center gap-1">
+                        <div className="flex flex-wrap gap-1 items-center">
                             <LemonSelect
                                 options={[
                                     {
@@ -273,7 +245,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             />
                             {configuration.masking?.hash ? (
                                 <>
-                                    <div className="flex flex-wrap items-center gap-1">
+                                    <div className="flex flex-wrap gap-1 items-center">
                                         <span>of</span>
                                         <LemonSelect
                                             value={value?.ttl}
@@ -318,7 +290,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                             ]}
                                         />
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-1">
+                                    <div className="flex flex-wrap gap-1 items-center">
                                         <span>or until</span>
                                         <LemonSelect
                                             value={value?.threshold}

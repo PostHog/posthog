@@ -2,7 +2,6 @@ from typing import TypeVar
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentMetricResult,
     ExperimentVariantResultFrequentist,
     ExperimentQueryResponse,
     ExperimentStatsBase,
@@ -10,12 +9,11 @@ from posthog.schema import (
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
 )
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
-from products.experiments.stats.frequentist.statistics import (
+from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.shared.enums import DifferenceType
+from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     ProportionStatistic,
-    TestType,
-    DifferenceType,
 )
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 
@@ -174,7 +172,7 @@ def get_frequentist_experiment_result_new_format(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
-) -> ExperimentMetricResult:
+) -> ExperimentQueryResponse:
     config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
     method = FrequentistMethod(config)
 
@@ -197,7 +195,7 @@ def get_frequentist_experiment_result_new_format(
             )
         )
 
-    return ExperimentMetricResult(
+    return ExperimentQueryResponse(
         baseline=control_variant,
-        variants=variants,
+        variant_results=variants,
     )

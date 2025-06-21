@@ -13,14 +13,17 @@ from posthog.models.utils import UUIDT
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
+    CachedRetentionQueryResponse,
     DataWarehouseNode,
     EventPropertyFilter,
     EventsQuery,
     FunnelsQuery,
     HogQLPropertyFilter,
     HogQLQuery,
+    MeanRetentionCalculation,
     PersonPropertyFilter,
     PropertyOperator,
+    RetentionQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -622,8 +625,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
-    def test_full_hogql_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    def test_full_hogql_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -675,8 +678,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
-    def test_full_events_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    def test_full_events_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -1046,6 +1049,41 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = CachedHogQLQueryResponse.model_validate(api_response)
         assert response.results[0][0] == variable_override_value
+
+    @patch("posthog.api.query.process_query_model")
+    def test_upgrades_query(self, mock_process_query):
+        mock_process_query.return_value = CachedRetentionQueryResponse(
+            cache_key="cache_123",
+            is_cached=False,
+            last_refresh="2023-10-16T12:00:00Z",
+            next_allowed_client_refresh="2023-10-16T14:00:00Z",
+            results=[],
+            timezone="UTC",
+        )
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {
+                        "period": "Day",
+                        "totalIntervals": 8,
+                        "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                        "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                        "retentionType": "retention_first_time",
+                        "showMean": True,
+                    },
+                },
+                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
+            },
+        ).json()
+
+        mock_process_query.assert_called_once()
+        updated_query = mock_process_query.call_args.args[1]
+        assert isinstance(updated_query, RetentionQuery)
+        assert updated_query.version == 2
+        assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
 
 
 class TestQueryRetrieve(APIBaseTest):

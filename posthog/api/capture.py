@@ -3,7 +3,6 @@ import json
 import re
 from random import random
 
-import sentry_sdk
 import structlog
 import time
 from collections.abc import Iterator
@@ -18,10 +17,10 @@ from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
-from sentry_sdk import configure_scope, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
+import posthoganalytics
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -493,121 +492,117 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
 
     retry_count = _get_retry_count(request)
 
-    with start_span(op="request.authenticate"):
-        token = get_token(data, request)
+    token = get_token(data, request)
 
-        if not token:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "API key not provided. You can find your project API key in PostHog project settings.",
-                    type="authentication_error",
-                    code="missing_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
-        try:
-            invalid_token_reason = _check_token_shape(token)
-        except Exception as e:
-            invalid_token_reason = "exception"
-            logger.warning(
-                "capture_token_shape_exception",
-                token=token,
-                reason="exception",
-                exception=e,
-            )
+    try:
+        invalid_token_reason = _check_token_shape(token)
+    except Exception as e:
+        invalid_token_reason = "exception"
+        logger.warning(
+            "capture_token_shape_exception",
+            token=token,
+            reason="exception",
+            exception=e,
+        )
 
-        if invalid_token_reason:
-            TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
-            logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    f"Provided API key is not valid: {invalid_token_reason}",
-                    type="authentication_error",
-                    code=invalid_token_reason,
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
+    if invalid_token_reason:
+        TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
+        logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                f"Provided API key is not valid: {invalid_token_reason}",
+                type="authentication_error",
+                code=invalid_token_reason,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
     structlog.contextvars.bind_contextvars(token=token)
 
     replay_events: list[Any] = []
 
     historical = token in settings.TOKENS_HISTORICAL_DATA
-    with start_span(op="request.process"):
-        if isinstance(data, dict):
-            if data.get("batch"):  # posthog-python and posthog-ruby
-                if not historical:
-                    # If they're not forced into historical by token, they can still opt into it
-                    # for batches via `historical_migration=true`
-                    historical = bool(data.get("historical_migration", False))
-                data = data["batch"]
-                assert data is not None
+    if isinstance(data, dict):
+        if data.get("batch"):  # posthog-python and posthog-ruby
+            if not historical:
+                # If they're not forced into historical by token, they can still opt into it
+                # for batches via `historical_migration=true`
+                historical = bool(data.get("historical_migration", False))
+            data = data["batch"]
+            assert data is not None
 
-                KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
-            elif "engage" in request.path_info:  # JS identify call
-                data["event"] = "$identify"  # make sure it has an event name
+            KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
+        elif "engage" in request.path_info:  # JS identify call
+            data["event"] = "$identify"  # make sure it has an event name
 
-        if isinstance(data, list):
-            events = data
-        else:
-            events = [data]
+    if isinstance(data, list):
+        events = data
+    else:
+        events = [data]
 
-        if not all(data):  # Check that all items are truthy (not null, not empty dict)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture", f"Invalid payload: some events are null", code="invalid_payload"
-                ),
-            )
+    if not all(data):  # Check that all items are truthy (not null, not empty dict)
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: some events are null", code="invalid_payload"),
+        )
 
-        try:
-            events = drop_performance_events(events)
-        except Exception as e:
-            capture_exception(e)
+    try:
+        events = drop_performance_events(events)
+    except Exception as e:
+        capture_exception(e)
 
-        # we're not going to change the response for events
-        recordings_were_quota_limited = False
-        try:
-            events_over_quota_result = drop_events_over_quota(token, events)
-            events = events_over_quota_result.events
-            recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
-        except Exception as e:
-            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
-            capture_exception(e)
+    # we're not going to change the response for events
+    recordings_were_quota_limited = False
+    try:
+        events_over_quota_result = drop_events_over_quota(token, events)
+        events = events_over_quota_result.events
+        recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
+    except Exception as e:
+        # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+        capture_exception(e)
 
-        try:
-            # split the replay events off as they are passed to kafka separately
-            replay_events, other_events = split_replay_events(events)
-            events = other_events
+    try:
+        # split the replay events off as they are passed to kafka separately
+        replay_events, other_events = split_replay_events(events)
+        events = other_events
 
-        except ValueError as e:
-            return cors_response(
-                request,
-                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
-            )
+    except ValueError as e:
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
+        )
 
-        # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
-        site_url = request.build_absolute_uri("/")[:-1]
-        ip = get_ip_address(request)
+    # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
+    site_url = request.build_absolute_uri("/")[:-1]
+    ip = get_ip_address(request)
 
-        try:
-            processed_events = list(preprocess_events(events))
+    try:
+        processed_events = list(preprocess_events(events))
 
-        except ValueError as e:
-            return cors_response(
-                request,
-                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
-            )
+    except ValueError as e:
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
+        )
 
     futures: list[FutureRecordMetadata] = []
 
-    with start_span(op="kafka.produce") as span:
-        span.set_tag("event.count", len(processed_events))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
             if f"{token}:{distinct_id}" in get_tokens_to_drop():
                 logger.warning("Dropping event", token=token, distinct_id=distinct_id)
@@ -642,8 +637,8 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                     ),
                 )
 
-    with start_span(op="kafka.wait"):
-        span.set_tag("future.count", len(futures))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("future.count", len(futures))
         start_time = time.monotonic()
         for future in futures:
             try:
@@ -723,10 +718,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                                     warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(e)
+        capture_exception(e, {"capture-pathway": "replay", "ph-team-token": token})
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
         return cors_response(
@@ -742,11 +734,14 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
         KAFKA_TIMEOUT_ERROR_COUNTER.labels(retry_count=retry_count, status_code=status_code).inc()
 
         if status_code == status.HTTP_400_BAD_REQUEST:
-            with sentry_sdk.push_scope() as scope:
-                scope.set_tag("capture-pathway", "replay")
-                scope.set_tag("ph-team-token", token)
-                scope.set_tag("retry_count", retry_count)
-                capture_exception(kte)
+            capture_exception(
+                kte,
+                {
+                    "capture-pathway": "replay",
+                    "ph-team-token": token,
+                    "retry_count": retry_count,
+                },
+            )
 
         return cors_response(
             request,
@@ -759,10 +754,10 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
             ),
         )
     except Exception as exc:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(exc, {"data": data})
+        capture_exception(
+            exc,
+            {"data": data, "capture-pathway": "replay", "ph-team-token": token},
+        )
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
         return cors_response(
             request,
@@ -862,9 +857,7 @@ def replace_with_warning(
             },
         }
     except Exception as ex:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            capture_exception(ex)
+        capture_exception(ex, {"capture-pathway": "replay"})
         return None
 
 
@@ -888,10 +881,7 @@ def sample_replay_data_to_object_storage(
             object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(ex)
+        capture_exception(ex, {"capture-pathway": "replay", "ph-team-token": token})
 
 
 def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], UUIDT, str]]:
@@ -923,9 +913,9 @@ def parse_event(event):
 
     enforce_numeric_offset(event["properties"])
 
-    with configure_scope() as scope:
-        scope.set_tag("library", event["properties"].get("$lib", "unknown"))
-        scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("library", event["properties"].get("$lib", "unknown"))
+        posthoganalytics.tag("library.version", event["properties"].get("$lib_version", "unknown"))
 
     return event
 

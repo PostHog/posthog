@@ -76,12 +76,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
     const { setEventOrdering } = useActions(taxonomicFilterPreferencesLogic)
 
     return (
-        <div
-            className={cn(
-                'flex flex-row justify-between items-center w-full relative',
-                openTab !== TaxonomicFilterGroupType.Events && 'pb-2'
-            )}
-        >
+        <div className="flex flex-row justify-between items-center w-full relative pb-2">
             {openTab === TaxonomicFilterGroupType.Events ? (
                 <>
                     <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
@@ -99,6 +94,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                                     onClick: () => {
                                         setEventOrdering('name')
                                     },
+                                    'data-attr': 'taxonomic-event-sorting-by-name',
                                 },
                                 {
                                     label: (
@@ -111,6 +107,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                                     onClick: () => {
                                         setEventOrdering('-last_seen_at')
                                     },
+                                    'data-attr': 'taxonomic-event-sorting-by-recency',
                                 },
                                 {
                                     label: (
@@ -124,6 +121,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
                                     onClick: () => {
                                         setEventOrdering(null)
                                     },
+                                    'data-attr': 'taxonomic-event-sorting-by-both',
                                 },
                             ]}
                         >
@@ -197,7 +195,7 @@ export function InfiniteSelectResults({
             {hasMultipleGroups && (
                 <div
                     className={cn(
-                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b mb-2',
+                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b',
                         'border-primary'
                     )}
                 >

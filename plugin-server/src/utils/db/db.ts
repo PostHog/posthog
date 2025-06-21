@@ -43,6 +43,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
+import { PersonUpdate } from '../../worker/ingestion/persons/person-update-batch'
 import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
@@ -672,7 +673,7 @@ export class DB {
         return [person, kafkaMessages]
     }
 
-    // Potential optimization on the updatePersonDeprecated method
+    // Potential optimization on the updatePerson method
     public async updatePersonWithMergeOperator(
         person: InternalPerson,
         propertiesToSet: Properties,
@@ -768,13 +769,45 @@ export class DB {
         return [updatedPerson, [kafkaMessage]]
     }
 
+    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<number | undefined> {
+        const result = await this.postgres.query<{ version: string }>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_person SET
+                properties = $1,
+                properties_last_updated_at = $2,
+                properties_last_operation = $3,
+                is_identified = $4,
+                version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $5 AND uuid = $6 AND version = $7
+            RETURNING version
+            `,
+            [
+                JSON.stringify(personUpdate.properties),
+                JSON.stringify(personUpdate.properties_last_updated_at),
+                JSON.stringify(personUpdate.properties_last_operation),
+                personUpdate.is_identified,
+                personUpdate.team_id,
+                personUpdate.uuid,
+                personUpdate.version,
+            ],
+            'updatePersonAssertVersion'
+        )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
+    }
+
     // Currently in use, but there are various problems with this function
-    public async updatePersonDeprecated(
+    public async updatePerson(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient,
         tag?: string
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -785,7 +818,7 @@ export class DB {
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
-            return [person, []]
+            return [person, [], false]
         }
 
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
@@ -829,7 +862,7 @@ export class DB {
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
 
-        return [updatedPerson, [kafkaMessage]]
+        return [updatedPerson, [kafkaMessage], versionDisparity > 0]
     }
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
@@ -1313,7 +1346,7 @@ export class DB {
         }
 
         const selectResult: QueryResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             [teamId, groupTypeIndex, groupKey],
             'fetchGroup'
@@ -1340,7 +1373,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<number> {
         const result = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1379,7 +1412,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $4,
@@ -1420,7 +1453,7 @@ export class DB {
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $5,

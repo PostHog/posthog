@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, DataWarehouseTable, PipelineTab } from '~/types'
 
+import { dataWarehouseSourceSceneLogic } from '../settings/DataWarehouseSourceScene'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
 export interface TableLogicProps {
@@ -62,7 +63,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props }) => ({
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
@@ -73,6 +74,15 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             actions.editingTable(false)
             actions.loadDatabase()
             router.actions.replace(urls.pipeline(PipelineTab.Sources))
+        },
+        loadTableSuccess: async ({ table }) => {
+            if (props.id) {
+                dataWarehouseSourceSceneLogic
+                    .findMounted({
+                        id: `self-managed-${props.id}`,
+                    })
+                    ?.actions.setBreadcrumbName(table.name)
+            }
         },
     })),
     reducers({

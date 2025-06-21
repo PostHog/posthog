@@ -2,6 +2,7 @@ import abc
 import asyncio
 import collections.abc
 import datetime as dt
+import math
 import operator
 import typing
 import uuid
@@ -49,6 +50,9 @@ from posthog.temporal.batch_exports.temporary_file import (
     RecordsSinceLastFlush,
     WriterFormat,
     get_batch_export_writer,
+)
+from posthog.temporal.batch_exports.transformer import (
+    get_stream_transformer,
 )
 from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
@@ -985,21 +989,25 @@ def slice_record_batch(
         min_records_batch_per_batch: Each slice yielded should contain at least
             this number of records.
     """
-    total_rows = record_batch.num_rows
-    yielded_rows = 0
-    offset = 0
-    length = total_rows
-
     if max_record_batch_size_bytes <= 0 or max_record_batch_size_bytes > record_batch.nbytes:
         yield record_batch
         return
+
+    total_rows = record_batch.num_rows
+    yielded_rows = 0
+    offset = 0
+    estimated = _estimate_rows_to_fit_under_max(record_batch, max_record_batch_size_bytes, min_records_per_batch)
+    length = total_rows - estimated
 
     while yielded_rows < total_rows:
         sliced_record_batch = record_batch.slice(offset=offset, length=length)
         current_rows = sliced_record_batch.num_rows
 
-        if max_record_batch_size_bytes < sliced_record_batch.nbytes and min_records_per_batch < current_rows:
-            length -= 1
+        if sliced_record_batch.nbytes > max_record_batch_size_bytes and current_rows > min_records_per_batch:
+            estimated = _estimate_rows_to_fit_under_max(
+                sliced_record_batch, max_record_batch_size_bytes, min_records_per_batch
+            )
+            length -= estimated
             continue
 
         yield sliced_record_batch
@@ -1007,6 +1015,17 @@ def slice_record_batch(
         yielded_rows += current_rows
         offset = offset + length
         length = total_rows - yielded_rows
+
+
+def _estimate_rows_to_fit_under_max(
+    slice: pa.RecordBatch, max_record_batch_size_bytes: int, min_records_per_batch: int
+) -> int:
+    if slice.nbytes <= max_record_batch_size_bytes or slice.num_rows <= min_records_per_batch:
+        return 0
+
+    avg_bytes_per_row = slice.nbytes / slice.num_rows
+    bytes_diff = slice.nbytes - max_record_batch_size_bytes
+    return max(math.floor(bytes_diff / avg_bytes_per_row), 1)
 
 
 def generate_query_ranges(
@@ -1144,3 +1163,205 @@ async def wait_for_delta_past_data_interval_end(
         remaining = (target + delta) - now
         # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
         await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))
+
+
+class ConsumerFromStage:
+    """Async consumer for batch exports.
+
+    Attributes:
+        data_interval_start: The beginning of the batch export period.
+        logger: Provided consumer logger.
+    """
+
+    def __init__(
+        self,
+        data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
+    ):
+        self.data_interval_start = data_interval_start
+        self.data_interval_end = data_interval_end
+        self.logger = get_internal_logger()
+
+    @property
+    def rows_exported_counter(self) -> temporalio.common.MetricCounter:
+        """Access the rows exported metric counter."""
+        return get_rows_exported_metric()
+
+    @property
+    def bytes_exported_counter(self) -> temporalio.common.MetricCounter:
+        """Access the bytes exported metric counter."""
+        return get_bytes_exported_metric()
+
+    async def start(
+        self,
+        queue: RecordBatchQueue,
+        producer_task: asyncio.Task,
+        schema: pa.Schema,
+        file_format: str,
+        compression: str | None,
+        include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
+        json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    ) -> int:
+        """Start consuming record batches from queue.
+
+        Record batches will be written to a temporary file defined by `writer_format`
+        and the file will be flushed upon reaching at least `max_bytes`.
+
+        Callers can control whether a new file is created for each flush or whether we
+        continue flushing to the same file by setting `multiple_files`. File data is
+        reset regardless, so this is not meant to impact total file size, but rather
+        to control whether we are exporting a single large file in multiple parts, or
+        multiple files that must each individually be valid.
+
+        Returns:
+            Total number of records in all consumed record batches.
+        """
+
+        schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
+        transformer = get_stream_transformer(
+            format=file_format,
+            compression=compression,
+            schema=schema,
+            include_inserted_at=include_inserted_at,
+        )
+        record_batches_count = 0
+        records_count = 0
+        bytes_count = 0
+
+        async def track_iteration_of_record_batches():
+            """Wrap generator of record batches to track execution."""
+            nonlocal record_batches_count
+            nonlocal records_count
+            nonlocal bytes_count
+
+            async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
+                record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
+
+                record_batches_count += 1
+                records_count += record_batch.num_rows
+                bytes_count += record_batch.nbytes
+
+                await self.logger.adebug(
+                    "Consuming %s records, %s bytes from record batch %s; total records so far: %s, total MiB so far: %s",
+                    record_batch.num_rows,
+                    record_batch.nbytes,
+                    record_batches_count,
+                    records_count,
+                    bytes_count / 1024**2,
+                )
+
+                yield record_batch
+
+        try:
+            async for chunk, is_eof in transformer.iter_transformed_record_batches(
+                track_iteration_of_record_batches(),
+                max_file_size_bytes,
+            ):
+                if is_eof and not chunk:
+                    await self.finalize_file()
+                    continue
+
+                await self.consume_chunk(data=chunk)
+
+            # Finalize upload
+            await self.finalize()
+
+        except Exception:
+            await self.logger.aexception("Unexpected error occurred while consuming record batches")
+            raise
+
+        await self.logger.adebug(
+            "Finished consuming %s records, %s MiB from %s record batches",
+            records_count,
+            bytes_count / 1024**2,
+            record_batches_count,
+        )
+        return records_count
+
+    async def generate_record_batches_from_queue(
+        self,
+        queue: RecordBatchQueue,
+        producer_task: asyncio.Task,
+    ):
+        """Yield record batches from provided `queue` until `producer_task` is done."""
+        while True:
+            try:
+                record_batch = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                if producer_task.done():
+                    await self.logger.adebug(
+                        "Empty queue with no more events being produced, closing writer loop and flushing"
+                    )
+                    break
+                else:
+                    await asyncio.sleep(0)
+                    continue
+
+            yield record_batch
+
+    @abc.abstractmethod
+    async def consume_chunk(self, data: bytes):
+        """Consume a chunk of data."""
+        pass
+
+    @abc.abstractmethod
+    async def finalize_file(self):
+        """Finalize the current file.
+
+        Only called if working with multiple files, such as when we have a max file size.
+        """
+        pass
+
+    @abc.abstractmethod
+    async def finalize(self):
+        """Finalize the consumer."""
+        pass
+
+
+async def run_consumer_from_stage(
+    queue: RecordBatchQueue,
+    consumer: ConsumerFromStage,
+    producer_task: asyncio.Task,
+    schema: pa.Schema,
+    file_format: str,
+    compression: str | None,
+    include_inserted_at: bool = False,
+    max_file_size_bytes: int = 0,
+    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+) -> int:
+    """Run a consumer that takes record batches from a queue and writes them to a destination.
+
+    This uses a newer version of the consumer that works with the internal S3 stage activities.
+
+    Arguments:
+        queue: The queue to consume record batches from.
+        consumer: The consumer to run.
+        producer_task: The task that produces record batches.
+        schema: The schema of the record batches.
+        file_format: The format of the file to write to.
+        compression: The compression to use for the file.
+        include_inserted_at: Whether to include the inserted_at column in the file.
+        max_file_size_bytes: The maximum size of the file to write to (if 0, no file splitting is done)
+        json_columns: The columns which contain JSON data.
+
+    Returns:
+        Number of records exported. Not the number of record batches, but the number of records in all record batches.
+    """
+    await consumer.logger.adebug("Starting record batch consumer")
+
+    records_completed = await consumer.start(
+        queue=queue,
+        producer_task=producer_task,
+        schema=schema,
+        file_format=file_format,
+        compression=compression,
+        include_inserted_at=include_inserted_at,
+        max_file_size_bytes=max_file_size_bytes,
+        json_columns=json_columns,
+    )
+
+    await raise_on_task_failure(producer_task)
+    await consumer.logger.adebug("Successfully finished record batch consumer")
+
+    return records_completed

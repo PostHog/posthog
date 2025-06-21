@@ -38,7 +38,7 @@ def build_inputs(multiProductEvent=False):
 
 
 template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="alpha",
     free=False,
     type="site_destination",
     id="template-snapchat-pixel",
@@ -57,7 +57,7 @@ function initSnippet() {
     'https://sc-static.net/scevent.min.js');
 }
 
-export function onLoad({ inputs }) {
+export function onLoad({ inputs, posthog }) {
     initSnippet();
     let userProperties = {};
     for (const [key, value] of Object.entries(inputs.userProperties)) {
@@ -70,7 +70,7 @@ export function onLoad({ inputs }) {
     }
     snaptr('init', inputs.pixelId, userProperties);
 }
-export function onEvent({ inputs }) {
+export function onEvent({ inputs, posthog }) {
     let eventProperties = {};
     for (const [key, value] of Object.entries(inputs.eventProperties)) {
         if (value) {

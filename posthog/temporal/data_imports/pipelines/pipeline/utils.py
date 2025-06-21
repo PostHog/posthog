@@ -48,7 +48,11 @@ class DuplicatePrimaryKeysException(Exception):
     pass
 
 
-class QueryTimeout(Exception):
+class QueryTimeoutException(Exception):
+    pass
+
+
+class TemporaryFileSizeExceedsLimitException(Exception):
     pass
 
 
@@ -179,7 +183,8 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
-        for field in delta_schema.to_pyarrow():
+        for arro3_field in delta_schema.to_arrow():
+            field = pa.field(arro3_field)
             if field.name not in py_table_field_names:
                 if field.nullable:
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
@@ -495,6 +500,11 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     # Support both given schemas and inferred schemas
     if schema is None:
         try:
+            # Gather all unique keys from all items, not just the first
+            all_keys = set().union(*(d.keys() for d in table_data))
+            first_item = table_data[0]
+            first_item = {key: first_item.get(key, None) for key in all_keys}
+            table_data[0] = first_item
             arrow_schema = pa.Table.from_pylist(table_data).schema
         except:
             arrow_schema = None

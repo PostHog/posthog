@@ -1,6 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
@@ -165,7 +166,8 @@ export type LogEntrySerialized = Omit<LogEntry, 'timestamp'> & {
 
 export type MinimalAppMetric = {
     team_id: number
-    app_source_id: string
+    app_source_id: string // The main item (like the hog function or hog flow ID)
+    instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
     metric_kind: 'failure' | 'success' | 'other'
     metric_name:
         | 'succeeded'
@@ -176,14 +178,15 @@ export type MinimalAppMetric = {
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
+        | 'missing_addon'
         | 'fetch'
+
     count: number
 }
 
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
-    instance_id?: string
 }
 
 export type HogFunctionQueueParametersFetchRequest = {
@@ -289,82 +292,28 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 }
 
 export type HogFlowInvocationContext = {
+    event: HogFunctionInvocationGlobals['event']
     personId?: string
-    event?: any // TODO: Type better
-    variables: Record<string, any>
-    currentActionId?: string
-}
-
-export type HogFlow = {
-    // Primary key is id + version
-    id: string
-    name: string
-    description: string
-    team_id: number
-    version: number
-    status: 'active' | 'draft' | 'archived'
-
-    trigger:
-        | {
-              type: 'event'
-              filters: HogFunctionFilters
-          }
-        | {
-              type: 'schedule'
-              cron: string
-          }
-        | {
-              type: 'webhook'
-              hog_function_id: string
-          }
-
-    trigger_masking: {
-        ttl: number
-        hash: string
-        // bytecode: HogBytecode
-        threshold: number
-    }
-
-    conversion: {
-        window: number
-        // cohort_id: number
-        filters: any // HogFunctionFilters
-    }
-    exit_condition:
-        | 'exit_on_conversion'
-        | 'exit_on_trigger_not_matched'
-        | 'exit_on_trigger_not_matched_or_conversion'
-        | 'exit_only_at_end'
-
-    // workflow graph
-    edges: {
-        from: string
-        to: string
-        type: 'continue' | 'branch'
-        index: number
-    }[]
-
-    actions: {
+    variables?: Record<string, any>
+    currentAction?: {
         id: string
-        name: string
-        description: string
-        type: 'exit_action' | 'conditional_branch' | 'delay' | 'wait_for_condition' | 'message' | 'hog_function'
-        config: any // HogFunctionInputSchemaType[] // Try to type this strongly to the "type"
-
-        // Maybe v1?
-        on_error: 'continue' | 'abort' | 'complete' | 'branch'
-
-        created: number
-        updated: Date
-        position: number
-    }[]
-
-    abort_action?: string
+        startedAtTimestamp: number
+    }
+    actionStepCount?: number
 }
 
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
+    type:
+        | 'string'
+        | 'number'
+        | 'boolean'
+        | 'dictionary'
+        | 'choice'
+        | 'json'
+        | 'integration'
+        | 'integration_field'
+        | 'email'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -381,12 +330,7 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType =
-    | 'destination'
-    | 'transformation'
-    | 'internal_destination'
-    | 'source_webhook'
-    | 'broadcast'
+export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -410,6 +354,7 @@ export type HogFunctionType = {
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    is_addon_required: boolean
     template_id?: string
     execution_order?: number
     created_at: string
@@ -418,6 +363,7 @@ export type HogFunctionType = {
 
 export type HogFunctionInputType = {
     value: any
+    templating?: 'hog' | 'liquid'
     secret?: boolean
     bytecode?: HogBytecode | object
     order?: number
