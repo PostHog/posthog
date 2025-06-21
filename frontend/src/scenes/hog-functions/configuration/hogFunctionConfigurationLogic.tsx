@@ -26,28 +26,21 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import {
-    ActorsQuery,
-    DataTableNode,
-    EventsNode,
-    EventsQuery,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
-    AnyPersonScopeFilter,
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
     ChartDisplayType,
+    CyclotronJobInputSchemaType,
+    CyclotronJobInputType,
+    CyclotronJobInvocationGlobals,
+    CyclotronJobInvocationGlobalsWithInputs,
     EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationContextId,
     HogFunctionConfigurationType,
-    HogFunctionInputSchemaType,
-    HogFunctionInputType,
-    HogFunctionInvocationGlobals,
     HogFunctionMappingType,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -101,10 +94,8 @@ export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    function sanitizeInputs(
-        data: HogFunctionConfigurationType | HogFunctionMappingType
-    ): Record<string, HogFunctionInputType> {
-        const sanitizedInputs: Record<string, HogFunctionInputType> = {}
+    function sanitizeInputs(data: HogFunctionMappingType): Record<string, CyclotronJobInputType> {
+        const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
         data.inputs_schema?.forEach((inputSchema) => {
             const templatingEnabled = inputSchema.templating ?? true
             const input = data.inputs?.[inputSchema.key]
@@ -153,8 +144,8 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 }
 
 const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
-    function getInputs(inputs_schema?: HogFunctionInputSchemaType[] | null): Record<string, HogFunctionInputType> {
-        const inputs: Record<string, HogFunctionInputType> = {}
+    function getInputs(inputs_schema?: CyclotronJobInputSchemaType[] | null): Record<string, CyclotronJobInputType> {
+        const inputs: Record<string, CyclotronJobInputType> = {}
         inputs_schema?.forEach((schema) => {
             if (schema.default !== undefined) {
                 inputs[schema.key] = { value: schema.default }
@@ -164,9 +155,9 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
     }
 
     function getMappingInputs(
-        inputs_schema?: HogFunctionInputSchemaType[] | null
-    ): Record<string, HogFunctionInputType> {
-        const inputs: Record<string, HogFunctionInputType> = {}
+        inputs_schema?: CyclotronJobInputSchemaType[] | null
+    ): Record<string, CyclotronJobInputType> {
+        const inputs: Record<string, CyclotronJobInputType> = {}
         inputs_schema?.forEach((schema) => {
             if (schema.default !== undefined) {
                 inputs[schema.key] = { value: schema.default }
@@ -177,9 +168,8 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
 
     return {
         type: template.type ?? 'destination',
-        kind: template.kind,
         name: template.name,
-        description: template.description,
+        description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
         filters: template.filters,
         mappings: template.mappings?.map(
@@ -198,7 +188,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
 export function convertToHogFunctionInvocationGlobals(
     event: EventType,
     person: PersonType
-): HogFunctionInvocationGlobals {
+): CyclotronJobInvocationGlobals {
     const team = teamLogic.findMounted()?.values?.currentTeam
     const projectUrl = `${window.location.origin}/project/${team?.id}`
     return {
@@ -307,15 +297,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         resetToTemplate: true,
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
-        personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
-            ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
-        setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
+        setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
-        sendBroadcast: true,
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
@@ -326,7 +313,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
-            null as HogFunctionInvocationGlobals | null,
+            null as CyclotronJobInvocationGlobals | null,
             {
                 setSampleGlobals: (_, { sampleGlobals }) => sampleGlobals,
             },
@@ -504,27 +491,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
-        personsCount: [
-            null as number | null,
-            {
-                personsCountQueryChanged: async ({ personsCountQuery }, breakpoint) => {
-                    if (values.type !== 'broadcast') {
-                        return null
-                    }
-                    if (values.personsCount === null) {
-                        await breakpoint(100)
-                    } else {
-                        await breakpoint(1000)
-                    }
-                    const result = await performQuery(personsCountQuery)
-                    breakpoint()
-                    return result?.results?.[0]?.[0] ?? null
-                },
-            },
-        ],
-
         sampleGlobals: [
-            null as HogFunctionInvocationGlobals | null,
+            null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
                     if (!values.lastEventQuery) {
@@ -597,21 +565,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             },
         ],
-        broadcast: [
-            false,
-            {
-                sendBroadcast: async () => {
-                    const id = values.hogFunction?.id
-                    if (!id) {
-                        lemonToast.error('No broadcast to send')
-                        return false
-                    }
-                    await api.hogFunctions.sendBroadcast(id)
-                    lemonToast.success('Broadcast sent!')
-                    return true
-                },
-            },
-        ],
     })),
     forms(({ values, props, asyncActions }) => ({
         configuration: {
@@ -649,7 +602,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 if (!props.id || props.id === 'new') {
-                    const folder = await asyncSaveToModal({})
+                    const type = values.type
+                    const typeFolder =
+                        type === 'site_app'
+                            ? 'Site apps'
+                            : type === 'transformation'
+                            ? 'Transformations'
+                            : type === 'source_webhook'
+                            ? 'Sources'
+                            : 'Destinations'
+                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
                     if (typeof folder === 'string') {
                         payload._create_in_folder = folder
                     }
@@ -816,7 +778,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId],
-            (configuration, currentProject, groupTypes, contextId): HogFunctionInvocationGlobals => {
+            (configuration, currentProject, groupTypes, contextId): CyclotronJobInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -852,7 +814,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               },
                           }),
                 }
-                const globals: HogFunctionInvocationGlobals = {
+                const globals: CyclotronJobInvocationGlobals = {
                     event,
                     person:
                         contextId !== 'error-tracking'
@@ -897,11 +859,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         sampleGlobalsWithInputs: [
             (s) => [s.sampleGlobals, s.exampleInvocationGlobals, s.configuration],
-            (
-                sampleGlobals,
-                exampleInvocationGlobals,
-                configuration
-            ): Partial<HogFunctionInvocationGlobals> & { inputs?: Record<string, any> } => {
+            (sampleGlobals, exampleInvocationGlobals, configuration): CyclotronJobInvocationGlobalsWithInputs => {
                 const inputs: Record<string, any> = {}
                 for (const input of configuration?.inputs_schema || []) {
                     inputs[input.key] = input.type
@@ -1064,40 +1022,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     modifiers: {
                         personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
-                }
-            },
-            { resultEqualityCheck: equal },
-        ],
-
-        personsCountQuery: [
-            (s) => [s.configuration, s.type],
-            (configuration, type): ActorsQuery | null => {
-                if (type !== 'broadcast') {
-                    return null
-                }
-                return {
-                    kind: NodeKind.ActorsQuery,
-                    properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
-                    select: ['count()'],
-                }
-            },
-            { resultEqualityCheck: equal },
-        ],
-
-        personsListQuery: [
-            (s) => [s.configuration, s.type],
-            (configuration, type): DataTableNode | null => {
-                if (type !== 'broadcast') {
-                    return null
-                }
-                return {
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.ActorsQuery,
-                        properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
-                        select: ['person', 'properties.email', 'created_at'],
-                    },
-                    full: true,
                 }
             },
             { resultEqualityCheck: equal },
@@ -1272,7 +1196,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             inputs: template.inputs_schema?.reduce((acc, input) => {
                                 acc[input.key] = { value: input.default }
                                 return acc
-                            }, {} as Record<string, HogFunctionInputType>),
+                            }, {} as Record<string, CyclotronJobInputType>),
                         })),
                 ]
             }
@@ -1417,11 +1341,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: async (sparklineQuery) => {
             if (sparklineQuery) {
                 actions.sparklineQueryChanged(sparklineQuery)
-            }
-        },
-        personsCountQuery: async (personsCountQuery) => {
-            if (personsCountQuery) {
-                actions.personsCountQueryChanged(personsCountQuery)
             }
         },
     })),

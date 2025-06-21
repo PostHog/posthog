@@ -174,40 +174,29 @@ const SupportResponseTimesTable = ({
 }
 
 export function SidePanelSupport(): JSX.Element {
-    // We need preflightLogic and userLogic for debugBilling to work properly
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
     const { isEmailFormOpen, title: supportPanelTitle } = useValues(supportLogic)
-    const { closeEmailForm, openEmailForm, closeSupportForm } = useActions(supportLogic)
+    const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
 
-    // Check for support access - paid plans or active trials only
     const canEmail =
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
         (!!billing?.trial?.status && billing.trial.status === 'active')
 
-    // Check if we're on a paid plan or active trial
     const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
-
-    // Show email support only to paid/trial users on cloud or in development
     const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
-
-    // Show Max AI to all cloud users regardless of plan or in development
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
-
-    // Ensure billing data is loaded before showing support options
     const isBillingLoaded = !billingLoading && billing !== undefined
 
     const handleOpenEmailForm = (): void => {
-        // Only allow email form opening if user has access
         if (showEmailSupport && isBillingLoaded) {
             openEmailForm()
         }
     }
 
-    // Define SupportFormBlock component here, with access to debugBilling
     const SupportFormBlock = ({
         onCancel,
         hasActiveTrial,
@@ -274,12 +263,12 @@ export function SidePanelSupport(): JSX.Element {
                             onCancel={() => {
                                 closeEmailForm()
                                 closeSupportForm()
+                                resetSendSupportRequest()
                             }}
                             hasActiveTrial={hasActiveTrial}
                         />
                     ) : (
                         <>
-                            {/* Max AI section - show for all cloud users */}
                             {showMaxAI && isBillingLoaded && (
                                 <Section title="Ask Max AI">
                                     <div>
@@ -307,7 +296,6 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {/* Contact us section - only show for paid/trial users on cloud */}
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
                                     <p>Can't find what you need and Max unable to help?</p>
@@ -324,7 +312,6 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {/* For free users who can't email, show an explanation */}
                             {!showEmailSupport && isBillingLoaded && (
                                 <Section title="">
                                     <h3>Can't find what you need in the docs?</h3>

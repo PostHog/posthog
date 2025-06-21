@@ -1,6 +1,10 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AccessControlLevel": {
+            "enum": ["none", "member", "admin", "viewer", "editor"],
+            "type": "string"
+        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -9,6 +13,72 @@
                 }
             },
             "required": ["actionId"],
+            "type": "object"
+        },
+        "ActionFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
+                "days": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "math": {
+                    "type": "string"
+                },
+                "math_group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "math_hogql": {
+                    "type": ["string", "null"]
+                },
+                "math_property": {
+                    "type": ["string", "null"]
+                },
+                "math_property_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TaxonomicFilterGroupType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "required": ["id", "type"],
             "type": "object"
         },
         "ActionsNode": {
@@ -40,6 +110,9 @@
                 },
                 "math_hogql": {
                     "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
                 },
                 "math_property": {
                     "type": "string"
@@ -304,7 +377,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+            "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
         "AggregationAxisFormat": {
@@ -584,6 +657,168 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQueryResponse"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "_create_in_folder": {
+                            "description": "Only used when creating objects",
+                            "type": ["string", "null"]
+                        },
+                        "cache_target_age": {
+                            "type": ["string", "null"]
+                        },
+                        "created_at": {
+                            "type": "string"
+                        },
+                        "created_by": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/UserBasicType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "dashboard_tiles": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/DashboardTileBasicType"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "dashboards": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "deprecated": "Use `dashboard_tiles` instead"
+                        },
+                        "deleted": {
+                            "type": "boolean"
+                        },
+                        "derived_name": {
+                            "type": ["string", "null"]
+                        },
+                        "description": {
+                            "type": "string"
+                        },
+                        "disable_baseline": {
+                            "description": "Only used in the frontend to toggle showing Baseline in funnels or not",
+                            "type": "boolean"
+                        },
+                        "effective_privilege_level": {
+                            "$ref": "#/definitions/DashboardPrivilegeLevel"
+                        },
+                        "effective_restriction_level": {
+                            "$ref": "#/definitions/DashboardRestrictionLevel"
+                        },
+                        "favorited": {
+                            "type": "boolean"
+                        },
+                        "id": {
+                            "description": "The primary key in the database, used as well in API endpoints",
+                            "type": "number"
+                        },
+                        "is_sample": {
+                            "type": "boolean"
+                        },
+                        "last_modified_at": {
+                            "type": "string"
+                        },
+                        "last_modified_by": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/UserBasicType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "last_refresh": {
+                            "type": ["string", "null"]
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "next": {
+                            "description": "Only used in the frontend to store the next breakdown url",
+                            "type": "string"
+                        },
+                        "next_allowed_client_refresh": {
+                            "type": ["string", "null"]
+                        },
+                        "order": {
+                            "type": ["number", "null"]
+                        },
+                        "query": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": false,
+                                    "description": "Node base class, everything else inherits from here.",
+                                    "properties": {
+                                        "kind": {
+                                            "$ref": "#/definitions/NodeKind"
+                                        },
+                                        "response": {
+                                            "type": "object"
+                                        },
+                                        "version": {
+                                            "description": "version of the node, used for schema migrations",
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["kind"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus"
+                        },
+                        "result": {},
+                        "saved": {
+                            "type": "boolean"
+                        },
+                        "short_id": {
+                            "$ref": "#/definitions/InsightShortId",
+                            "description": "The unique key we use when communicating with the user, e.g. in URLs"
+                        },
+                        "tags": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "timezone": {
+                            "type": ["string", "null"]
+                        },
+                        "updated_at": {
+                            "type": "string"
+                        },
+                        "user_access_level": {
+                            "$ref": "#/definitions/AccessControlLevel"
+                        }
+                    },
+                    "type": "object"
                 }
             ]
         },
@@ -1698,6 +1933,9 @@
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -1808,6 +2046,9 @@
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_multiplier": {
                     "type": "number"
                 },
                 "math_property": {
@@ -2408,8 +2649,7 @@
                 "next_allowed_client_refresh",
                 "offset",
                 "results",
-                "timezone",
-                "types"
+                "timezone"
             ],
             "type": "object"
         },
@@ -5965,6 +6205,81 @@
             "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
             "type": "object"
         },
+        "ConversionGoalFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "conversion_goal_id": {
+                    "type": "string"
+                },
+                "conversion_goal_name": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
+                "days": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "math": {
+                    "type": "string"
+                },
+                "math_group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "math_hogql": {
+                    "type": ["string", "null"]
+                },
+                "math_property": {
+                    "type": ["string", "null"]
+                },
+                "math_property_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TaxonomicFilterGroupType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "schema": {
+                    "$ref": "#/definitions/SchemaMap"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "required": ["conversion_goal_id", "conversion_goal_name", "id", "schema", "type"],
+            "type": "object"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -6239,6 +6554,32 @@
             },
             "type": "object"
         },
+        "DashboardPrivilegeLevel": {
+            "description": "Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel.",
+            "enum": [21, 37, 888, 999],
+            "type": "number"
+        },
+        "DashboardRestrictionLevel": {
+            "description": "Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel.",
+            "enum": [21, 37],
+            "type": "number"
+        },
+        "DashboardTileBasicType": {
+            "additionalProperties": false,
+            "properties": {
+                "dashboard_id": {
+                    "type": "number"
+                },
+                "deleted": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "number"
+                }
+            },
+            "required": ["id", "dashboard_id"],
+            "type": "object"
+        },
         "DataColorToken": {
             "enum": [
                 "preset-1",
@@ -6433,7 +6774,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                            "required": ["columns", "hogql", "limit", "offset", "results"],
                             "type": "object"
                         },
                         {
@@ -7586,6 +7927,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -8181,6 +8525,31 @@
             "additionalProperties": false,
             "type": "object"
         },
+        "EntityFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
         "EntityNode": {
             "additionalProperties": false,
             "properties": {
@@ -8206,6 +8575,9 @@
                 },
                 "math_hogql": {
                     "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
                 },
                 "math_property": {
                     "type": "string"
@@ -8868,6 +9240,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -9115,6 +9490,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -9283,6 +9661,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -9317,6 +9698,9 @@
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
                 "metric_type": {
                     "const": "funnel",
                     "type": "string"
@@ -10133,7 +10517,8 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL"
+                "insightHogQL",
+                "insightCalendarHeatmap"
             ],
             "type": "string"
         },
@@ -10423,6 +10808,9 @@
                 "math_hogql": {
                     "type": "string"
                 },
+                "math_multiplier": {
+                    "type": "number"
+                },
                 "math_property": {
                     "type": "string"
                 },
@@ -10492,6 +10880,9 @@
                 },
                 "math_hogql": {
                     "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
                 },
                 "math_property": {
                     "type": "string"
@@ -13114,6 +13505,12 @@
         "MarketingAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "conversion_goals": {
+                    "items": {
+                        "$ref": "#/definitions/ConversionGoalFilter"
+                    },
+                    "type": "array"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
@@ -13970,17 +14367,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "number"
-                },
-                {
-                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
-                }
-            ]
+            "type": ["string", "number"]
         },
         "PropertyFilterType": {
             "enum": [
@@ -14245,7 +14632,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": ["columns", "hogql", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
@@ -15624,7 +16011,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": ["columns", "hogql", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
@@ -18050,6 +18437,10 @@
                     },
                     "type": "array"
                 },
+                "filter_test_accounts": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "goals": {
                     "default": [],
                     "items": {
@@ -18058,7 +18449,7 @@
                     "type": "array"
                 }
             },
-            "required": ["events", "goals"],
+            "required": ["events", "goals", "filter_test_accounts"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -18173,7 +18564,10 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "groupBy": {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                    },
+                    "type": "array"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType"
@@ -18201,7 +18595,7 @@
             "type": "object"
         },
         "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["all", "product", "cohort", "country"],
+            "enum": ["cohort", "country", "coupon", "coupon_id", "initial_coupon", "initial_coupon_id", "product"],
             "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {
@@ -18804,6 +19198,19 @@
                 }
             },
             "required": ["kind", "shortId"],
+            "type": "object"
+        },
+        "SchemaMap": {
+            "additionalProperties": {
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "not": {}
+                    }
+                ]
+            },
             "type": "object"
         },
         "SessionAttributionExplorerQuery": {

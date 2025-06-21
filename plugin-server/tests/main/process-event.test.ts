@@ -10,9 +10,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { captureTeamEvent } from '~/src/utils/posthog'
-import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { captureTeamEvent } from '~/utils/posthog'
+import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
+import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 
 import {
     ClickHouseEvent,
@@ -212,13 +212,13 @@ test('merge people', async () => {
     const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
-    const [_person0, kafkaMessages0] = await hub.db.updatePersonDeprecated(p0, {
+    const [_person0, kafkaMessages0, _versionDisparity0] = await hub.db.updatePerson(p0, {
         created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
     })
 
     const p1 = (await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const [_person1, kafkaMessages1] = await hub.db.updatePersonDeprecated(p1, {
+    const [_person1, kafkaMessages1, _versionDisparity1] = await hub.db.updatePerson(p1, {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
     })
 

@@ -82,12 +82,14 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
-    [Scene.MessagingBroadcasts]: () => import('products/messaging/frontend/Broadcasts'),
-    [Scene.MessagingCampaigns]: () => import('products/messaging/frontend/Campaigns/Campaigns'),
-    [Scene.MessagingLibrary]: () => import('products/messaging/frontend/TemplateLibrary/MessageLibrary'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.DataPipelines]: () => import('./data-pipelines/DataPipelinesScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
+    [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
+    [Scene.DataWarehouseSourceNew]: () => import('./data-warehouse/new/NewSourceWizard'),
+    [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
+    [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
+    [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
 }

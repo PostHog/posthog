@@ -5,7 +5,6 @@ import {
     LemonDivider,
     LemonDropdown,
     LemonInput,
-    LemonLabel,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -15,7 +14,7 @@ import {
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl } from 'kea-router'
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -25,23 +24,20 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
 import { useRef } from 'react'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import MaxTool from 'scenes/max/MaxTool'
-import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
-import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
-import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
 
 export interface HogFunctionConfigurationProps {
@@ -59,7 +55,6 @@ export interface HogFunctionConfigurationProps {
         showEnabled?: boolean
         showTesting?: boolean
         canEditSource?: boolean
-        showPersonsCount?: boolean
     }
 }
 
@@ -84,9 +79,6 @@ export function HogFunctionConfiguration({
         sampleGlobalsWithInputs,
         showPaygate,
         hasAddon,
-        personsCount,
-        personsCountLoading,
-        personsListQuery,
         template,
         templateHasChanged,
         type,
@@ -198,24 +190,16 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'email', 'transformation'].includes(
-            type
-        )
+        ['destination', 'internal_destination', 'site_destination', 'email', 'transformation'].includes(type)
     const showExpectedVolume =
         displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
         displayOptions.showEnabled ??
-        [
-            'destination',
-            'internal_destination',
-            'email',
-            'site_destination',
-            'site_app',
-            'transformation',
-            'broadcast',
-        ].includes(type)
+        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
+            type
+        )
     const canEditSource =
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
@@ -223,11 +207,10 @@ export function HogFunctionConfiguration({
             !isSegmentPlugin &&
             (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
                 (type === 'transformation' && canEditTransformationHogCode)))
-    const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
-    const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
+    const showLeftPanel = showOverview || showExpectedVolume || showFilters
 
     return (
         <div className="deprecated-space-y-3">
@@ -249,11 +232,30 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
-                ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                ) : [
+                      'template-google-ads',
+                      'template-meta-ads',
+                      'template-tiktok-ads',
+                      'template-snapchat-ads',
+                      'template-linkedin-ads',
+                      'template-reddit-pixel',
+                      'template-tiktok-pixel',
+                      'template-snapchat-pixel',
+                      'template-reddit-conversions-api',
+                  ].includes(templateId ?? '') || template?.status === 'alpha' ? (
                     <div>
                         <LemonBanner type="warning">
-                            The receiving destination imposes a rate limit of 10 events per second. Exceeding this limit
-                            may result in some events failing to be delivered.
+                            <p>
+                                This destination is currently in an experimental state. For many cases this will work
+                                just fine but for others there may be unexpected issues and we do not offer official
+                                customer support for it in these cases.
+                            </p>
+                            {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                                <span className="mt-2">
+                                    The receiving destination imposes a rate limit of 10 events per second. Exceeding
+                                    this limit may result in some events failing to be delivered.
+                                </span>
+                            ) : null}
                         </LemonBanner>
                     </div>
                 ) : null}
@@ -286,7 +288,7 @@ export function HogFunctionConfiguration({
 
                                         <div className="flex flex-col flex-1 justify-start items-start py-1">
                                             <span className="font-semibold">{configuration.name}</span>
-                                            {template && <DestinationTag status={template.status} />}
+                                            {template && <HogFunctionStatusTag status={template.status} />}
                                         </div>
 
                                         {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
@@ -355,7 +357,7 @@ export function HogFunctionConfiguration({
                                                 <Link subtle className="flex flex-wrap gap-1 items-center p-2">
                                                     Built from template:
                                                     <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                    <DestinationTag status={hogFunction.template.status} />
+                                                    <HogFunctionStatusTag status={hogFunction.template.status} />
                                                     {templateHasChanged ? (
                                                         <LemonTag type="success">Update available!</LemonTag>
                                                     ) : null}
@@ -368,37 +370,6 @@ export function HogFunctionConfiguration({
                                 {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
 
                                 {showFilters && <HogFunctionFilters />}
-
-                                {showPersonsCount && (
-                                    <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
-                                        <div>
-                                            <LemonLabel>Matching persons</LemonLabel>
-                                        </div>
-                                        {personsCount && !personsCountLoading ? (
-                                            <>
-                                                Found{' '}
-                                                <Link
-                                                    to={
-                                                        // TODO: swap for a link to the persons page
-                                                        combineUrl(urls.activity(), {}, { q: personsListQuery }).url
-                                                    }
-                                                    target="_blank"
-                                                >
-                                                    <strong>
-                                                        {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
-                                                    </strong>
-                                                </Link>{' '}
-                                                to send to.
-                                            </>
-                                        ) : personsCountLoading ? (
-                                            <div className="min-h-20">
-                                                <SpinnerOverlay />
-                                            </div>
-                                        ) : (
-                                            <p>The expected volume could not be calculated</p>
-                                        )}
-                                    </div>
-                                )}
 
                                 {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                             </div>
@@ -435,9 +406,18 @@ export function HogFunctionConfiguration({
                                         </LemonBanner>
                                     ) : null}
 
-                                    <HogFunctionInputs
-                                        configuration={configuration}
-                                        setConfigurationValue={setConfigurationValue}
+                                    <CyclotronJobInputs
+                                        configuration={{
+                                            inputs_schema: configuration.inputs_schema ?? [],
+                                            inputs: configuration.inputs ?? {},
+                                        }}
+                                        onInputSchemaChange={(schema) => {
+                                            setConfigurationValue('inputs_schema', schema)
+                                        }}
+                                        onInputChange={(key, input) => {
+                                            setConfigurationValue(`inputs.${key}`, input)
+                                        }}
+                                        showSource={showSource}
                                     />
                                     {showSource && canEditSource ? (
                                         <LemonButton
@@ -632,7 +612,6 @@ export function HogFunctionConfiguration({
                             )}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
-                            {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

@@ -1,0 +1,148 @@
+name: PostHog CI analytics
+description: "Emit one 'github workflow completed' event + one 'github action step' event per finished step"
+inputs:
+    posthog-api-key:
+        required: true
+
+runs:
+    using: composite
+    steps:
+        - uses: actions/github-script@v6
+          with:
+              script: |
+                  const gh = github                    
+                  let run = context.payload.workflow_run
+                  if (!run) {
+                    run = (await gh.rest.actions.getWorkflowRun({
+                      owner: context.repo.owner,
+                      repo:  context.repo.repo,
+                      run_id: process.env.GITHUB_RUN_ID,
+                    })).data
+                  }
+                          
+                  const commit = await gh.rest.repos.getCommit({
+                    owner: context.repo.owner,
+                    repo:  context.repo.repo,
+                    ref:   run.head_sha,
+                  })
+                  const author = {
+                    login: commit.data.author?.login,                     // GitHub user
+                    name:  commit.data.commit.author?.name,               // Git name
+                    email: commit.data.commit.author?.email,              // Git e-mail
+                  }
+
+                  let prNumber, prUrl, prTitle
+                  try {
+                    const prs = await gh.rest.repos.listPullRequestsAssociatedWithCommit({
+                      owner: context.repo.owner,
+                      repo:  context.repo.repo,
+                      commit_sha: run.head_sha,
+                    })
+                    if (prs.data.length) {
+                      prNumber = prs.data[0].number
+                      prUrl    = prs.data[0].html_url
+                      prTitle  = prs.data[0].title
+                    }
+                  } catch { /* ignore if API not available (e.g. in private GHES) */ }
+
+                  /* ---------------- fetch all jobs (+ steps) ---------------- */
+                  const jobs = await gh.paginate(
+                    gh.rest.actions.listJobsForWorkflowRun,
+                    { owner: context.repo.owner,
+                      repo:  context.repo.repo,
+                      run_id: run.id,
+                      per_page: 100 }
+                  )
+
+                  /* ---------------- helper utils ---------------------------- */
+                  const seconds = (a,b) => a && b ? (new Date(b) - new Date(a))/1e3 : undefined
+                  const slug    = (txt) => txt.toLowerCase().replace(/[^a-z0-9]+/g,'-')
+
+                  /* ---------------- batch of events ------------------------- */
+                  const batch = []
+
+                  /* workflow-level event (ONE) */
+                  batch.push({
+                    event: 'github workflow completed',
+                    distinct_id: 'PostHog CI analytics',
+                    timestamp: run.updated_at,
+                    properties: {
+                      ci_owner:      context.repo.owner,
+                      ci_repo:       context.repo.repo,
+                      ci_workflow:   run.name,
+                      ci_run_id:     run.id,
+                      ci_run_number: run.run_number,
+                      ci_run_attempt: run.run_attempt,
+                      ci_run_url:    run.html_url,
+                      ci_sha:        run.head_sha,
+                      ci_conclusion: run.conclusion,
+                      ci_failed:     run.conclusion !== 'success',
+                      ci_created_at: run.created_at,
+                      ci_updated_at: run.updated_at,
+                      ci_author_login: author.login,
+                      ci_author_name:  author.name,
+                      ci_author_email: author.email,
+                      ci_pr_number: prNumber,
+                      ci_pr_url:    prUrl,
+                      ci_pr_title:  prTitle,
+                    },
+                  })
+
+                  /* one STEP event per finished step */
+                  for (const j of jobs) {
+                    for (const s of j.steps.filter(x => x.conclusion)) {
+                      const stepAnchor = `step:${s.number}:${slug(s.name)}`
+                      batch.push({
+                        event: 'github action step',
+                        distinct_id: 'PostHog CI analytics',
+                        timestamp:   s.completed_at || s.started_at || run.updated_at,
+                        properties: {
+                          /* run-level */
+                          ci_owner: context.repo.owner,
+                          ci_repo:  context.repo.repo,
+                          ci_workflow: run.name,
+                          ci_run_id:   run.id,
+                          ci_run_number: run.run_number,
+                          ci_run_attempt: run.run_attempt,
+                          ci_run_url: run.html_url,
+                          ci_sha:     run.head_sha,
+                          ci_pr_number: prNumber,
+                          ci_pr_url:    prUrl,
+
+                          ci_author_login: author.login,
+                          ci_author_name:  author.name,
+                          ci_author_email: author.email,
+
+                          /* job-level */
+                          ci_job:  j.name,
+                          ci_job_id: j.id,
+                          ci_job_url: j.html_url,
+                          ci_job_started_at: j.started_at,
+                          ci_job_completed_at: j.completed_at,
+                          ci_job_accumulated_duration: seconds(j.started_at, j.completed_at),
+
+                          /* step-level */
+                          ci_step_number: s.number,
+                          ci_step:  s.name,
+                          ci_step_url: `${j.html_url}#${stepAnchor}`,
+                          ci_step_started_at: s.started_at,
+                          ci_step_completed_at: s.completed_at,
+                          ci_duration_seconds: seconds(s.started_at, s.completed_at),
+                          ci_conclusion: s.conclusion,
+                          ci_failed: s.conclusion !== 'success',
+                          ci_step_raw: s,
+                        },
+                      })
+                    }
+                  }
+
+                  /* ---------------- send to PostHog ------------------------- */
+                  await fetch('https://internal-t.posthog.com/batch/', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ api_key: '${{ inputs.posthog-api-key }}', batch }),
+                  })
+
+                  core.info(`✅ sent ${batch.length} CI analytics event(s) for run ${run.id}`)
+          env:
+              GITHUB_TOKEN: ${{ github.token }}

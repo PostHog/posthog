@@ -1,13 +1,9 @@
 name: AI
-
 on:
+    pull_request:
     push:
         branches:
             - master
-        paths:
-            - 'ee/hogai/**'
-            - '.github/workflows/ci-ai.yml'
-    pull_request:
         paths:
             - 'ee/hogai/**'
             - '.github/workflows/ci-ai.yml'
@@ -21,7 +17,11 @@ jobs:
         timeout-minutes: 30
         name: Run AI evals
         runs-on: ubuntu-latest
-        if: github.repository == 'PostHog/posthog' && (github.event_name == 'push' || (github.event.pull_request.draft == false)) # Braintrust credentials not available on forks
+        # Skipping on forks as Braintrust credentials are not available there
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
+            )
 
         steps:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -142,3 +142,17 @@ jobs:
                           // Just log the summary if this is a push to master
                           console.log(body)
                       }
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && github.repository == 'PostHog/posthog' && (
+            github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
+            )
+        needs: [eval] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

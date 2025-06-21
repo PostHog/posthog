@@ -1,9 +1,10 @@
-import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
+import { IconAtSign, IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
+import React from 'react'
 
 import { maxContextLogic } from './maxContextLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
@@ -123,10 +124,10 @@ export function ContextSummary({
     }
 
     const tooltipContent = (
-        <div className="flex flex-col gap-1 p-1 max-w-xs">
+        <div className="flex flex-col gap-1 max-w-xs">
             {allItems.map((item, index) => (
-                <div key={index} className="flex items-center gap-1.5 text-xs">
-                    {item.icon}
+                <div key={index} className="flex items-center gap-1">
+                    {React.cloneElement(item.icon, { className: 'text-base' })}
                     <span>{item.name}</span>
                 </div>
             ))}
@@ -134,14 +135,12 @@ export function ContextSummary({
     )
 
     return (
-        <div className="mb-2">
-            <Tooltip title={tooltipContent} placement="bottom">
-                <div className="flex items-center gap-1.5 text-xs text-muted hover:text-default transition-colors w-fit">
-                    <IconPageChart className="text-muted" />
-                    <span className="italic">With {contextSummaryText}</span>
-                </div>
-            </Tooltip>
-        </div>
+        <Tooltip title={tooltipContent} placement="bottom">
+            <div className="flex items-center gap-1 text-xs text-muted hover:text-default w-fit select-none mb-1.5">
+                <IconPageChart className="text-sm" />
+                <span className="italic">With {contextSummaryText}</span>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -164,7 +163,6 @@ export function ContextTags(): JSX.Element | null {
             tags.push(
                 <LemonTag
                     key="current-page"
-                    size="xsmall"
                     icon={<IconPageChart />}
                     onClose={disableCurrentPageContext}
                     closable
@@ -182,7 +180,6 @@ export function ContextTags(): JSX.Element | null {
                 tags.push(
                     <LemonTag
                         key={`dashboard-${dashboard.id}`}
-                        size="xsmall"
                         icon={<IconDashboard />}
                         onClose={() => removeContextDashboard(dashboard.id)}
                         closable
@@ -201,7 +198,6 @@ export function ContextTags(): JSX.Element | null {
                 tags.push(
                     <LemonTag
                         key={`insight-${insight.id}`}
-                        size="xsmall"
                         icon={<IconGraph />}
                         onClose={() => removeContextInsight(insight.id)}
                         closable
@@ -219,7 +215,6 @@ export function ContextTags(): JSX.Element | null {
                 tags.push(
                     <LemonTag
                         key={`event-${event.id}`}
-                        size="xsmall"
                         icon={<IconEvent />}
                         onClose={() => removeContextEvent(event.id)}
                         closable
@@ -237,7 +232,6 @@ export function ContextTags(): JSX.Element | null {
                 tags.push(
                     <LemonTag
                         key={`action-${action.id}`}
-                        size="xsmall"
                         icon={<IconAction />}
                         onClose={() => removeContextAction(action.id)}
                         closable
@@ -275,17 +269,19 @@ export function ContextDisplay(): JSX.Element {
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
 
     return (
-        <div className="w-full">
-            <div className="flex flex-wrap items-start gap-2 w-full">
+        <div className="px-1 pt-1 w-full">
+            <div className="flex flex-wrap items-start gap-1 w-full">
                 <TaxonomicPopover
-                    size="xsmall"
+                    size="xxsmall"
                     type="tertiary"
-                    className="-mx-1.5 flex-shrink-0"
+                    className="flex-shrink-0 border"
                     groupType={mainTaxonomicGroupType}
                     groupTypes={taxonomicGroupTypes}
                     onChange={handleTaxonomicFilterChange}
-                    placeholder={hasData ? '@' : '@ Add context'}
+                    icon={<IconAtSign />}
+                    placeholder={!hasData ? 'Add context' : null}
                     maxContextOptions={contextOptions}
+                    width={450}
                 />
                 <ContextTags />
             </div>
