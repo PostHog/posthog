@@ -99,7 +99,7 @@ logger = structlog.get_logger(__name__)
 class Assistant:
     _team: Team
     _graph: CompiledStateGraph
-    _user: Optional[User]
+    _user: User
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _latest_message: Optional[HumanMessage]
@@ -115,7 +115,7 @@ class Assistant:
         *,
         new_message: Optional[HumanMessage] = None,
         mode: AssistantMode = AssistantMode.ASSISTANT,
-        user: Optional[User] = None,
+        user: User,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
@@ -261,7 +261,8 @@ class Assistant:
                 "trace_id": self._trace_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
-                "team_id": self._team.id,
+                "team": self._team,
+                "user": self._user,
             },
         }
         return config
