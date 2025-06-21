@@ -15,14 +15,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],
 
     connect: {
-        actions: [
-            userLogic,
-            ['loadUser'],
-            organizationLogic,
-            ['loadCurrentOrganization'],
-            billingLogic,
-            ['loadBilling'],
-        ],
+        actions: [userLogic, ['loadUser'], organizationLogic, ['loadCurrentOrganization']],
     },
 
     actions: {
@@ -134,6 +127,8 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     actions.setAuthorizationStatus(status)
 
                     if (status === 'success') {
+                        // Load before doing anything to reload in entitlements on the organization
+                        await billingLogic.asyncActions.loadBilling()
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
@@ -143,7 +138,6 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                                 ...router.values.searchParams,
                                 success: true,
                             })
-                            actions.loadBilling()
                             actions.loadCurrentOrganization()
                             actions.loadUser()
                             actions.hidePaymentEntryModal()
@@ -161,7 +155,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         actions.setError('Payment status check timed out')
                     }
                 } catch (error) {
-                    actions.setError('Failed to check payment status')
+                    actions.setError('Failed to complete. Please refresh the page and try again.')
                 } finally {
                     // Reset the state
                     actions.setLoading(false)

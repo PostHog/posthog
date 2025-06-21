@@ -578,6 +578,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_database_warehouse_joins_persons_poe_v2_source_key_ast_call(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="toString(properties.email)",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+        )
+
+        db = create_hogql_database(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        poe = cast(Table, db.events.fields["poe"])
+
+        assert poe.fields["some_field"] is not None
+
+        printed = print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
+        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
+
     def test_database_warehouse_joins_on_view(self):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,

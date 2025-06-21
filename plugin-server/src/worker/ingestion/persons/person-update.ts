@@ -15,59 +15,6 @@ export interface PropertyUpdates {
 const NO_PERSON_UPDATE_EVENTS = new Set(['$exception', '$$heatmap'])
 const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
 
-export function applyEventPropertyUpdatesOptimized(event: PluginEvent, personProperties: Properties): PropertyUpdates {
-    if (NO_PERSON_UPDATE_EVENTS.has(event.event)) {
-        return { toSet: {}, toUnset: [], hasChanges: false }
-    }
-
-    const properties: Properties = event.properties!['$set'] || {}
-    const propertiesOnce: Properties = event.properties!['$set_once'] || {}
-    const unsetProps = event.properties!['$unset']
-    const unsetProperties: Array<string> = Array.isArray(unsetProps) ? unsetProps : Object.keys(unsetProps || {}) || []
-
-    const toSet: Properties = {}
-    const toUnset: string[] = []
-    let hasChanges = false
-    const metricsKeys = new Set<string>()
-
-    Object.entries(propertiesOnce).forEach(([key, value]) => {
-        if (typeof personProperties[key] === 'undefined') {
-            toSet[key] = value
-            personProperties[key] = value
-            hasChanges = true
-            metricsKeys.add(getMetricKey(key))
-        }
-    })
-
-    // note: due to the type of equality check here
-    // if there is an array or object nested as a $set property
-    // we'll always return true even if those objects/arrays contain the same values
-    // This results in a shallow merge of the properties from event into the person properties
-    Object.entries(properties).forEach(([key, value]) => {
-        if (personProperties[key] !== value) {
-            toSet[key] = value
-            personProperties[key] = value
-            if (typeof personProperties[key] === 'undefined' || shouldUpdatePersonIfOnlyChange(event, key)) {
-                hasChanges = true
-            }
-            metricsKeys.add(getMetricKey(key))
-        }
-    })
-
-    unsetProperties.forEach((propertyKey) => {
-        if (propertyKey in personProperties) {
-            toUnset.push(propertyKey)
-            delete personProperties[propertyKey]
-            hasChanges = true
-            metricsKeys.add(getMetricKey(propertyKey))
-        }
-    })
-
-    metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
-
-    return { toSet, toUnset, hasChanges }
-}
-
 // For tracking what property keys cause us to update persons
 // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
 function getMetricKey(key: string): string {
