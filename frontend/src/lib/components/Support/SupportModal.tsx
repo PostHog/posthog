@@ -12,7 +12,7 @@ import { supportLogic } from './supportLogic'
 
 function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Element | null {
     const { sendSupportRequest, isSupportFormOpen, title } = useValues(supportLogic)
-    const { closeSupportForm } = useActions(supportLogic)
+    const { closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { sidePanelAvailable } = useValues(sidePanelStateLogic)
 
@@ -33,7 +33,14 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
             title={title}
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton form="support-modal-form" type="secondary" onClick={closeSupportForm}>
+                    <LemonButton
+                        form="support-modal-form"
+                        type="secondary"
+                        onClick={() => {
+                            closeSupportForm()
+                            resetSendSupportRequest()
+                        }}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">

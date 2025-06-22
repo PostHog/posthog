@@ -11,6 +11,8 @@ use health::HealthHandle;
 pub mod config;
 pub mod context;
 pub mod emit;
+pub mod error;
+pub mod extractor;
 pub mod job;
 pub mod parse;
 pub mod source;

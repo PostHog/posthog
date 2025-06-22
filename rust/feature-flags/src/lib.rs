@@ -1,6 +1,7 @@
 pub mod api;
 pub mod cohorts;
 pub mod config;
+pub mod db_monitor;
 pub mod flags;
 pub mod handler;
 pub mod metrics;
