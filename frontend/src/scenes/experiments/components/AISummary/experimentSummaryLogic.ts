@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import type { ExperimentIdType } from '~/types'
-
 import type { experimentSummaryLogicType } from './experimentSummaryLogicType'
 
 export interface ExperimentSummaryLogicProps {

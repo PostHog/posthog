@@ -49,6 +49,27 @@ class ExperimentSummaryViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, Gener
         # Optional: Add custom filtering logic
         return queryset
 
+    def stream_response(self, experiment: Experiment, assistant: Assistant) -> Generator[str, None, None]:
+        summary = ""
+        tokens_used = 0
+
+        for chunk in assistant.stream():
+            if chunk.content:
+                summary += chunk.content
+                yield f"data: {json.dumps({'content': chunk.content})}\n\n"
+
+            if hasattr(chunk, "tokens_used"):
+                tokens_used += chunk.tokens_used
+
+        yield "data: [DONE]\n\n"
+
+        ExperimentGeneratedSummary.objects.create(
+            experiment=experiment,
+            summary=summary,
+            experiment_results_snapshot=experiment.get_results_snapshot(),
+            llm_tokens_used=tokens_used
+        )
+
     @action(
         methods=["POST"],
         detail=True,
