@@ -185,7 +185,6 @@ describe('CdpCyclotronWorker', () => {
             invocation.functionId = new UUIDT().toString()
             const results = await processor.processInvocations([invocation])
             expect(results).toEqual([])
-
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
     })

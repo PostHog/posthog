@@ -9,7 +9,6 @@ import dataclasses
 from posthog.models.utils import UUIDModel
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionTemplateType,
-    HogFunctionTemplateKind,
     HogFunctionTemplate as HogFunctionTemplateDTO,
     HogFunctionMapping,
     HogFunctionMappingTemplate,
@@ -47,6 +46,7 @@ class HogFunctionTemplate(UUIDModel):
 
     # Template Classification and Features
     category = models.JSONField(default=list)
+    # DEPRECATED: This was an idea that is no longer used
     kind = models.CharField(max_length=50, blank=True, null=True)
     free = models.BooleanField(default=False)
     icon_url = models.URLField(blank=True, null=True)
@@ -187,7 +187,6 @@ class HogFunctionTemplate(UUIDModel):
             status=cast(Literal["alpha", "beta", "stable", "deprecated", "coming_soon", "hidden"], self.status),
             category=self.category,
             description=self.description,
-            kind=cast(HogFunctionTemplateKind, self.kind) if self.kind else None,
             filters=self.filters,
             masking=self.masking,
             icon_url=self.icon_url,
@@ -302,7 +301,6 @@ class HogFunctionTemplate(UUIDModel):
                 "type": dataclass_template.type,
                 "status": dataclass_template.status,
                 "category": dataclass_template.category,
-                "kind": dataclass_template.kind,
                 "free": dataclass_template.free,
                 "icon_url": dataclass_template.icon_url,
                 "filters": dataclass_template.filters,

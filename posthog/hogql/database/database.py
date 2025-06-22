@@ -775,14 +775,23 @@ def create_hogql_database(
 
                         if isinstance(table_or_field, ast.VirtualTable):
                             table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
+
+                            override_source_table_key = f"person.{join.source_table_key}"
+
+                            # If the source_table_key is a ast.Call node, then we want to inject in `person` on the chain of the inner `ast.Field` node
+                            source_table_key_node = parse_expr(join.source_table_key)
+                            if isinstance(source_table_key_node, ast.Call) and isinstance(
+                                source_table_key_node.args[0], ast.Field
+                            ):
+                                source_table_key_node.args[0].chain = ["person", *source_table_key_node.args[0].chain]
+                                override_source_table_key = source_table_key_node.to_hogql()
+
                             database.events.fields[join.field_name] = LazyJoin(
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
                                 # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                join_function=join.join_function(
-                                    override_source_table_key=f"person.{join.source_table_key}"
-                                ),
+                                join_function=join.join_function(override_source_table_key=override_source_table_key),
                             )
                         else:
                             table_or_field.fields[join.field_name] = LazyJoin(
