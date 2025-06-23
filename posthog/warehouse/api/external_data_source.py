@@ -1192,7 +1192,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.MSSQL,
         ]:
             # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
-            from pymssql import OperationalError as MSSQLOperationalError
+            # from pymssql import OperationalError as MSSQLOperationalError
 
             host = request.data.get("host", None)
             port = request.data.get("port", None)
@@ -1307,17 +1307,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
-            except MSSQLOperationalError as e:
-                error_msg = " ".join(str(n) for n in e.args)
-                exposed_error = self._expose_mssql_error(error_msg)
+            # except MSSQLOperationalError as e:
+            #     error_msg = " ".join(str(n) for n in e.args)
+            #     exposed_error = self._expose_mssql_error(error_msg)
 
-                if exposed_error is None:
-                    capture_exception(e)
+            #     if exposed_error is None:
+            #         capture_exception(e)
 
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": exposed_error or get_generic_sql_error(source_type)},
-                )
+            #     return Response(
+            #         status=status.HTTP_400_BAD_REQUEST,
+            #         data={"message": exposed_error or get_generic_sql_error(source_type)},
+            #     )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
