@@ -155,7 +155,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         disabled: {
-            true: 'disabled:pointer-events-none disabled:opacity-50',
+            true: 'disabled:opacity-50',
             false: '',
         },
         hasSideActionRight: {
