@@ -15,7 +15,7 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
     type: 'trigger',
     renderNode: (props) => <StepTriggerNode {...props} />,
     renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
-    create: (edgeToInsertNodeInto) => {
+    create: () => {
         return {
             name: 'Trigger',
             description: '',

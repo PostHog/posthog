@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { BaseHogFlowActionNode } from './steps/hogFlowActionManager'
-
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -156,7 +154,3 @@ export const HogFlowSchema = z.object({
 
 export type HogFlow = z.infer<typeof HogFlowSchema>
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema>
-
-export type HogFlowActionPanelProps<T extends HogFlowAction['type']> = {
-    action: BaseHogFlowActionNode<T>
-}

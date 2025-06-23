@@ -14,9 +14,6 @@ export function NodeDetailsPanel(): JSX.Element | null {
         return null
     }
 
-    // // eslint-disable-next-line react-hooks/exhaustive-deps
-    // const hogFlowAction = useMemo(() => HogFlowActionManager.fromReactFlowNode(node), [node.data])
-
     // const canBeDeleted = (): boolean => {
     //     const outgoingNodes = getOutgoers(node, nodes, edges)
     //     if (outgoingNodes.length === 1) {
