@@ -45,6 +45,7 @@ from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
+from posthog.queries.timestamp_utils import get_earliest_timestamp_from_series
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
@@ -657,12 +658,21 @@ class TrendsQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
+
+        # If user requests 'all' time, determine the true earliest timestamp
+        earliest_timestamp = None
+        if self.query.dateRange.date_from == "all":
+            earliest_timestamp = get_earliest_timestamp_from_series(
+                self.team, [series.series for series in self.series]
+            )
+
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
+            earliest_timestamp_fallback=earliest_timestamp,
         )
 
     @cached_property
