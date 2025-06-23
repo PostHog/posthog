@@ -163,7 +163,7 @@ jobs:
                   retention-days: 1
 
     frontend-eslint:
-        name: Frontend ESLint checks
+        name: Frontend Oxlint checks
         needs: [changes, frontend-build-and-typegen]
         runs-on: depot-ubuntu-24.04-4
         steps:
