@@ -12,7 +12,7 @@ import { fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 interface FinalStateEntry {
-    person: InternalPerson | null
+    person: InternalPerson
     versionDisparity: boolean
     operations: Array<{
         type: string
