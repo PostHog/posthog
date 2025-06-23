@@ -12,6 +12,8 @@ import uuid
 
 import asyncstdlib
 import deltalake
+import pyarrow as pa
+import pyarrow.compute as pc
 import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
@@ -438,6 +440,9 @@ async def materialize_model(
                 mode = "overwrite"
                 schema_mode = "overwrite"
 
+            # Transform high-precision decimal columns
+            batch = _transform_unsupported_decimals(batch, logger)
+
             await logger.adebug(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
             )
@@ -575,6 +580,35 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     async with get_client() as client:
         async for batch, pa_schema in client.astream_query_in_batches(printed, query_parameters=context.values):
             yield table_from_py_list(batch, pa_schema)
+
+
+def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogger) -> pa.Table:
+    """
+    Transform high-precision decimal columns to types supported by Delta Lake.
+    Delta Lake supports decimal types up to precision 38, but ClickHouse can return
+    Decimal256 types with 76 digit precision.
+    """
+    schema = batch.schema
+    columns_to_cast = {}
+
+    for field in schema:
+        if pa.types.is_decimal(field.type):
+            decimal_type = field.type
+            if hasattr(decimal_type, "precision") and decimal_type.precision > 38:
+                columns_to_cast[field.name] = pa.float64()
+
+    if not columns_to_cast:
+        return batch
+
+    column_names = list(columns_to_cast.keys())
+    logger.adebug(f"Converting high-precision decimal columns to double: {column_names}")
+
+    for column_name, new_type in columns_to_cast.items():
+        column_data = batch[column_name]
+        cast_column = pc.cast(column_data, new_type)
+        batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, cast_column)
+
+    return batch
 
 
 def _get_credentials():

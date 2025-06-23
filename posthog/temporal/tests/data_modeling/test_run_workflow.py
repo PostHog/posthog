@@ -15,6 +15,7 @@ import temporalio.worker
 from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
+import pyarrow as pa
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -37,6 +38,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     start_run_activity,
     create_job_model_activity,
     fail_jobs_activity,
+    CannotCoerceColumnException,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -931,3 +933,146 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     assert "DistinctId" in table_columns, "Column 'DistinctId' should maintain its original capitalization"
     assert "TimeStamp" in table_columns, "Column 'TimeStamp' should maintain its original capitalization"
     assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
+
+
+@pytest.mark.skip(reason="Decimal256 handling is implemented, if it's removed this test will pass")
+async def test_materialize_model_with_decimal256_error(ateam, bucket_name, minio_client):
+    """Test that materialize_model properly handles Decimal256 type errors from ClickHouse."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="decimal_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    # Create a mock PyArrow table with problematic Decimal256(76, 32) type
+    def mock_hogql_table(*args, **kwargs):
+        from decimal import Decimal
+
+        # Create a table with Decimal256 type that Delta Lake can't handle
+        high_precision_decimal_type = pa.decimal256(76, 32)
+        problematic_data = pa.array(
+            [
+                Decimal("1234567890123456789012345678901234567890123.12345678901234567890123456789012"),
+                Decimal("2345678901234567890123456789012345678901234.12345678901234567890123456789012"),
+                Decimal("3456789012345678901234567890123456789012345.12345678901234567890123456789012"),
+            ],
+            type=high_precision_decimal_type,
+        )
+
+        # Create a table with the problematic decimal column
+        table = pa.table({"test_column": problematic_data, "regular_column": pa.array([1, 2, 3], type=pa.int64())})
+
+        # Async generator that yields the problematic table
+        async def async_generator():
+            yield table
+
+        return async_generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        # This should raise a CannotCoerceColumnException due to the Decimal256 type
+        with pytest.raises(CannotCoerceColumnException) as exc_info:
+            await materialize_model(
+                saved_query.id.hex,
+                ateam,
+                saved_query,
+                job,
+                unittest.mock.AsyncMock(),
+                unittest.mock.AsyncMock(),
+            )
+
+        # Verify the error message contains the expected text
+        assert "Data type not supported in model" in str(exc_info.value)
+        assert "Decimal256" in str(exc_info.value)
+
+        # Verify the job was marked as failed
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.FAILED
+        assert "Decimal256" in job.error
+
+
+async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_client):
+    """Test that materialize_model successfully transforms Decimal256 types to double."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="decimal_fix_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    def mock_hogql_table(*args, **kwargs):
+        from decimal import Decimal
+
+        high_precision_decimal_type = pa.decimal256(76, 32)
+        problematic_data = pa.array(
+            [Decimal("12345678901234567890123456789012345678901234.12345678901234567890123456789012")],
+            type=high_precision_decimal_type,
+        )
+
+        # Create a table with the problematic decimal column
+        table = pa.table({"high_precision_decimal": problematic_data, "regular_column": pa.array([1], type=pa.int64())})
+
+        # Async generator that yields the problematic table
+        async def async_generator():
+            yield table
+
+        return async_generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        # This should succeed now that we have the transformation in place
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        # Verify the table was created successfully
+        assert key == saved_query.normalized_name
+
+        # Check that the high-precision decimal was converted to double
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "high_precision_decimal" in table.column_names
+        assert "regular_column" in table.column_names
+
+        # Verify the decimal column was converted to double (float64)
+        high_precision_column = table.column("high_precision_decimal")
+        assert pa.types.is_floating(high_precision_column.type)
+        assert high_precision_column.type == pa.float64()
+
+        # Verify the job completed successfully
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
