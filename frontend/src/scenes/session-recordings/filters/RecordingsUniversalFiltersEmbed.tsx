@@ -1,14 +1,5 @@
 import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonButtonProps,
-    LemonInput,
-    LemonModal,
-    LemonTab,
-    LemonTabs,
-    Popover,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
