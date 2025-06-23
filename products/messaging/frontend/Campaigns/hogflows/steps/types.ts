@@ -1,4 +1,4 @@
-import { Edge, Handle, Node, NodeProps } from '@xyflow/react'
+import { Handle, Node, NodeProps } from '@xyflow/react'
 
 import { Optional } from '~/types'
 
@@ -15,8 +15,8 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     type: T
     renderNode: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
-    create: (
-        edgeToInsertNodeInto: Edge
-    ) => Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description' | 'next_actions'>
-    getHandles: (action: Extract<HogFlowAction, { type: T }>) => StepViewNodeHandle[]
+    create: () => {
+        action: Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>
+        branchEdges?: number
+    }
 }

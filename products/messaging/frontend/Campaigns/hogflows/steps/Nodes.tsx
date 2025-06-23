@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
-import { useUpdateNodeInternals } from '@xyflow/react'
-import { useActions } from 'kea'
+import { Handle, useUpdateNodeInternals } from '@xyflow/react'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -60,15 +60,25 @@ function DropzoneNode({ id }: NodeProps): JSX.Element {
 function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
 
+    const { nodesById } = useValues(hogFlowEditorLogic)
+
     useEffect(() => {
         updateNodeInternals(props.id)
     }, [props.id, updateNodeInternals])
 
     const Step = getHogFlowStep(props.data.type)
 
+    const node = nodesById[props.id]
+
     return (
-        Step?.renderNode(props) || (
-            <StepView name={`Error: ${props.data.type} not implemented`} selected={false} handles={[]} />
-        )
+        <>
+            {node?.handles.map((handle) => (
+                // isConnectable={false} prevents edges from being manually added
+                <Handle key={handle.id} {...handle} isConnectable={false} />
+            ))}
+            {Step?.renderNode(props) || (
+                <StepView name={`Error: ${props.data.type} not implemented`} selected={false} handles={[]} />
+            )}
+        </>
     )
 }

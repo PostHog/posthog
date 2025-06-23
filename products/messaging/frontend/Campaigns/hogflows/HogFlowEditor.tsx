@@ -20,6 +20,7 @@ import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
 import { NodeDetailsPanel } from './steps/NodeDetailsPanel'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
+import { HogFlowActionNode } from './types'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {

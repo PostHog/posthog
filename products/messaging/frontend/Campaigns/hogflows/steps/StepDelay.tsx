@@ -15,52 +15,24 @@ export const StepDelay: HogFlowStep<'delay'> = {
     type: 'delay',
     renderNode: (props) => <StepDelayNode {...props} />,
     renderConfiguration: (node) => <StepDelayConfiguration node={node} />,
-    create: (edgeToInsertNodeInto) => {
+    create: () => {
         return {
-            name: 'Wait',
-            description: '',
-            type: 'delay',
-            on_error: 'continue',
-            config: {
-                delay_duration: '10m',
-            },
-            next_actions: {
-                continue: {
-                    action_id: edgeToInsertNodeInto.target,
-                    label: 'Continue',
+            action: {
+                name: 'Wait',
+                description: '',
+                type: 'delay',
+                on_error: 'continue',
+                config: {
+                    delay_duration: '10m',
                 },
             },
         }
-    },
-    // TODO: Can we derive handles from the next_actions instead?
-    getHandles(action) {
-        return [
-            {
-                id: `target_${action.id}`,
-                type: 'target',
-                position: Position.Top,
-                ...TOP_HANDLE_POSITION,
-            },
-            {
-                id: `continue_${action.id}`,
-                type: 'source',
-                position: Position.Bottom,
-                ...BOTTOM_HANDLE_POSITION,
-            },
-        ]
     },
 }
 
 function StepDelayNode({ data }: HogFlowStepNodeProps): JSX.Element {
     // TODO: Use node data to render trigger node
-    return (
-        <StepView
-            name={data.name}
-            icon={<IconDecisionTree className="text-green-400" />}
-            selected={false}
-            handles={StepDelay.getHandles(data)}
-        />
-    )
+    return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
 }
 
 function StepDelayConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'delay' }>> }): JSX.Element {

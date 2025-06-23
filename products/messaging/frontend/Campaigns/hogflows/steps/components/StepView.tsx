@@ -1,17 +1,11 @@
-import { Handle } from '@xyflow/react'
-
-import { StepViewNodeHandle } from '../types'
-
 export function StepView({
     name,
     icon,
     selected,
-    handles,
     children,
 }: {
     name: string
     selected: boolean
-    handles: StepViewNodeHandle[]
     icon?: React.ReactNode
     children?: React.ReactNode
 }): JSX.Element {
@@ -27,10 +21,6 @@ export function StepView({
                 <div className="text-xs">{name}</div>
             </div>
             {children}
-            {handles.map((handle) => (
-                // isConnectable={false} prevents edges from being manually added
-                <Handle key={handle.id} {...handle} isConnectable={false} className="opacity-0" />
-            ))}
         </div>
     )
 }

@@ -17,36 +17,21 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
     renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
     create: () => {
         return {
-            name: 'Trigger',
-            description: '',
-            type: 'trigger',
-            config: {
-                type: 'event',
+            action: {
+                name: 'Trigger',
+                description: '',
+                type: 'trigger',
+                config: {
+                    type: 'event',
+                },
             },
         }
-    },
-    getHandles(action) {
-        return [
-            {
-                id: `continue_${action.id}`,
-                type: 'source',
-                position: Position.Bottom,
-                ...BOTTOM_HANDLE_POSITION,
-            },
-        ]
     },
 }
 
 function StepTriggerNode({ data }: HogFlowStepNodeProps): JSX.Element {
     // TODO: Use node data to render trigger node
-    return (
-        <StepView
-            name={data.name}
-            icon={<IconBolt className="text-green-400" />}
-            selected={false}
-            handles={StepTrigger.getHandles(data)}
-        />
-    )
+    return <StepView name={data.name} icon={<IconBolt className="text-green-400" />} selected={false} />
 }
 
 function StepTriggerConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'trigger' }>> }): JSX.Element {

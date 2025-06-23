@@ -8,13 +8,6 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
-    next_actions: z.record(
-        z.literal('continue').or(z.string().startsWith('branch_')),
-        z.object({
-            action_id: z.string(),
-            label: z.string().optional(),
-        })
-    ),
 }
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -146,6 +139,14 @@ export const HogFlowSchema = z.object({
     ]),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
+    edges: z.array(
+        z.object({
+            from: z.string(),
+            to: z.string(),
+            type: z.enum(['continue', 'branch']),
+            index: z.number().optional(),
+        })
+    ),
 })
 
 export type HogFlow = z.infer<typeof HogFlowSchema>

@@ -1,9 +1,8 @@
 import { IconDecisionTree } from '@posthog/icons'
-import { Node, Position } from '@xyflow/react'
+import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
-import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
@@ -13,53 +12,25 @@ export const StepMessage: HogFlowStep<'message'> = {
     type: 'message',
     renderNode: (props) => <StepMessageNode {...props} />,
     renderConfiguration: (node) => <StepMessageConfiguration node={node} />,
-    create: (edgeToInsertNodeInto) => {
+    create: () => {
         return {
-            name: 'Message',
-            description: '',
-            type: 'message',
-            on_error: 'continue',
-            config: {
-                message: { value: NEW_TEMPLATE },
-                channel: 'email',
-            },
-            next_actions: {
-                continue: {
-                    action_id: edgeToInsertNodeInto.target,
-                    label: 'Continue',
+            action: {
+                name: 'Message',
+                description: '',
+                type: 'message',
+                on_error: 'continue',
+                config: {
+                    message: { value: NEW_TEMPLATE },
+                    channel: 'email',
                 },
             },
         }
-    },
-    // TODO: Can we derive handles from the next_actions instead?
-    getHandles(action) {
-        return [
-            {
-                id: `target_${action.id}`,
-                type: 'target',
-                position: Position.Top,
-                ...TOP_HANDLE_POSITION,
-            },
-            {
-                id: `continue_${action.id}`,
-                type: 'source',
-                position: Position.Bottom,
-                ...BOTTOM_HANDLE_POSITION,
-            },
-        ]
     },
 }
 
 function StepMessageNode({ data }: HogFlowStepNodeProps): JSX.Element {
     // TODO: Use node data to render trigger node
-    return (
-        <StepView
-            name={data.name}
-            icon={<IconDecisionTree className="text-green-400" />}
-            selected={false}
-            handles={StepMessage.getHandles(data)}
-        />
-    )
+    return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
 }
 
 function StepMessageConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'message' }>> }): JSX.Element {

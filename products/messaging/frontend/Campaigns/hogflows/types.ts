@@ -9,13 +9,6 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
-    next_actions: z.record(
-        z.literal('continue').or(z.string().startsWith('branch_')),
-        z.object({
-            action_id: z.string(),
-            label: z.string().optional(),
-        })
-    ),
 }
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -36,7 +29,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             conditions: z.array(
                 z.object({
-                    filter: z.any(), // type this stronger
+                    filters: z.any(), // type this stronger
                 })
             ),
             delay_duration: z.string().optional(),
@@ -120,6 +113,13 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     }),
 ])
 
+const HogFlowEdgeSchema = z.object({
+    from: z.string(),
+    to: z.string(),
+    type: z.enum(['continue', 'branch']),
+    index: z.number().optional(),
+})
+
 export const HogFlowSchema = z.object({
     id: z.string(),
     team_id: z.number(),
@@ -151,8 +151,10 @@ export const HogFlowSchema = z.object({
     ]),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
+    edges: z.array(HogFlowEdgeSchema),
 })
 
 export type HogFlow = z.infer<typeof HogFlowSchema>
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema>
+export type HogFlowEdge = z.infer<typeof HogFlowEdgeSchema>
 export type HogFlowActionNode = Node<HogFlowAction>

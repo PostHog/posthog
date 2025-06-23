@@ -1,5 +1,5 @@
-import { Position } from '@xyflow/react'
-import ELK, { ElkNode } from 'elkjs/lib/elk.bundled.js'
+import { Edge, Position } from '@xyflow/react'
+import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
 import type { HogFlowActionNode } from './types'
@@ -26,7 +26,7 @@ const getElkPortSide = (position: Position): string => {
 
 const elk = new ELK()
 
-export const getFormattedNodes = async (nodes: HogFlowActionNode[]): Promise<HogFlowActionNode[]> => {
+export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[]): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
@@ -60,16 +60,15 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[]): Promise<Hog
                 properties: {
                     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
                 },
-                ports: handles,
+                ports: [{ id: node.id }, ...handles],
             }
         }),
-        edges: nodes.flatMap((node) =>
-            Object.entries(node.data.next_actions).map(([branch, next_action]) => ({
-                id: `${node.id}->${next_action.action_id}`,
-                sources: [`${branch}_${node.id}`],
-                targets: [`target_${next_action.action_id}`],
-            }))
-        ),
+        edges: edges.map((edge) => ({
+            ...edge,
+            id: edge.id,
+            sources: [edge.sourceHandle || edge.source],
+            targets: [edge.targetHandle || edge.target],
+        })) as ElkExtendedEdge[],
     }
 
     const layoutedGraph = await elk.layout(graph)

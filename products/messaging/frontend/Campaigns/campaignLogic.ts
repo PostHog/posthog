@@ -25,11 +25,6 @@ const NEW_CAMPAIGN: HogFlow = {
             description: '',
             created_at: 0,
             updated_at: 0,
-            next_actions: {
-                continue: {
-                    action_id: 'exit_node',
-                },
-            },
             config: {
                 type: 'event',
                 filters: {},
@@ -45,7 +40,13 @@ const NEW_CAMPAIGN: HogFlow = {
             description: '',
             created_at: 0,
             updated_at: 0,
-            next_actions: {},
+        },
+    ],
+    edges: [
+        {
+            from: 'trigger_node',
+            to: 'exit_node',
+            type: 'continue',
         },
     ],
     trigger: { type: 'event' },
