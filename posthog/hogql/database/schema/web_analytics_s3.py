@@ -6,11 +6,10 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WEB_BOUNCES_SPECIFIC_FIELDS,
 )
 from django.conf import settings
-from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
 
 
@@ -18,12 +17,12 @@ def get_s3_url(team_id: int, table_name: str) -> str:
     if settings.DEBUG:
         s3_endpoint = "http://objectstorage:19000"
         bucket = "posthog"
-        key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
+        key = f"{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}/{table_name}"
         return f"{s3_endpoint}/{bucket}/{key}"
 
-    base_url = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com"
+    base_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com"
 
-    return f"{base_url}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{table_name}"
+    return f"{base_url}/{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}/{table_name}"
 
 
 def get_s3_web_stats_structure() -> str:

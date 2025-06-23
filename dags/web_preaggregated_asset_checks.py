@@ -19,10 +19,9 @@ from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, Web
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
@@ -115,12 +114,12 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             # For local development, use Minio with s3() function for proper authentication
             s3_endpoint = "http://objectstorage:19000"
             bucket = "posthog"
-            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_type}_export.native"
+            key = f"{export_type}_export.native"
         else:
             # For production, use S3 URL (same pattern as export method)
             s3_endpoint = "https://s3.amazonaws.com"
-            bucket = DAGSTER_DATA_EXPORT_S3_BUCKET
-            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_type}_export.native"
+            bucket = OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET
+            key = f"{export_type}_export.native"
 
         try:
             # Try to query the export file with chdb using s3() function for proper AWS auth
