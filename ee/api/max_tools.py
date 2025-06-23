@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.permissions import IsAuthenticated
 
-from ee.hogai.assistant import Assistant
+
 from ee.hogai.utils.types import AssistantMode, AssistantState
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -53,6 +53,8 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["insight:read", "query:read"],
     )
     def create_and_query_insight(self, request: Request, *args, **kwargs):
+        from ee.hogai.assistant import Assistant
+
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
