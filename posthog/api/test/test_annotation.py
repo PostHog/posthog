@@ -25,7 +25,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content="hello world!",
         )
 
-        # Annotation creation is not reported to PostHog because it has no created_by
+        # Annotation creation is not reported to PostHog because it has no created_by!
         mock_capture.assert_not_called()
 
         response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
