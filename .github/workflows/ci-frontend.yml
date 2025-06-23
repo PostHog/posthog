@@ -130,6 +130,14 @@ jobs:
                   key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-pnpm-cypress-
 
+            - name: Cache .typegen
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .typegen
+                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-typegen-
+
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: |
