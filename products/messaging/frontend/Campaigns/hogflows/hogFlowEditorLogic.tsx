@@ -148,11 +148,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 actions.setNodes(nodes)
                 actions.setEdges(edges)
-
-                console.log('RESET TO', {
-                    nodes,
-                    edges,
-                })
             } catch (error) {
                 console.error('Error resetting flow from hog flow', error)
                 lemonToast.error('Error updating workflow')
