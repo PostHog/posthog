@@ -256,14 +256,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     ...step.create(edgeToInsertNodeInto),
                 }
 
-                const newNode: Node<HogFlowAction> = {
-                    id: newAction.id,
-                    type: newAction.type,
-                    data: newAction,
-                    position: { x: 0, y: 0 },
-                    handles: step.getHandles(newAction),
-                }
-
                 const edgeSourceNode = values.campaign.actions.find(
                     (action) => action.id === edgeToInsertNodeInto.source
                 )
@@ -274,13 +266,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 Object.keys(edgeSourceNode.next_actions).forEach((key) => {
                     edgeSourceNode.next_actions[key] = {
-                        action_id: newNode.action.id,
+                        action_id: newAction.id,
                         label: edgeSourceNode.next_actions[key].label,
                     }
                 })
 
                 const oldActions = values.campaign.actions
-                const newActions = [...oldActions.slice(0, -1), newNode.action, oldActions[oldActions.length - 1]]
+                const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
 
                 actions.setCampaignValues({ actions: newActions })
                 actions.setNewDraggingNode(null)

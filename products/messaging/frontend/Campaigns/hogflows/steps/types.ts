@@ -15,6 +15,8 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     type: T
     renderNode: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
-    create: (edgeToInsertNodeInto: Edge) => Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>
+    create: (
+        edgeToInsertNodeInto: Edge
+    ) => Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description' | 'next_actions'>
     getHandles: (action: Extract<HogFlowAction, { type: T }>) => StepViewNodeHandle[]
 }

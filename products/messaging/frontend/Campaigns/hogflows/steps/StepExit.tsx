@@ -34,7 +34,14 @@ export const StepExit: HogFlowStep<'exit'> = {
 
 function StepExitNode({ data }: HogFlowStepNodeProps): JSX.Element {
     // TODO: Use node data to render trigger node
-    return <StepView name={data.name} icon={<IconLeave className="text-green-400" />} selected={false} handles={[]} />
+    return (
+        <StepView
+            name={data.name}
+            icon={<IconLeave className="text-green-400" />}
+            selected={false}
+            handles={StepExit.getHandles(data)}
+        />
+    )
 }
 
 function StepExitConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'exit' }>> }): JSX.Element {

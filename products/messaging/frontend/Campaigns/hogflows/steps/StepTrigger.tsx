@@ -39,7 +39,14 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
 
 function StepTriggerNode({ data }: HogFlowStepNodeProps): JSX.Element {
     // TODO: Use node data to render trigger node
-    return <StepView name={data.name} icon={<IconBolt className="text-green-400" />} selected={false} handles={[]} />
+    return (
+        <StepView
+            name={data.name}
+            icon={<IconBolt className="text-green-400" />}
+            selected={false}
+            handles={StepTrigger.getHandles(data)}
+        />
+    )
 }
 
 function StepTriggerConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'trigger' }>> }): JSX.Element {

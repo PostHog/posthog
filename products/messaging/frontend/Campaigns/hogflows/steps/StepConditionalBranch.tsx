@@ -21,8 +21,19 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
             config: {
                 conditions: [],
             },
+            next_actions: {
+                condition_0: {
+                    action_id: edgeToInsertNodeInto.target,
+                    label: 'Match condition 1',
+                },
+                continue: {
+                    action_id: edgeToInsertNodeInto.target,
+                    label: 'No match',
+                },
+            },
         }
     },
+    // TODO: Can we derive handles from the next_actions instead?
     getHandles(action) {
         return [
             {
@@ -54,7 +65,7 @@ function StepConditionalBranchNode({ data }: HogFlowStepNodeProps): JSX.Element 
             name={data.name}
             icon={<IconDecisionTree className="text-green-400" />}
             selected={false}
-            handles={[]}
+            handles={StepConditionalBranch.getHandles(data)}
         />
     )
 }
