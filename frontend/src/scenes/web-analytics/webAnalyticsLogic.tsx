@@ -819,19 +819,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
         webAnalyticsFilters: [
-            (s) => [
-                s.rawWebAnalyticsFilters,
-                s.isPathCleaningEnabled,
-                s.domainFilter,
-                s.deviceTypeFilter,
-                () => values.featureFlags,
-            ],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.domainFilter, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
                 domainFilter: string | null,
-                deviceTypeFilter: DeviceType | null,
-                featureFlags: Record<string, boolean>
+                deviceTypeFilter: DeviceType | null
             ) => {
                 let filters = rawWebAnalyticsFilters
 
@@ -866,7 +859,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 // Translate exact path filters to cleaned path filters
-                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] && isPathCleaningEnabled) {
+                if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => ({
                         ...filter,
                         operator:
