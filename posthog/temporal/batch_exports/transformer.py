@@ -94,7 +94,14 @@ class JSONLStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            async with self._record_batches_producer(record_batches, executor) as producer_task:
+            async with _record_batches_producer(
+                record_batches,
+                executor=executor,
+                semaphore=self._semaphore,
+                futures_pending=self._futures_pending,
+                include_inserted_at=self.include_inserted_at,
+                compression=self.compression,
+            ) as producer_task:
                 while True:
                     try:
                         done, _ = await asyncio.wait(self._futures_pending, return_when=asyncio.FIRST_COMPLETED)
@@ -119,38 +126,6 @@ class JSONLStreamTransformer:
 
                             else:
                                 current_file_size += len(chunk)
-
-    @contextlib.asynccontextmanager
-    async def _record_batches_producer(
-        self,
-        record_batches: collections.abc.AsyncIterable[pa.RecordBatch],
-        executor: concurrent.futures.ProcessPoolExecutor,
-    ):
-        """Manage a task to produce record batches to run in executor."""
-        loop = asyncio.get_running_loop()
-
-        async def producer():
-            """Produce record batches to execute in process pool."""
-            async for record_batch in record_batches:
-                _ = await self._semaphore.acquire()
-
-                future = loop.run_in_executor(
-                    executor, dump_record_batch, record_batch, self.compression, self.include_inserted_at
-                )
-                self._futures_pending.add(future)
-
-        producer_task = asyncio.create_task(producer())
-
-        try:
-            yield producer_task
-        finally:
-            if not producer_task.done():
-                _ = producer_task.cancel()
-
-            try:
-                await producer_task
-            except asyncio.CancelledError:
-                pass
 
 
 class JSONLBrotliStreamTransformer:
@@ -180,7 +155,14 @@ class JSONLBrotliStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            async with self._record_batches_producer(record_batches, executor) as producer_task:
+            async with _record_batches_producer(
+                record_batches,
+                executor=executor,
+                semaphore=self._semaphore,
+                futures_pending=self._futures_pending,
+                include_inserted_at=self.include_inserted_at,
+                compression=None,
+            ) as producer_task:
                 while True:
                     try:
                         done, _ = await asyncio.wait(self._futures_pending, return_when=asyncio.FIRST_COMPLETED)
@@ -215,36 +197,6 @@ class JSONLBrotliStreamTransformer:
         await asyncio.sleep(0)
         yield Chunk(data, True)
 
-    @contextlib.asynccontextmanager
-    async def _record_batches_producer(
-        self,
-        record_batches: collections.abc.AsyncIterable[pa.RecordBatch],
-        executor: concurrent.futures.ProcessPoolExecutor,
-    ):
-        """Manage a task to produce record batches to run in executor."""
-        loop = asyncio.get_running_loop()
-
-        async def producer():
-            """Produce record batches to execute in process pool."""
-            async for record_batch in record_batches:
-                _ = await self._semaphore.acquire()
-
-                future = loop.run_in_executor(executor, dump_record_batch, record_batch, None, self.include_inserted_at)
-                self._futures_pending.add(future)
-
-        producer_task = asyncio.create_task(producer())
-
-        try:
-            yield producer_task
-        finally:
-            if not producer_task.done():
-                _ = producer_task.cancel()
-
-            try:
-                await producer_task
-            except asyncio.CancelledError:
-                pass
-
     def _compress(self, content: bytes | str) -> bytes:
         """Compress using brotli."""
         if isinstance(content, str):
@@ -260,6 +212,40 @@ class JSONLBrotliStreamTransformer:
         bytes = self._brotli_compressor.finish()
         self._brotli_compressor = None
         return bytes
+
+
+@contextlib.asynccontextmanager
+async def _record_batches_producer(
+    record_batches: collections.abc.AsyncIterable[pa.RecordBatch],
+    executor: concurrent.futures.ProcessPoolExecutor,
+    semaphore: asyncio.Semaphore,
+    futures_pending: set[asyncio.Future[list[bytes]]],
+    include_inserted_at: bool,
+    compression: str | None = None,
+):
+    """Manage a task to produce record batches to run in executor."""
+    loop = asyncio.get_running_loop()
+
+    async def producer():
+        """Produce record batches to execute in process pool."""
+        async for record_batch in record_batches:
+            _ = await semaphore.acquire()
+
+            future = loop.run_in_executor(executor, dump_record_batch, record_batch, compression, include_inserted_at)
+            futures_pending.add(future)
+
+    producer_task = asyncio.create_task(producer())
+
+    try:
+        yield producer_task
+    finally:
+        if not producer_task.done():
+            _ = producer_task.cancel()
+
+        try:
+            await producer_task
+        except asyncio.CancelledError:
+            pass
 
 
 def dump_record_batch(
