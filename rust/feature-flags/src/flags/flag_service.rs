@@ -82,27 +82,29 @@ impl FlagService {
     /// If the team is not found in the cache, it will be fetched from the database and stored in the cache.
     /// Returns the team if found, otherwise an error.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
-        let (team_result, cache_hit) = match Team::from_redis(self.redis_reader.clone(), token)
-            .await
-        {
-            Ok(team) => (Ok(team), true),
-            Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
-                Ok(team) => {
-                    inc(DB_TEAM_READS_COUNTER, &[], 1);
-                    // If we have the team in postgres, but not redis, update redis so we're faster next time
-                    if (Team::update_redis_cache(self.redis_writer.clone(), &team).await).is_err() {
-                        inc(
-                            TEAM_CACHE_ERRORS_COUNTER,
-                            &[("reason".to_string(), "redis_update_failed".to_string())],
-                            1,
-                        );
+        let (team_result, cache_hit) =
+            match Team::from_redis(self.redis_reader.clone(), token).await {
+                Ok(team) => (Ok(team), true),
+                Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
+                    Ok(team) => {
+                        inc(DB_TEAM_READS_COUNTER, &[], 1);
+                        // If we have the team in postgres, but not redis, update redis so we're faster next time
+                        if Team::update_redis_cache(self.redis_writer.clone(), &team)
+                            .await
+                            .is_err()
+                        {
+                            inc(
+                                TEAM_CACHE_ERRORS_COUNTER,
+                                &[("reason".to_string(), "redis_update_failed".to_string())],
+                                1,
+                            );
+                        }
+                        (Ok(team), false)
                     }
-                    (Ok(team), false)
-                }
-                // TODO what kind of error should we return here?
-                Err(e) => (Err(e), false),
-            },
-        };
+                    // TODO what kind of error should we return here?
+                    Err(e) => (Err(e), false),
+                },
+            };
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
@@ -181,7 +183,11 @@ mod tests {
             .await
             .expect("Failed to insert new team in Redis");
 
-        let flag_service = FlagService::new(redis_client.clone(), redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            redis_client.clone(),
+            pg_client.clone(),
+        );
 
         // Test valid token in Redis
         let result = flag_service.verify_token(&team.api_token).await;
@@ -216,7 +222,11 @@ mod tests {
             .await
             .expect("Failed to insert new team in Redis");
 
-        let flag_service = FlagService::new(redis_client.clone(), redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            redis_client.clone(),
+            pg_client.clone(),
+        );
 
         // Test fetching from Redis
         let result = flag_service
@@ -232,7 +242,11 @@ mod tests {
             .await
             .expect("Failed to remove team from Redis");
 
-        let flag_service = FlagService::new(redis_client.clone(), redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            redis_client.clone(),
+            pg_client.clone(),
+        );
 
         let result = flag_service
             .get_team_from_cache_or_pg(&team.api_token)
@@ -339,7 +353,11 @@ mod tests {
             .await
             .expect("Failed to insert mock flags in Redis");
 
-        let flag_service = FlagService::new(redis_client.clone(), redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            redis_client.clone(),
+            pg_client.clone(),
+        );
 
         // Test fetching from Redis
         let result = flag_service
