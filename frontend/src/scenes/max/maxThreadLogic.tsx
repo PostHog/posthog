@@ -181,7 +181,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Clear the question
             actions.setQuestion('')
-            // Set active streaming threads, so we now how many are running
+            // Set active streaming threads, so we know how many are running
             actions.setActiveStreamingThreads(1)
 
             // For a new conversations, set the temporary conversation ID, which will be replaced with the actual conversation ID once the first message is generated
