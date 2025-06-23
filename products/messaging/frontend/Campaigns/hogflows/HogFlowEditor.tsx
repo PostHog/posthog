@@ -18,10 +18,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { OnWorkflowChange } from '../campaignLogic'
+import { ActionDetailsPanel } from './actions/ActionDetailsPanel'
 import { HogFlowActionManager } from './actions/hogFlowActionManager'
-import { NodeDetailsPanel } from './actions/NodeDetailsPanel'
 import { REACT_FLOW_NODE_TYPES } from './actions/Nodes'
 import { getFormattedNodes } from './autolayout'
+import { HogflowTestPanel } from './testing/HogFlowTestPanel'
 import { Toolbar, ToolbarNode } from './Toolbar'
 import type { HogFlow, HogFlowAction } from './types'
 
@@ -139,7 +140,7 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
                 <Toolbar setNewNode={setToolbarNodeUsed} />
 
                 {selectedNode && (
-                    <NodeDetailsPanel
+                    <ActionDetailsPanel
                         node={selectedNode}
                         onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
                         onDelete={(node) => {
@@ -148,6 +149,8 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
                         onClose={() => setSelectedNode(undefined)}
                     />
                 )}
+
+                <HogflowTestPanel hogFlow={hogFlow} />
             </ReactFlow>
         </div>
     )

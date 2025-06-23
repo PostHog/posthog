@@ -41,7 +41,7 @@ export function Toolbar({ setNewNode }: { setNewNode: (nodeType: ToolbarNode) =>
     return (
         <Panel position="top-left">
             <div className="bg-surface-primary rounded-md shadow-md flex flex-col gap-2 p-4 z-10 w-[200px]">
-                <h3 className="font-semibold nodrag">Workflow steps</h3>
+                <h3 className="font-semibold nodrag">Workflow actions</h3>
                 <div className="flex flex-col gap-2">
                     {TOOLBAR_NODES.map((node) => (
                         <ToolbarNode key={node.type} node={node} setNewNode={setNewNode} />

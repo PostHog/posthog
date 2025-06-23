@@ -50,7 +50,7 @@ function TriggerSection(): JSX.Element {
                 <p className="text-lg font-semibold mb-1">Campaign trigger event</p>
                 <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
             </div>
-            <LemonField name="triggerEvents">
+            <LemonField name={['trigger', 'filters']}>
                 {({ value, onChange }) => (
                     <ActionFilter
                         filters={value ?? {}}

@@ -6,6 +6,7 @@
         "@xyflow/react": "*",
         "clsx": "*",
         "elkjs": "*",
+        "fast-deep-equal": "*",
         "fuse.js": "*",
         "kea": "*",
         "kea-forms": "*",

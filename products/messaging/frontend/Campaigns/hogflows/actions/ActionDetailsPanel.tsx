@@ -9,7 +9,7 @@ import type { HogFlowAction } from '../types'
 import { HogFlowActionManager } from './hogFlowActionManager'
 import { nodeLogic } from './nodeLogic'
 
-export function NodeDetailsPanel({
+export function ActionDetailsPanel({
     node,
     onChange,
     onDelete,
