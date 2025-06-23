@@ -60,8 +60,6 @@ function DropzoneNode({ id }: NodeProps): JSX.Element {
 function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
 
-    console.log(props)
-
     useEffect(() => {
         updateNodeInternals(props.id)
     }, [props.id, updateNodeInternals])

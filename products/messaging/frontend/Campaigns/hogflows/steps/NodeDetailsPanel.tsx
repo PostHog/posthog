@@ -23,10 +23,7 @@ export function NodeDetailsPanel(): JSX.Element | null {
     //     return new Set(outgoingNodes.map((node) => node.id)).size === 1
     // }
 
-    // const handleInputChange = (key: string, value: any): void => {
-    //     hogFlowAction.setInput(key, value)
-    //     onChange(hogFlowAction.toReactFlowNode())
-    // }
+    // TODO: Add default "conditions" for filtering people out
 
     const Step = getHogFlowStep(selectedNode.data.type)
 
