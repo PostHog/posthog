@@ -56,7 +56,7 @@ def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session
     return content if content else ""
 
 
-def _convert_llm_content_to_session_summary_json(
+def _convert_llm_content_to_session_summary_json_str(
     content: str,
     allowed_event_ids: list[str],
     session_id: str,
@@ -135,7 +135,7 @@ async def get_llm_single_session_summary(
         raw_content = _get_raw_content(result, session_id)
         if not raw_content:
             raise ValueError(f"No content consumed when calling LLM for session summary, session_id {session_id}")
-        session_summary_str = _convert_llm_content_to_session_summary_json(
+        session_summary_str = _convert_llm_content_to_session_summary_json_str(
             content=raw_content,
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
@@ -202,7 +202,7 @@ async def stream_llm_single_session_summary(
                 continue
             accumulated_content += raw_content
             try:
-                intermediate_summary_str = _convert_llm_content_to_session_summary_json(
+                intermediate_summary_str = _convert_llm_content_to_session_summary_json_str(
                     content=accumulated_content,
                     allowed_event_ids=allowed_event_ids,
                     session_id=session_id,
@@ -243,7 +243,7 @@ async def stream_llm_single_session_summary(
     try:
         if accumulated_usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(accumulated_usage)
-        final_summary_str = _convert_llm_content_to_session_summary_json(
+        final_summary_str = _convert_llm_content_to_session_summary_json_str(
             content=accumulated_content,
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
