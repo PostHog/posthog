@@ -88,3 +88,85 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertIsNotNone(found)
         assert found is not None
         self.assertEqual(found.id, batch_import.id)
+
+    def test_cannot_create_multiple_running_imports(self):
+        """Test that creating a new batch import fails when there's already a running one for the same team"""
+        existing_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test", "secret_key": "secret_test"},
+            status=BatchImport.Status.RUNNING,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Cannot create a new batch import", response.json()["error"])
+        self.assertIn(str(existing_import.id), response.json()["detail"])
+
+    def test_can_create_import_when_no_running_imports(self):
+        """Test that creating a new batch import succeeds when there are no running imports"""
+        BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test", "secret_key": "secret_test"},
+            status=BatchImport.Status.COMPLETED,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_can_create_import_when_other_team_has_running_import(self):
+        """Test that creating a new batch import succeeds when another team has a running import"""
+        from posthog.models import Team, Organization
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        BatchImport.objects.create(
+            team=other_team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test", "secret_key": "secret_test"},
+            status=BatchImport.Status.RUNNING,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
