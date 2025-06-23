@@ -13,7 +13,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SceneHeaderChildItemProps, SceneHeaderItemProps, sceneHeaderLogic } from './sceneHeaderLogic'
@@ -85,35 +85,35 @@ export function SceneHeader({
     const { setFileNewContainer } = useActions(sceneHeaderLogic)
     const headerRef = useRef<HTMLElement>(null)
     const sentinelRef = useRef<HTMLDivElement>(null)
-    // const [isSticky, setIsSticky] = useState(true)
+    const [isSticky, setIsSticky] = useState(true)
     const [isPageTitleClicked, setIsPageTitleClicked] = useState(false)
     const [pageTitleValue, setPageTitleValue] = useState(pageTitle)
     const pageTitleEditableButtonRef = useRef<HTMLButtonElement>(null)
-    const isSticky = true
     const canSubmitPageTitleForm = pageTitleValue !== pageTitle
+    const fontSizeClass = isSticky ? 'text-[16px]' : 'text-[18px]'
 
-    // useEffect(() => {
-    //     const mainContent = document.getElementById('main-content')
-    //     const sentinel = sentinelRef.current
+    useEffect(() => {
+        const mainContent = document.getElementById('main-content')
+        const sentinel = sentinelRef.current
 
-    //     if (!mainContent || !sentinel) {
-    //         return
-    //     }
-    //     const observer = new IntersectionObserver(
-    //         ([entry]) => {
-    //             setIsSticky(!entry.isIntersecting)
-    //         },
-    //         {
-    //             root: mainContent,
-    //             threshold: 1.0,
-    //         }
-    //     )
-    //     observer.observe(sentinel)
+        if (!mainContent || !sentinel) {
+            return
+        }
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsSticky(!entry.isIntersecting)
+            },
+            {
+                root: mainContent,
+                threshold: 1.0,
+            }
+        )
+        observer.observe(sentinel)
 
-    //     return () => {
-    //         observer.disconnect()
-    //     }
-    // }, [])
+        return () => {
+            observer.disconnect()
+        }
+    }, [])
 
     function handleSubmit(e: React.FormEvent<HTMLFormElement>): void {
         e.preventDefault()
@@ -140,10 +140,10 @@ export function SceneHeader({
     }
 
     function Title(): JSX.Element {
-        return <h1 className="text-[18px] font-semibold m-0 whitespace-nowrap">{pageTitle}</h1>
+        return <h1 className={cn('font-semibold m-0 whitespace-nowrap', fontSizeClass)}>{pageTitle}</h1>
     }
 
-    function RenderPageTitle(): JSX.Element {
+    function RenderPageTitle({ isSticky }: { isSticky: boolean }): JSX.Element {
         if (pageTitleEditable && isPageTitleClicked) {
             return (
                 <form className="absolute z-1 flex gap-1 w-full" onSubmit={handleSubmit}>
@@ -153,7 +153,8 @@ export function SceneHeader({
                         onChange={(e) => setPageTitleValue(e.target.value)}
                         className={cn(
                             buttonPrimitiveVariants(),
-                            'cursor-text text-[18px] font-semibold m-0 min-w-[300px]'
+                            'cursor-text font-semibold m-0 min-w-[300px]',
+                            fontSizeClass
                         )}
                         autoFocus
                         onBlur={handlePageTitleInputBlur}
@@ -192,7 +193,7 @@ export function SceneHeader({
         <>
             <div ref={sentinelRef} />
             <header
-                className={cn('sticky top-0 z-50 px-4 py-2 bg-surface-secondary border-b border-primary')}
+                className={cn('sticky top-0 z-50 py-2 bg-surface-secondary border-b border-primary px-4 -mx-4')}
                 ref={headerRef}
             >
                 <div className="flex justify-center">
@@ -216,10 +217,10 @@ export function SceneHeader({
                                 {pageIcon}
                             </span>
                         </Link>
-                        <div className={cn('relative flex flex-col gap-px items-center', isSticky && 'flex-row')}>
-                            <RenderPageTitle />
+                        <div className={cn('relative flex flex-col gap-px items-center')}>
+                            <RenderPageTitle isSticky={isSticky} />
 
-                            <ul className="list flex gap-1">
+                            <ul className={cn('list flex gap-1 w-full flex-row')}>
                                 {navItems.map((item) => (
                                     <li key={item.id}>
                                         {navItems.length > 0 && (

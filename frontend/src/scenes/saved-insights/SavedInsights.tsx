@@ -749,56 +749,54 @@ export function SavedInsights(): JSX.Element {
     return (
         <SceneLayout
             className="saved-insights"
-            header={
-                <SceneHeader
-                    pageTitle="Insights"
-                    pageIcon={<IconGraph />}
-                    pageTitleEditable={true}
-                    // handlePageTitleSubmit={(title) => {
-                    //     console.log('saved title', title)
-                    // }}
-                    navItems={[
-                        {
-                            title: 'File',
-                            id: 'file',
-                            children: [
-                                {
-                                    title: 'New Insight',
-                                    id: 'new-insight',
-                                    icon: <IconPlusSmall />,
-                                    to: urls.insightNew(),
-                                    type: 'link',
-                                },
-                                {
-                                    title: 'New...',
-                                    id: 'new',
-                                    icon: <IconPlusSmall />,
-                                    type: 'submenu',
-                                    children: [
-                                        {
-                                            title: 'Trend',
-                                            id: 'new-trend',
-                                            icon: <IconPlusSmall />,
-                                            to: urls.insightNew(),
-                                            type: 'link',
-                                        },
-                                        {
-                                            title: 'Lifecycle',
-                                            id: 'new-trend',
-                                            icon: <IconPlusSmall />,
-                                            to: urls.insightNew(),
-                                            type: 'link',
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    ]}
-                >
-                    <NewInsightButton dataAttr="saved-insights-create-new-insight" />
-                </SceneHeader>
-            }
         >
+            <SceneHeader
+                pageTitle="Insights"
+                pageIcon={<IconGraph />}
+                pageTitleEditable={true}
+                // handlePageTitleSubmit={(title) => {
+                //     console.log('saved title', title)
+                // }}
+                navItems={[
+                    {
+                        title: 'File',
+                        id: 'file',
+                        children: [
+                            {
+                                title: 'New Insight',
+                                id: 'new-insight',
+                                icon: <IconPlusSmall />,
+                                to: urls.insightNew(),
+                                type: 'link',
+                            },
+                            {
+                                title: 'New...',
+                                id: 'new',
+                                icon: <IconPlusSmall />,
+                                type: 'submenu',
+                                children: [
+                                    {
+                                        title: 'Trend',
+                                        id: 'new-trend',
+                                        icon: <IconPlusSmall />,
+                                        to: urls.insightNew(),
+                                        type: 'link',
+                                    },
+                                    {
+                                        title: 'Lifecycle',
+                                        id: 'new-trend',
+                                        icon: <IconPlusSmall />,
+                                        to: urls.insightNew(),
+                                        type: 'link',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ]}
+            >
+                <NewInsightButton dataAttr="saved-insights-create-new-insight" />
+            </SceneHeader>
             {/* <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} /> */}
 
             <LemonTabs

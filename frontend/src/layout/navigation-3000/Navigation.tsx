@@ -55,7 +55,7 @@ export function Navigation({
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
                 {/* {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <SceneHeader />} */}
-                {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
+                {/* {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />} */}
                 <div
                     className={clsx(
                         'Navigation3000__scene',
