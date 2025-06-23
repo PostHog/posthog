@@ -57,6 +57,26 @@ jobs:
         timeout-minutes: 45
         permissions:
             id-token: write
+        env:
+            REDIS_URL: redis://localhost
+            DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+            KAFKA_HOSTS: kafka:9092
+            DISABLE_SECURE_SSL_REDIRECT: 1
+            SECURE_COOKIES: 0
+            OPT_OUT_CAPTURE: 0
+            E2E_TESTING: 1
+            SKIP_SERVICE_VERSION_REQUIREMENTS: 1
+            EMAIL_HOST: email.test.posthog.net
+            SITE_URL: http://localhost:8000
+            NO_RESTART_LOOP: 1
+            CLICKHOUSE_SECURE: 0
+            OBJECT_STORAGE_ENABLED: 1
+            OBJECT_STORAGE_ENDPOINT: http://localhost:19000
+            OBJECT_STORAGE_ACCESS_KEY_ID: object_storage_root_user
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: object_storage_root_password
+            GITHUB_ACTION_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            CELERY_METRICS_PORT: 8999
+            CLOUD_DEPLOYMENT: 1
 
         steps:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -123,8 +143,6 @@ jobs:
               run: ./bin/check_kafka_clickhouse_up
 
             - name: Apply migrations & seed dev data
-              env:
-                  SECRET_KEY: play-it-wright
               run: |
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
