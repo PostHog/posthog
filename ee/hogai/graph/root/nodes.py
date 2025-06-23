@@ -258,7 +258,7 @@ class RootNode(RootNodeUIContextMixin):
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{_get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"
+                            f"{_get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()

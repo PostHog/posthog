@@ -58,7 +58,7 @@ def _import_max_tools() -> None:
             pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
 
-def _get_contextual_tool_class(tool_name: str) -> type["MaxTool"]:
+def _get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     """Get the tool class for a given tool name, handling circular import."""
     _import_max_tools()  # Ensure max_tools are imported
     from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
