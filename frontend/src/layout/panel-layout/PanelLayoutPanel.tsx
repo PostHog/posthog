@@ -20,11 +20,6 @@ interface PanelLayoutPanelProps {
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
     sortDropdown?: React.ReactNode
-    /**
-     * If true, the panel will be pinned to the left of the screen.
-     * If false, the panel will be pinnable with a toggle button.
-     */
-    pinned?: boolean
 }
 
 const panelLayoutPanelVariants = cva({
@@ -84,7 +79,6 @@ export function PanelLayoutPanel({
     children,
     filterDropdown,
     sortDropdown,
-    pinned,
 }: PanelLayoutPanelProps): JSX.Element {
     const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const {
@@ -106,7 +100,7 @@ export function PanelLayoutPanel({
                     isLayoutNavCollapsed,
                     isMobileLayout,
                     panelWillHide,
-                    isLayoutPanelPinned: pinned ?? isLayoutPanelPinned,
+                    isLayoutPanelPinned,
                 })
             )}
             ref={containerRef}
@@ -115,7 +109,7 @@ export function PanelLayoutPanel({
                 <ProjectDropdownMenu />
 
                 <div className="flex gap-px items-center justify-end shrink-0">
-                    {!isMobileLayout && !pinned && (
+                    {!isMobileLayout && (
                         <ButtonPrimitive
                             iconOnly
                             onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}

@@ -13,7 +13,6 @@ export function DatabaseTree(): JSX.Element {
     return (
         <PanelLayoutPanel
             searchField={<DatabaseSearchField placeholder="Search database" />}
-            pinned={true}
             panelActions={
                 !isOnSqlEditor ? (
                     <ButtonPrimitive
