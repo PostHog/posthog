@@ -6,7 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
-from ee.api import integration
+from ee.api import integration, max_tools
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
@@ -97,6 +97,8 @@ def extend_api_router() -> None:
     environments_router.register(
         r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
     )
+
+    environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
