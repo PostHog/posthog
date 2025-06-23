@@ -7,6 +7,7 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
+from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
 from ee.session_recordings.session_summary.llm.consume import (
     get_llm_session_group_summary,
     get_llm_single_session_summary,
@@ -144,8 +145,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             else:
                 # Store only successful fetches
                 session_inputs.append(single_session_input)
-        # Fail the workflow if >50% of sessions failed to fetch
-        if len(session_inputs) < len(inputs.session_ids) / 2:
+        # Fail the workflow if too many sessions failed to fetch
+        if len(session_inputs) < len(inputs.session_ids) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
             exception_message = (
                 f"Too many sessions failed to fetch data from DB, when summarizing {len(inputs.session_ids)} "
                 f"sessions ({inputs.session_ids}) for user {inputs.user_pk} in team {inputs.team_id}"
@@ -191,8 +192,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 )
             else:
                 summaries[session_id] = res
-        # Fail the workflow if >50% of sessions failed to summarize
-        if len(summaries) < len(inputs) / 2:
+        # Fail the workflow if too many sessions failed to summarize
+        if len(summaries) < len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
             session_ids = [s.session_id for s in inputs]
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
