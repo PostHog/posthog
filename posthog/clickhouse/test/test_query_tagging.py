@@ -47,9 +47,9 @@ def test_simple_query_tags():
 
 
 def test_constant_tags():
-    reset_query_tags()
     want = QueryTags(git_commit="test", container_hostname="test", service_name="test")
     assert create_base_tags() == want
+    reset_query_tags()
     assert get_query_tags() == want
 
 

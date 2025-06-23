@@ -1,5 +1,5 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
-import threading
+import contextvars
 import uuid
 from enum import StrEnum
 from collections.abc import Generator
@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from cachetools import cached
 
-thread_local_storage = threading.local()
+query_tags = contextvars.ContextVar("query_tags")
 
 
 class AccessMethod(StrEnum):
@@ -138,26 +138,22 @@ def create_base_tags(**kwargs) -> QueryTags:
 
 
 def get_query_tags() -> QueryTags:
-    try:
-        return thread_local_storage.query_tags
-    except AttributeError:
-        return create_base_tags()
+    qt = query_tags.get()
+    if qt is None:
+        qt = create_base_tags()
+        query_tags.set(qt)
+    return qt
 
 
 def get_query_tag_value(key: str) -> Optional[Any]:
     try:
-        return getattr(thread_local_storage.query_tags, key)
+        return getattr(get_query_tags(), key)
     except (AttributeError, KeyError):
         return None
 
 
 def update_tags(query_tags: QueryTags):
-    try:
-        thread_local_storage.query_tags.update(**query_tags.model_dump(exclude_none=True))
-    except AttributeError:
-        new_tags = query_tags.model_copy(deep=True)
-        new_tags.update(**__get_constant_tags())
-        thread_local_storage.query_tags = new_tags
+    get_query_tags().update(**query_tags.model_dump(exclude_none=True))
 
 
 def tag_queries(**kwargs) -> None:
@@ -167,21 +163,15 @@ def tag_queries(**kwargs) -> None:
 
     :param kwargs: Key->value pairs of tags to be set.
     """
-    try:
-        thread_local_storage.query_tags.update(**kwargs)
-    except AttributeError:
-        thread_local_storage.query_tags = create_base_tags(**kwargs)
+    get_query_tags().update(**kwargs)
 
 
 def clear_tag(key):
-    try:
-        setattr(thread_local_storage.query_tags, key, None)
-    except AttributeError:
-        pass
+    setattr(get_query_tags(), key, None)
 
 
 def reset_query_tags():
-    thread_local_storage.query_tags = create_base_tags()
+    query_tags.set(create_base_tags())
 
 
 class QueryCounter:
@@ -225,4 +215,4 @@ def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
         yield
     finally:
         if tags_copy:
-            thread_local_storage.query_tags = tags_copy
+            query_tags.set(tags_copy)
