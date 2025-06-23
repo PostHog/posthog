@@ -935,7 +935,7 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
 
 
-# This test is was used to recreate the Decimal256 handling error, it is disabled because the bug is resolved
+# This test was used to recreate the Decimal256 handling error, it is disabled because the bug is resolved
 @pytest.mark.skip(reason="Decimal256 handling is implemented, if it's removed this test will pass")
 async def test_materialize_model_with_decimal256_error(ateam, bucket_name, minio_client):
     """Test that materialize_model properly handles Decimal256 type errors from ClickHouse."""
