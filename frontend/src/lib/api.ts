@@ -1,4 +1,8 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
+import {
+    ErrorTrackingRule,
+    ErrorTrackingRuleType,
+} from '@posthog/products-error-tracking/frontend/configuration/rules/types'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -6,7 +10,6 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { ErrorTrackingRule, ErrorTrackingRuleType } from 'products/error_tracking/frontend/configuration/rules/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -36,7 +39,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -86,7 +89,6 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
-    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -2337,13 +2339,9 @@ const api = {
         async list({
             filter_groups,
             types,
-            kinds,
-            excludeKinds,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
-            kinds?: HogFunctionKind[]
-            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2351,8 +2349,6 @@ const api = {
                     filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
-                    ...(kinds ? { kind: kinds.join(',') } : {}),
-                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },
@@ -2364,9 +2360,6 @@ const api = {
         },
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
-        },
-        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
-            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
         },
         async logs(
             id: HogFunctionType['id'],
@@ -3521,11 +3514,11 @@ const api = {
             queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
         }
     ): Promise<HogQLQueryResponse<T>> {
-        const hogQLQuery: HogQLQuery = {
+        const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
-        }
+        })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
             data: {

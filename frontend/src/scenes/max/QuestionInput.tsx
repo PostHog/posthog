@@ -65,10 +65,16 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                         className={clsx(
                             'flex flex-col',
                             'border border-[var(--border-primary)] rounded-[var(--radius)]',
-                            'bg-[var(--bg-fill-input)]',
+                            'bg-[var(--bg-fill-input)] cursor-text',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
                             isFloating && 'border-primary'
                         )}
+                        onClick={(e) => {
+                            // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
+                            if (!(e.target as HTMLElement).closest('button')) {
+                                textAreaRef.current?.focus()
+                            }
+                        }}
                     >
                         <ContextDisplay />
                         <LemonTextArea

@@ -230,7 +230,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
         },
         session_id_v7: {
             name: 'session_id_v7',
-            type: 'integer',
+            type: 'string',
             hogql_value: 'session_id_v7',
             schema_valid: true,
         },

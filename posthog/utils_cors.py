@@ -1,7 +1,8 @@
 from urllib.parse import urlparse
 from django.http import HttpRequest, HttpResponse
-import posthoganalytics
-import uuid
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 CORS_ALLOWED_TRACING_HEADERS = (
     "traceparent",
@@ -38,30 +39,18 @@ def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
     url = urlparse(request.META["HTTP_ORIGIN"])
     if url.netloc == "":
         response["Access-Control-Allow-Origin"] = "*"
-        posthoganalytics.capture(
-            str(uuid.uuid4()),
-            "cors_empty_netloc",
-            {
-                "path": request.path,
-                "method": request.method,
-                "referer": request.META.get("HTTP_REFERER"),
-                "user_agent": request.META.get("HTTP_USER_AGENT"),
-            },
-        )
+        logger.info("cors_empty_netloc", path=request.path, method=request.method)
     else:
         response["Access-Control-Allow-Origin"] = f"{url.scheme}://{url.netloc}"
         # Log unknown origins for monitoring
         if url.netloc not in KNOWN_ORIGINS:
-            posthoganalytics.capture(
-                str(uuid.uuid4()),
+            logger.info(
                 "cors_unknown_origin",
-                {
-                    "origin": url.netloc,
-                    "path": request.path,
-                    "method": request.method,
-                    "referer": request.META.get("HTTP_REFERER"),
-                    "user_agent": request.META.get("HTTP_USER_AGENT"),
-                },
+                origin=url.netloc,
+                path=request.path,
+                method=request.method,
+                referer=request.META.get("HTTP_REFERER"),
+                user_agent=request.META.get("HTTP_USER_AGENT"),
             )
 
     response["Access-Control-Allow-Credentials"] = "true"
