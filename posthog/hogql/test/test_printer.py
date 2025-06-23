@@ -2373,3 +2373,18 @@ class TestPrinter(BaseTest):
             printed
             == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id IN COHORT 'some fake cohort') LIMIT 50000"
         )
+
+    def test_print_hogql_not_in_cohort(self):
+        Cohort.objects.create(team=self.team, name="some fake cohort", created_by=self.user)
+        query = parse_select(
+            "select event from events where event = 'purchase' and person_id not in cohort 'some fake cohort'"
+        )
+        printed = print_prepared_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="hogql",
+        )
+        assert (
+            printed
+            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id NOT IN COHORT 'some fake cohort') LIMIT 50000"
+        )
