@@ -194,6 +194,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     }
                 })
 
+                console.log({ HogFlowedges: hogFlow.edges, edges })
+
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
                     const step = getHogFlowStep(action.type)
                     if (!step) {

@@ -63,8 +63,6 @@ function StepConditionalBranchConfiguration({
     const edges = edgesByActionId[action.id]
     const branchEdges = edges.filter((edge) => edge.type === 'branch' && edge.from === action.id)
 
-    console.log({ branchEdges })
-
     const setConditions = (
         conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
     ): void => {
