@@ -2880,13 +2880,13 @@ const api = {
             return await new ApiRequest()
                 .batchExport(id)
                 .withAction('run_test_step')
-                .create({ data: { ...{ step: step }, ...data } })
+                .create({ data: { step: step, ...data } })
         },
         async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
             return await new ApiRequest()
                 .batchExports()
                 .withAction('run_test_step_new')
-                .create({ data: { ...{ step: step }, ...data } })
+                .create({ data: { step: step, ...data } })
         },
     },
 

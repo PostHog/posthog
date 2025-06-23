@@ -1021,17 +1021,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_analytics_config
-                        ? ([
-                              ...currentTeam.revenue_analytics_config.events.map((e) => ({
-                                  name: e.eventName,
-                                  event: e.eventName,
-                                  custom_name: e.eventName,
-                                  math: PropertyMathType.Sum,
-                                  kind: NodeKind.EventsNode,
-                                  math_property: e.revenueProperty,
-                                  math_property_revenue_currency: e.revenueCurrencyProperty,
-                              })),
-                          ] as EventsNode[])
+                        ? (currentTeam.revenue_analytics_config.events.map((e) => ({
+                              name: e.eventName,
+                              event: e.eventName,
+                              custom_name: e.eventName,
+                              math: PropertyMathType.Sum,
+                              kind: NodeKind.EventsNode,
+                              math_property: e.revenueProperty,
+                              math_property_revenue_currency: e.revenueCurrencyProperty,
+                          })) as EventsNode[])
                         : []
 
                 const conversionRevenueSeries =

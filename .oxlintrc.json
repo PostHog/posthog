@@ -17,7 +17,6 @@
         "common/hogvm/__tests__/__snapshots__"
     ],
     "rules": {
-        "no-useless-spread": "off",
         "no-constant-condition": "off",
         "no-prototype-builtins": "off",
         "no-irregular-whitespace": "off",
@@ -39,6 +38,7 @@
                 "destructuredArrayIgnorePattern": "^_$"
             }
         ],
+        "no-useless-spread": "error",
         "no-useless-fallback-in-spread": "error",
         "react-hooks/exhaustive-deps": "warn",
         "no-else-return": "warn",

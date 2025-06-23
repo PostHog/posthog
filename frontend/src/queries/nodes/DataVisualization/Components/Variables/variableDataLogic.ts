@@ -23,7 +23,7 @@ export const variableDataLogic = kea<variableDataLogicType>([
                     } catch {
                         lemonToast.error('Failed to delete variable')
                     }
-                    return [...values.variables.filter((variable) => variable.id !== variableId)]
+                    return values.variables.filter((variable) => variable.id !== variableId)
                 },
             },
         ],
