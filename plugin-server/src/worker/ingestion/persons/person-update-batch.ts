@@ -16,6 +16,8 @@ export interface PersonUpdate {
     is_identified: boolean
     is_user_id: number | null
     needs_write: boolean
+    // Track only the properties that were changed in this batch
+    property_changeset: Properties
 }
 
 export interface PersonPropertyUpdate {
@@ -39,6 +41,7 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         is_identified: person.is_identified,
         is_user_id: person.is_user_id,
         needs_write: false,
+        property_changeset: {},
     }
 }
 
@@ -89,4 +92,27 @@ export function calculatePersonPropertyUpdate(
     })
 
     return result
+}
+
+/**
+ * Merges properties using changeset-based approach for conflict resolution.
+ * Only applies properties that were actually changed in this batch.
+ */
+export function mergePersonPropertiesWithChangeset(
+    latestProperties: Properties,
+    personUpdate: PersonUpdate
+): Properties {
+    // Start with the latest properties from the database
+    const mergedProperties = { ...latestProperties }
+
+    // Apply only the properties that were changed in this batch
+    Object.entries(personUpdate.property_changeset).forEach(([key, value]) => {
+        if (value === undefined || value === null) {
+            delete mergedProperties[key]
+        } else {
+            mergedProperties[key] = value
+        }
+    })
+
+    return mergedProperties
 }

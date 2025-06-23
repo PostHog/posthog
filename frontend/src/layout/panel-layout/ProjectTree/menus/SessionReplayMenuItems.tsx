@@ -8,20 +8,18 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
-import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { CustomMenuProps } from '../types'
 
-export function SessionReplayMenuItems({ MenuItem = DropdownMenuItem }: CustomMenuProps): JSX.Element {
+export function SessionReplayMenuItems({ MenuItem = DropdownMenuItem, onLinkClick }: CustomMenuProps): JSX.Element {
     const { playlists, playlistsLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     )
-    const { mainContentRef } = useValues(panelLayoutLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
         if (e.key === 'Enter' || e.key === ' ') {
             // small delay to fight dropdown menu from taking focus
             setTimeout(() => {
-                mainContentRef?.current?.focus()
+                onLinkClick?.(true)
             }, 10)
         }
     }
@@ -36,6 +34,7 @@ export function SessionReplayMenuItems({ MenuItem = DropdownMenuItem }: CustomMe
                             }}
                             to={urls.replayPlaylist(playlist.short_id)}
                             onKeyDown={handleKeyDown}
+                            onClick={() => onLinkClick?.(false)}
                         >
                             <IconPinFilled className="size-3 text-tertiary" />
                             <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
@@ -55,6 +54,7 @@ export function SessionReplayMenuItems({ MenuItem = DropdownMenuItem }: CustomMe
                             }}
                             to={urls.replay(ReplayTabs.Home)}
                             onKeyDown={handleKeyDown}
+                            onClick={() => onLinkClick?.(false)}
                         >
                             All recordings
                         </Link>
@@ -67,6 +67,7 @@ export function SessionReplayMenuItems({ MenuItem = DropdownMenuItem }: CustomMe
                             }}
                             to={urls.replay(ReplayTabs.Playlists)}
                             onKeyDown={handleKeyDown}
+                            onClick={() => onLinkClick?.(false)}
                         >
                             Playlists
                         </Link>

@@ -220,7 +220,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
     start_date = serializers.SerializerMethodField()
     end_date = serializers.SerializerMethodField()
     content_type = serializers.SerializerMethodField()
-    error = serializers.CharField(source="display_status_message", allow_null=True)
+    status_message = serializers.CharField(source="display_status_message", allow_null=True)
 
     class Meta:
         model = BatchImport
@@ -233,7 +233,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             "end_date",
             "created_by",
             "created_at",
-            "error",
+            "status_message",
             "state",
         ]
 

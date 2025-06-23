@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,7 +22,9 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
     actions: {
         setClientSecret: (clientSecret) => ({ clientSecret }),
         setLoading: (loading) => ({ loading }),
-        setError: (error) => ({ error }),
+        setStripeError: (error) => ({ error }),
+        setApiError: (error) => ({ error }),
+        clearErrors: true,
         initiateAuthorization: true,
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
@@ -47,10 +50,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                 setLoading: (_, { loading }) => loading,
             },
         ],
-        error: [
+        stripeError: [
             null,
             {
-                setError: (_, { error }) => error,
+                setStripeError: (_, { error }) => error,
+                clearErrors: () => null,
+            },
+        ],
+        apiError: [
+            null,
+            {
+                setApiError: (_, { error }) => error,
+                clearErrors: () => null,
             },
         ],
         authorizationStatus: [
@@ -99,13 +110,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
         },
         initiateAuthorization: async () => {
             actions.setLoading(true)
-            actions.setError(null)
+            actions.clearErrors()
             try {
                 const response = await api.create('api/billing/activate/authorize')
                 actions.setClientSecret(response.clientSecret)
                 actions.setLoading(false)
             } catch (error) {
-                actions.setError('Failed to initialize payment')
+                posthog.capture('payment entry api error', {
+                    error,
+                    type: 'initiate authorization error',
+                })
+                actions.setApiError('Failed to initialize payment')
+                actions.setLoading(false)
             }
         },
 
@@ -144,7 +160,11 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         }
                         return
                     } else if (status === 'failed') {
-                        actions.setError(errorMessage)
+                        actions.setApiError(errorMessage)
+                        posthog.capture('payment entry api error', {
+                            error_message: errorMessage,
+                            type: 'authorization status failed',
+                        })
                         return
                     }
 
@@ -152,14 +172,16 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     if (attempts < maxAttempts) {
                         setTimeout(() => void poll(), pollInterval)
                     } else {
-                        actions.setError('Payment status check timed out')
+                        actions.setApiError('Payment status check timed out')
+                        posthog.capture('payment entry api error', {
+                            error_message: errorMessage,
+                            type: 'authorization status timed out',
+                        })
                     }
-                } catch (error) {
-                    actions.setError('Failed to complete. Please refresh the page and try again.')
+                } catch {
+                    actions.setStripeError('Failed to complete. Please refresh the page and try again.')
                 } finally {
-                    // Reset the state
                     actions.setLoading(false)
-                    actions.setAuthorizationStatus(null)
                     actions.setClientSecret(null)
                     actions.setRedirectPath(null)
                 }
