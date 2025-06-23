@@ -18,7 +18,6 @@
     ],
     "rules": {
         "no-useless-spread": "off",
-        "no-useless-fallback-in-spread": "off",
         "no-constant-condition": "off",
         "no-prototype-builtins": "off",
         "no-irregular-whitespace": "off",
@@ -34,12 +33,13 @@
         "@typescript-eslint/ban-ts-comment": "off",
         "@typescript-eslint/no-explicit-any": "off",
         "no-unused-vars": [
-            "off",
+            "error",
             {
                 "ignoreRestSiblings": true,
                 "destructuredArrayIgnorePattern": "^_$"
             }
         ],
+        "no-useless-fallback-in-spread": "error",
         "react-hooks/exhaustive-deps": "warn",
         "no-else-return": "warn",
         "react-hooks/rules-of-hooks": "error",

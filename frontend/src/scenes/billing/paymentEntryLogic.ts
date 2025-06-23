@@ -11,6 +11,7 @@ import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
+import { error } from 'console'
 
 export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],

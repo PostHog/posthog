@@ -333,7 +333,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     }
                     actions.updatePropertyDefinitions(newProperties)
                 }
-            } catch (e) {
+            } catch  {
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const [type, pending] of Object.entries(pendingByType)) {
                     for (const property of pending) {

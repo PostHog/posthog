@@ -13,7 +13,7 @@ export async function copyToClipboard(value: string, description: string = 'text
             icon: <IconCopy />,
         })
         return true
-    } catch (e) {
+    } catch {
         // If the Clipboard API fails, fallback to textarea method
         try {
             const textArea = document.createElement('textarea')

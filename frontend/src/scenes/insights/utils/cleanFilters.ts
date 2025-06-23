@@ -84,7 +84,7 @@ export const getClampedStepRangeFilter = ({
     }
 
     return {
-        ...(stepRange || {}),
+        ...stepRange,
         funnel_from_step,
         funnel_to_step,
     }

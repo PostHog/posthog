@@ -114,7 +114,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             if (inputSchema.type === 'json' && typeof value === 'string') {
                 try {
                     value = JSON.parse(value)
-                } catch (e) {
+                } catch {
                     // Ignore
                 }
             }
@@ -539,7 +539,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 let properties = {}
                                 try {
                                     properties = JSON.parse(tuple[3])
-                                } catch (e) {
+                                } catch {
                                     // Ignore
                                 }
                                 globals.groups![groupType.group_type] = {
@@ -718,7 +718,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (inputSchema.type === 'json' && typeof value === 'string') {
                         try {
                             JSON.parse(value)
-                        } catch (e) {
+                        } catch {
                             inputErrors[key] = 'Invalid JSON'
                         }
 
@@ -1183,7 +1183,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             const config: HogFunctionConfigurationType = {
                 ...baseConfig,
-                ...(cache.configFromUrl ?? {}),
+                ...cache.configFromUrl,
             }
 
             if (values.template?.mapping_templates) {
