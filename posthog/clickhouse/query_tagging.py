@@ -12,8 +12,6 @@ from typing import Any, Optional
 
 from cachetools import cached
 
-query_tags = contextvars.ContextVar("query_tags")
-
 
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
@@ -114,6 +112,9 @@ class QueryTags(BaseModel):
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)
+
+
+query_tags: contextvars.ContextVar = contextvars.ContextVar("query_tags")
 
 
 @cached(cache={})
