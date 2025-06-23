@@ -123,6 +123,8 @@ jobs:
               run: ./bin/check_kafka_clickhouse_up
 
             - name: Apply migrations & seed dev data
+              env:
+                  SECRET_KEY: play-it-wright
               run: |
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
