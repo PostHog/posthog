@@ -243,8 +243,8 @@ export class KafkaConsumer {
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
-                            topic: tp.topic,
-                            partition: tp.partition.toString(),
+                            topic_name: tp.topic,
+                            partition_id: tp.partition.toString(),
                             pod: this.podName,
                             group_id: this.config.groupId,
                         },
@@ -255,8 +255,8 @@ export class KafkaConsumer {
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
-                            topic: tp.topic,
-                            partition: tp.partition.toString(),
+                            topic_name: tp.topic,
+                            partition_id: tp.partition.toString(),
                             pod: this.podName,
                             group_id: this.config.groupId,
                         },
