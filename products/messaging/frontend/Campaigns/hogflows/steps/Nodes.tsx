@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
-import { getHogFlowStep } from './Steps'
+import { getHogFlowStep } from './HogFlowSteps'
 import { HogFlowStepNodeProps } from './types'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'

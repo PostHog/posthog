@@ -1,8 +1,6 @@
 import { Handle } from '@xyflow/react'
 
-import { Optional } from '~/types'
-
-export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
+import { StepViewNodeHandle } from '../types'
 
 export function StepView({
     name,

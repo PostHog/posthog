@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import {
     applyEdgeChanges,
     applyNodeChanges,
@@ -13,12 +14,12 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
-import { getDefaultNodeOptions, NODE_HEIGHT, NODE_WIDTH } from './constants'
+import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { getDefaultEdgeOptions } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { ToolbarNode } from './HogFlowEditorToolbar'
 import { HogFlowActionManager } from './steps/hogFlowActionManager'
-import { BaseHogFlowActionNode } from './steps/hogFlowActionManager'
+import { getHogFlowStep } from './steps/HogFlowSteps'
 import type { HogFlow, HogFlowAction } from './types'
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
@@ -105,32 +106,45 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
 
         resetFlowFromHogFlow: ({ hogFlow }) => {
-            const nodes = hogFlow.actions
-                .map((action: HogFlowAction) => HogFlowActionManager.fromAction(action))
-                .map((hogFlowAction: BaseHogFlowActionNode<HogFlowAction['type']>) => {
+            try {
+                const nodes: Node<HogFlowAction>[] = hogFlow.actions.map((action: HogFlowAction) => {
+                    const step = getHogFlowStep(action.type)
+                    if (!step) {
+                        console.error(`Step not found for action type: ${action.type}`)
+                        throw new Error(`Step not found for action type: ${action.type}`)
+                    }
+
                     return {
-                        id: hogFlowAction.action.id,
-                        type: hogFlowAction.action.type,
-                        data: hogFlowAction.action,
+                        id: action.id,
+                        type: action.type,
+                        data: action,
                         position: { x: 0, y: 0 },
-                        handles: hogFlowAction.getHandles(),
-                        ...getDefaultNodeOptions(['trigger', 'exit'].includes(hogFlowAction.action.type)),
+                        handles: step.getHandles(action),
+                        deletable: !['trigger', 'exit'].includes(action.type),
+                        selectable: true,
+                        draggable: false,
+                        connectable: false,
                     }
                 })
-            const edges = hogFlow.actions.flatMap((action: HogFlowAction) =>
-                Object.entries(action.next_actions).map(([branch, next_action]) => ({
-                    id: `${branch}_${action.id}->${next_action.action_id}`,
-                    label: next_action.label,
-                    source: action.id,
-                    sourceHandle: `${branch}_${action.id}`,
-                    target: next_action.action_id,
-                    targetHandle: `target_${next_action.action_id}`,
-                    ...getDefaultEdgeOptions(),
-                }))
-            )
 
-            actions.setNodes(nodes)
-            actions.setEdges(edges)
+                const edges: Edge[] = hogFlow.actions.flatMap((action: HogFlowAction) =>
+                    Object.entries(action.next_actions).map(([branch, next_action]) => ({
+                        id: `${branch}_${action.id}->${next_action.action_id}`,
+                        label: next_action.label,
+                        source: action.id,
+                        sourceHandle: `${branch}_${action.id}`,
+                        target: next_action.action_id,
+                        targetHandle: `target_${next_action.action_id}`,
+                        ...getDefaultEdgeOptions(),
+                    }))
+                )
+
+                actions.setNodes(nodes)
+                actions.setEdges(edges)
+            } catch (error) {
+                console.error('Error resetting flow from hog flow', error)
+                lemonToast.error('Error updating workflow')
+            }
         },
 
         setNodes: async ({ nodes }) => {

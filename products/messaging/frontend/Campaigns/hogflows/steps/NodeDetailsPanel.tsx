@@ -4,7 +4,7 @@ import { Panel } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from './Steps'
+import { getHogFlowStep } from './HogFlowSteps'
 
 export function NodeDetailsPanel(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)

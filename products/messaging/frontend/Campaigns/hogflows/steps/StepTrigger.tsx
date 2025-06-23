@@ -1,10 +1,11 @@
 import { IconBolt } from '@posthog/icons'
-import { Node } from '@xyflow/react'
+import { Node, Position } from '@xyflow/react'
 import { useActions } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { BOTTOM_HANDLE_POSITION } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
@@ -14,21 +15,38 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
     type: 'trigger',
     renderNode: (props) => <StepTriggerNode {...props} />,
     renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
+    create: (edgeToInsertNodeInto) => {
+        return {
+            name: 'Trigger',
+            description: '',
+            type: 'trigger',
+            config: {
+                type: 'event',
+            },
+        }
+    },
+    getHandles(action) {
+        return [
+            {
+                id: `continue_${action.id}`,
+                type: 'source',
+                position: Position.Bottom,
+                ...BOTTOM_HANDLE_POSITION,
+            },
+        ]
+    },
 }
 
-export function StepTriggerNode({ data }: HogFlowStepNodeProps): JSX.Element {
+function StepTriggerNode({ data }: HogFlowStepNodeProps): JSX.Element {
     // TODO: Use node data to render trigger node
     return <StepView name={data.name} icon={<IconBolt className="text-green-400" />} selected={false} handles={[]} />
 }
 
-export function StepTriggerConfiguration({
-    node,
-}: {
-    node: Node<Extract<HogFlowAction, { type: 'trigger' }>>
-}): JSX.Element {
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+function StepTriggerConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'trigger' }>> }): JSX.Element {
     const action = node.data
     const { filters } = action.config
+
+    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
 
     return (
         <>
