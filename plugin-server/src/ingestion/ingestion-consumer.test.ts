@@ -4,9 +4,9 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
-import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
-import { compileHog } from '~/src/cdp/templates/compiler'
+import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
+import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '~/cdp/templates/compiler'
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -19,7 +19,7 @@ import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
-import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/src/ingestion/cookieless/cookieless-manager'
+import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
 import { PostgresUse } from '../utils/db/postgres'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)

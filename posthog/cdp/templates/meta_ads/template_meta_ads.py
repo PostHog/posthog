@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="alpha",
     free=False,
     type="destination",
     id="template-meta-ads",

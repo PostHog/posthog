@@ -2,7 +2,7 @@ import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Event Definitions', () => {
     test('See recordings action', async ({ page }) => {
-        await page.goToMenuItem('data')
+        await page.goToMenuItem('datamanagement')
         await page.goToMenuItem('event-definitions')
 
         // default tab is events

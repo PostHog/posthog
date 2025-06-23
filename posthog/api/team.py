@@ -175,10 +175,11 @@ TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     events = serializers.JSONField(required=False)
     goals = serializers.JSONField(required=False)
+    filter_test_accounts = serializers.BooleanField(required=False)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events", "goals"]
+        fields = ["base_currency", "events", "goals", "filter_test_accounts"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
@@ -199,10 +200,11 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     sources_map = serializers.JSONField(required=False)
+    conversion_goals = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["sources_map"]
+        fields = ["sources_map", "conversion_goals"]
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -218,6 +220,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
                     # Update the source mapping (this preserves other sources)
                     instance.update_source_mapping(source_id, field_mapping)
 
+        if "conversion_goals" in validated_data:
+            instance.conversion_goals = validated_data["conversion_goals"]
+
         instance.save()
         return instance
 
@@ -230,7 +235,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
-    access_control_version = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
@@ -261,7 +265,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "group_types",
             "live_events_token",
             "product_intents",
-            "access_control_version",
         )
 
         read_only_fields = (
@@ -283,7 +286,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "user_access_level",
             "product_intents",
-            "access_control_version",
         )
 
     def to_representation(self, instance):
@@ -299,12 +301,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
-
-    def get_access_control_version(self, team: Team) -> str:
-        # If they have a private project (team/environment) then assume they are using the old access control
-        if bool(team.access_control):
-            return "v1"
-        return "v2"
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()

@@ -56,7 +56,11 @@ from posthog.temporal.batch_exports.sql import (
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClientTimeoutError,
+    ClickHouseQueryStatus,
+    get_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_temporal_worker_logger,
@@ -303,6 +307,8 @@ async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInpu
                 fields=fields,
                 filters=filters,
                 destination_default_fields=inputs.destination_default_fields,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
             )
             query_or_model = query
@@ -524,7 +530,20 @@ async def _write_batch_export_record_batches_to_s3(
             query_id = uuid.uuid4()
             await logger.ainfo(f"Executing query with ID = {query_id}")
             try:
-                await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id))
+                await client.execute_query(
+                    query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
+                )
+            except ClickHouseClientTimeoutError:
+                await logger.awarning(
+                    f"Timed-out waiting for insert into S3 with ID: {str(query_id)}. Will attempt to check query status before continuing"
+                )
+
+                status = await client.acheck_query(str(query_id), raise_on_error=True)
+
+                while status == ClickHouseQueryStatus.RUNNING:
+                    await asyncio.sleep(10)
+                    status = await client.acheck_query(str(query_id), raise_on_error=True)
+
             except Exception as e:
                 await logger.aexception("Unexpected error occurred while writing record batches to S3", exc_info=e)
                 raise

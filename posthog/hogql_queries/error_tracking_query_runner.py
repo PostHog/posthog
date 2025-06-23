@@ -412,12 +412,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         | {
                             "last_seen": result_dict.get("last_seen"),
                             "library": result_dict.get("library"),
-                            "first_event": self.extract_event(result_dict.get("first_event"))
-                            if self.query.withFirstEvent
-                            else None,
-                            "aggregations": self.extract_aggregations(result_dict)
-                            if self.query.withAggregations
-                            else None,
+                            "first_event": (
+                                self.extract_event(result_dict.get("first_event"))
+                                if self.query.withFirstEvent
+                                else None
+                            ),
+                            "aggregations": (
+                                self.extract_aggregations(result_dict) if self.query.withAggregations else None
+                            ),
                         }
                     )
 
@@ -471,11 +473,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else (
-                    queryset.filter(assignment__role_id=self.query.assignee.id)
-                    if self.query.assignee.type == "role"
-                    else queryset.filter(assignment__user_group_id=self.query.assignee.id)
-                )
+                else queryset.filter(assignment__role_id=self.query.assignee.id)
             )
 
         for filter in self.issue_properties:
@@ -488,7 +486,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             "description",
             "first_seen",
             "assignment__user_id",
-            "assignment__user_group_id",
             "assignment__role_id",
         )
 
@@ -504,13 +501,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             }
 
             assignment_user_id = issue.get("assignment__user_id")
-            assignment_user_group_id = issue.get("assignment__user_group_id")
             assignment_role_id = issue.get("assignment__role_id")
 
-            if assignment_user_id or assignment_user_group_id or assignment_role_id:
+            if assignment_user_id or assignment_role_id:
                 result["assignee"] = {
-                    "id": assignment_user_id or str(assignment_user_group_id) or str(assignment_role_id),
-                    "type": ("user" if assignment_user_id else "user_group" if assignment_user_group_id else "role"),
+                    "id": assignment_user_id or str(assignment_role_id),
+                    "type": ("user" if assignment_user_id else "role"),
                 }
 
             results[issue["id"]] = result
@@ -543,11 +539,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else (
-                    queryset.filter(assignment__role_id=str(self.query.assignee.id))
-                    if self.query.assignee.type == "role"
-                    else queryset.filter(assignment__user_group_id=str(self.query.assignee.id))
-                )
+                else queryset.filter(assignment__role_id=str(self.query.assignee.id))
             )
 
         for filter in self.issue_properties:

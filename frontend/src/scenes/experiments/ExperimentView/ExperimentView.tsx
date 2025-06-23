@@ -5,7 +5,13 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod } from '~/types'
 
-import { ExploreAsInsightButton, ResultsBreakdown, ResultsQuery } from '../components/ResultsBreakdown'
+import {
+    ExploreAsInsightButton,
+    ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
+    ResultsQuery,
+} from '../components/ResultsBreakdown'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -37,26 +43,26 @@ import { SummaryTable } from './SummaryTable'
 const ResultsTab = (): JSX.Element => {
     const {
         experiment,
-        legacyMetricResults,
+        legacyPrimaryMetricsResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
-        metricResultsLoading,
+        primaryMetricsResultsLoading,
         hasMinimumExposureForResults,
         statsMethod,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
-     * in the metricResults state key. We'll eventually move into using the new state.
+     * in the primaryMetricsResults state key. We'll eventually move into using the new state.
      */
-    const hasSomeResults = legacyMetricResults?.some((result) => result?.insight)
+    const hasSomeResults = legacyPrimaryMetricsResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
-    const firstPrimaryMetricResult = legacyMetricResults?.[0]
+    const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
 
     return (
         <>
-            {!experiment.start_date && !metricResultsLoading && (
+            {!experiment.start_date && !primaryMetricsResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
@@ -114,22 +120,27 @@ const ResultsTab = (): JSX.Element => {
                                         result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                         experiment={experiment}
                                     >
-                                        {({ query, breakdownResults }) =>
-                                            query &&
-                                            breakdownResults && (
-                                                <div>
-                                                    <div className="flex justify-end">
-                                                        <ExploreAsInsightButton query={query} />
-                                                    </div>
-                                                    <div className="pb-4">
-                                                        <ResultsQuery
-                                                            query={query}
-                                                            breakdownResults={breakdownResults}
+                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                                            <div>
+                                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
+                                                {query && breakdownResults && (
+                                                    <div>
+                                                        <div className="flex justify-end">
+                                                            <ExploreAsInsightButton query={query} />
+                                                        </div>
+                                                        <ResultsInsightInfoBanner
+                                                            exposureDifference={exposureDifference}
                                                         />
+                                                        <div className="pb-4">
+                                                            <ResultsQuery
+                                                                query={query}
+                                                                breakdownResults={breakdownResults}
+                                                            />
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            )
-                                        }
+                                                )}
+                                            </div>
+                                        )}
                                     </ResultsBreakdown>
                                 )}
                             </div>

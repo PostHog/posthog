@@ -11,10 +11,12 @@ from clickhouse_driver import Client
 from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -67,20 +69,22 @@ class MaterializedColumn:
 
     @staticmethod
     def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
-        rows = sync_execute(
-            """
-            SELECT name, comment, type like 'Nullable(%%)' as is_nullable
-            FROM system.columns
-            WHERE database = %(database)s
-                AND table = %(table)s
-                AND comment LIKE '%%column_materializer::%%'
-                AND comment not LIKE '%%column_materializer::elements_chain::%%'
-        """,
-            {"database": CLICKHOUSE_DATABASE, "table": table},
-        )
+        with tags_context(name="get_all_materialized_columns"):
+            rows = sync_execute(
+                """
+                SELECT name, comment, type like 'Nullable(%%)' as is_nullable
+                FROM system.columns
+                WHERE database = %(database)s
+                    AND table = %(table)s
+                    AND comment LIKE '%%column_materializer::%%'
+                    AND comment not LIKE '%%column_materializer::elements_chain::%%'
+            """,
+                {"database": CLICKHOUSE_DATABASE, "table": table},
+                ch_user=ClickHouseUser.HOGQL,
+            )
 
-        for name, comment, is_nullable in rows:
-            yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
+            for name, comment, is_nullable in rows:
+                yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
 
     @staticmethod
     def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn:

@@ -457,18 +457,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         layout: 'app-container',
     },
-    [Scene.MessagingBroadcasts]: {
-        projectBased: true,
-        name: 'Messaging broadcasts',
-    },
-    [Scene.MessagingCampaigns]: {
-        projectBased: true,
-        name: 'Messaging campaigns',
-    },
-    [Scene.MessagingLibrary]: {
-        projectBased: true,
-        name: 'Messaging library',
-    },
     [Scene.HogFunction]: {
         projectBased: true,
         name: 'Hog function',
@@ -480,6 +468,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataPipelinesNew]: {
         projectBased: true,
         name: 'New data pipeline',
+    },
+    [Scene.DataWarehouseSource]: {
+        projectBased: true,
+        name: 'Data warehouse source',
+    },
+    [Scene.DataWarehouseSourceNew]: {
+        projectBased: true,
+        name: 'New data warehouse source',
+    },
+    [Scene.LegacyPlugin]: {
+        projectBased: true,
+        name: 'Legacy plugin',
     },
     [Scene.Game368]: {
         name: '368 Hedgehogs',
@@ -558,9 +558,10 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/messaging': urls.messagingBroadcasts(),
+    '/messaging': urls.messaging('campaigns'),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
 
@@ -692,6 +693,11 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
+    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
+    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
+    [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     ...productRoutes,

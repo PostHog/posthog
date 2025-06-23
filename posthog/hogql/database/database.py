@@ -405,6 +405,7 @@ def create_hogql_database(
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
         database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+        poe = cast(VirtualTable, database.events.fields["poe"])
 
         if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
             # no change
@@ -418,7 +419,7 @@ def create_hogql_database(
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             _use_person_id_from_person_overrides(database)
             _use_person_properties_from_events(database)
-            cast(VirtualTable, database.events.fields["poe"]).fields["id"] = database.events.fields["person_id"]
+            poe.fields["id"] = database.events.fields["person_id"]
 
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
             _use_person_id_from_person_overrides(database)
@@ -462,11 +463,22 @@ def create_hogql_database(
 
     with timings.measure("initial_domain_type"):
         database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            "$virt_initial_referring_domain_type", timings=timings
+            name="$virt_initial_referring_domain_type", timings=timings
+        )
+        poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
+            name="$virt_initial_referring_domain_type",
+            timings=timings,
+            properties_path=["poe", "properties"],
         )
     with timings.measure("initial_channel_type"):
         database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            "$virt_initial_channel_type", modifiers.customChannelTypeRules, timings=timings
+            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
+        )
+        poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
+            name="$virt_initial_channel_type",
+            custom_rules=modifiers.customChannelTypeRules,
+            timings=timings,
+            properties_path=["poe", "properties"],
         )
 
     with timings.measure("group_type_mapping"):
@@ -763,14 +775,23 @@ def create_hogql_database(
 
                         if isinstance(table_or_field, ast.VirtualTable):
                             table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
+
+                            override_source_table_key = f"person.{join.source_table_key}"
+
+                            # If the source_table_key is a ast.Call node, then we want to inject in `person` on the chain of the inner `ast.Field` node
+                            source_table_key_node = parse_expr(join.source_table_key)
+                            if isinstance(source_table_key_node, ast.Call) and isinstance(
+                                source_table_key_node.args[0], ast.Field
+                            ):
+                                source_table_key_node.args[0].chain = ["person", *source_table_key_node.args[0].chain]
+                                override_source_table_key = source_table_key_node.to_hogql()
+
                             database.events.fields[join.field_name] = LazyJoin(
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
                                 # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                join_function=join.join_function(
-                                    override_source_table_key=f"person.{join.source_table_key}"
-                                ),
+                                join_function=join.join_function(override_source_table_key=override_source_table_key),
                             )
                         else:
                             table_or_field.fields[join.field_name] = LazyJoin(
