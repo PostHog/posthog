@@ -9,6 +9,7 @@ use crate::{app_context::AppContext, error::PipelineResult, metric_consts::GEOIP
 pub fn add_geoip(mut buffer: Vec<PipelineResult>, context: &AppContext) -> Vec<PipelineResult> {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct GeoIpProps {
+        // Not set if anonymize_ips is set at the team level
         #[serde(rename = "$ip", skip_serializing_if = "Option::is_none")]
         ip: Option<String>,
 

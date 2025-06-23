@@ -6,18 +6,25 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import {
+    TEMPLATE_LINK_HEADING,
+    TEMPLATE_LINK_PII_WARNING,
+    TEMPLATE_LINK_TOOLTIP,
+} from 'lib/components/Sharing/templateLinkMessages'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
@@ -76,10 +83,10 @@ export function SharingModalContent({
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { preflight } = useValues(preflightLogic)
+    const siteUrl = preflight?.site_url || window.location.origin
 
     const { push } = useActions(router)
-
-    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
@@ -98,7 +105,7 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
-            {insightShortId && newAccessControl ? (
+            {insightShortId ? (
                 <>
                     <AccessControlPopoutCTA
                         resourceType={AccessControlResourceType.Insight}
@@ -260,6 +267,17 @@ export function SharingModalContent({
                     </>
                 )}
             </div>
+            {insight?.query && (
+                <>
+                    <LemonDivider />
+                    <TemplateLinkSection
+                        templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
+                        heading={TEMPLATE_LINK_HEADING}
+                        tooltip={TEMPLATE_LINK_TOOLTIP}
+                        piiWarning={TEMPLATE_LINK_PII_WARNING}
+                    />
+                </>
+            )}
         </div>
     )
 }

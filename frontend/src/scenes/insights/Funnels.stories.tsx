@@ -67,34 +67,6 @@ FunnelLeftToRightBreakdownEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
 
-export const FunnelTopToBottom: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
-)
-FunnelTopToBottom.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-export const FunnelTopToBottomEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
-    'edit'
-)
-FunnelTopToBottomEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-
-export const FunnelTopToBottomBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
-)
-FunnelTopToBottomBreakdown.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
-    'edit'
-)
-FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar', '.PayGateMini'] },
-}
-
 export const FunnelHistoricalTrends: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
 )

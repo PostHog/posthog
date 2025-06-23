@@ -17,10 +17,8 @@
         "noImplicitAny": true,
         "useUnknownInCatchVariables": false,
         "paths": {
-            "~/*": ["./*"],
-            "main/*": ["./src/main/*"],
-            "worker/*": ["./src/worker/*"],
-            "utils/*": ["./src/utils/*"]
+            "~/tests/*": ["./tests/*"],
+            "~/*": ["./src/*"]
         },
         "skipLibCheck": true
     },

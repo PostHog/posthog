@@ -59,7 +59,7 @@ import {
     isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
-    isHogQlAggregation,
+    isHogQLAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
     isRevenueExampleEventsQuery,
@@ -139,7 +139,11 @@ export function DataTable({
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const usedWebAnalyticsPreAggregatedTables =
-        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables && response?.hogql
+        canUseWebAnalyticsPreAggregatedTables &&
+        response &&
+        'usedPreAggregatedTables' in response &&
+        response.usedPreAggregatedTables &&
+        response?.hogql
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -236,7 +240,7 @@ export function DataTable({
                                     // The actual query may or may not be an events query.
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const isOrderBy = source.orderBy?.[0] === key
                                     const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
                                     setQuery({
@@ -309,7 +313,7 @@ export function DataTable({
                                     ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery({
@@ -340,7 +344,7 @@ export function DataTable({
                                     ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery?.({
@@ -515,7 +519,7 @@ export function DataTable({
     const editorButton = (
         <>
             <OpenEditorButton query={query} />
-            {response?.hogql ? <EditHogQLButton hogql={response.hogql} /> : null}
+            {response && 'hogql' in response && response?.hogql ? <EditHogQLButton hogql={response.hogql} /> : null}
         </>
     )
 
@@ -581,7 +585,7 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? (response as any).error
+                                                    ? response.error
                                                     : responseError
                                             }
                                         />

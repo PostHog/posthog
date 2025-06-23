@@ -79,6 +79,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
@@ -333,9 +334,9 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setExperimentType: (type?: string) => ({ type }),
-        removeExperimentGroup: (idx: number) => ({ idx }),
+        addVariant: true,
+        removeVariant: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         refreshExperimentResults: (forceRefresh?: boolean) => ({ forceRefresh }),
         updateExperimentMetrics: true,
@@ -343,35 +344,23 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
-        setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
-        addVariant: true,
         archiveExperiment: true,
         resetRunningExperiment: true,
-        checkFlagImplementationWarning: true,
-        openExperimentCollectionGoalModal: true,
-        closeExperimentCollectionGoalModal: true,
-        openExposureCriteriaModal: true,
-        closeExposureCriteriaModal: true,
-        openShipVariantModal: true,
-        closeShipVariantModal: true,
-        openStopExperimentModal: true,
-        closeStopExperimentModal: true,
-        openEditConclusionModal: true,
-        closeEditConclusionModal: true,
-        openDistributionModal: true,
-        closeDistributionModal: true,
-        openReleaseConditionsModal: true,
-        closeReleaseConditionsModal: true,
-        openDescriptionModal: true,
-        closeDescriptionModal: true,
-        openStatsEngineModal: true,
-        closeStatsEngineModal: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
+        setTabKey: (tabKey: string) => ({ tabKey }),
+        createExperimentDashboard: true,
+        setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
+        setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
+        restoreUnmodifiedExperiment: true,
+        setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
+        setFeatureFlagValidationError: (error: string) => ({ error }),
+        validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        // METRICS
         setMetric: ({
             metricIdx,
             name,
@@ -446,11 +435,20 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelAggregateByHogQL,
             isSecondary,
         }),
-        setTabKey: (tabKey: string) => ({ tabKey }),
-        openPrimaryMetricModal: (index: number) => ({ index }),
-        closePrimaryMetricModal: true,
-        setMetricResultsLoading: (loading: boolean) => ({ loading }),
-        setLegacyMetricResults: (
+        addSharedMetricsToExperiment: (
+            sharedMetricIds: SharedMetric['id'][],
+            metadata: { type: 'primary' | 'secondary' }
+        ) => ({
+            sharedMetricIds,
+            metadata,
+        }),
+        removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
+        duplicateMetric: ({ metricIndex, isSecondary }: { metricIndex: number; isSecondary: boolean }) => ({
+            metricIndex,
+            isSecondary,
+        }),
+        // METRICS RESULTS
+        setLegacyPrimaryMetricsResults: (
             results: (
                 | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
@@ -458,25 +456,47 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        setMetricResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
-        loadMetricResults: (refresh?: boolean) => ({ refresh }),
-        setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
+        setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
+        setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
+        loadPrimaryMetricsResults: (refresh?: boolean) => ({ refresh }),
+        setPrimaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
+        loadSecondaryMetricsResults: (refresh?: boolean) => ({ refresh }),
+        setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
+        setLegacySecondaryMetricsResults: (
+            results: (
+                | CachedLegacyExperimentQueryResponse
+                | CachedExperimentTrendsQueryResponse
+                | CachedExperimentFunnelsQueryResponse
+                | null
+            )[]
+        ) => ({ results }),
         setEditingPrimaryMetricIndex: (index: number | null) => ({ index }),
+        openPrimaryMetricModal: (index: number) => ({ index }),
+        // MODALS
+        openExperimentCollectionGoalModal: true,
+        closeExperimentCollectionGoalModal: true,
+        openExposureCriteriaModal: true,
+        closeExposureCriteriaModal: true,
+        openShipVariantModal: true,
+        closeShipVariantModal: true,
+        openStopExperimentModal: true,
+        closeStopExperimentModal: true,
+        openEditConclusionModal: true,
+        closeEditConclusionModal: true,
+        openDistributionModal: true,
+        closeDistributionModal: true,
+        openReleaseConditionsModal: true,
+        closeReleaseConditionsModal: true,
+        openDescriptionModal: true,
+        closeDescriptionModal: true,
+        openStatsEngineModal: true,
+        closeStatsEngineModal: true,
+        closePrimaryMetricModal: true,
         updateDistributionModal: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         openSecondaryMetricModal: (index: number) => ({ index }),
         closeSecondaryMetricModal: true,
-        setSecondaryMetricResultsLoading: (loading: boolean) => ({ loading }),
-        setLegacySecondaryMetricResults: (
-            results: (
-                | CachedLegacyExperimentQueryResponse
-                | CachedExperimentTrendsQueryResponse
-                | CachedExperimentFunnelsQueryResponse
-                | null
-            )[]
-        ) => ({ results }),
-        setSecondaryMetricResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
-        loadSecondaryMetricResults: (refresh?: boolean) => ({ refresh }),
-        setSecondaryMetricsResultErrors: (errors: any[]) => ({ errors }),
         openPrimaryMetricSourceModal: true,
         closePrimaryMetricSourceModal: true,
         openSecondaryMetricSourceModal: true,
@@ -487,21 +507,6 @@ export const experimentLogic = kea<experimentLogicType>([
         closeSecondarySharedMetricModal: true,
         openVariantDeltaTimeseriesModal: true,
         closeVariantDeltaTimeseriesModal: true,
-        addSharedMetricsToExperiment: (
-            sharedMetricIds: SharedMetric['id'][],
-            metadata: { type: 'primary' | 'secondary' }
-        ) => ({
-            sharedMetricIds,
-            metadata,
-        }),
-        removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
-        createExperimentDashboard: true,
-        setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
-        setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
-        restoreUnmodifiedExperiment: true,
-        setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
-        setFeatureFlagValidationError: (error: string) => ({ error }),
-        validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
         openCalculateRunningTimeModal: true,
         closeCalculateRunningTimeModal: true,
     }),
@@ -539,7 +544,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     return state
                 },
-                removeExperimentGroup: (state, { idx }) => {
+                removeVariant: (state, { idx }) => {
                     if (!state) {
                         return { ...NEW_EXPERIMENT }
                     }
@@ -665,18 +670,36 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
+                duplicateMetric: (state, { metricIndex, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    const originalMetric = metrics[metricIndex]
+
+                    if (!originalMetric) {
+                        return state
+                    }
+
+                    const name = originalMetric.name
+                        ? `${originalMetric.name} (copy)`
+                        : originalMetric.kind === NodeKind.ExperimentMetric
+                        ? `${getDefaultMetricTitle(originalMetric)} (copy)`
+                        : undefined
+
+                    const newMetric = { ...originalMetric, id: undefined, name }
+                    metrics.splice(metricIndex + 1, 0, newMetric)
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
             },
         ],
         experimentMissing: [
             false,
             {
                 setExperimentMissing: () => true,
-            },
-        ],
-        flagImplementationWarning: [
-            false as boolean,
-            {
-                setFlagImplementationWarning: (_, { warning }) => warning,
             },
         ],
         isExperimentCollectionGoalModalOpen: [
@@ -728,14 +751,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeReleaseConditionsModal: () => false,
             },
         ],
-        experimentValuesChangedLocally: [
-            false,
-            {
-                setExperiment: () => true,
-                loadExperiment: () => false,
-                updateExperiment: () => false,
-            },
-        ],
         unmodifiedExperiment: [
             null as Experiment | null,
             {
@@ -755,13 +770,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 closePrimaryMetricModal: () => false,
             },
         ],
-        metricResultsLoading: [
-            false,
-            {
-                setMetricResultsLoading: (_, { loading }) => loading,
-            },
-        ],
-        legacyMetricResults: [
+        // PRIMARY METRICS
+        legacyPrimaryMetricsResults: [
             [] as (
                 | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
@@ -769,24 +779,33 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[],
             {
-                setLegacyMetricResults: (_, { results }) => results,
+                setLegacyPrimaryMetricsResults: (_, { results }) => results,
             },
         ],
-        metricResults: [
+        primaryMetricsResults: [
             [] as CachedNewExperimentQueryResponse[],
             {
-                setMetricResults: (_, { results }) => results,
-                loadMetricResults: () => [],
+                setPrimaryMetricsResults: (_, { results }) => results,
+                loadPrimaryMetricsResults: () => [],
                 loadExperiment: () => [],
             },
         ],
-        secondaryMetricResultsLoading: [
+        primaryMetricsResultsLoading: [
             false,
             {
-                setSecondaryMetricResultsLoading: (_, { loading }) => loading,
+                setPrimaryMetricsResultsLoading: (_, { loading }) => loading,
             },
         ],
-        legacySecondaryMetricResults: [
+        primaryMetricsResultsErrors: [
+            [] as any[],
+            {
+                setPrimaryMetricsResultsErrors: (_, { errors }) => errors,
+                loadPrimaryMetricsResults: () => [],
+                loadExperiment: () => [],
+            },
+        ],
+        // SECONDARY METRICS
+        legacySecondaryMetricsResults: [
             [] as (
                 | CachedLegacyExperimentQueryResponse
                 | CachedExperimentTrendsQueryResponse
@@ -794,15 +813,36 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[],
             {
-                setLegacySecondaryMetricResults: (_, { results }) => results,
+                setLegacySecondaryMetricsResults: (_, { results }) => results,
             },
         ],
-        secondaryMetricResultsNew: [
+        secondaryMetricsResults: [
             [] as CachedNewExperimentQueryResponse[],
             {
-                setSecondaryMetricResults: (_, { results }) => results,
-                loadSecondaryMetricResults: () => [],
+                setSecondaryMetricsResults: (_, { results }) => results,
+                loadSecondaryMetricsResults: () => [],
                 loadExperiment: () => [],
+            },
+        ],
+        secondaryMetricsResultsLoading: [
+            false,
+            {
+                setSecondaryMetricsResultsLoading: (_, { loading }) => loading,
+            },
+        ],
+        secondaryMetricsResultsErrors: [
+            [] as any[],
+            {
+                setSecondaryMetricsResultsErrors: (_, { errors }) => errors,
+                loadSecondaryMetricsResults: () => [],
+                loadExperiment: () => [],
+            },
+        ],
+        isSecondaryMetricModalOpen: [
+            false,
+            {
+                openSecondaryMetricModal: () => true,
+                closeSecondaryMetricModal: () => false,
             },
         ],
         editingPrimaryMetricIndex: [
@@ -812,21 +852,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 closePrimaryMetricModal: () => null,
                 updateExperimentMetrics: () => null,
                 setEditingPrimaryMetricIndex: (_, { index }) => index,
-            },
-        ],
-        primaryMetricsResultErrors: [
-            [] as any[],
-            {
-                setPrimaryMetricsResultErrors: (_, { errors }) => errors,
-                loadMetricResults: () => [],
-                loadExperiment: () => [],
-            },
-        ],
-        isSecondaryMetricModalOpen: [
-            false,
-            {
-                openSecondaryMetricModal: () => true,
-                closeSecondaryMetricModal: () => false,
             },
         ],
         editingSecondaryMetricIndex: [
@@ -843,14 +868,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 openPrimarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
                 openSecondarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
                 updateExperimentMetrics: () => null,
-            },
-        ],
-        secondaryMetricsResultErrors: [
-            [] as any[],
-            {
-                setSecondaryMetricsResultErrors: (_, { errors }) => errors,
-                loadSecondaryMetricResults: () => [],
-                loadExperiment: () => [],
             },
         ],
         isPrimaryMetricSourceModalOpen: [
@@ -1064,13 +1081,6 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ end_date: endDate })
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
         },
-        setExperimentStatsVersion: async ({ version }, breakpoint) => {
-            actions.updateExperiment({ stats_config: { version } })
-            await breakpoint(100)
-            if (values.experiment?.start_date) {
-                actions.refreshExperimentResults(true)
-            }
-        },
         endExperiment: async () => {
             const endDate = dayjs()
             actions.updateExperiment({
@@ -1093,8 +1103,8 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         refreshExperimentResults: async ({ forceRefresh }) => {
-            actions.loadMetricResults(forceRefresh)
-            actions.loadSecondaryMetricResults(forceRefresh)
+            actions.loadPrimaryMetricsResults(forceRefresh)
+            actions.loadSecondaryMetricsResults(forceRefresh)
             actions.loadExposures(forceRefresh)
         },
         updateExperimentMetrics: async () => {
@@ -1132,94 +1142,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 conclusion_comment: null,
             })
             values.experiment && actions.reportExperimentReset(values.experiment)
-            actions.setLegacyMetricResults([])
-            actions.setLegacySecondaryMetricResults([])
+            actions.setLegacyPrimaryMetricsResults([])
+            actions.setLegacySecondaryMetricsResults([])
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
                 const forceRefresh = payload?.start_date !== undefined
                 actions.refreshExperimentResults(forceRefresh)
-            }
-        },
-        setExperiment: async ({ experiment }) => {
-            const experimentEntitiesChanged =
-                (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
-                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
-
-            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
-                return
-            }
-
-            if (experimentEntitiesChanged) {
-                actions.checkFlagImplementationWarning()
-            }
-        },
-        setExperimentValue: async ({ name, value }, breakpoint) => {
-            if (Array.isArray(name) && name[0] === 'feature_flag_key') {
-                actions.validateFeatureFlag(value)
-            }
-
-            await breakpoint(100)
-
-            if (name === 'filters') {
-                const experimentEntitiesChanged =
-                    (value?.events && value.events.length > 0) ||
-                    (value?.actions && value.actions.length > 0) ||
-                    (value?.data_warehouse && value.data_warehouse.length > 0)
-
-                if (!value || Object.keys(value).length === 0) {
-                    return
-                }
-
-                if (experimentEntitiesChanged) {
-                    actions.checkFlagImplementationWarning()
-                }
-            }
-        },
-        setExperimentValues: async ({ values }, breakpoint) => {
-            await breakpoint(100)
-
-            const experiment = values
-
-            const experimentEntitiesChanged =
-                (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
-                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
-
-            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
-                return
-            }
-
-            if (experimentEntitiesChanged) {
-                actions.checkFlagImplementationWarning()
-            }
-        },
-        checkFlagImplementationWarning: async (_, breakpoint) => {
-            const experiment = values.experiment
-            const experimentEntitiesChanged =
-                (experiment.filters?.events && experiment.filters.events.length > 0) ||
-                (experiment.filters?.actions && experiment.filters.actions.length > 0) ||
-                (experiment.filters?.data_warehouse && experiment.filters.data_warehouse.length > 0)
-
-            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
-                return
-            }
-
-            if (experimentEntitiesChanged) {
-                const url = `/api/projects/${
-                    values.currentProjectId
-                }/experiments/requires_flag_implementation?${toParams(experiment.filters || {})}`
-                await breakpoint(100)
-
-                try {
-                    const response = await api.get(url)
-                    actions.setFlagImplementationWarning(response.result)
-                } catch (e) {
-                    // default to not showing the warning
-                    actions.setFlagImplementationWarning(false)
-                }
             }
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
@@ -1439,10 +1369,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        loadMetricResults: async ({ refresh }: { refresh?: boolean }) => {
-            actions.setMetricResultsLoading(true)
-            actions.setLegacyMetricResults([])
-            actions.setMetricResults([])
+        loadPrimaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
+            actions.setPrimaryMetricsResultsLoading(true)
+            actions.setLegacyPrimaryMetricsResults([])
+            actions.setPrimaryMetricsResults([])
 
             let metrics = values.experiment?.metrics
             const sharedMetrics = values.experiment?.saved_metrics
@@ -1456,18 +1386,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics,
                 experimentId: values.experimentId,
                 refresh,
-                onSetLegacyResults: actions.setLegacyMetricResults,
-                onSetResults: actions.setMetricResults,
-                onSetErrors: actions.setPrimaryMetricsResultErrors,
+                onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
+                onSetResults: actions.setPrimaryMetricsResults,
+                onSetErrors: actions.setPrimaryMetricsResultsErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
 
-            actions.setMetricResultsLoading(false)
+            actions.setPrimaryMetricsResultsLoading(false)
         },
-        loadSecondaryMetricResults: async ({ refresh }: { refresh?: boolean }) => {
-            actions.setSecondaryMetricResultsLoading(true)
-            actions.setLegacySecondaryMetricResults([])
-            actions.setSecondaryMetricResults([])
+        loadSecondaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
+            actions.setSecondaryMetricsResultsLoading(true)
+            actions.setLegacySecondaryMetricsResults([])
+            actions.setSecondaryMetricsResults([])
 
             let secondaryMetrics = values.experiment?.metrics_secondary
             const sharedMetrics = values.experiment?.saved_metrics
@@ -1481,13 +1411,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
                 refresh,
-                onSetLegacyResults: actions.setLegacySecondaryMetricResults,
-                onSetResults: actions.setSecondaryMetricResults,
-                onSetErrors: actions.setSecondaryMetricsResultErrors,
+                onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
+                onSetResults: actions.setSecondaryMetricsResults,
+                onSetErrors: actions.setSecondaryMetricsResultsErrors,
                 onTimeout: actions.reportExperimentMetricTimeout,
             })
 
-            actions.setSecondaryMetricResultsLoading(false)
+            actions.setSecondaryMetricsResultsLoading(false)
         },
         openReleaseConditionsModal: () => {
             const numericFlagId = values.experiment.feature_flag?.id
@@ -1639,6 +1569,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     return metric?.metric_type || ExperimentMetricType.MEAN
                 },
         ],
+        isExperimentDraft: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !experiment?.start_date && !experiment?.end_date && !experiment?.archived
+            },
+        ],
         isExperimentRunning: [
             (s) => [s.experiment],
             (experiment): boolean => {
@@ -1719,9 +1655,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         isPrimaryMetricSignificant: [
-            (s) => [s.legacyMetricResults],
+            (s) => [s.legacyPrimaryMetricsResults],
             (
-                    legacyMetricResults: (
+                    legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
@@ -1729,7 +1665,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     )[]
                 ) =>
                 (metricIndex: number = 0): boolean => {
-                    const result = legacyMetricResults?.[metricIndex]
+                    const result = legacyPrimaryMetricsResults?.[metricIndex]
                     if (!result) {
                         return false
                     }
@@ -1738,9 +1674,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         isSecondaryMetricSignificant: [
-            (s) => [s.legacySecondaryMetricResults],
+            (s) => [s.legacySecondaryMetricsResults],
             (
-                    legacySecondaryMetricResults: (
+                    legacySecondaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
@@ -1748,7 +1684,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     )[]
                 ) =>
                 (metricIndex: number = 0): boolean => {
-                    const result = legacySecondaryMetricResults?.[metricIndex]
+                    const result = legacySecondaryMetricsResults?.[metricIndex]
                     if (!result) {
                         return false
                     }
@@ -1757,19 +1693,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         significanceDetails: [
-            (s) => [s.legacyMetricResults, s.experimentStatsVersion],
+            (s) => [s.legacyPrimaryMetricsResults],
             (
-                    legacyMetricResults: (
+                    legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[],
-                    experimentStatsVersion: number
+                    )[]
                 ) =>
                 (metricIndex: number = 0): string => {
-                    const results = legacyMetricResults?.[metricIndex]
-                    return getSignificanceDetails(results, experimentStatsVersion)
+                    const results = legacyPrimaryMetricsResults?.[metricIndex]
+                    return getSignificanceDetails(results)
                 },
         ],
         recommendedSampleSize: [
@@ -1828,16 +1763,16 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         tabularExperimentResults: [
-            (s) => [s.experiment, s.legacyMetricResults, s.legacySecondaryMetricResults, s.getInsightType],
+            (s) => [s.experiment, s.legacyPrimaryMetricsResults, s.legacySecondaryMetricsResults, s.getInsightType],
             (
                     experiment,
-                    legacyMetricResults: (
+                    legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
-                    legacySecondaryMetricResults: (
+                    legacySecondaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
@@ -1851,8 +1786,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         ? getInsightType(experiment.metrics_secondary[metricIndex])
                         : getInsightType(experiment.metrics[metricIndex])
                     const result = isSecondary
-                        ? legacySecondaryMetricResults[metricIndex]
-                        : legacyMetricResults[metricIndex]
+                        ? legacySecondaryMetricsResults[metricIndex]
+                        : legacyPrimaryMetricsResults[metricIndex]
 
                     if (result) {
                         for (const variantObj of result.variants) {
@@ -1884,9 +1819,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         sortedWinProbabilities: [
-            (s) => [s.legacyMetricResults],
+            (s) => [s.legacyPrimaryMetricsResults],
             (
-                    legacyMetricResults: (
+                    legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
@@ -1894,7 +1829,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     )[]
                 ) =>
                 (metricIndex: number = 0) => {
-                    const result = legacyMetricResults?.[metricIndex]
+                    const result = legacyPrimaryMetricsResults?.[metricIndex]
 
                     if (!result) {
                         return []
@@ -1910,10 +1845,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         funnelResultsPersonsTotal: [
-            (s) => [s.experiment, s.legacyMetricResults, s.getInsightType],
+            (s) => [s.experiment, s.legacyPrimaryMetricsResults, s.getInsightType],
             (
                     experiment,
-                    legacyMetricResults: (
+                    legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
@@ -1922,7 +1857,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     getInsightType
                 ) =>
                 (metricIndex: number = 0): number => {
-                    const result = legacyMetricResults?.[metricIndex]
+                    const result = legacyPrimaryMetricsResults?.[metricIndex]
 
                     if (getInsightType(experiment.metrics[metricIndex]) !== InsightType.FUNNELS || !result) {
                         return 0
@@ -1982,12 +1917,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (primaryMetric) {
                     return primaryMetric.query
                 }
-            },
-        ],
-        experimentStatsVersion: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => {
-                return experiment.stats_config?.version || 1
             },
         ],
         primaryMetricsLengthWithSharedMetrics: [
@@ -2075,38 +2004,6 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment: Experiment): ExperimentStatsMethod => {
                 return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
             },
-        ],
-        // New format selectors
-        hasPrimaryMetricNewResults: [
-            (s) => [s.metricResults],
-            (metricResults: CachedNewExperimentQueryResponse[]): boolean => {
-                return (
-                    metricResults.length > 0 && metricResults.some((result) => result !== null && result !== undefined)
-                )
-            },
-        ],
-        hasSecondaryMetricNewResults: [
-            (s) => [s.secondaryMetricResultsNew],
-            (secondaryMetricResultsNew: CachedNewExperimentQueryResponse[]): boolean => {
-                return (
-                    secondaryMetricResultsNew.length > 0 &&
-                    secondaryMetricResultsNew.some((result) => result !== null && result !== undefined)
-                )
-            },
-        ],
-        primaryMetricNewResult: [
-            (s) => [s.metricResults],
-            (metricResults: CachedNewExperimentQueryResponse[]) =>
-                (metricIndex: number = 0): CachedNewExperimentQueryResponse | null => {
-                    return metricResults?.[metricIndex] || null
-                },
-        ],
-        secondaryMetricNewResult: [
-            (s) => [s.secondaryMetricResultsNew],
-            (secondaryMetricResultsNew: CachedNewExperimentQueryResponse[]) =>
-                (metricIndex: number = 0): CachedNewExperimentQueryResponse | null => {
-                    return secondaryMetricResultsNew?.[metricIndex] || null
-                },
         ],
     }),
     forms(({ actions, values, props }) => ({

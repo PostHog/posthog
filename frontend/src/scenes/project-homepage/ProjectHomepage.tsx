@@ -25,7 +25,6 @@ import { DashboardPlacement } from '~/types'
 export const scene: SceneExport = {
     component: ProjectHomepage,
     logic: projectHomepageLogic,
-    settingSectionId: 'environment-details',
 }
 
 export function ProjectHomepage(): JSX.Element {

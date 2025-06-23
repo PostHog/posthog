@@ -13,6 +13,7 @@ import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.ser
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
+import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
     CyclotronJobInvocation,
@@ -34,6 +35,7 @@ export class CdpApi {
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
+    private messagingMailjetManagerService: MessagingMailjetManagerService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -43,6 +45,7 @@ export class CdpApi {
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
+        this.messagingMailjetManagerService = new MessagingMailjetManagerService(hub)
     }
 
     public get service(): PluginServerService {
@@ -79,6 +82,7 @@ export class CdpApi {
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/public/messaging/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
 
@@ -194,7 +198,7 @@ export class CdpApi {
                 },
             }
 
-            if (['destination', 'internal_destination', 'broadcast'].includes(compoundConfiguration.type)) {
+            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
@@ -387,5 +391,17 @@ export class CdpApi {
             return res.set('Allow', 'POST').status(405).json({
                 error: 'Method not allowed',
             })
+        }
+
+    private postMailjetWebhook =
+        () =>
+        async (req: express.Request & { rawBody?: Buffer }, res: express.Response): Promise<any> => {
+            try {
+                const { status, message } = await this.messagingMailjetManagerService.handleWebhook(req)
+
+                return res.status(status).send(message)
+            } catch (error) {
+                return res.status(500).json({ error: 'Internal error' })
+            }
         }
 }

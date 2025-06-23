@@ -125,7 +125,7 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
 
     response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
-    response.config.autocapture_opt_out = team.autocapture_opt_out.unwrap_or(false);
+    response.config.autocapture_opt_out = Some(team.autocapture_opt_out.unwrap_or(false));
 
     response.config.analytics = if !*config.debug
         && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
@@ -553,7 +553,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert!(response.config.autocapture_opt_out);
+        assert!(response.config.autocapture_opt_out.unwrap());
     }
 
     #[test]
@@ -566,7 +566,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert!(!response.config.autocapture_opt_out);
+        assert!(!response.config.autocapture_opt_out.unwrap());
     }
 
     #[test]
@@ -611,7 +611,7 @@ mod tests {
         assert_eq!(response.config.flags_persistence_default, Some(false));
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
         assert_eq!(response.config.capture_performance, Some(json!(false)));
-        assert!(!response.config.autocapture_opt_out);
+        assert!(!response.config.autocapture_opt_out.unwrap());
         assert!(response.config.capture_dead_clicks.is_none());
     }
 
@@ -781,6 +781,42 @@ mod tests {
             assert!(config.script_config.is_none()); // Should not have script config when script is empty
         } else {
             panic!("Expected SessionRecordingField::Config without script_config");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_empty_domains_allowed() {
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.recording_domains = Some(vec![]); // Empty domains list
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        // Should return config (enabled) when recording_domains is empty list
+        if let Some(SessionRecordingField::Config(_)) = result {
+            // Test passes if we reach this point
+        } else {
+            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_no_domains_allowed() {
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.recording_domains = None; // No domains list
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        // Should return config (enabled) when recording_domains is empty list
+        if let Some(SessionRecordingField::Config(_)) = result {
+            // Test passes if we reach this point
+        } else {
+            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
         }
     }
 }

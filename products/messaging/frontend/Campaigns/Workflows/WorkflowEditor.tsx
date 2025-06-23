@@ -20,20 +20,51 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { OnWorkflowChange } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
-import { DEFAULT_EDGE_OPTIONS } from './constants'
+import { getDefaultEdgeOptions } from './constants'
+import { NodeDetailsPanel } from './Nodes/NodeDetailsPanel'
 import { DROPZONE_NODE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes/Nodes'
-import { StepDetailsPanel } from './Nodes/StepDetails'
-import { addDropzoneNodes, createEdgesForNewNode, createNewNode, DEFAULT_EDGES, DEFAULT_NODES } from './Nodes/utils'
+import {
+    addDropzoneNodes,
+    createEdgesForNewNode,
+    createNewNode,
+    getEdgesFromHogFlow,
+    getNodesFromHogFlow,
+} from './Nodes/utils'
 import { Toolbar, ToolbarNode } from './Toolbar'
-import type { HogFlowAction, HogFlowEdge } from './types'
+import type { HogFlow, HogFlowAction, HogFlowEdge } from './types'
 
 // Inner component that encapsulates React Flow
-function WorkflowEditorContent(): JSX.Element {
+function WorkflowEditorContent({
+    initialValues,
+    onChange,
+}: {
+    initialValues: HogFlow
+    onChange: OnWorkflowChange
+}): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(DEFAULT_NODES)
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(DEFAULT_EDGES)
+    const initialNodes = useMemo(() => getNodesFromHogFlow(initialValues), [initialValues])
+    const initialEdges = useMemo(() => getEdgesFromHogFlow(initialValues), [initialValues])
+
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(initialNodes)
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<HogFlowEdge>>(initialEdges)
+
+    useEffect(() => {
+        onChange({
+            actions: nodes.map((node) => node.data),
+            edges: edges.map((edge) => ({
+                from: edge.source,
+                to: edge.target,
+                // TODO(team-messaging): Decide if we need this edge type
+                type: 'continue',
+                index: edge.data?.index || 0,
+            })),
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [nodes.length, edges.length])
+
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
     const [toolbarNodeUsed, setToolbarNodeUsed] = useState<ToolbarNode>()
@@ -58,7 +89,7 @@ function WorkflowEditorContent(): JSX.Element {
 
     // Layout the graph on mount.
     useLayoutEffect(() => {
-        void updateAndLayout({ nodes: DEFAULT_NODES, edges: DEFAULT_EDGES })
+        void updateAndLayout({ nodes: initialNodes, edges: initialEdges })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -176,18 +207,15 @@ function WorkflowEditorContent(): JSX.Element {
                 const remainingEdges = acc.filter((edge) => !connectedEdges.includes(edge))
 
                 const createdEdges = incomers.flatMap(({ id: source }) =>
-                    outgoers.map(
-                        ({ id: target }) =>
-                            ({
-                                id: `${source}->${target}${sourceHandle ? `:${sourceHandle}` : ''}`,
-                                source,
-                                target,
-                                sourceHandle,
-                                targetHandle,
-                                label: sourceLabel,
-                                ...DEFAULT_EDGE_OPTIONS,
-                            } as Edge<HogFlowEdge>)
-                    )
+                    outgoers.map(({ id: target }) => ({
+                        id: `${source}->${target}${sourceHandle ? `:${sourceHandle}` : ''}`,
+                        source,
+                        target,
+                        sourceHandle,
+                        targetHandle,
+                        label: sourceLabel,
+                        ...getDefaultEdgeOptions(),
+                    }))
                 )
 
                 return [...remainingEdges, ...createdEdges]
@@ -233,8 +261,7 @@ function WorkflowEditorContent(): JSX.Element {
                 <Toolbar setNewNode={setToolbarNodeUsed} />
 
                 {selectedNode && (
-                    <StepDetailsPanel
-                        workflowId="new"
+                    <NodeDetailsPanel
                         node={selectedNode}
                         onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
                         onDelete={(node) => {
@@ -249,10 +276,16 @@ function WorkflowEditorContent(): JSX.Element {
 }
 
 // TODO: Set up workflow update callback
-export function WorkflowEditor(): JSX.Element {
+export function WorkflowEditor({
+    initialValues,
+    onChange,
+}: {
+    initialValues: HogFlow
+    onChange: OnWorkflowChange
+}): JSX.Element {
     return (
         <ReactFlowProvider>
-            <WorkflowEditorContent />
+            <WorkflowEditorContent initialValues={initialValues} onChange={onChange} />
         </ReactFlowProvider>
     )
 }
