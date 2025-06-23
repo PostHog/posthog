@@ -30,7 +30,13 @@ class _TransformerProtocol(typing.Protocol):
 
     async def iter(
         self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
-    ) -> collections.abc.AsyncGenerator[Chunk]: ...
+    ) -> collections.abc.AsyncIterator[Chunk]:
+        if typing.TYPE_CHECKING:
+            # We need a yield for mypy to interpret this as Callable[[...], AsyncIterator[int]].
+            # Otherwise, it will treat it as Callable[[], Coroutine[Any, Any, AsyncIterator[int]]].
+            # See: https://mypy.readthedocs.io/en/stable/more_types.html#asynchronous-iterators
+            yield Chunk(b"", False)
+        raise NotImplementedError
 
 
 def get_stream_transformer(
@@ -72,7 +78,7 @@ class JSONLStreamTransformer:
 
     async def iter(
         self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
-    ) -> collections.abc.AsyncGenerator[Chunk]:
+    ) -> collections.abc.AsyncIterator[Chunk]:
         """Distribute transformation of record batches into multiple processes.
 
         The multiprocess pipeline works as follows:
@@ -162,7 +168,7 @@ class JSONLBrotliStreamTransformer:
 
     async def iter(
         self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
-    ) -> collections.abc.AsyncGenerator[Chunk]:
+    ) -> collections.abc.AsyncIterator[Chunk]:
         """Distribute transformation of record batches into multiple processes.
 
         This supports brotli compression by compressing only in the main
@@ -370,7 +376,7 @@ class ParquetStreamTransformer:
 
     async def iter(
         self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
-    ) -> collections.abc.AsyncGenerator[Chunk]:
+    ) -> collections.abc.AsyncIterator[Chunk]:
         """Iterate over record batches transforming them into chunks."""
         current_file_size = 0
 
