@@ -53,8 +53,8 @@ jobs:
                         - webpack.config.js
                         - stylelint*
 
-    frontend-linting:
-        name: Frontend linting checks
+    frontend-format:
+        name: Frontend formatting
         needs: changes
         runs-on: depot-ubuntu-24.04
         steps:
@@ -162,8 +162,8 @@ jobs:
                       frontend/src/products.tsx
                   retention-days: 1
 
-    frontend-eslint:
-        name: Frontend Oxlint checks
+    frontend-lint:
+        name: Frontend linting
         needs: [changes, frontend-build-and-typegen]
         runs-on: depot-ubuntu-24.04-4
         steps:
@@ -266,7 +266,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
     frontend-typescript-checks:
-        name: Frontend typescript and schema checks
+        name: Frontend typechecking
         needs: [changes, frontend-build-and-typegen]
         runs-on: depot-ubuntu-24.04
         steps:
@@ -367,7 +367,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-linting, frontend-toolbar-checks, frontend-eslint, changes]
+        needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, frontend-lint, changes]
         runs-on: depot-ubuntu-24.04
         if: needs.changes.outputs.frontend == 'true'
         steps:
