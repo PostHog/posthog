@@ -1,8 +1,8 @@
-import { Edge, MarkerType, Node } from '@xyflow/react'
+import { Edge, MarkerType } from '@xyflow/react'
 
-import { HogFlowAction } from './types'
+import { HogFlowActionNode } from './types'
 
-export const getDefaultNodeOptions = (isEntryOrExit?: boolean): Partial<Node<HogFlowAction>> => ({
+export const getDefaultNodeOptions = (isEntryOrExit?: boolean): Partial<HogFlowActionNode> => ({
     deletable: !isEntryOrExit,
     selectable: true,
     draggable: false,

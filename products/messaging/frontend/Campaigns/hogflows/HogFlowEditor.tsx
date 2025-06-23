@@ -5,7 +5,6 @@ import {
     BackgroundVariant,
     Controls,
     Edge,
-    Node,
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
@@ -21,7 +20,6 @@ import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
 import { NodeDetailsPanel } from './steps/NodeDetailsPanel'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
-import type { HogFlowAction } from './types'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
@@ -55,9 +53,9 @@ function HogFlowEditorContent(): JSX.Element {
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
-            <ReactFlow<Node<HogFlowAction>, Edge>
+            <ReactFlow<HogFlowActionNode, Edge>
                 fitView
-                nodes={[...nodes, ...(dropzoneNodes as unknown as Node<HogFlowAction>[])]}
+                nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}

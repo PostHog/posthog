@@ -324,7 +324,7 @@ type CyclotronJobInputProps = {
     parentConfiguration?: CyclotronJobInputConfiguration
 }
 
-export function CyclotronJobInputRenderer({
+function CyclotronJobInputRenderer({
     onChange,
     schema,
     disabled,
@@ -528,7 +528,7 @@ type CyclotronJobInputWithSchemaProps = CyclotronJobInputsProps & {
     sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
 }
 
-export function CyclotronJobInputWithSchema({
+function CyclotronJobInputWithSchema({
     schema,
     configuration,
     parentConfiguration,

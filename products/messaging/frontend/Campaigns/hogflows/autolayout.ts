@@ -1,8 +1,8 @@
-import { Node, Position } from '@xyflow/react'
+import { Position } from '@xyflow/react'
 import ELK, { ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
-import type { HogFlowAction } from './types'
+import type { HogFlowActionNode } from './types'
 
 /**
  * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm
@@ -26,7 +26,7 @@ const getElkPortSide = (position: Position): string => {
 
 const elk = new ELK()
 
-export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<Node<HogFlowAction>[]> => {
+export const getFormattedNodes = async (nodes: HogFlowActionNode[]): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
@@ -95,5 +95,5 @@ export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<N
     return layoutedGraph.children?.map((node) => ({
         ...node,
         position: { x: node.x, y: node.y },
-    })) as Node<HogFlowAction>[]
+    })) as HogFlowActionNode[]
 }

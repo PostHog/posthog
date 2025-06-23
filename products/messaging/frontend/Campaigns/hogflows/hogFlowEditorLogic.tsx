@@ -20,7 +20,7 @@ import { getDefaultEdgeOptions } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { ToolbarNode } from './HogFlowEditorToolbar'
 import { getHogFlowStep } from './steps/HogFlowSteps'
-import type { HogFlow, HogFlowAction } from './types'
+import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -32,11 +32,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     })),
     actions({
         onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
-        onNodesChange: (nodes: NodeChange<Node<HogFlowAction>>[]) => ({ nodes }),
-        onNodesDelete: (deleted: Node<HogFlowAction>[]) => ({ deleted }),
-        setNodes: (nodes: Node<HogFlowAction>[]) => ({ nodes }),
+        onNodesChange: (nodes: NodeChange<HogFlowActionNode>[]) => ({ nodes }),
+        onNodesDelete: (deleted: HogFlowActionNode[]) => ({ deleted }),
+        setNodes: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setDropzoneNodes: (dropzoneNodes: Node<{ edge: Edge }>[]) => ({ dropzoneNodes }),
-        setNodesRaw: (nodes: Node<HogFlowAction>[]) => ({ nodes }),
+        setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
@@ -51,7 +51,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
     reducers(({ props }) => ({
         nodes: [
-            [] as Node<HogFlowAction>[],
+            [] as HogFlowActionNode[],
             {
                 setNodesRaw: (_, { nodes }) => nodes,
             },
@@ -114,7 +114,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
         resetFlowFromHogFlow: ({ hogFlow }) => {
             try {
-                const nodes: Node<HogFlowAction>[] = hogFlow.actions.map((action: HogFlowAction) => {
+                const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
                     const step = getHogFlowStep(action.type)
                     if (!step) {
                         console.error(`Step not found for action type: ${action.type}`)

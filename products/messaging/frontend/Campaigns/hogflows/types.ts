@@ -1,3 +1,4 @@
+import { Node } from '@xyflow/react'
 import { z } from 'zod'
 
 const _commonActionFields = {
@@ -154,3 +155,4 @@ export const HogFlowSchema = z.object({
 
 export type HogFlow = z.infer<typeof HogFlowSchema>
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema>
+export type HogFlowActionNode = Node<HogFlowAction>
