@@ -2227,7 +2227,7 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
 }
 
-export type ExperimentMetricBaseProperties = {
+export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     name?: string
     conversion_window?: integer
