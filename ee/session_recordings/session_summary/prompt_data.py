@@ -43,7 +43,7 @@ class SessionSummaryPromptData:
         raw_session_metadata: dict[str, Any],
         raw_session_columns: list[str],
         session_id: str,
-    ) -> dict[str, list[str | int | list[str] | None]]:
+    ) -> tuple[dict[str, list[str | int | list[str] | None]], dict[str, str]]:
         """
         Create session summary prompt data from session data, and return a mapping of event ids to events
         to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
@@ -52,30 +52,30 @@ class SessionSummaryPromptData:
             raise ValueError(f"No session events provided for summarizing session_id {session_id}")
         if not raw_session_metadata:
             raise ValueError(f"No session metadata provided for summarizing session_id {session_id}")
-        self.columns = [*raw_session_columns, "event_id", "event_index"]
+        self.columns = ["event_id", "event_index", *raw_session_columns]
         self.metadata = self._prepare_metadata(raw_session_metadata)
         simplified_events_mapping: dict[str, list[Any]] = {}
+        event_ids_mapping: dict[str, str] = {}
         # Pick indexes as we iterate over arrays
+        event_id_index, event_index_index = 0, 1
         window_id_index = get_column_index(self.columns, "$window_id")
         current_url_index = get_column_index(self.columns, "$current_url")
         timestamp_index = get_column_index(self.columns, "timestamp")
-        uuid_index = get_column_index(self.columns, "uuid")
-        event_id_index = len(self.columns) - 2
-        event_index_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for i, event in enumerate(raw_session_events):
             # Copy the event to avoid mutating the original, add new columns for event_id and event_index
-            simplified_event: list[str | datetime | list[str] | int | None] = [*list(event), None, None]
+            event_uuid = event[-1]  # UUID should come last as we use it to generate event_id, but not after
+            simplified_event: list[str | datetime | list[str] | int | None] = [None, None, *list(event[:-1])]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
-                event_timestamp = event[timestamp_index]
+                event_timestamp = simplified_event[timestamp_index]
                 if not isinstance(event_timestamp, datetime):
                     raise ValueError(f"Timestamp is not a datetime: {event_timestamp}")
                 # All timestamps are stringified, so no datetime in the output type
                 simplified_event[timestamp_index] = event_timestamp.isoformat()
             # Simplify Window IDs
             if window_id_index is not None:
-                event_window_id = event[window_id_index]
+                event_window_id = simplified_event[window_id_index]
                 if event_window_id is None:
                     # Non-browser events (like Python SDK ones) could have no window ID
                     simplified_event[window_id_index] = None
@@ -85,7 +85,7 @@ class SessionSummaryPromptData:
                     simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
             # Simplify URLs
             if current_url_index is not None:
-                event_current_url = event[current_url_index]
+                event_current_url = simplified_event[current_url_index]
                 if event_current_url is None:
                     # Non-browser events (like Python SDK ones) could have no URL
                     simplified_event[current_url_index] = None
@@ -93,16 +93,20 @@ class SessionSummaryPromptData:
                     raise ValueError(f"Current URL is not a string: {event_current_url}")
                 else:
                     simplified_event[current_url_index] = self._simplify_url(event_current_url)
-            # Generate an event ID from session and event UUIDs to be able to track them across sessions
-            event_id = self._generate_event_id(session_id=session_id, uuid_index=uuid_index, event=event)
+            # Generate full event ID from session and event UUIDs to be able to track them across sessions
+            full_event_id = self._generate_event_id(session_id=session_id, event_uuid=event_uuid)
+            # Generate a hex for each event to make sure we can identify repeated events, and identify the event
+            event_id = self._get_deterministic_hex(simplified_event)
             if event_id in simplified_events_mapping:
                 # Skip repeated events
                 continue
             simplified_event[event_id_index] = event_id
             simplified_event[event_index_index] = i
             simplified_events_mapping[event_id] = simplified_event
+            # Store full event ID into the mapping to avoid providing full IDs to LLM (6 tokens vs 52 tokens per event)
+            event_ids_mapping[event_id] = full_event_id
         self.results = list(simplified_events_mapping.values())
-        return simplified_events_mapping
+        return simplified_events_mapping, event_ids_mapping
 
     @staticmethod
     def _prepare_metadata(raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
@@ -172,11 +176,24 @@ class SessionSummaryPromptData:
         event_string = "\0".join(format_value(x) for x in event)
         return hashlib.sha256(event_string.encode()).hexdigest()[:length]
 
-    def _generate_event_id(self, session_id: str, uuid_index: int, event: list[Any]) -> str:
-        event_uuid = event[uuid_index]
-        if event_uuid is None:
-            raise ValueError(f"UUID is not present in the event: {event}")
-        elif not isinstance(event_uuid, str):
-            raise ValueError(f"UUID is not a string: {event_uuid}")
+    @staticmethod
+    def _get_deterministic_hex(event: list[Any], length: int = 8) -> str:
+        """
+        Generate a hex for each event to make sure we can identify repeated events.
+        """
+
+        def format_value(val: Any) -> str:
+            if isinstance(val, datetime):
+                return val.isoformat()
+            return str(val)
+
+        # Join with a null byte as delimiter since it won't appear in normal strings,
+        # so we can get the same string using the same combination of values only.
+        event_string = "\0".join(format_value(x) for x in event)
+        return hashlib.sha256(event_string.encode()).hexdigest()[:length]
+
+    def _generate_event_id(self, session_id: str, event_uuid: str) -> str:
+        if not event_uuid:
+            raise ValueError(f"UUID is not present when generating event_id for session_id {session_id}")
         event_id = f"{session_id}_{event_uuid}"
         return event_id

@@ -34,6 +34,7 @@ class _SessionSummaryDBData:
 class _SessionSummaryPromptData:
     prompt_data: SessionSummaryPromptData
     simplified_events_mapping: dict[str, list[str | int | list[str] | None]]
+    event_ids_mapping: dict[str, str]
     url_mapping_reversed: dict[str, str]
     window_mapping_reversed: dict[str, str]
 
@@ -126,7 +127,7 @@ def prepare_prompt_data(
 ) -> _SessionSummaryPromptData:
     with timer("prepare_prompt_data"):
         prompt_data = SessionSummaryPromptData()
-        simplified_events_mapping = prompt_data.load_session_data(
+        simplified_events_mapping, event_ids_mapping = prompt_data.load_session_data(
             raw_session_events=session_events,
             raw_session_metadata=session_metadata,
             raw_session_columns=session_events_columns,
@@ -140,6 +141,7 @@ def prepare_prompt_data(
     return _SessionSummaryPromptData(
         prompt_data=prompt_data,
         simplified_events_mapping=simplified_events_mapping,
+        event_ids_mapping=event_ids_mapping,
         url_mapping_reversed=url_mapping_reversed,
         window_mapping_reversed=window_mapping_reversed,
     )
