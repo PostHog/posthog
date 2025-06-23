@@ -3,7 +3,7 @@ import contextvars
 import uuid
 from enum import StrEnum
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pydantic import BaseModel, ConfigDict
 from typing import Any, Optional
 
@@ -138,8 +138,9 @@ def create_base_tags(**kwargs) -> QueryTags:
 
 
 def get_query_tags() -> QueryTags:
-    qt = query_tags.get()
-    if qt is None:
+    try:
+        qt = query_tags.get()
+    except LookupError:
         qt = create_base_tags()
         query_tags.set(qt)
     return qt
@@ -167,7 +168,9 @@ def tag_queries(**kwargs) -> None:
 
 
 def clear_tag(key):
-    setattr(get_query_tags(), key, None)
+    with suppress(LookupError):
+        qt = query_tags.get()
+        setattr(qt, key, None)
 
 
 def reset_query_tags():
