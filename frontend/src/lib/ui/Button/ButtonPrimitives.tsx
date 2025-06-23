@@ -239,6 +239,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 })
             ),
             ref,
+            disabled,
             ...rest,
             'aria-disabled': disabled,
             'data-active': active,
