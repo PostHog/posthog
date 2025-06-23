@@ -452,7 +452,7 @@ mod test {
     }
 
     #[test]
-    fn it_correctly_orders_stringified_assingee_keys() {
+    fn it_correctly_orders_stringified_assignee_keys() {
         let assignee = Assignee::User(1234);
         let stringified_assignee = serde_json::to_string(&assignee).unwrap();
         assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
