@@ -468,10 +468,7 @@ export const RecordingsUniversalFiltersEmbed = ({
             content: <SavedFilters setFilters={setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
-    ]
-
-    if (featureFlags[FEATURE_FLAGS.REPLAY_ACTIVE_HOURS_HEATMAP] === 'templates') {
-        tabs.push({
+        {
             key: 'explore',
             label: <div className="px-2">Explore</div>,
             content: (
@@ -484,8 +481,8 @@ export const RecordingsUniversalFiltersEmbed = ({
                 </div>
             ),
             'data-attr': 'session-recordings-explore-tab',
-        })
-    }
+        },
+    ]
 
     return (
         <div className="relative">
