@@ -11,6 +11,7 @@ import {
     FunnelsActorsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { FunnelCorrelation, FunnelCorrelationType, InsightLogicProps } from '~/types'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
@@ -44,16 +45,22 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                     await breakpoint(100)
 
                     try {
-                        const actorsQuery: FunnelsActorsQuery = {
-                            kind: NodeKind.FunnelsActorsQuery,
-                            source: values.querySource!,
-                        }
-                        const query: FunnelCorrelationQuery = {
-                            kind: NodeKind.FunnelCorrelationQuery,
-                            source: actorsQuery,
-                            funnelCorrelationType: FunnelCorrelationResultsType.Events,
-                            funnelCorrelationExcludeEventNames: values.excludedEventNames,
-                        }
+                        const actorsQuery: FunnelsActorsQuery = setLatestVersionsOnQuery(
+                            {
+                                kind: NodeKind.FunnelsActorsQuery,
+                                source: values.querySource!,
+                            },
+                            { recursion: false }
+                        )
+                        const query: FunnelCorrelationQuery = setLatestVersionsOnQuery(
+                            {
+                                kind: NodeKind.FunnelCorrelationQuery,
+                                source: actorsQuery,
+                                funnelCorrelationType: FunnelCorrelationResultsType.Events,
+                                funnelCorrelationExcludeEventNames: values.excludedEventNames,
+                            },
+                            { recursion: false }
+                        )
                         const response = await api.query(query)
                         return {
                             events: response.results.events.map((result) => ({
@@ -72,17 +79,23 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    const actorsQuery: FunnelsActorsQuery = {
-                        kind: NodeKind.FunnelsActorsQuery,
-                        source: values.querySource!,
-                    }
-                    const query: FunnelCorrelationQuery = {
-                        kind: NodeKind.FunnelCorrelationQuery,
-                        source: actorsQuery,
-                        funnelCorrelationType: FunnelCorrelationResultsType.EventWithProperties,
-                        funnelCorrelationEventNames: [eventName],
-                        funnelCorrelationEventExcludePropertyNames: values.excludedEventPropertyNames,
-                    }
+                    const actorsQuery: FunnelsActorsQuery = setLatestVersionsOnQuery(
+                        {
+                            kind: NodeKind.FunnelsActorsQuery,
+                            source: values.querySource!,
+                        },
+                        { recursion: false }
+                    )
+                    const query: FunnelCorrelationQuery = setLatestVersionsOnQuery(
+                        {
+                            kind: NodeKind.FunnelCorrelationQuery,
+                            source: actorsQuery,
+                            funnelCorrelationType: FunnelCorrelationResultsType.EventWithProperties,
+                            funnelCorrelationEventNames: [eventName],
+                            funnelCorrelationEventExcludePropertyNames: values.excludedEventPropertyNames,
+                        },
+                        { recursion: false }
+                    )
                     const response = await api.query(query)
                     return {
                         [eventName]: response.results.events.map((result) => ({
