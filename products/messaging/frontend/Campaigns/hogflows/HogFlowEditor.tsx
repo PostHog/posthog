@@ -31,7 +31,7 @@ function HogFlowEditorContent(): JSX.Element {
     const {
         onEdgesChange,
         onNodesChange,
-        setSelectedNode,
+        setSelectedNodeId,
         setReactFlowInstance,
         onNodesDelete,
         onDragStart,
@@ -65,7 +65,7 @@ function HogFlowEditorContent(): JSX.Element {
                 onDragStart={onDragStart}
                 onDragOver={onDragOver}
                 onDrop={onDrop}
-                onNodeClick={(_, node) => node.selectable && setSelectedNode(node)}
+                onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
                 nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}

@@ -64,6 +64,7 @@ export const campaignLogic = kea<campaignLogicType>([
     actions({
         setOriginalCampaign: (campaign: HogFlow) => ({ campaign }),
         setCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({ actionId, config }),
+        setCampaignAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
     }),
     loaders(({ props }) => ({
         campaign: [
@@ -126,6 +127,15 @@ export const campaignLogic = kea<campaignLogicType>([
 
             action.config = { ...action.config, ...config }
             actions.setCampaignValues({ actions: [...values.campaign.actions] })
+        },
+        setCampaignAction: async ({ actionId, action }) => {
+            const campaign = values.campaign
+            if (!campaign) {
+                return
+            }
+
+            const newActions = values.campaign.actions.map((a) => (a.id === actionId ? action : a))
+            actions.setCampaignValues({ actions: newActions })
         },
     })),
     afterMount(({ actions, props }) => {

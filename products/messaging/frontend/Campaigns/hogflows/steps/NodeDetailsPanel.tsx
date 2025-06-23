@@ -1,14 +1,17 @@
 import { IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 import { Panel } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from './HogFlowSteps'
 
 export function NodeDetailsPanel(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)
-    const { setSelectedNode } = useActions(hogFlowEditorLogic)
+    const { setSelectedNodeId, setCampaignAction } = useActions(hogFlowEditorLogic)
 
     if (!selectedNode) {
         return null
@@ -25,7 +28,8 @@ export function NodeDetailsPanel(): JSX.Element | null {
 
     // TODO: Add default "conditions" for filtering people out
 
-    const Step = getHogFlowStep(selectedNode.data.type)
+    const action = selectedNode.data
+    const Step = getHogFlowStep(action.type)
 
     return (
         <Panel position="top-right">
@@ -45,7 +49,7 @@ export function NodeDetailsPanel(): JSX.Element | null {
                         <LemonButton
                             size="xsmall"
                             icon={<IconX />}
-                            onClick={() => setSelectedNode(null)}
+                            onClick={() => setSelectedNodeId(null)}
                             aria-label="close"
                         />
                     </div>
@@ -67,6 +71,39 @@ export function NodeDetailsPanel(): JSX.Element | null {
                         // />
                     )} */}
                 </div>
+
+                <LemonDivider className="my-0" />
+                {!['trigger', 'exit'].includes(action.type) && (
+                    <div className="flex flex-col gap-2 p-2">
+                        <LemonLabel>Conditions</LemonLabel>
+
+                        <ActionFilter
+                            filters={action.filters ?? {}}
+                            setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
+                            typeKey="action-filter"
+                            mathAvailability={MathAvailability.None}
+                            hideRename
+                            hideDuplicate
+                            showNestedArrow={false}
+                            actionsTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.Events,
+                                TaxonomicFilterGroupType.Actions,
+                            ]}
+                            propertiesTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                TaxonomicFilterGroupType.Elements,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                            ]}
+                            propertyFiltersPopover
+                            buttonProps={{
+                                type: 'secondary',
+                            }}
+                            buttonCopy="Add filter conditions"
+                        />
+                    </div>
+                )}
             </div>
         </Panel>
     )

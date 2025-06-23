@@ -28,7 +28,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
         values: [campaignLogic(props), ['campaign']],
-        actions: [campaignLogic(props), ['setCampaignValues', 'setCampaignActionConfig']],
+        actions: [campaignLogic(props), ['setCampaignValues', 'setCampaignActionConfig', 'setCampaignAction']],
     })),
     actions({
         onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
@@ -38,7 +38,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setDropzoneNodes: (dropzoneNodes: Node<{ edge: Edge }>[]) => ({ dropzoneNodes }),
         setNodesRaw: (nodes: Node<HogFlowAction>[]) => ({ nodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
-        setSelectedNode: (selectedNode: Node<HogFlowAction> | null) => ({ selectedNode }),
+        setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
@@ -74,10 +74,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setEdges: (_, { edges }) => edges,
             },
         ],
-        selectedNode: [
-            null as Node<HogFlowAction> | null,
+        selectedNodeId: [
+            null as string | null,
             {
-                setSelectedNode: (_, { selectedNode }) => selectedNode,
+                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
 
@@ -96,7 +96,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
     })),
 
-    selectors({}),
+    selectors({
+        selectedNode: [
+            (s) => [s.nodes, s.selectedNodeId],
+            (nodes, selectedNodeId) => {
+                return nodes.find((node) => node.id === selectedNodeId) ?? null
+            },
+        ],
+    }),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))
@@ -141,6 +148,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 actions.setNodes(nodes)
                 actions.setEdges(edges)
+
+                console.log('RESET TO', {
+                    nodes,
+                    edges,
+                })
             } catch (error) {
                 console.error('Error resetting flow from hog flow', error)
                 lemonToast.error('Error updating workflow')
@@ -153,8 +165,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setNodesRaw(formattedNodes)
         },
         onNodesDelete: ({ deleted }) => {
-            if (deleted.some((node) => node.id === values.selectedNode?.id)) {
-                actions.setSelectedNode(undefined)
+            if (deleted.some((node) => node.id === values.selectedNodeId)) {
+                actions.setSelectedNodeId(null)
             }
 
             const deletedNodeIds = deleted.map((node) => node.id)
