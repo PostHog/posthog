@@ -102,6 +102,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     async def _fetch_session_data(inputs: SingleSessionSummaryInputs) -> None | Exception:
         """
         Fetch and handle the session data for a single session to avoid one activity failing the whole group.
+        The data is stored in Redis to avoid hitting Temporal memory limits, so activity returns nothing if successful.
         """
         try:
             # TODO: Instead of getting session data from DB one by one, we can optimize it by getting multiple sessions in one call
