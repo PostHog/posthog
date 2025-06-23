@@ -22,7 +22,7 @@ def mock_single_session_summary_inputs(
     ) -> SingleSessionSummaryInputs:
         return SingleSessionSummaryInputs(
             session_id=session_id,
-            user_pk=mock_user.pk,
+            user_id=mock_user.id,
             team_id=mock_team.id,
             redis_input_key=redis_input_key,
             redis_output_key=redis_output_key,
@@ -44,7 +44,7 @@ def mock_single_session_summary_llm_inputs(
     def _create_inputs(session_id: str) -> SingleSessionSummaryLlmInputs:
         return SingleSessionSummaryLlmInputs(
             session_id=session_id,
-            user_pk=mock_user.pk,
+            user_id=mock_user.id,
             summary_prompt="Generate a summary for this session",
             system_prompt="You are a helpful assistant that summarizes user sessions",
             simplified_events_mapping=mock_events_mapping,
@@ -70,7 +70,7 @@ def mock_session_group_summary_inputs(
     ) -> SessionGroupSummaryInputs:
         return SessionGroupSummaryInputs(
             session_ids=session_ids,
-            user_pk=mock_user.pk,
+            user_id=mock_user.id,
             team_id=mock_team.id,
             redis_input_key_base=redis_input_key_base,
         )

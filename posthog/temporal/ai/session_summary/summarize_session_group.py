@@ -34,7 +34,7 @@ class SessionGroupSummaryInputs:
     """Workflow input to get summary for a group of sessions"""
 
     session_ids: list[str]
-    user_pk: int
+    user_id: int
     team_id: int
     redis_input_key_base: str
     extra_summary_context: ExtraSummaryContext | None = None
@@ -45,7 +45,7 @@ class SessionGroupSummaryInputs:
 class SessionGroupSummaryOfSummariesInputs:
     session_ids: list[str]
     session_summaries: list[str]
-    user_pk: int
+    user_id: int
     extra_summary_context: ExtraSummaryContext | None = None
 
 
@@ -60,7 +60,7 @@ async def get_llm_single_session_summary_activity(inputs: SingleSessionSummaryIn
     # Get summary from LLM
     session_summary_str = await get_llm_single_session_summary(
         session_id=llm_input.session_id,
-        user_pk=llm_input.user_pk,
+        user_id=llm_input.user_id,
         # Prompt
         summary_prompt=llm_input.summary_prompt,
         system_prompt=llm_input.system_prompt,
@@ -85,7 +85,7 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     prompt = generate_session_group_summary_prompt(inputs.session_summaries, inputs.extra_summary_context)
     # Get summary from LLM
     summary_of_summaries = await get_llm_session_group_summary(
-        prompt=prompt, user_pk=inputs.user_pk, session_ids=inputs.session_ids
+        prompt=prompt, user_id=inputs.user_id, session_ids=inputs.session_ids
     )
     return summary_of_summaries
 
@@ -127,7 +127,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 redis_input_key = f"{inputs.redis_input_key_base}:{session_id}"
                 single_session_input = SingleSessionSummaryInputs(
                     session_id=session_id,
-                    user_pk=inputs.user_pk,
+                    user_id=inputs.user_id,
                     team_id=inputs.team_id,
                     redis_input_key=redis_input_key,
                     extra_summary_context=inputs.extra_summary_context,
@@ -141,7 +141,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
                     f"Session data fetch failed for group summary for session {session_id} "
-                    f"in team {inputs.team_id} for user {inputs.user_pk}: {res}"
+                    f"in team {inputs.team_id} for user {inputs.user_id}: {res}"
                 )
             else:
                 # Store only successful fetches
@@ -150,7 +150,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         if len(session_inputs) < len(inputs.session_ids) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
             exception_message = (
                 f"Too many sessions failed to fetch data from DB, when summarizing {len(inputs.session_ids)} "
-                f"sessions ({inputs.session_ids}) for user {inputs.user_pk} in team {inputs.team_id}"
+                f"sessions ({inputs.session_ids}) for user {inputs.user_id} in team {inputs.team_id}"
             )
             temporalio.workflow.logger.error(exception_message)
             raise ApplicationError(exception_message)
@@ -191,7 +191,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
                     f"Session summary failed for group summary for session {session_id} "
-                    f"for user {inputs[0].user_pk} in team {inputs[0].team_id}: {res}"
+                    f"for user {inputs[0].user_id} in team {inputs[0].team_id}: {res}"
                 )
             else:
                 summaries[session_id] = res
@@ -201,7 +201,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
                 f"({session_ids}) "
-                f"for user {inputs[0].user_pk} in team {inputs[0].team_id}"
+                f"for user {inputs[0].user_id} in team {inputs[0].team_id}"
             )
             temporalio.workflow.logger.error(exception_message)
             raise ApplicationError(exception_message)
@@ -216,7 +216,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 session_ids=inputs.session_ids,
                 session_summaries=list(summaries.values()),
-                user_pk=inputs.user_pk,
+                user_id=inputs.user_id,
                 extra_summary_context=inputs.extra_summary_context,
             ),
             start_to_close_timeout=timedelta(minutes=10),
@@ -241,7 +241,7 @@ async def _execute_workflow(inputs: SessionGroupSummaryInputs, workflow_id: str)
 
 def execute_summarize_session_group(
     session_ids: list[str],
-    user_pk: int,
+    user_id: int,
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
@@ -252,16 +252,16 @@ def execute_summarize_session_group(
     # Use shared identifier to be able to construct all the ids to check/debug
     shared_id = uuid.uuid4()
     # Prepare the input data
-    redis_input_key_base = f"session-summary:group:get-input:{user_pk}-{team.id}:{shared_id}"
+    redis_input_key_base = f"session-summary:group:get-input:{user_id}-{team.id}:{shared_id}"
     session_group_input = SessionGroupSummaryInputs(
         session_ids=session_ids,
-        user_pk=user_pk,
+        user_id=user_id,
         team_id=team.id,
         redis_input_key_base=redis_input_key_base,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )
     # Connect to Temporal and execute the workflow
-    workflow_id = f"session-summary:group:{user_pk}-{team.id}:{shared_id}"
+    workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}"
     result = asyncio.run(_execute_workflow(inputs=session_group_input, workflow_id=workflow_id))
     return result

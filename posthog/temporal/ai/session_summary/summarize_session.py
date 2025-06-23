@@ -51,7 +51,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     # Stream summary from the LLM stream
     session_summary_generator = stream_llm_single_session_summary(
         session_id=llm_input.session_id,
-        user_pk=llm_input.user_pk,
+        user_id=llm_input.user_id,
         # Prompt
         summary_prompt=llm_input.summary_prompt,
         system_prompt=llm_input.system_prompt,
@@ -149,7 +149,7 @@ async def _check_handle_data(handle: WorkflowHandle) -> tuple[WorkflowExecutionS
 
 def execute_summarize_session_stream(
     session_id: str,
-    user_pk: int,
+    user_id: int,
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
@@ -161,11 +161,11 @@ def execute_summarize_session_stream(
     shared_id = uuid.uuid4()
     # Prepare the input data
     redis_client = get_client()
-    redis_input_key = f"session-summary:single:stream-input:{session_id}:{user_pk}-{team.id}:{shared_id}"
-    redis_output_key = f"session-summary:single:stream-output:{session_id}:{user_pk}-{team.id}:{shared_id}"
+    redis_input_key = f"session-summary:single:stream-input:{session_id}:{user_id}-{team.id}:{shared_id}"
+    redis_output_key = f"session-summary:single:stream-output:{session_id}:{user_id}-{team.id}:{shared_id}"
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
-        user_pk=user_pk,
+        user_id=user_id,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
@@ -173,7 +173,7 @@ def execute_summarize_session_stream(
         redis_output_key=redis_output_key,
     )
     # Connect to Temporal and start streaming the workflow
-    workflow_id = f"session-summary:single:stream:{session_id}:{user_pk}:{shared_id}"
+    workflow_id = f"session-summary:single:stream:{session_id}:{user_id}:{shared_id}"
     handle = asyncio.run(_start_workflow(inputs=session_input, workflow_id=workflow_id))
     last_summary_state = ""
     while True:

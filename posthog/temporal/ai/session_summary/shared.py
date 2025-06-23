@@ -23,7 +23,7 @@ class SingleSessionSummaryInputs:
     """Workflow input to get summary for a single session"""
 
     session_id: str
-    user_pk: int
+    user_id: int
     team_id: int
     redis_input_key: str
     redis_output_key: str | None = None
@@ -36,7 +36,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
     """Fetch data from DB for a single session and store in Redis (to avoid hitting Temporal memory limits), return Redis key"""
     summary_data = await prepare_data_for_single_session_summary(
         session_id=inputs.session_id,
-        user_pk=inputs.user_pk,
+        user_id=inputs.user_id,
         team_id=inputs.team_id,
         extra_summary_context=inputs.extra_summary_context,
         local_reads_prod=inputs.local_reads_prod,
@@ -44,14 +44,14 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
     if summary_data.error_msg is not None:
         # If we weren't able to collect the required data - retry
         logger.exception(
-            f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_pk}): {summary_data.error_msg}",
+            f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
             session_id=inputs.session_id,
-            user_pk=inputs.user_pk,
+            user_id=inputs.user_id,
         )
         raise ExceptionToRetry()
     input_data = prepare_single_session_summary_input(
         session_id=inputs.session_id,
-        user_pk=inputs.user_pk,
+        user_id=inputs.user_id,
         summary_data=summary_data,
     )
     # Connect to Redis and prepare the input

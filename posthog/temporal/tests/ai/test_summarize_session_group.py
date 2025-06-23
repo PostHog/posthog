@@ -104,7 +104,7 @@ async def test_get_llm_session_group_summary_activity_standalone(
     activity_input = SessionGroupSummaryOfSummariesInputs(
         session_ids=session_ids,
         session_summaries=session_summaries,
-        user_pk=mock_user.pk,
+        user_id=mock_user.id,
     )
     expected_summary_of_summaries = "everything is good"
     # Spy on the prompt generator to ensure it was called with the correct arguments
@@ -231,7 +231,7 @@ class TestSummarizeSessionGroupWorkflow:
             new=AsyncMock(return_value=expected_summary),
         ):
             # Wait for workflow to complete and get result
-            result = execute_summarize_session_group(session_ids=session_ids, user_pk=mock_user.pk, team=mock_team)
+            result = execute_summarize_session_group(session_ids=session_ids, user_id=mock_user.id, team=mock_team)
             assert result == expected_summary
 
     @pytest.mark.asyncio

@@ -118,7 +118,7 @@ class TestFetchSessionDataActivity:
                 redis_test_setup.redis_client, input_data.redis_input_key
             )
             assert decompressed_data.session_id == session_id
-            assert decompressed_data.user_pk == input_data.user_pk
+            assert decompressed_data.user_id == input_data.user_id
 
     @pytest.mark.asyncio
     async def test_fetch_session_data_activity_no_events_raises_error(
@@ -273,7 +273,7 @@ class TestSummarizeSingleSessionWorkflow:
         session_id = "test_session_id"
         sample_session_summary_data = SingleSessionSummaryData(
             session_id=session_id,
-            user_pk=mock_user.pk,
+            user_id=mock_user.id,
             prompt_data=True,  # type: ignore
             prompt=True,  # type: ignore
             error_msg=None,
@@ -338,7 +338,7 @@ class TestSummarizeSingleSessionWorkflow:
             result = list(
                 execute_summarize_session_stream(
                     session_id=session_id,
-                    user_pk=mock_user.pk,
+                    user_id=mock_user.id,
                     team=mock_team,
                     extra_summary_context=None,
                     local_reads_prod=False,

@@ -47,7 +47,7 @@ class SessionSummaryPrompt:
 @dataclass(frozen=True)
 class SingleSessionSummaryData:
     session_id: str
-    user_pk: int
+    user_id: int
     prompt_data: _SessionSummaryPromptData | None
     prompt: SessionSummaryPrompt | None
     error_msg: str | None = None
@@ -58,7 +58,7 @@ class SingleSessionSummaryLlmInputs:
     """Data required to LLM-generate a summary for a single session"""
 
     session_id: str
-    user_pk: int
+    user_id: int
     summary_prompt: str
     system_prompt: str
     simplified_events_mapping: dict[str, list[str | int | None | list[str]]]
@@ -183,7 +183,7 @@ def generate_single_session_summary_prompt(
 
 async def prepare_data_for_single_session_summary(
     session_id: str,
-    user_pk: int,
+    user_id: int,
     team_id: int,
     extra_summary_context: ExtraSummaryContext | None,
     local_reads_prod: bool = False,
@@ -199,7 +199,7 @@ async def prepare_data_for_single_session_summary(
         # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
         return SingleSessionSummaryData(
             session_id=session_id,
-            user_pk=user_pk,
+            user_id=user_id,
             prompt_data=None,
             prompt=None,
             error_msg="No events found for this replay yet. Please try again in a few minutes.",
@@ -218,7 +218,7 @@ async def prepare_data_for_single_session_summary(
         window_mapping_reversed=prompt_data.window_mapping_reversed,
         extra_summary_context=extra_summary_context,
     )
-    return SingleSessionSummaryData(session_id=session_id, user_pk=user_pk, prompt_data=prompt_data, prompt=prompt)
+    return SingleSessionSummaryData(session_id=session_id, user_id=user_id, prompt_data=prompt_data, prompt=prompt)
 
     # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
     # with timer("openai_completion"):
@@ -227,7 +227,7 @@ async def prepare_data_for_single_session_summary(
 
 def prepare_single_session_summary_input(
     session_id: str,
-    user_pk: int,
+    user_id: int,
     summary_data: SingleSessionSummaryData,
 ) -> SingleSessionSummaryLlmInputs:
     # Checking here instead of in the preparation function to keep mypy happy
@@ -242,7 +242,7 @@ def prepare_single_session_summary_input(
     # Prepare the input
     input_data = SingleSessionSummaryLlmInputs(
         session_id=session_id,
-        user_pk=user_pk,
+        user_id=user_id,
         summary_prompt=summary_data.prompt.summary_prompt,
         system_prompt=summary_data.prompt.system_prompt,
         simplified_events_mapping=summary_data.prompt_data.simplified_events_mapping,

@@ -98,11 +98,11 @@ def _convert_llm_content_to_session_summary_json_str(
     return json.dumps(session_summary.data)
 
 
-async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_pk: int, session_ids: list[str]) -> str:
+async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_id: int, session_ids: list[str]) -> str:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
         input_prompt=prompt.summary_prompt,
-        user_key=user_pk,
+        user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
     )
@@ -117,7 +117,7 @@ async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_pk: i
 
 async def get_llm_single_session_summary(
     summary_prompt: str,
-    user_pk: int,
+    user_id: int,
     allowed_event_ids: list[str],
     session_id: str,
     simplified_events_mapping: dict[str, list[Any]],
@@ -130,7 +130,7 @@ async def get_llm_single_session_summary(
 ) -> str:
     try:
         result = await call_llm(
-            input_prompt=summary_prompt, user_key=user_pk, session_id=session_id, system_prompt=system_prompt
+            input_prompt=summary_prompt, user_key=user_id, session_id=session_id, system_prompt=system_prompt
         )
         raw_content = _get_raw_content(result, session_id)
         if not raw_content:
@@ -160,22 +160,22 @@ async def get_llm_single_session_summary(
         logger.exception(
             f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (get): {err}",
             session_id=session_id,
-            user_pk=user_pk,
+            user_id=user_id,
         )
         raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
         # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
         logger.exception(
-            f"Error calling LLM for session_id {session_id} by user {user_pk}: {err}",
+            f"Error calling LLM for session_id {session_id} by user {user_id}: {err}",
             session_id=session_id,
-            user_pk=user_pk,
+            user_id=user_id,
         )
         raise ExceptionToRetry() from err
 
 
 async def stream_llm_single_session_summary(
     summary_prompt: str,
-    user_pk: int,
+    user_id: int,
     allowed_event_ids: list[str],
     session_id: str,
     simplified_events_mapping: dict[str, list[Any]],
@@ -191,7 +191,7 @@ async def stream_llm_single_session_summary(
         accumulated_usage = 0
         # TODO: Find a way to time the first chunk and the time of total stream consumption (extend "openai_completion" timer)
         stream = await stream_llm(
-            input_prompt=summary_prompt, user_key=user_pk, session_id=session_id, system_prompt=system_prompt
+            input_prompt=summary_prompt, user_key=user_id, session_id=session_id, system_prompt=system_prompt
         )
         async for chunk in stream:
             # TODO: Check if the usage is accumulated by itself or do we need to do it manually
@@ -228,15 +228,15 @@ async def stream_llm_single_session_summary(
                 logger.exception(
                     f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (stream): {err}",
                     session_id=session_id,
-                    user_pk=user_pk,
+                    user_id=user_id,
                 )
                 raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
         # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
         logger.exception(
-            f"Error streaming LLM for session_id {session_id} by user {user_pk}: {err}",
+            f"Error streaming LLM for session_id {session_id} by user {user_id}: {err}",
             session_id=session_id,
-            user_pk=user_pk,
+            user_id=user_id,
         )
         raise ExceptionToRetry() from err
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
@@ -260,7 +260,7 @@ async def stream_llm_single_session_summary(
             logger.exception(
                 f"Final LLM content validation failed for session_id {session_id}",
                 session_id=session_id,
-                user_pk=user_pk,
+                user_id=user_id,
             )
             raise ValueError("Final content validation failed")
 
@@ -271,7 +271,7 @@ async def stream_llm_single_session_summary(
         logger.exception(
             f"Failed to validate final LLM content for session_id {session_id}: {str(err)}",
             session_id=session_id,
-            user_pk=user_pk,
+            user_id=user_id,
         )
         raise ExceptionToRetry() from err
 
