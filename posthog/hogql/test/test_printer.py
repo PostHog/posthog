@@ -16,6 +16,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.models.team.team import WeekStartDay
@@ -2356,4 +2357,19 @@ class TestPrinter(BaseTest):
         )
         assert (
             printed == "SELECT num AS num FROM (SELECT 1 AS num UNION ALL SELECT 2 AS num) LIMIT 2 FORMAT ArrowStream"
+        )
+
+    def test_print_hogql_in_cohort(self):
+        Cohort.objects.create(team=self.team, name="some fake cohort", created_by=self.user)
+        query = parse_select(
+            "select event from events where event = 'purchase' and person_id in cohort 'some fake cohort'"
+        )
+        printed = print_prepared_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="hogql",
+        )
+        assert (
+            printed
+            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id IN COHORT 'some fake cohort') LIMIT 50000"
         )
