@@ -90,4 +90,4 @@ class EmailMultiRecordHandler:
 class EmailValidationHelper:
     @staticmethod
     def user_exists(email: str) -> bool:
-        return EmailLookupHandler.get_user_by_email(email, is_active=None) is not None
+        return EmailLookupHandler.get_user_by_email(email) is not None

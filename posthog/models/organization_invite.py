@@ -10,6 +10,7 @@ from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.rbac.access_control import AccessControl
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
+from posthog.helpers.email_utils import EmailValidationHelper, EmailNormalizer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel, sane_repr
@@ -80,11 +81,11 @@ class OrganizationInvite(UUIDModel):
         invite_email: Optional[str] = None,
         request_path: Optional[str] = None,
     ) -> None:
-        from .user import User
-
         _email = email or getattr(user, "email", None)
 
-        if _email and _email != self.target_email:
+        if _email and EmailNormalizer.normalize_case_insensitive(_email) != EmailNormalizer.normalize_case_insensitive(
+            self.target_email
+        ):
             raise exceptions.ValidationError(
                 "This invite is intended for another email address.",
                 code="invalid_recipient",
@@ -93,7 +94,7 @@ class OrganizationInvite(UUIDModel):
         if self.is_expired():
             raise InviteExpiredException()
 
-        if user is None and User.objects.filter(email=invite_email).exists():
+        if user is None and EmailValidationHelper.user_exists(invite_email):
             raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
@@ -103,7 +104,7 @@ class OrganizationInvite(UUIDModel):
             )
 
         if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email
+            organization=self.organization, user__email__iexact=self.target_email
         ).exists():
             raise exceptions.ValidationError(
                 "Another user with this email address already belongs to this organization.",
