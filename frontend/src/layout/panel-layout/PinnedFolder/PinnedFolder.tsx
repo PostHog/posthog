@@ -73,10 +73,8 @@ export function PinnedFolder(): JSX.Element {
             {!isLayoutNavCollapsed &&
                 (showDefaultHeader ? (
                     <div className="flex justify-between items-center pl-3 pr-1 -mt-[3px] relative">
-                        <div className="flex items-center gap-1 pl-2">
-                            <span className="text-xs font-semibold text-tertiary uppercase">
-                                {formatUrlAsName(pinnedFolder)}
-                            </span>
+                        <div className="flex items-center gap-1">
+                            <span className="text-xs font-semibold text-tertiary">{formatUrlAsName(pinnedFolder)}</span>
                         </div>
                         <div className="flex items-center gap-px">
                             {pinnedFolder === 'shortcuts://' ? (
