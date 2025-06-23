@@ -67,7 +67,7 @@ class JSONLStreamTransformer:
         self.compression = compression
         self.max_workers = max_workers
 
-        self._futures_pending = set()
+        self._futures_pending: set[asyncio.Future[list[bytes]]] = set()
         self._semaphore = asyncio.Semaphore(max_workers)
 
     async def iter(
@@ -156,7 +156,7 @@ class JSONLBrotliStreamTransformer:
         self.include_inserted_at = include_inserted_at
         self.max_workers = max_workers
 
-        self._futures_pending = set()
+        self._futures_pending: set[asyncio.Future[list[bytes]]] = set()
         self._semaphore = asyncio.Semaphore(max_workers)
         self._brotli_compressor = brotli.Compressor()
 
