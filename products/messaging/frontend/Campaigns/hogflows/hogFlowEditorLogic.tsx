@@ -11,6 +11,7 @@ import {
 import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { uuid } from 'lib/utils'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
@@ -18,7 +19,6 @@ import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { getDefaultEdgeOptions } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { ToolbarNode } from './HogFlowEditorToolbar'
-import { HogFlowActionManager } from './steps/hogFlowActionManager'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import type { HogFlow, HogFlowAction } from './types'
 
@@ -240,8 +240,30 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             if (values.newDraggingNode && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
+                const step = getHogFlowStep(values.newDraggingNode.type)
 
-                const newNode = HogFlowActionManager.fromToolbarNode(values.newDraggingNode, edgeToInsertNodeInto)
+                if (!step) {
+                    throw new Error(`Step not found for action type: ${values.newDraggingNode.type}`)
+                }
+
+                // TRICKY: Typing is a bit weird here...
+                const newAction: HogFlowAction = {
+                    id: `action_${step.type}_${uuid()}`,
+                    type: step.type,
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
+                    next_actions: {},
+                    ...step.create(edgeToInsertNodeInto),
+                }
+
+                const newNode: Node<HogFlowAction> = {
+                    id: newAction.id,
+                    type: newAction.type,
+                    data: newAction,
+                    position: { x: 0, y: 0 },
+                    handles: step.getHandles(newAction),
+                }
+
                 const edgeSourceNode = values.campaign.actions.find(
                     (action) => action.id === edgeToInsertNodeInto.source
                 )

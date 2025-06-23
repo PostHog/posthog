@@ -28,10 +28,6 @@ export const HogFlowActionManager = {
         return `action_${type}_${uuid()}`
     },
 
-    fromReactFlowNode(node: Node<HogFlowAction>): BaseHogFlowActionNode<HogFlowAction['type']> {
-        return this.fromAction(node.data)
-    },
-
     fromAction(action: HogFlowAction): BaseHogFlowActionNode<HogFlowAction['type']> {
         switch (action.type) {
             case 'trigger':
