@@ -440,7 +440,7 @@ async def materialize_model(
                 mode = "overwrite"
                 schema_mode = "overwrite"
 
-            # Transform high-precision decimal columns
+            # Filter to downcast high-precision decimal columns
             batch = _transform_unsupported_decimals(batch, logger)
 
             await logger.adebug(

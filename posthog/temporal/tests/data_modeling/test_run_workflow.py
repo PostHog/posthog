@@ -935,6 +935,7 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
 
 
+# This test is was used to recreate the Decimal256 handling error, it is disabled because the bug is resolved
 @pytest.mark.skip(reason="Decimal256 handling is implemented, if it's removed this test will pass")
 async def test_materialize_model_with_decimal256_error(ateam, bucket_name, minio_client):
     """Test that materialize_model properly handles Decimal256 type errors from ClickHouse."""
@@ -960,10 +961,8 @@ async def test_materialize_model_with_decimal256_error(ateam, bucket_name, minio
             type=high_precision_decimal_type,
         )
 
-        # Create a table with the problematic decimal column
         table = pa.table({"test_column": problematic_data, "regular_column": pa.array([1, 2, 3], type=pa.int64())})
 
-        # Async generator that yields the problematic table
         async def async_generator():
             yield table
 
@@ -985,7 +984,6 @@ async def test_materialize_model_with_decimal256_error(ateam, bucket_name, minio
             workflow_id="test_workflow",
         )
 
-        # This should raise a CannotCoerceColumnException due to the Decimal256 type
         with pytest.raises(CannotCoerceColumnException) as exc_info:
             await materialize_model(
                 saved_query.id.hex,
@@ -996,11 +994,9 @@ async def test_materialize_model_with_decimal256_error(ateam, bucket_name, minio
                 unittest.mock.AsyncMock(),
             )
 
-        # Verify the error message contains the expected text
         assert "Data type not supported in model" in str(exc_info.value)
         assert "Decimal256" in str(exc_info.value)
 
-        # Verify the job was marked as failed
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.FAILED
         assert "Decimal256" in job.error
@@ -1024,10 +1020,8 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             type=high_precision_decimal_type,
         )
 
-        # Create a table with the problematic decimal column
         table = pa.table({"high_precision_decimal": problematic_data, "regular_column": pa.array([1], type=pa.int64())})
 
-        # Async generator that yields the problematic table
         async def async_generator():
             yield table
 
@@ -1049,7 +1043,6 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             workflow_id="test_workflow",
         )
 
-        # This should succeed now that we have the transformation in place
         key, delta_table, job_id = await materialize_model(
             saved_query.id.hex,
             ateam,
@@ -1059,20 +1052,16 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             unittest.mock.AsyncMock(),
         )
 
-        # Verify the table was created successfully
         assert key == saved_query.normalized_name
 
-        # Check that the high-precision decimal was converted to double
         table = delta_table.to_pyarrow_table()
         assert table.num_rows == 1
         assert "high_precision_decimal" in table.column_names
         assert "regular_column" in table.column_names
 
-        # Verify the decimal column was converted to double (float64)
         high_precision_column = table.column("high_precision_decimal")
         assert pa.types.is_floating(high_precision_column.type)
         assert high_precision_column.type == pa.float64()
 
-        # Verify the job completed successfully
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
