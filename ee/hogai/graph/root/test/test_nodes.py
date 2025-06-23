@@ -628,7 +628,14 @@ class TestRootNodeTools(BaseTest):
             return_value=("Success", {}),
         ):
             result = node.run(
-                state, {"configurable": {"contextual_tools": {"search_session_recordings": {"current_filters": {}}}}}
+                state,
+                {
+                    "configurable": {
+                        "team": self.team,
+                        "user": self.user,
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
+                    }
+                },
             )
 
         self.assertIsInstance(result, PartialAssistantState)
