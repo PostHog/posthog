@@ -1,9 +1,8 @@
 import { IconDecisionTree } from '@posthog/icons'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { Node, Position } from '@xyflow/react'
+import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
-import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'

@@ -1,6 +1,6 @@
 import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
 import { Node } from '@xyflow/react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -46,14 +46,7 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
 
 function StepConditionalBranchNode({ data }: HogFlowStepNodeProps): JSX.Element {
     // TODO: Use node data to render trigger node
-    return (
-        <StepView
-            name={data.name}
-            icon={<IconDecisionTree className="text-green-400" />}
-            selected={false}
-            handles={[]}
-        />
-    )
+    return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
 }
 
 function StepConditionalBranchConfiguration({
@@ -64,7 +57,13 @@ function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
-    const { setCampaignAction } = useActions(hogFlowEditorLogic)
+    const { edgesByActionId } = useValues(hogFlowEditorLogic)
+    const { setCampaignAction, setCampaignEdges } = useActions(hogFlowEditorLogic)
+
+    const edges = edgesByActionId[action.id]
+    const branchEdges = edges.filter((edge) => edge.type === 'branch' && edge.from === action.id)
+
+    console.log({ branchEdges })
 
     const setConditions = (
         conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
@@ -77,6 +76,27 @@ function StepConditionalBranchConfiguration({
             ...action,
             config: { ...action.config, conditions },
         })
+    }
+
+    const addCondition = (): void => {
+        const continueEdge = edges.find((edge) => edge.type === 'continue' && edge.from === action.id)
+        if (!continueEdge) {
+            throw new Error('Continue edge not found')
+        }
+
+        setConditions([
+            ...conditions,
+            { filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events' }] } },
+        ])
+        setCampaignEdges([
+            ...edges,
+            {
+                from: action.id,
+                to: continueEdge.to,
+                type: 'branch',
+                index: conditions.length,
+            },
+        ])
     }
 
     return (
@@ -131,27 +151,7 @@ function StepConditionalBranchConfiguration({
                 </div>
             ))}
 
-            <LemonButton
-                type="secondary"
-                icon={<IconPlus />}
-                onClick={() => {
-                    setConditions([
-                        ...conditions,
-                        {
-                            filters: {
-                                events: [
-                                    {
-                                        id: '$pageview',
-                                        name: '$pageview',
-                                        type: 'events',
-                                    },
-                                ],
-                            },
-                        },
-                    ])
-                }}
-            >
-                {' '}
+            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()}>
                 Add condition
             </LemonButton>
         </>

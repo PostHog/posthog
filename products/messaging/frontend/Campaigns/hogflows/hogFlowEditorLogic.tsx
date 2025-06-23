@@ -16,7 +16,7 @@ import { uuid } from 'lib/utils'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
-import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
+import { LEFT_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, RIGHT_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { ToolbarNode } from './HogFlowEditorToolbar'
 import { getHogFlowStep } from './steps/HogFlowSteps'
@@ -31,7 +31,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
         values: [campaignLogic(props), ['campaign']],
-        actions: [campaignLogic(props), ['setCampaignValues', 'setCampaignActionConfig', 'setCampaignAction']],
+        actions: [
+            campaignLogic(props),
+            ['setCampaignValues', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignEdges'],
+        ],
     })),
     actions({
         onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
@@ -115,6 +118,25 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
             },
         ],
+
+        edgesByActionId: [
+            (s) => [s.campaign],
+            (campaign) => {
+                return campaign.edges.reduce((acc, edge) => {
+                    if (!acc[edge.from]) {
+                        acc[edge.from] = []
+                    }
+                    acc[edge.from].push(edge)
+
+                    if (!acc[edge.to]) {
+                        acc[edge.to] = []
+                    }
+                    acc[edge.to].push(edge)
+
+                    return acc
+                }, {} as Record<string, Edge[]>)
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
@@ -147,29 +169,29 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         edge.type === 'continue' ? `continue_${edge.from}` : `branch_${edge.from}_${edge.index}`,
                 }))
 
-                const handlesByNodeId: Record<string, StepViewNodeHandle[]> = {}
+                const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
 
                 edges.forEach((edge) => {
-                    if (!handlesByNodeId[edge.source]) {
-                        handlesByNodeId[edge.source] = []
+                    if (!handlesByIdByNodeId[edge.source]) {
+                        handlesByIdByNodeId[edge.source] = {}
                     }
-                    if (!handlesByNodeId[edge.target]) {
-                        handlesByNodeId[edge.target] = []
+                    if (!handlesByIdByNodeId[edge.target]) {
+                        handlesByIdByNodeId[edge.target] = {}
                     }
 
-                    handlesByNodeId[edge.source].push({
+                    handlesByIdByNodeId[edge.source][edge.sourceHandle ?? ''] = {
                         id: edge.sourceHandle,
                         type: 'source',
-                        position: Position.Bottom,
-                        ...BOTTOM_HANDLE_POSITION,
-                    })
+                        position: edge.sourceHandle?.includes('continue') ? Position.Right : Position.Left,
+                        ...(edge.sourceHandle?.includes('continue') ? RIGHT_HANDLE_POSITION : LEFT_HANDLE_POSITION),
+                    }
 
-                    handlesByNodeId[edge.target].push({
+                    handlesByIdByNodeId[edge.target][edge.targetHandle ?? ''] = {
                         id: edge.targetHandle,
                         type: 'target',
                         position: Position.Top,
                         ...TOP_HANDLE_POSITION,
-                    })
+                    }
                 })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
@@ -184,7 +206,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         type: action.type,
                         data: action,
                         position: { x: 0, y: 0 },
-                        handles: handlesByNodeId[action.id],
+                        handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
                         deletable: !['trigger', 'exit'].includes(action.type),
                         selectable: true,
                         draggable: false,
@@ -343,15 +365,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     to: newAction.id,
                 })
 
-                // for (let i = 0; i < branchEdges; i++) {
-                //     // Add in branching edges
-                //     newEdges.push({
-                //         ...edgeToBeReplaced,
-                //         index: i,
-                //         type: 'branch',
-                //         from: newAction.id,
-                //     })
-                // }
+                for (let i = 0; i < branchEdges; i++) {
+                    // Add in branching edges
+                    newEdges.push({
+                        ...edgeToBeReplaced,
+                        index: i,
+                        type: 'branch',
+                        from: newAction.id,
+                    })
+                }
 
                 console.log('Edges after', [...newEdges])
 
