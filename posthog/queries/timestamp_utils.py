@@ -43,18 +43,18 @@ def get_earliest_timestamp_from_series(
     :param series: A list of series nodes which can be EventsNode, ActionsNode, or DataWarehouseNode.
     :return: The earliest timestamp as a datetime object.
     """
-    earliest_timestamps = [
-        _get_earliest_timestamp_from_data_warehouse(team=team, node=series_node)
-        for series_node in series
-        if isinstance(series_node, DataWarehouseNode)
-    ]
-
-    has_other_nodes = any(isinstance(series_node, EventsNode | ActionsNode) for series_node in series)
-    if has_other_nodes:
-        earliest_timestamps.append(get_earliest_timestamp(team_id=team.pk))
+    earliest_timestamps = []
+    included_events_ts = False
+    for series_node in series:
+        if isinstance(series_node, DataWarehouseNode):
+            ts = _get_earliest_timestamp_from_data_warehouse(team, series_node)
+            if ts:
+                earliest_timestamps.append(ts)
+        elif isinstance(series_node, EventsNode | ActionsNode) and not included_events_ts:
+            earliest_timestamps.append(get_earliest_timestamp(team_id=team.pk))
+            included_events_ts = True
 
     timestamp = min(earliest_timestamps)
-
     if not timestamp:
         # default to the earliest timestamp from the events table
         return get_earliest_timestamp(team_id=team.pk)
