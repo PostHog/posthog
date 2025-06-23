@@ -337,7 +337,7 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
-        let flag_service = FlagService::new(redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(redis_client.clone(), redis_client.clone(), pg_client.clone());
 
         match flag_service.verify_token(&token).await {
             Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
@@ -359,7 +359,7 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
-        let flag_service = FlagService::new(redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(redis_client.clone(), redis_client.clone(), pg_client.clone());
         assert!(matches!(
             flag_service.verify_token(&result).await,
             Err(FlagError::TokenValidationError)
