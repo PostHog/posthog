@@ -197,7 +197,7 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
-    throttle_classes = [SignupIPThrottle]
+    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
 
 
 class InviteSignupSerializer(serializers.Serializer):
