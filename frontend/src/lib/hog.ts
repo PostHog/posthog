@@ -23,14 +23,14 @@ const external = {
 export function execHog(code: any[] | VMState, options?: ExecOptions): ExecResult {
     return hogExec(code, {
         external,
-        ...(options ?? {}),
+        ...options,
     })
 }
 
 export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Promise<ExecResult> {
     return hogExecAsync(code, {
         external,
-        ...(options ?? {}),
+        ...options,
         asyncFunctions: {
             sleep: (seconds: number) => {
                 return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
@@ -58,7 +58,7 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             posthogCapture: () => {
                 throw new Error('posthogCapture is not yet supported here')
             },
-            ...(options?.asyncFunctions ?? {}),
+            ...options?.asyncFunctions,
         },
     })
 }

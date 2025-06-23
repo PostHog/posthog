@@ -10,6 +10,7 @@ from posthog.clickhouse.query_tagging import (
     Product,
     get_query_tag_value,
     create_base_tags,
+    TemporalTags,
 )
 import pytest
 from pydantic import ValidationError
@@ -18,6 +19,18 @@ from pydantic import ValidationError
 def test_create_base_tags():
     qt = create_base_tags(container_hostname="my-new-hostname")
     assert qt.container_hostname == "test"
+
+
+def test_with_temporal():
+    qt = create_base_tags()
+    qt.with_temporal(TemporalTags(workflow_type="wt"))
+    assert qt.model_dump(exclude_none=True) == {
+        "container_hostname": "test",
+        "git_commit": "test",
+        "kind": "temporal",
+        "service_name": "test",
+        "temporal": {"workflow_type": "wt"},
+    }
 
 
 def test_simple_query_tags():
