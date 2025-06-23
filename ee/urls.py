@@ -6,7 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
-from ee.api import integration, max_tools
+from ee.api import integration
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
@@ -26,6 +26,7 @@ from .api.rbac import organization_resource_access, role
 
 
 def extend_api_router() -> None:
+    from ee.api import max_tools
     from posthog.api import (
         environment_dashboards_router,
         environments_router,
