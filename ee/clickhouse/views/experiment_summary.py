@@ -1,6 +1,7 @@
 import json
-from typing import Any, cast
+from typing import Any, cast, Optional
 from uuid import uuid4
+from datetime import datetime, timedelta
 
 import structlog
 from django.http import StreamingHttpResponse
@@ -10,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from ee.hogai.assistant import Assistant
 from ee.hogai.utils.types import AssistantMode
@@ -20,7 +22,9 @@ from posthog.models.experiment import Experiment, ExperimentGeneratedSummary
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
-from posthog.schema import HumanMessage
+from posthog.schema import HumanMessage, ExperimentQuery, ExperimentMeanMetric
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from ee.clickhouse.views.experiment_summary_prompt import build_experiment_results_prompt, build_experiment_summary_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +51,66 @@ class ExperimentSummaryViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, Gener
         # Optional: Add custom filtering logic
         return queryset
 
+    def _get_experiment_status(self, experiment: Experiment) -> str:
+        """Get the current status of the experiment"""
+        if not experiment.start_date:
+            return "Draft"
+        elif experiment.end_date and timezone.now() > experiment.end_date:
+            return "Completed"
+        elif experiment.conclusion:
+            return f"Completed ({experiment.conclusion})"
+        else:
+            return "Running"
+
+    def _get_days_running(self, experiment: Experiment) -> int:
+        """Calculate how many days the experiment has been running"""
+        if not experiment.start_date:
+            return 0
+        end_date = experiment.end_date or timezone.now()
+        return (end_date - experiment.start_date).days
+
+    def _get_days_remaining(self, experiment: Experiment) -> Optional[int]:
+        """Calculate how many days are remaining in the experiment"""
+        if not experiment.start_date or not experiment.end_date:
+            return None
+        remaining = (experiment.end_date - timezone.now()).days
+        return max(0, remaining) if remaining > 0 else None
+
+    def _load_experiment_results(self, experiment: Experiment) -> Optional[dict]:
+        """Load cached experiment results for the primary metric"""
+        try:
+            if not experiment.metrics:
+                return None
+
+            # Use the first metric as the primary metric
+            primary_metric = experiment.metrics[0]
+
+            # Create an experiment query
+            experiment_query = ExperimentQuery(
+                experiment_id=experiment.id,
+                metric=ExperimentMeanMetric(**primary_metric)
+            )
+
+            # Create query runner and get cached results
+            query_runner = ExperimentQueryRunner(
+                query=experiment_query,
+                team=self.team,
+                timings=None
+            )
+
+            # Try to get cached results
+            cached_response = query_runner.get_cached_response()
+            if cached_response:
+                return cached_response.model_dump()
+
+            # If no cached results, calculate fresh results
+            response = query_runner.calculate()
+            return response.model_dump()
+
+        except Exception as e:
+            logger.warning("Failed to load experiment results", error=str(e), experiment_id=experiment.id)
+            return None
+
     @action(methods=["POST"], detail=True, url_path="generate_summary", required_scopes=["experiment:write"])
     def generate_summary(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """
@@ -59,13 +123,29 @@ class ExperimentSummaryViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, Gener
         # Get the experiment
         experiment = self.get_object()
 
+        # Load experiment results
+        results = self._load_experiment_results(experiment)
+
+        # Build comprehensive prompt
+        if results:
+            prompt = build_experiment_results_prompt(
+                experiment,
+                results,
+                serializer.validated_data["prompt"]
+            )
+        else:
+            prompt = build_experiment_summary_prompt(
+                experiment,
+                serializer.validated_data["prompt"]
+            )
+
         # Create a conversation (required by Assistant)
         conversation = Conversation.objects.create(
             user=cast(User, request.user), team=self.team, type=Conversation.Type.ASSISTANT
         )
 
         # Create a simple human message with the prompt
-        human_message = HumanMessage(content=serializer.validated_data["prompt"])
+        human_message = HumanMessage(content=prompt)
 
         # Create the Assistant (same as MaxAI)
         assistant = Assistant(
@@ -95,7 +175,7 @@ class ExperimentSummaryViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, Gener
                             try:
                                 data = json.loads(line[6:])  # Remove "data: " prefix
                                 if data.get("type") == "ai" and data.get("content"):
-                                    summary = data["content"]
+                                    summary += data["content"]
                                     logger.debug(
                                         "Extracted content", content=data["content"], summary_length=len(summary)
                                     )
@@ -130,14 +210,16 @@ class ExperimentSummaryViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, Gener
                             experiment_results_snapshot=experiment_snapshot,
                             llm_tokens_used=tokens_used,  # TODO: We need to figure out how to get the tokens used
                             llm_model="gpt-4",  # Default model? We need to figure out what model is used
+                            # created_by=cast(User, request.user)
                         )
+                        logger.info("Successfully saved summary to database", experiment_id=experiment.id)
                     except Exception as db_error:
-                        logger.exception(
-                            "Failed to save summary to database", error=str(db_error), experiment_id=experiment.id
-                        )
+                        logger.error("Failed to save summary to database", error=str(db_error), experiment_id=experiment.id)
+                else:
+                    logger.warning("No summary content to save", experiment_id=experiment.id)
 
             except Exception as e:
-                logger.exception("Error in safe_stream_wrapper", error=str(e), experiment_id=experiment.id)
+                logger.error("Error in safe_stream_wrapper", error=str(e), experiment_id=experiment.id)
                 yield f"data: {json.dumps({'error': 'Failed to generate summary'})}\n\n"
                 yield "data: [DONE]\n\n"
 
