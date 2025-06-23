@@ -43,6 +43,7 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
+from posthog.warehouse.data_load.saved_query_service import delete_saved_query_schedule
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -477,6 +478,12 @@ async def materialize_model(
             raise CannotCoerceColumnException(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
+        elif "Unknown table" in error_message:
+            saved_query.latest_error = f"Table reference no longer exists for model {model_label}"
+            await logger.ainfo("Table reference no longer exists for model %s, reverting materialization", model_label)
+            await revert_materialization(saved_query, logger)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
             error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
@@ -522,6 +529,24 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
+
+
+async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
+    """
+    This stops the temporal workflow for a materialization view. Expected to be used in the case of an
+    unrecoverable error, like a table reference no longer existing.
+    """
+    try:
+        await database_sync_to_async(delete_saved_query_schedule)(str(saved_query.id))
+
+        saved_query.sync_frequency_interval = None
+        saved_query.status = None
+        await database_sync_to_async(saved_query.save)()
+
+        await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
+
+    except Exception as e:
+        await logger.aexception("Failed to revert materialization for saved query %s: %s", saved_query.name, str(e))
 
 
 async def update_table_row_count(
