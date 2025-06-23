@@ -22,7 +22,7 @@ function PopoverPrimitiveContent({
             align={align}
             sideOffset={sideOffset}
             className={cn(
-                'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 outline-hidden',
+                'primitive-menu-content data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 outline-hidden',
                 className
             )}
             {...props}

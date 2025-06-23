@@ -16,8 +16,9 @@ from posthog.hogql import ast
 from posthog.hogql.ast import StringType, Constant
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import (
-    MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
+    LimitContext,
+    get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -66,6 +67,8 @@ from posthog.schema import (
     PropertyGroupsMode,
 )
 from posthog.settings import CLICKHOUSE_DATABASE
+
+CHANNEL_DEFINITION_DICT = f"{CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -330,6 +333,12 @@ class _Printer(Visitor):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
+        is_last_query_in_union = (
+            part_of_select_union
+            and isinstance(self.stack[0], ast.SelectSetQuery)
+            and len(self.stack[0].subsequent_select_queries) > 0
+            and self.stack[0].subsequent_select_queries[-1].select_query == node
+        )
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -439,16 +448,18 @@ class _Printer(Visitor):
 
         limit = node.limit
         if self.context.limit_top_select and is_top_level_query:
+            max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
-                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
+                    limit.value = min(limit.value, max_limit)
                 else:
                     limit = ast.Call(
                         name="min2",
-                        args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit],
+                        args=[ast.Constant(value=max_limit), limit],
                     )
             else:
-                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+                limit = ast.Constant(value=max_limit)
 
         if node.limit_by is not None:
             clauses.append(
@@ -462,7 +473,12 @@ class _Printer(Visitor):
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
 
-        if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
+        if (
+            self.context.output_format
+            and self.dialect == "clickhouse"
+            and is_top_level_query
+            and (not part_of_select_union or is_last_query_in_union)
+        ):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
         if node.settings is not None and self.dialect == "clickhouse":
@@ -516,7 +532,9 @@ class _Printer(Visitor):
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
-                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                    node.next_join
+                    or node.join_type == "JOIN"
+                    or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
             else:
@@ -1303,17 +1321,15 @@ class _Printer(Visitor):
 
             if self.dialect == "clickhouse":
                 if node.name == "hogql_lookupDomainType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidMediumType":
-                    return (
-                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                    )
+                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "hogql_lookupOrganicSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
-                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"

@@ -66,7 +66,7 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: React.ReactElement | string | null | false
     noPadding?: boolean
-    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */

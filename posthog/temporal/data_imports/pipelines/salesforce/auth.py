@@ -4,11 +4,12 @@ from dlt.common.pendulum import pendulum
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 
 
-class SalseforceAuth(BearerTokenAuth):
-    def __init__(self, refresh_token, access_token):
+class SalesforceAuth(BearerTokenAuth):
+    def __init__(self, refresh_token, access_token, instance_url):
         self.parse_native_representation(access_token)
         self.refresh_token = refresh_token
         self.token_expiry: pendulum.DateTime = pendulum.now()
+        self.instance_url = instance_url
 
     def __call__(self, request):
         if self.token is None or self.is_token_expired():
@@ -20,7 +21,7 @@ class SalseforceAuth(BearerTokenAuth):
         return pendulum.now() >= self.token_expiry
 
     def obtain_token(self) -> None:
-        new_token = salesforce_refresh_access_token(self.refresh_token)
+        new_token = salesforce_refresh_access_token(self.refresh_token, self.instance_url)
         self.parse_native_representation(new_token)
         self.token_expiry = pendulum.now().add(hours=1)
 
@@ -59,9 +60,9 @@ class SalesforceAuthRequestError(Exception):
         raise cls(error_message, response=response)
 
 
-def salesforce_refresh_access_token(refresh_token: str) -> str:
+def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> str:
     res = requests.post(
-        "https://login.salesforce.com/services/oauth2/token",
+        f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "refresh_token",
             "client_id": settings.SALESFORCE_CONSUMER_KEY,
@@ -75,9 +76,9 @@ def salesforce_refresh_access_token(refresh_token: str) -> str:
     return res.json()["access_token"]
 
 
-def get_salesforce_access_token_from_code(code: str, redirect_uri: str) -> tuple[str, str]:
+def get_salesforce_access_token_from_code(code: str, redirect_uri: str, instance_url: str) -> tuple[str, str]:
     res = requests.post(
-        "https://login.salesforce.com/services/oauth2/token",
+        f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": settings.SALESFORCE_CONSUMER_KEY,

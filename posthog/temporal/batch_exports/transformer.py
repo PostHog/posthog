@@ -1,4 +1,7 @@
 import abc
+import asyncio
+import collections.abc
+import concurrent.futures
 import gzip
 import json
 import typing
@@ -9,6 +12,7 @@ import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 import structlog
+from django.conf import settings
 
 logger = structlog.get_logger()
 
@@ -67,6 +71,28 @@ class StreamTransformer:
             column_names.pop(column_names.index("_inserted_at"))
 
         yield from self.write_batch(batch.select(column_names))
+
+    async def iter_transformed_record_batches(
+        self, record_batches: collections.abc.AsyncIterator[pa.RecordBatch], max_file_size_bytes: int = 0
+    ) -> collections.abc.AsyncIterator[tuple[bytes, bool]]:
+        """Iterate over record batches transforming them into chunks."""
+        current_file_size = 0
+
+        async for record_batch in record_batches:
+            for chunk in self.transform_batch(record_batch):
+                yield (chunk, False)
+
+                current_file_size += len(chunk)
+
+                if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                    for chunk in self.finalize():
+                        yield (chunk, False)
+
+                    yield (b"", True)
+                    current_file_size = 0
+
+        for chunk in self.finalize():
+            yield (chunk, False)
 
     def finalize(self) -> typing.Generator[bytes, None, None]:
         """Finalize and yield any remaining data"""
@@ -167,6 +193,89 @@ class JSONLStreamTransformer(StreamTransformer):
         compressed_content = self.compress(content)
         yield compressed_content
 
+    async def iter_transformed_record_batches(
+        self, record_batches: collections.abc.AsyncIterator[pa.RecordBatch], max_file_size_bytes: int = 0
+    ) -> collections.abc.AsyncIterator[tuple[bytes, bool]]:
+        """Distribute transformation of record batches into multiple processes.
+
+        This is only supported for non-brotli compressed batch exports, so we
+        default to the parent implementation when using brotli compression.
+
+        The multiprocess pipeline works as follows:
+        1. Start a `ProcessPoolExecutor` with a number of workers to distribute
+           the workload.
+        2. Spawn a producer asyncio task to iterate through record batches,
+           and spawn multiprocessing tasks for the workers.
+        3. We use a `asyncio.Semaphore` to block the producer loop to avoid
+           spawning up too many multiprocessing tasks at a time.
+        4. The consumer main thread waits on futures as they are done, and
+           iterates through chunks.
+        """
+        if self.compression == "brotli":
+            async for t in super().iter_transformed_record_batches(record_batches, max_file_size_bytes):
+                yield t
+            return
+
+        max_workers = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS
+        loop = asyncio.get_running_loop()
+        current_file_size = 0
+        futures_pending = set()
+        semaphore = asyncio.Semaphore(max_workers)
+
+        async def producer(executor: concurrent.futures.ProcessPoolExecutor):
+            nonlocal futures_pending
+
+            async for record_batch in record_batches:
+                _ = await semaphore.acquire()
+
+                future = loop.run_in_executor(executor, transform_record_batch, record_batch, self)
+                futures_pending.add(future)
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            producer_task = asyncio.create_task(producer(executor))
+
+            try:
+                while True:
+                    try:
+                        done, _ = await asyncio.wait(futures_pending, return_when=asyncio.FIRST_COMPLETED)
+                    except ValueError:
+                        if producer_task.done():
+                            if exception := producer_task.exception():
+                                raise exception
+                            else:
+                                break
+
+                        await asyncio.sleep(0)
+                        continue
+
+                    for future in done:
+                        chunks = await future
+                        semaphore.release()
+                        futures_pending.remove(future)
+
+                        for chunk in chunks:
+                            yield (chunk, False)
+
+                            current_file_size += len(chunk)
+
+                            if max_file_size_bytes and current_file_size > max_file_size_bytes:
+                                for chunk in self.finalize():
+                                    yield (chunk, False)
+
+                                yield (b"", True)
+                                current_file_size = 0
+
+                for chunk in self.finalize():
+                    yield (chunk, False)
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
+
+                    try:
+                        await producer_task
+                    except asyncio.CancelledError:
+                        pass
+
 
 class ParquetStreamTransformer(StreamTransformer):
     def __init__(
@@ -192,6 +301,7 @@ class ParquetStreamTransformer(StreamTransformer):
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
+                write_statistics=False,  # Disable statistics to improve performance
             )
         assert self._parquet_writer is not None
         return self._parquet_writer
@@ -223,6 +333,15 @@ class ParquetStreamTransformer(StreamTransformer):
         self._parquet_buffer.truncate(0)
 
         yield data
+
+
+def transform_record_batch(record_batch, transformer: StreamTransformer):
+    """Top level function to run transformers in multiprocessing.
+
+    Record batches are processed in separate processes.
+    """
+    processed = list(transformer.transform_batch(record_batch))
+    return processed
 
 
 # TODO: Implement other transformers

@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { useCallback } from 'react'
 
@@ -59,6 +60,8 @@ export function StacktraceGenericExceptionHeader({
     loading,
     truncate,
 }: StacktraceBaseExceptionHeaderProps): JSX.Element {
+    const isScriptError = value === 'Script error' && runtime === 'web' && type === 'Error'
+
     return (
         <div className="pb-1">
             <div className="flex gap-2 items-center h-6">
@@ -77,7 +80,20 @@ export function StacktraceGenericExceptionHeader({
                     'line-clamp-1': truncate,
                 })}
             >
-                {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value || 'Unknown message'}
+                {loading ? (
+                    <LemonSkeleton className="w-[50%] h-2" />
+                ) : isScriptError ? (
+                    <Tooltip
+                        title="This error occurs when JavaScript errors are caught by the browser but details are hidden due to cross-origin restrictions."
+                        docLink="https://posthog.com/docs/error-tracking/common-questions#what-is-a-script-error-with-no-stack-traces"
+                        placement="right-end"
+                        delayMs={50}
+                    >
+                        <span>{value}</span>
+                    </Tooltip>
+                ) : (
+                    value || 'Unknown message'
+                )}
             </div>
         </div>
     )

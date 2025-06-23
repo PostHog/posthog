@@ -26,17 +26,9 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import {
-    ActorsQuery,
-    DataTableNode,
-    EventsNode,
-    EventsQuery,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
-    AnyPersonScopeFilter,
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
@@ -176,7 +168,6 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
 
     return {
         type: template.type ?? 'destination',
-        kind: template.kind,
         name: template.name,
         description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
@@ -306,15 +297,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         resetToTemplate: true,
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
-        personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
-            ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
         setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
-        sendBroadcast: true,
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
@@ -503,25 +491,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
-        personsCount: [
-            null as number | null,
-            {
-                personsCountQueryChanged: async ({ personsCountQuery }, breakpoint) => {
-                    if (values.type !== 'broadcast') {
-                        return null
-                    }
-                    if (values.personsCount === null) {
-                        await breakpoint(100)
-                    } else {
-                        await breakpoint(1000)
-                    }
-                    const result = await performQuery(personsCountQuery)
-                    breakpoint()
-                    return result?.results?.[0]?.[0] ?? null
-                },
-            },
-        ],
-
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
@@ -596,21 +565,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             },
         ],
-        broadcast: [
-            false,
-            {
-                sendBroadcast: async () => {
-                    const id = values.hogFunction?.id
-                    if (!id) {
-                        lemonToast.error('No broadcast to send')
-                        return false
-                    }
-                    await api.hogFunctions.sendBroadcast(id)
-                    lemonToast.success('Broadcast sent!')
-                    return true
-                },
-            },
-        ],
     })),
     forms(({ values, props, asyncActions }) => ({
         configuration: {
@@ -656,10 +610,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             ? 'Transformations'
                             : type === 'source_webhook'
                             ? 'Sources'
-                            : type === 'broadcast'
-                            ? 'Broadcasts'
-                            : type === 'messaging_campaign'
-                            ? 'Campaigns'
                             : 'Destinations'
                     const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
                     if (typeof folder === 'string') {
@@ -1077,40 +1027,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             { resultEqualityCheck: equal },
         ],
 
-        personsCountQuery: [
-            (s) => [s.configuration, s.type],
-            (configuration, type): ActorsQuery | null => {
-                if (type !== 'broadcast') {
-                    return null
-                }
-                return setLatestVersionsOnQuery({
-                    kind: NodeKind.ActorsQuery,
-                    properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
-                    select: ['count()'],
-                })
-            },
-            { resultEqualityCheck: equal },
-        ],
-
-        personsListQuery: [
-            (s) => [s.configuration, s.type],
-            (configuration, type): DataTableNode | null => {
-                if (type !== 'broadcast') {
-                    return null
-                }
-                return setLatestVersionsOnQuery({
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.ActorsQuery,
-                        properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
-                        select: ['person', 'properties.email', 'created_at'],
-                    },
-                    full: true,
-                })
-            },
-            { resultEqualityCheck: equal },
-        ],
-
         baseEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
             (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
@@ -1428,11 +1344,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: async (sparklineQuery) => {
             if (sparklineQuery) {
                 actions.sparklineQueryChanged(sparklineQuery)
-            }
-        },
-        personsCountQuery: async (personsCountQuery) => {
-            if (personsCountQuery) {
-                actions.personsCountQueryChanged(personsCountQuery)
             }
         },
     })),

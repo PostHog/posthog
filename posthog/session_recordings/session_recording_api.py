@@ -759,7 +759,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "session_id": str(recording.session_id) if recording else None,
                 },
             )
-            breakpoint()
             return Response(
                 {"error": "An unexpected error has occurred. Please try again later."},
                 status=500,

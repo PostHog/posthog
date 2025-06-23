@@ -1,6 +1,6 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
 import { IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import {
@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { NotebookNodeType, ReplayTab, ReplayTabs } from '~/types'
 import { ProductKey } from '~/types'
 
+import { playerSettingsLogic } from './player/playerSettingsLogic'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
@@ -229,7 +230,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-home-tab',
     },
     {
-        label: 'Playlists → Collections',
+        label: 'Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',
@@ -249,28 +250,44 @@ const ReplayPageTabs: ReplayTab[] = [
 
 function PageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { isZenMode } = useValues(playerSettingsLogic)
+    const { setIsZenMode } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <LemonTabs
-            activeKey={tab}
-            onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
-                return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
-                    key: replayTab.key,
-                    tooltip: replayTab.tooltip,
-                    tooltipDocLink: replayTab.tooltipDocLink,
-                    'data-attr': replayTab['data-attr'],
-                }
-            })}
-        />
+        <div className={`${featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && 'flex justify-between items-center'}`}>
+            <LemonTabs
+                activeKey={tab}
+                className="flex"
+                onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
+                tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
+                    return {
+                        label: (
+                            <>
+                                {replayTab.label}
+                                {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
+                                    <LemonBadge className="ml-1" size="small" />
+                                )}
+                            </>
+                        ),
+                        key: replayTab.key,
+                        tooltip: replayTab.tooltip,
+                        tooltipDocLink: replayTab.tooltipDocLink,
+                        'data-attr': replayTab['data-attr'],
+                    }
+                })}
+            />
+            {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && (
+                <div className="flex items-center gap-2">
+                    <LemonSwitch
+                        data-attr="opt-in-cinema-mode-switch"
+                        onChange={setIsZenMode}
+                        checked={isZenMode}
+                        label="Cinema mode"
+                    />
+                </div>
+            )}
+        </div>
     )
 }
 export function SessionsRecordings(): JSX.Element {

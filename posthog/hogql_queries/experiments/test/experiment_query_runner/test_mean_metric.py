@@ -1,13 +1,20 @@
 from typing import cast
+
 from django.test import override_settings
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from freezegun import freeze_time
+
+from posthog.hogql_queries.experiments.experiment_query_runner import (
+    ExperimentQueryRunner,
+)
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
+    ExperimentQueryRunnerBaseTest,
+)
 from posthog.schema import (
     EventsNode,
+    ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentVariantTrendsBaseStats,
-    ExperimentMeanMetric,
     LegacyExperimentQueryResponse,
 )
 from posthog.test.base import (
@@ -15,7 +22,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
-from freezegun import freeze_time
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -25,7 +31,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     def test_property_sum_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -71,7 +76,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     def test_outlier_handling_for_sum_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -166,7 +170,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     def test_outlier_handling_for_count_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -263,7 +266,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     def test_unique_sessions_math_type(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -356,7 +358,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     def test_property_max_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -437,7 +438,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     def test_property_min_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -518,7 +518,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     def test_property_avg_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
