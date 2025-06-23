@@ -78,7 +78,7 @@ const ResultsTab = (): JSX.Element => {
             {/**
              *  check if we should render the legacy metrics view or the new one
              */}
-            {legacyMetricResults.length > 0 ? (
+            {legacyPrimaryMetricsResults.length > 0 ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
                     {/**
