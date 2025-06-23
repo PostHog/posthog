@@ -3200,7 +3200,10 @@ export interface WebAnalyticsExternalSummaryQueryResponse {
 }
 
 export interface WebAnalyticsExternalSummaryQuery
-    extends Pick<WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>, 'dateRange' | 'properties'> {
+    extends Pick<
+        WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
+        'dateRange' | 'properties' | 'version'
+    > {
     kind: NodeKind.WebAnalyticsExternalSummaryQuery
     dateRange: DateRange
     properties: WebAnalyticsPropertyFilters

@@ -8601,6 +8601,7 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebAnalyticsExternalSummaryQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebExternalClicksTableQuery(BaseModel):

@@ -20729,6 +20729,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["dateRange", "kind", "properties"],
