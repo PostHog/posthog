@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
