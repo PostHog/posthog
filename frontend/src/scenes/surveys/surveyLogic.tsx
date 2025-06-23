@@ -409,7 +409,7 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
         if (unparsedPersonProperties && unparsedPersonProperties !== null) {
             try {
                 response.personProperties = JSON.parse(unparsedPersonProperties as string)
-            } catch (e) {
+            } catch {
                 // Ignore parsing errors for person properties as there's no real action here
                 // It just means we won't show the person properties in the question visualization
             }
