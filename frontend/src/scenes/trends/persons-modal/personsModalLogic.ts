@@ -22,7 +22,6 @@ import {
     insightActorsQueryOptionsResponseKeys,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActorType,
     BreakdownType,
@@ -101,16 +100,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     }
                     if (values.actorsQuery) {
-                        const response = await performQuery(
-                            setLatestVersionsOnQuery(
-                                {
-                                    ...values.actorsQuery,
-                                    limit: offset ? offset * 2 : RESULTS_PER_PAGE,
-                                    offset,
-                                },
-                                { recursion: false }
-                            ) as ActorsQuery
-                        )
+                        const response = await performQuery({
+                            ...values.actorsQuery,
+                            limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                            offset,
+                        } as ActorsQuery)
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
@@ -176,13 +170,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     if (!query) {
                         return values.insightActorsQueryOptions || null
                     }
-                    const optionsQuery: InsightActorsQueryOptions = setLatestVersionsOnQuery(
-                        {
-                            kind: NodeKind.InsightActorsQueryOptions,
-                            source: query,
-                        },
-                        { recursion: false }
-                    )
+                    const optionsQuery: InsightActorsQueryOptions = {
+                        kind: NodeKind.InsightActorsQueryOptions,
+                        source: query,
+                    }
                     const response = await performQuery(optionsQuery, {}, 'blocking')
 
                     return Object.fromEntries(
@@ -348,16 +339,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 if (!query) {
                     return null
                 }
-                return setLatestVersionsOnQuery(
-                    {
-                        kind: NodeKind.ActorsQuery,
-                        source: query,
-                        select: selectFields,
-                        orderBy: orderBy || [],
-                        search: searchTerm,
-                    },
-                    { recursion: false }
-                )
+                return {
+                    kind: NodeKind.ActorsQuery,
+                    source: query,
+                    select: selectFields,
+                    orderBy: orderBy || [],
+                    search: searchTerm,
+                }
             },
         ],
         exploreUrl: [

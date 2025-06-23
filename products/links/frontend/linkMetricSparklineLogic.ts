@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import type { linkMetricSparklineLogicType } from './linkMetricSparklineLogicType'
@@ -26,7 +25,7 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
             null as SparklineDataResponse | null,
             {
                 loadSparklineData: async () => {
-                    const query: TrendsQuery = setLatestVersionsOnQuery({
+                    const query: TrendsQuery = {
                         kind: NodeKind.TrendsQuery,
                         filterTestAccounts: false,
                         trendsFilter: {
@@ -41,7 +40,7 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                                 name: '$pageview',
                             },
                         ],
-                    })
+                    }
                     const response = await api.query(query)
                     return response.results[0] as SparklineDataResponse
                 },

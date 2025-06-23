@@ -3,7 +3,6 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query', () => {
@@ -38,10 +37,10 @@ describe('dataNodeLogic', () => {
         mockedQuery.mockResolvedValueOnce({ results })
         logic = dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-            }),
+            },
         })
         logic.mount()
         expect(performQuery).toHaveBeenCalledTimes(1)
@@ -55,10 +54,10 @@ describe('dataNodeLogic', () => {
         mockedQuery.mockResolvedValueOnce({ results: results2 })
         dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp', 'person'],
-            }),
+            },
         })
         expect(performQuery).toHaveBeenCalledTimes(2)
         await expectLogic(logic)
@@ -69,10 +68,10 @@ describe('dataNodeLogic', () => {
         // passing in a new "deep equal" query object should not trigger a new query
         dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp', 'person'],
-            }),
+            },
         })
         expect(performQuery).toHaveBeenCalledTimes(2)
         await expectLogic(logic).toMatchValues({ responseLoading: false, response: partial({ results: results2 }) })
@@ -82,9 +81,9 @@ describe('dataNodeLogic', () => {
         mockedQuery.mockResolvedValueOnce({ results: results3 })
         dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.PersonsNode,
-            }),
+            },
         })
         expect(performQuery).toHaveBeenCalledTimes(3)
         await expectLogic(logic)
@@ -109,20 +108,20 @@ describe('dataNodeLogic', () => {
 
         logic = dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-            }),
+            },
         })
         logic.mount()
         await expectLogic(logic)
             .toMatchValues({
                 responseLoading: true,
                 canLoadNewData: true,
-                newQuery: setLatestVersionsOnQuery({
+                newQuery: {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
-                }),
+                },
                 response: null,
             })
             .delay(0)
@@ -130,11 +129,11 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNewData: true,
-            newQuery: setLatestVersionsOnQuery({
+            newQuery: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 after: '2022-12-24T17:00:41.165000Z',
-            }),
+            },
             response: partial({ results }),
         })
 
@@ -158,11 +157,11 @@ describe('dataNodeLogic', () => {
             .toMatchValues({
                 responseLoading: true,
                 canLoadNewData: true,
-                newQuery: setLatestVersionsOnQuery({
+                newQuery: {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
                     after: '2022-12-24T17:00:41.165000Z',
-                }),
+                },
                 response: partial({ results }),
             })
             .delay(0)
@@ -170,11 +169,11 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNewData: true,
-            newQuery: setLatestVersionsOnQuery({
+            newQuery: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 after: '2022-12-25T17:00:41.165000Z',
-            }),
+            },
             response: partial({ results: [...results2, ...results] }),
         })
 
@@ -185,11 +184,11 @@ describe('dataNodeLogic', () => {
     it('can not load new data if EventsQuery not sorted by timestamp', async () => {
         logic = dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 orderBy: ['event'],
-            }),
+            },
         })
         const results: any[][] = []
         mockedQuery.mockResolvedValueOnce({
@@ -225,10 +224,10 @@ describe('dataNodeLogic', () => {
 
         logic = dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-            }),
+            },
         })
         logic.mount()
         await expectLogic(logic)
@@ -237,12 +236,12 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNextData: true,
-            nextQuery: setLatestVersionsOnQuery({
+            nextQuery: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 before: '2022-12-24T17:00:41.165000Z',
                 limit: 100,
-            }),
+            },
             response: partial({ results }),
         })
 
@@ -266,12 +265,12 @@ describe('dataNodeLogic', () => {
             .toMatchValues({
                 responseLoading: true,
                 canLoadNextData: true,
-                nextQuery: setLatestVersionsOnQuery({
+                nextQuery: {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
                     before: '2022-12-24T17:00:41.165000Z',
                     limit: 100,
-                }),
+                },
                 response: partial({ results }),
             })
             .delay(0)
@@ -279,12 +278,12 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNextData: true,
-            nextQuery: setLatestVersionsOnQuery({
+            nextQuery: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 before: '2022-12-23T17:00:41.165000Z',
                 limit: 100,
-            }),
+            },
             response: partial({ results: [...results, ...results2] }),
         })
     })
@@ -292,7 +291,7 @@ describe('dataNodeLogic', () => {
     it('can load next data for PersonsNode', async () => {
         logic = dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({ kind: NodeKind.PersonsNode }),
+            query: { kind: NodeKind.PersonsNode },
         })
         const results = [{}, {}, {}]
         mockedQuery.mockResolvedValueOnce({ results, next: 'next url' })
@@ -303,11 +302,11 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNextData: true,
-            nextQuery: setLatestVersionsOnQuery({
+            nextQuery: {
                 kind: NodeKind.PersonsNode,
                 limit: 100,
                 offset: 3,
-            }),
+            },
             response: partial({ results }),
         })
     })
@@ -315,7 +314,7 @@ describe('dataNodeLogic', () => {
     it('can load next data for TracesQuery', async () => {
         logic = dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({ kind: NodeKind.TracesQuery }),
+            query: { kind: NodeKind.TracesQuery },
         })
         const results = [{}, {}, {}]
         mockedQuery.mockResolvedValueOnce({ results, hasMore: true })
@@ -326,11 +325,11 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNextData: true,
-            nextQuery: setLatestVersionsOnQuery({
+            nextQuery: {
                 kind: NodeKind.TracesQuery,
                 limit: 100,
                 offset: 3,
-            }),
+            },
             response: partial({ results }),
         })
     })
@@ -351,20 +350,20 @@ describe('dataNodeLogic', () => {
 
         logic = dataNodeLogic({
             key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-            }),
+            },
         })
         logic.mount()
         await expectLogic(logic)
             .toMatchValues({
                 responseLoading: true,
                 canLoadNewData: true,
-                newQuery: setLatestVersionsOnQuery({
+                newQuery: {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
-                }),
+                },
                 response: null,
                 autoLoadToggled: false,
                 autoLoadStarted: false,
@@ -374,11 +373,11 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNewData: true,
-            newQuery: setLatestVersionsOnQuery({
+            newQuery: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 after: '2022-12-24T17:00:41.165000Z',
-            }),
+            },
             response: partial({ results }),
             autoLoadToggled: false,
             autoLoadStarted: false,
@@ -462,10 +461,10 @@ describe('dataNodeLogic', () => {
     it('does not call query to fetch data if there are cached results', async () => {
         logic = dataNodeLogic({
             key: 'hasCachedResults',
-            query: setLatestVersionsOnQuery({
+            query: {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-            }),
+            },
             cachedResults: { result: [1, 2, 3] },
         })
         logic.mount()
@@ -478,10 +477,10 @@ describe('dataNodeLogic', () => {
         const filtersOverride: DashboardFilter = {
             date_from: '2022-12-24T17:00:41.165000Z',
         }
-        const query = setLatestVersionsOnQuery({
+        const query = {
             kind: NodeKind.EventsQuery,
             select: ['*', 'event', 'timestamp'],
-        })
+        }
 
         logic = dataNodeLogic({
             key: 'key',
@@ -511,10 +510,10 @@ describe('dataNodeLogic', () => {
             },
         }
 
-        const query = setLatestVersionsOnQuery({
+        const query = {
             kind: NodeKind.EventsQuery,
             select: ['*', 'event', 'timestamp'],
-        })
+        }
 
         logic = dataNodeLogic({
             key: 'key',
@@ -536,10 +535,10 @@ describe('dataNodeLogic', () => {
     })
 
     it("doesn't pass undefined filtersOverride to api", async () => {
-        const query = setLatestVersionsOnQuery({
+        const query = {
             kind: NodeKind.EventsQuery,
             select: ['*', 'event', 'timestamp'],
-        })
+        }
 
         logic = dataNodeLogic({
             key: 'key',
@@ -561,10 +560,10 @@ describe('dataNodeLogic', () => {
     })
 
     it("doesn't pass undefined variablesOverride to api", async () => {
-        const query = setLatestVersionsOnQuery({
+        const query = {
             kind: NodeKind.EventsQuery,
             select: ['*', 'event', 'timestamp'],
-        })
+        }
 
         logic = dataNodeLogic({
             key: 'key',

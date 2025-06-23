@@ -27,7 +27,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -1000,7 +1000,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 if (!TYPES_WITH_SPARKLINE.includes(type)) {
                     return null
                 }
-                return setLatestVersionsOnQuery({
+                return {
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     series: [
@@ -1022,7 +1022,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     modifiers: {
                         personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
-                })
+                }
             },
             { resultEqualityCheck: equal },
         ],
@@ -1051,7 +1051,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
                 })
-                return setLatestVersionsOnQuery(query)
+                return query
             },
             { resultEqualityCheck: equal },
         ],
@@ -1060,16 +1060,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.baseEventsQuery],
             (baseEventsQuery): DataTableNode | null => {
                 return baseEventsQuery
-                    ? setLatestVersionsOnQuery(
-                          {
-                              kind: NodeKind.DataTableNode,
-                              source: {
-                                  ...baseEventsQuery,
-                                  select: defaultDataTableColumns(NodeKind.EventsQuery),
-                              },
+                    ? {
+                          kind: NodeKind.DataTableNode,
+                          source: {
+                              ...baseEventsQuery,
+                              select: defaultDataTableColumns(NodeKind.EventsQuery),
                           },
-                          { recursion: false }
-                      )
+                      }
                     : null
             },
         ],
