@@ -4,9 +4,9 @@ import re
 from typing import Any, Optional
 import os
 from clickhouse_driver import Client
+import pytz
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.models import Team
 
 
 def _get_ch_client_local_reads_prod() -> Client:
@@ -31,7 +31,7 @@ def _ch_client_local_reads_prod():
 def _get_production_session_metadata_locally(
     events_obj: SessionReplayEvents,
     session_id: str,
-    team: Team,
+    team_id: int,
     recording_start_time: Optional[datetime.datetime] = None,
 ) -> RecordingMetadata | None:
     query = events_obj.get_metadata_query(recording_start_time)
@@ -39,9 +39,10 @@ def _get_production_session_metadata_locally(
         replay_response = client.execute(
             query,
             {
-                "team_id": team.pk,
+                "team_id": team_id,
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
+                "python_now": datetime.datetime.now(pytz.timezone("UTC")),
             },
         )
     recording_metadata = events_obj.build_recording_metadata(session_id, replay_response)
