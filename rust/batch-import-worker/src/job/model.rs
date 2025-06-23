@@ -229,6 +229,7 @@ impl JobModel {
 
     pub async fn complete(&mut self, pool: &PgPool) -> Result<(), Error> {
         self.status = JobStatus::Completed;
+        self.display_status_message = None;
         self.flush(pool, false).await
     }
 }
