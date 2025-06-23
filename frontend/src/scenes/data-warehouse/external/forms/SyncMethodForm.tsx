@@ -131,7 +131,6 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                                 ),
                                             })) ?? []
                                         }
-                                        disabledReason={incrementalSyncSupported.disabled ? '' : undefined}
                                     />
                                 )}
                             </div>
@@ -175,7 +174,6 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                                 ),
                                             })) ?? []
                                         }
-                                        disabledReason={appendSyncSupported.disabled ? '' : undefined}
                                     />
                                 )}
                             </div>
