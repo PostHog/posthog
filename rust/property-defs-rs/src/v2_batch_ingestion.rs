@@ -346,6 +346,11 @@ async fn write_event_properties_batch(
     let mut tries = 1;
 
     loop {
+        let mut tx = pool
+            .begin()
+            .await
+            .expect("posthog_eventproperty batch write transaction create failed");
+
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
@@ -359,19 +364,24 @@ async fn write_event_properties_batch(
         .bind(&batch.property_names)
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
-        .execute(pool)
+        .execute(&mut *tx)
         .await;
 
         match result {
             Err(e) => {
+                let rollback_msg = format!(
+                    "failed to rollback posthog_eventproperty insert w/error: {:?}",
+                    &e
+                );
+                tx.rollback().await.expect(&rollback_msg);
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
-                    total_time.fin();
                     error!(
                         "Batch write to posthog_eventproperty exhausted retries: {:?}",
                         &e
                     );
+                    total_time.fin();
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
@@ -390,8 +400,10 @@ async fn write_event_properties_batch(
             }
 
             Ok(pgq_result) => {
+                tx.commit()
+                    .await
+                    .expect("failed to commit posthog_eventproperty batch write transaction");
                 let count = pgq_result.rows_affected();
-                total_time.fin();
 
                 metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "success")])
                     .increment(1);
@@ -402,6 +414,7 @@ async fn write_event_properties_batch(
                     batch.len(),
                     count
                 );
+                total_time.fin();
 
                 return Ok(());
             }
@@ -418,7 +431,11 @@ async fn write_property_definitions_batch(
     let mut tries: u64 = 1;
 
     loop {
-        // what if we just ditch properties without a property_type set? why update on conflict at all?
+        let mut tx: sqlx::Transaction<'static, sqlx::Postgres> = pool
+            .begin()
+            .await
+            .expect("posthog_propertydefinition batch write transaction create failed");
+
         let result = sqlx::query(r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
                 (SELECT * FROM UNNEST(
@@ -444,18 +461,24 @@ async fn write_property_definitions_batch(
             .bind(&batch.team_ids)
             .bind(&batch.project_ids)
             .bind(&batch.property_types)
-            .execute(pool).await;
+            .execute(&mut *tx).await;
 
         match result {
             Err(e) => {
+                let rollback_msg = format!(
+                    "failed to rollback posthog_propertydefinition insert w/error: {:?}",
+                    &e
+                );
+                tx.rollback().await.expect(&rollback_msg);
+
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
-                    total_time.fin();
                     error!(
                         "Batch write to posthog_propertydefinition exhausted retries: {:?}",
                         &e
                     );
+                    total_time.fin();
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
@@ -473,8 +496,10 @@ async fn write_property_definitions_batch(
             }
 
             Ok(pgq_result) => {
+                tx.commit()
+                    .await
+                    .expect("failed to commit posthog_propertydefinition batch write transaction");
                 let count = pgq_result.rows_affected();
-                total_time.fin();
 
                 metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "success")])
                     .increment(1);
@@ -485,6 +510,7 @@ async fn write_property_definitions_batch(
                     batch.len(),
                     count
                 );
+                total_time.fin();
 
                 return Ok(());
             }
@@ -501,18 +527,13 @@ async fn write_event_definitions_batch(
     let mut tries: u64 = 1;
 
     loop {
-        // last_seen_ats are manipulated on event defs for cache expiration
-        // at the moment; as in v1 writes, let's keep these fresh per-attempt
-        // to ensure the values in the UI are more accurate, and avoid PG 21000
-        // errors (constraint violations) when retrying writes w/o tx wrapper
-        let mut per_attempt_last_seen_ats: Vec<DateTime<Utc>> = Vec::with_capacity(batch.len());
-        let per_attempt_ts = Utc::now();
-        for _ in 0..batch.len() {
-            per_attempt_last_seen_ats.push(per_attempt_ts);
-        }
-
         // TODO: see if we can eliminate last_seen_at from being exposed in the UI,
         // then convert this stmt to ON CONFLICT DO NOTHING
+        let mut tx: sqlx::Transaction<'static, sqlx::Postgres> = pool
+            .begin()
+            .await
+            .expect("posthog_eventdefinition batch write transaction create failed");
+
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
@@ -531,20 +552,26 @@ async fn write_event_definitions_batch(
         .bind(&batch.names)
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
-        .bind(per_attempt_last_seen_ats)
-        .execute(pool)
+        .bind(&batch.last_seen_ats)
+        .execute(&mut *tx)
         .await;
 
         match result {
             Err(e) => {
+                let rollback_msg = format!(
+                    "failed to rollback posthog_eventydefinition insert w/error: {:?}",
+                    &e
+                );
+                tx.rollback().await.expect(&rollback_msg);
+
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
-                    total_time.fin();
                     error!(
                         "Batch write to posthog_eventdefinition exhausted retries: {:?}",
                         &e
                     );
+                    total_time.fin();
 
                     // following the old strategy - if the batch write fails,
                     // remove all entries from cache so they get another shot
@@ -560,9 +587,12 @@ async fn write_event_definitions_batch(
                 tokio::time::sleep(Duration::from_millis(delay)).await;
                 tries += 1;
             }
+
             Ok(pgq_result) => {
+                tx.commit()
+                    .await
+                    .expect("failed to commit posthog_eventdefinition batch write transaction");
                 let count = pgq_result.rows_affected();
-                total_time.fin();
 
                 metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "success")])
                     .increment(1);
@@ -573,6 +603,7 @@ async fn write_event_definitions_batch(
                     batch.len(),
                     count
                 );
+                total_time.fin();
 
                 return Ok(());
             }
