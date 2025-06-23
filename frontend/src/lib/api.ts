@@ -7,6 +7,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ErrorTrackingRule, ErrorTrackingRuleType } from 'products/error_tracking/frontend/configuration/rules/types'
+import { HogFlow } from 'products/messaging/frontend/Campaigns/Workflows/types'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -35,7 +36,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -52,6 +53,8 @@ import {
     CommentType,
     ConversationDetail,
     CoreMemory,
+    CyclotronJobFiltersType,
+    CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -82,12 +85,9 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
-    HogFunctionFiltersType,
     HogFunctionIconResponse,
-    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionTemplateType,
-    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
@@ -1302,6 +1302,14 @@ export class ApiRequest {
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
     }
+
+    public hogFlows(): ApiRequest {
+        return this.environments().current().addPathComponent('hog_flows')
+    }
+
+    public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
+        return this.hogFlows().addPathComponent(hogFlowId)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1352,6 +1360,13 @@ function getSessionId(): string | undefined {
         return undefined
     }
     return posthog.get_session_id()
+}
+
+function getDistinctId(): string | undefined {
+    if (typeof posthog?.get_distinct_id !== 'function') {
+        return undefined
+    }
+    return posthog.get_distinct_id()
 }
 
 const api = {
@@ -2321,13 +2336,9 @@ const api = {
         async list({
             filter_groups,
             types,
-            kinds,
-            excludeKinds,
         }: {
-            filter_groups?: HogFunctionFiltersType[]
+            filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
-            kinds?: HogFunctionKind[]
-            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2335,8 +2346,6 @@ const api = {
                     filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
-                    ...(kinds ? { kind: kinds.join(',') } : {}),
-                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },
@@ -2348,9 +2357,6 @@ const api = {
         },
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
-        },
-        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
-            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
         },
         async logs(
             id: HogFunctionType['id'],
@@ -2399,7 +2405,7 @@ const api = {
                 clickhouse_event?: any
                 invocation_id?: string
             }
-        ): Promise<HogFunctionTestInvocationResult> {
+        ): Promise<CyclotronJobTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 
@@ -3444,6 +3450,23 @@ const api = {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
     },
+    hogFlows: {
+        async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
+            return await new ApiRequest().hogFlows().get()
+        },
+        async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).get()
+        },
+        async createHogFlow(data: Partial<HogFlow>): Promise<HogFlow> {
+            return await new ApiRequest().hogFlows().create({ data })
+        },
+        async updateHogFlow(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).update({ data })
+        },
+        async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
+            return await new ApiRequest().hogFlow(hogFlowId).delete()
+        },
+    },
 
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
@@ -3488,11 +3511,11 @@ const api = {
             queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
         }
     ): Promise<HogQLQueryResponse<T>> {
-        const hogQLQuery: HogQLQuery = {
+        const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
-        }
+        })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
             data: {
@@ -3547,6 +3570,7 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...(getDistinctId() ? { 'X-POSTHOG-DISTINCT-ID': getDistinctId() } : {}),
                 },
             })
         })

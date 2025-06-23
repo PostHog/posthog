@@ -185,6 +185,19 @@ class OauthIntegration:
                 id_path="instance_url",
                 name_path="instance_url",
             )
+        elif kind == "salesforce-sandbox":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            return OauthConfig(
+                authorize_url="https://test.salesforce.com/services/oauth2/authorize",
+                token_url="https://test.salesforce.com/services/oauth2/token",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="full refresh_token",
+                id_path="instance_url",
+                name_path="instance_url",
+            )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Hubspot app not configured")
@@ -311,7 +324,6 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-
         res = requests.post(
             oauth_config.token_url,
             data={
@@ -326,7 +338,28 @@ class OauthIntegration:
         config: dict = res.json()
 
         if res.status_code != 200 or not config.get("access_token"):
-            raise Exception("Oauth error")
+            # Hack to try getting sandbox auth token instead of their salesforce production account
+            if kind == "salesforce":
+                oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
+                res = requests.post(
+                    oauth_config.token_url,
+                    data={
+                        "client_id": oauth_config.client_id,
+                        "client_secret": oauth_config.client_secret,
+                        "code": params["code"],
+                        "redirect_uri": OauthIntegration.redirect_uri(kind),
+                        "grant_type": "authorization_code",
+                    },
+                )
+
+                config = res.json()
+
+                if res.status_code != 200 or not config.get("access_token"):
+                    logger.error(f"Oauth error for {kind}", response=res.text)
+                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+            else:
+                logger.error(f"Oauth error for {kind}", response=res.text)
+                raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there

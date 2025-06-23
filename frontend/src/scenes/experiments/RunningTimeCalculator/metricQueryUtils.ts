@@ -9,6 +9,7 @@ import {
     isExperimentMeanMetric,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment } from '~/types'
 import { BaseMathType, CountPerActorMathType, FunnelVizType, PropertyMathType } from '~/types'
 
@@ -23,6 +24,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.EventsNode,
                 event: source.event,
+                properties: source.properties || [],
             }
         }
 
@@ -30,6 +32,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.ActionsNode,
                 id: source.id,
+                properties: source.properties || [],
             }
         }
 
@@ -37,6 +40,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.ExperimentDataWarehouseNode,
                 table_name: source.table_name,
+                properties: source.properties || [],
             }
         }
     }
@@ -53,6 +57,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.EventsNode,
                 event: step.event,
+                properties: step.properties || [],
             }
         }
 
@@ -60,6 +65,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
             return {
                 kind: NodeKind.ActionsNode,
                 id: step.id,
+                properties: step.properties || [],
             }
         }
     }
@@ -84,7 +90,7 @@ export const getTotalCountQuery = (
 ): TrendsQuery => {
     const baseProps = getSeriesItemProps(metric)
 
-    return {
+    return setLatestVersionsOnQuery({
         kind: NodeKind.TrendsQuery,
         series: [
             {
@@ -101,7 +107,7 @@ export const getTotalCountQuery = (
         trendsFilter: {},
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
         dateRange: getQueryDateRange(),
-    } as TrendsQuery
+    }) as TrendsQuery
 }
 
 export const getSumQuery = (
@@ -118,7 +124,7 @@ export const getSumQuery = (
               }
             : {}
 
-    return {
+    return setLatestVersionsOnQuery({
         kind: NodeKind.TrendsQuery,
         series: [
             {
@@ -136,7 +142,7 @@ export const getSumQuery = (
         trendsFilter: {},
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
         dateRange: getQueryDateRange(),
-    } as TrendsQuery
+    }) as TrendsQuery
 }
 
 export const getFunnelQuery = (
@@ -146,7 +152,7 @@ export const getFunnelQuery = (
 ): FunnelsQuery => {
     const baseProps = getSeriesItemProps(metric)
 
-    return {
+    return setLatestVersionsOnQuery({
         kind: NodeKind.FunnelsQuery,
         series: [
             {
@@ -162,5 +168,5 @@ export const getFunnelQuery = (
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
         dateRange: getQueryDateRange(),
         interval: 'day',
-    } as FunnelsQuery
+    }) as FunnelsQuery
 }

@@ -9,8 +9,13 @@ import api from 'lib/api'
 import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
+import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    CyclotronJobInvocationGlobals,
+    CyclotronJobTestInvocationResult,
+} from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from '../configuration/hogFunctionConfigurationLogic'
 import type { hogFunctionTestingLogicType } from './hogFunctionTestingLogicType'
@@ -24,7 +29,7 @@ export interface EventsResultType {
     results: EventsQueryResponse['results']
 }
 
-export interface HogFunctionTestInvocationResultWithEventId extends HogFunctionTestInvocationResult {
+export interface CyclotronJobTestInvocationResultWithEventId extends CyclotronJobTestInvocationResult {
     eventId: string
 }
 
@@ -161,20 +166,20 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             },
         ],
         retries: [
-            [] as HogFunctionTestInvocationResultWithEventId[],
+            [] as CyclotronJobTestInvocationResultWithEventId[],
             {
                 retryInvocation: async ({
                     eventId,
                     globals,
                 }: {
                     eventId: string
-                    globals: HogFunctionInvocationGlobals
+                    globals: CyclotronJobInvocationGlobals
                 }) => {
                     actions.addLoadingRetry(eventId)
                     const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
                     configuration.template_id = values.templateId
 
-                    let res: HogFunctionTestInvocationResult
+                    let res: CyclotronJobTestInvocationResult
                     try {
                         res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
                             globals,
@@ -183,7 +188,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         })
 
                         actions.removeLoadingRetry(eventId)
-                        const retry: HogFunctionTestInvocationResultWithEventId = {
+                        const retry: CyclotronJobTestInvocationResultWithEventId = {
                             eventId: eventId,
                             ...res,
                         }
@@ -222,14 +227,14 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
                 })
-                return query
+                return setLatestVersionsOnQuery(query)
             },
             { resultEqualityCheck: equal },
         ],
         totalEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.dateRange],
             (configuration, matchingFilters, dateRange): TrendsQuery | null => {
-                return {
+                return setLatestVersionsOnQuery({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     series: [
@@ -251,13 +256,13 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     modifiers: {
                         personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
-                }
+                })
             },
             { resultEqualityCheck: equal },
         ],
         eventsWithRetries: [
             (s) => [s.events, s.retries],
-            (events: { results: any[] }, retries: HogFunctionTestInvocationResultWithEventId[]) =>
+            (events: { results: any[] }, retries: CyclotronJobTestInvocationResultWithEventId[]) =>
                 events.results.map((row) => [
                     ...row.slice(0, 3),
                     retries.filter((r) => r.eventId === row[0].uuid),

@@ -3,7 +3,6 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
-
 on:
     push:
         branches:
@@ -46,10 +45,13 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        name: Determine need to run backend checks
+        name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
             backend: ${{ steps.filter.outputs.backend }}
+            backend_files: ${{ steps.filter.outputs.backend_files }}
+            migrations: ${{ steps.filter.outputs.migrations }}
+            migrations_files: ${{ steps.filter.outputs.migrations_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -58,6 +60,7 @@ jobs:
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
+                  list-files: 'escape'
                   filters: |
                       backend:
                         # Avoid running backend tests for irrelevant changes
@@ -90,30 +93,9 @@ jobs:
                         # These scripts are used in the CI
                         - bin/check_temporal_up
                         - bin/check_kafka_clickhouse_up
-
-    backend-code-quality:
-        needs: changes
-        timeout-minutes: 30
-
-        name: Python code quality checks
-        runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
-
-        steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
-            # there are backend changes, cancel previous runs
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot' && needs.changes.outputs.backend == 'true'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-              with:
-                  fetch-depth: 1
-
-            - uses: ./.github/actions/python-code-quality
-              with:
-                  python-version: 3.11.9
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                      migrations:
+                        - 'posthog/migrations/*.py'
+                        - 'products/**/migrations/*.py'
 
     check-migrations:
         needs: changes
@@ -170,6 +152,67 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Check migrations and post comment
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # Read the changed files from the output
+                  CHANGED_FILES="${{ needs.changes.outputs.migrations_files }}"
+
+                  # If no migration files changed, exit
+                  if [ -z "$CHANGED_FILES" ]; then
+                    echo "No migration files changed"
+                    exit 0
+                  fi
+
+                  # Initialize comment body
+                  COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
+
+                  # Process each changed migration file
+                  for file in $CHANGED_FILES; do
+                    if [[ $file =~ migrations/([0-9]+)_ ]]; then
+                      migration_number="${BASH_REMATCH[1]}"
+                      # Get app name by looking at the directory structure
+                      # For nested apps like products/user_interviews, we want user_interviews
+                      app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
+                      echo "Checking migration $migration_number for app $app_name"
+                      
+                      # Get SQL output
+                      SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
+                      
+                      # Add to comment body
+                      COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                    fi
+                  done
+
+                  # Delete previous comments from this workflow
+                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
+                  echo "Output from listing comments: $COMMENTS"
+                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | while read -r comment_id; do
+                    echo "Deleting comment $comment_id"
+                    curl -X DELETE \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                  done
+
+                  # Convert \n into actual newlines
+                  COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
+                  COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
+
+                  # Post new comment to PR
+                  echo "Posting comment to PR"
+                  echo "$COMMENT_BODY_JSON"
+                  curl -X POST \
+                    -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                    -d "$COMMENT_BODY_JSON"
+
             - name: Run migrations for this PR
               run: |
                   python manage.py migrate
@@ -184,7 +227,7 @@ jobs:
                   # added (A) in posthog/migrations/. We also want to ignore
                   # initial migrations (0001_*) as these are guaranteed to be
                   # run on initial setup where there is no data.
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
@@ -205,29 +248,71 @@ jobs:
                 python-version: ['3.11.9']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
                 segment: ['Core']
-                person-on-events: [false, true]
+                person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [10]
-                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+                concurrency: [20]
+                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
                 include:
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 5
+                      group: 1
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 5
+                      group: 2
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 5
+                      group: 3
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 5
+                      group: 4
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 5
+                      group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 3
+                      concurrency: 5
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 3
+                      concurrency: 5
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 3
+                      concurrency: 5
                       group: 3
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 5
+                      group: 4
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 5
+                      group: 5
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
@@ -386,3 +471,15 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.backend == 'true'
+        needs: [calculate-running-time] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

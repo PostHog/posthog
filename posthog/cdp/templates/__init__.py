@@ -18,7 +18,6 @@ from .salesforce.template_salesforce import template_create as salesforce_create
 from .mailjet.template_mailjet import (
     template_create_contact as mailjet_create_contact,
     template_update_contact_list as mailjet_update_contact_list,
-    template_send_email as mailset_send_email,
 )
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
@@ -49,16 +48,12 @@ from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
 from ._siteapps.template_debug_posthog import template as debug_posthog
 from ._internal.template_blank import blank_site_destination, blank_site_app
-from ._internal.template_broadcast import template_new_broadcast as _broadcast
-from ._internal.template_campaign import template_new_campaign as _campaign
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
 
 from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
 
 HOG_FUNCTION_TEMPLATES = [
-    _broadcast,
-    _campaign,
     blank_site_destination,
     blank_site_app,
     slack,
@@ -92,7 +87,6 @@ HOG_FUNCTION_TEMPLATES = [
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
-    mailset_send_email,
     make,
     meta_ads,
     microsoft_teams,

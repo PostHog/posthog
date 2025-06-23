@@ -24,7 +24,6 @@ import {
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createMailjetRequest } from '../utils/hog-mailjet-request'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
 
@@ -32,6 +31,8 @@ export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
 export const DEFAULT_TIMEOUT_MS = 100
+
+export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -83,12 +84,25 @@ export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlob
     if (Array.isArray(bytecode)) {
         return bytecode.map((item) => formatHogInput(item, globals, key))
     } else if (typeof bytecode === 'object' && bytecode !== null) {
-        return Object.fromEntries(
-            Object.entries(bytecode).map(([key2, value]) => [
-                key2,
-                formatHogInput(value, globals, key ? `${key}.${key2}` : key2),
-            ])
-        )
+        let ret: Record<string, any> = {}
+
+        if (bytecode[EXTEND_OBJECT_KEY]) {
+            const res = formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
+            if (res && typeof res === 'object') {
+                ret = {
+                    ...res,
+                }
+            }
+        }
+
+        for (const [subkey, value] of Object.entries(bytecode)) {
+            if (subkey === EXTEND_OBJECT_KEY) {
+                continue
+            }
+            ret[subkey] = formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+        }
+
+        return ret
     } else {
         return bytecode
     }
@@ -420,7 +434,6 @@ export class HogExecutorService {
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
-                        sendEmail: async () => Promise.resolve(),
                     },
                     functions: {
                         print: (...args) => {
@@ -560,32 +573,6 @@ export class HogExecutorService {
                                 method,
                                 body,
                                 headers,
-                                return_queue: 'hog',
-                            })
-
-                            result.invocation.queue = 'fetch'
-                            result.invocation.queueParameters = fetchQueueParameters
-                            break
-                        }
-                        case 'sendEmail': {
-                            // Sanitize the args
-                            const [inputs] = args
-
-                            if (!inputs) {
-                                throw new Error('sendEmail: Invalid inputs')
-                            }
-
-                            const { auth, email } = inputs
-
-                            if (!auth) {
-                                throw new Error('sendEmail: Must provide a mail integration')
-                            }
-
-                            const fetchQueueParameters = this.enrichFetchRequest({
-                                ...createMailjetRequest(email, auth, {
-                                    api_key: this.config.MAILJET_PUBLIC_KEY,
-                                    secret_key: this.config.MAILJET_SECRET_KEY,
-                                }),
                                 return_queue: 'hog',
                             })
 

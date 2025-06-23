@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.pipelines.rest_source import (
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
 
 
-def get_resource(name: str, is_incremental: bool) -> EndpointResource:
+def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "Customers": {
             "name": "Customers",
@@ -23,7 +23,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "list[*].customer",
@@ -35,7 +35,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "cursor_path": "updated_at",
                         "initial_value": 0,  # type: ignore
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
@@ -54,7 +54,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "list[*].event",
@@ -66,7 +66,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "cursor_path": "occurred_at",
                         "initial_value": 0,  # type: ignore
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                     "limit": 100,
                 },
@@ -81,7 +81,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "list[*].invoice",
@@ -93,7 +93,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "cursor_path": "updated_at",
                         "initial_value": 0,  # type: ignore
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
@@ -110,7 +110,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "list[*].order",
@@ -122,7 +122,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "cursor_path": "updated_at",
                         "initial_value": 0,  # type: ignore
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
@@ -139,7 +139,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "list[*].subscription",
@@ -151,7 +151,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "cursor_path": "updated_at",
                         "initial_value": 0,  # type: ignore
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
@@ -168,7 +168,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "list[*].transaction",
@@ -180,7 +180,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "cursor_path": "updated_at",
                         "initial_value": 0,  # type: ignore
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
@@ -224,7 +224,7 @@ def chargebee_source(
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
-    is_incremental: bool = False,
+    should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {
         "client": {
@@ -242,10 +242,10 @@ def chargebee_source(
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
         },
-        "resources": [get_resource(endpoint, is_incremental)],
+        "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
     yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)

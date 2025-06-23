@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -37,7 +37,7 @@ export interface PropertyValueProps {
     inputClassName?: string
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
-    size?: LemonButtonProps['size']
+    size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
 }
@@ -107,8 +107,19 @@ export function PropertyValue({
     }
 
     if (isAssigneeProperty) {
+        // Kludge: when switching between operators the value isn't always JSON
+        const parseAssignee = (value: PropertyFilterValue): ErrorTrackingIssueAssignee | null => {
+            try {
+                return JSON.parse(value as string)
+            } catch {
+                return null
+            }
+        }
+
+        const assignee = value ? parseAssignee(value) : null
+
         return editable ? (
-            <AssigneeSelect assignee={value as ErrorTrackingIssueAssignee} onChange={setValue}>
+            <AssigneeSelect assignee={assignee} onChange={(value) => setValue(JSON.stringify(value))}>
                 {(displayAssignee) => (
                     <LemonButton fullWidth type="secondary" size={size}>
                         <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Choose user" />
@@ -116,7 +127,7 @@ export function PropertyValue({
                 )}
             </AssigneeSelect>
         ) : (
-            <AssigneeResolver assignee={value as ErrorTrackingIssueAssignee}>
+            <AssigneeResolver assignee={assignee}>
                 {({ assignee }) => (
                     <>
                         <AssigneeIconDisplay assignee={assignee} />

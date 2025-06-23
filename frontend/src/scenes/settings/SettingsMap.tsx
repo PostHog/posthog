@@ -9,6 +9,7 @@ import { ErrorTrackingCustomGrouping } from 'products/error_tracking/frontend/co
 import { ErrorTrackingSymbolSets } from 'products/error_tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from 'products/revenue_analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -251,6 +252,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BaseCurrency hideTitle />,
             },
             {
+                id: 'revenue-analytics-filter-test-accounts',
+                title: 'Filter test accounts out of revenue analytics',
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+            },
+            {
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 component: <GoalsConfiguration />,
@@ -423,7 +429,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-custom-grouping',
                 title: 'Custom grouping rules',
                 component: <ErrorTrackingCustomGrouping />,
-                flag: 'ERROR_TRACKING_CUSTOM_GROUPING',
             },
             {
                 id: 'error-tracking-integrations',
@@ -619,7 +624,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
                 component: <OrganizationExperimentStatsMethod />,
-                flag: 'EXPERIMENTS_FREQUENTIST',
             },
         ],
     },
