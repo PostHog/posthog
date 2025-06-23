@@ -469,7 +469,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Test that reportBatch logs the errors
             shadowManager.reportBatch()
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'Shadow mode detected logic errors in batch writing store',
                 expect.objectContaining({
                     logicErrorCount: 1,
@@ -677,7 +677,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             )
 
             // Verify logic error was logged
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.info).toHaveBeenCalledWith(
                 'Shadow mode detected logic errors in batch writing store',
                 expect.objectContaining({
                     logicErrorCount: 1,
@@ -711,6 +711,236 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                         }),
                     ]),
                 })
+            )
+        })
+    })
+
+    describe('compareUpdateResults', () => {
+        const logger = require('../../../utils/logger').logger
+        const { personShadowModeReturnIntermediateOutcomeCounter } = require('./metrics')
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            // Mock the metric counter
+            personShadowModeReturnIntermediateOutcomeCounter.labels = jest.fn().mockReturnValue({
+                inc: jest.fn(),
+            })
+        })
+
+        it('should track consistent results and log debug message', async () => {
+            const update = { properties: { test_prop: 'test_value' } }
+
+            // Mock both stores to return the same result
+            const expectedPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
+            db.updatePerson = jest.fn().mockResolvedValue([expectedPerson, [], false])
+
+            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+
+            // Verify metric was incremented for consistent outcome
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
+                'updatePersonForUpdate',
+                'consistent'
+            )
+        })
+
+        it('should track inconsistent results and log error message for updatePersonForUpdate', async () => {
+            const update = { properties: { test_prop: 'test_value' } }
+
+            // Mock main store to return one result
+            const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
+            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+
+            // Mock secondary store to return different result by manipulating its internal state
+            const secondaryPerson = {
+                ...person,
+                properties: { test: 'test', different_prop: 'different_value' },
+                version: 2,
+            }
+
+            // We'll need to manually set up the secondary store to return different data
+            // Since the secondary store doesn't actually call the DB, we need to mock its updatePersonForUpdate method
+            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
+            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([secondaryPerson, [], false])
+
+            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+
+            // Restore original method
+            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+
+            // Verify metric was incremented for inconsistent outcome
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
+                'updatePersonForUpdate',
+                'inconsistent'
+            )
+
+            // Verify error log was called with detailed information
+            expect(logger.info).toHaveBeenCalledWith(
+                'updatePersonForUpdate returned inconsistent results between stores',
+                expect.objectContaining({
+                    key: '1:test-distinct',
+                    teamId: 1,
+                    distinctId: 'test-distinct',
+                    methodName: 'updatePersonForUpdate',
+                    samePersonResult: false,
+                    differences: expect.arrayContaining([expect.stringContaining('person.properties')]),
+                    mainPersonUuid: mainPerson.uuid,
+                    secondaryPersonUuid: secondaryPerson.uuid,
+                    mainVersionDisparity: false,
+                })
+            )
+        })
+
+        it('should track inconsistent results and log error message for updatePersonForMerge', async () => {
+            const update = { properties: { merge_prop: 'merge_value' } }
+
+            // Mock main store to return one result
+            const mainPerson = { ...person, properties: { test: 'test', merge_prop: 'merge_value' }, version: 2 }
+            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+
+            // Mock secondary store to return different result
+            const secondaryPerson = { ...person, properties: { test: 'test', wrong_merge: 'wrong_value' }, version: 2 }
+            const originalUpdatePersonForMerge = batchStoreForBatch.updatePersonForMerge
+            batchStoreForBatch.updatePersonForMerge = jest.fn().mockResolvedValue([secondaryPerson, [], false])
+
+            await shadowManager.updatePersonForMerge(person, update, 'test-distinct')
+
+            // Restore original method
+            batchStoreForBatch.updatePersonForMerge = originalUpdatePersonForMerge
+
+            // Verify metric was incremented for inconsistent outcome
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
+                'updatePersonForMerge',
+                'inconsistent'
+            )
+
+            // Verify error log was called
+            expect(logger.info).toHaveBeenCalledWith(
+                'updatePersonForMerge returned inconsistent results between stores',
+                expect.objectContaining({
+                    key: '1:test-distinct',
+                    teamId: 1,
+                    distinctId: 'test-distinct',
+                    methodName: 'updatePersonForMerge',
+                    samePersonResult: false,
+                    differences: expect.arrayContaining([expect.stringContaining('person.properties')]),
+                    mainPersonUuid: mainPerson.uuid,
+                    secondaryPersonUuid: secondaryPerson.uuid,
+                })
+            )
+        })
+
+        it('should handle null vs non-null person comparison', async () => {
+            const update = { properties: { test_prop: 'test_value' } }
+
+            // Mock main store to return a person
+            const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
+            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+
+            // Mock secondary store to return null (no person found)
+            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
+            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([null, [], false])
+
+            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+
+            // Restore original method
+            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+
+            // Verify metric was incremented for inconsistent outcome
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
+                'updatePersonForUpdate',
+                'inconsistent'
+            )
+
+            // Verify error log includes null comparison
+            expect(logger.info).toHaveBeenCalledWith(
+                'updatePersonForUpdate returned inconsistent results between stores',
+                expect.objectContaining({
+                    samePersonResult: false,
+                    mainPersonUuid: mainPerson.uuid,
+                    secondaryPersonUuid: undefined,
+                })
+            )
+        })
+
+        it('should detect differences in nested properties', async () => {
+            const update = {
+                properties: {
+                    nested: {
+                        deep: {
+                            prop: 'value',
+                        },
+                    },
+                },
+            }
+
+            // Mock main store result
+            const mainPerson = {
+                ...person,
+                properties: {
+                    test: 'test',
+                    nested: {
+                        deep: {
+                            prop: 'value',
+                        },
+                    },
+                },
+                version: 2,
+            }
+            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+
+            // Mock secondary store with different nested value
+            const secondaryPerson = {
+                ...person,
+                properties: {
+                    test: 'test',
+                    nested: {
+                        deep: {
+                            prop: 'different_value',
+                        },
+                    },
+                },
+                version: 2,
+            }
+            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
+            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([secondaryPerson, [], false])
+
+            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+
+            // Restore original method
+            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+
+            // Verify specific nested property difference is captured
+            expect(logger.info).toHaveBeenCalledWith(
+                'updatePersonForUpdate returned inconsistent results between stores',
+                expect.objectContaining({
+                    differences: expect.arrayContaining([
+                        expect.stringContaining('person.properties.nested.deep.prop'),
+                    ]),
+                })
+            )
+        })
+
+        it('should ignore version differences in comparison', async () => {
+            const update = { properties: { test_prop: 'test_value' } }
+
+            // Mock main store to return person with version 2
+            const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
+            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+
+            // Mock secondary store to return same person but with version 3 (should be ignored)
+            const secondaryPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 3 }
+            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
+            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([secondaryPerson, [], false])
+
+            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+
+            // Restore original method
+            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+
+            // Verify result is considered consistent despite version difference
+            expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
+                'updatePersonForUpdate',
+                'consistent'
             )
         })
     })
