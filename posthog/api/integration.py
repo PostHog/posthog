@@ -76,25 +76,25 @@ class IntegrationSerializer(serializers.ModelSerializer):
             )
             return instance
 
+        if validated_data["kind"] in GoogleCloudIntegration.supported_kinds:
+            key_file = request.FILES.get("key")
+            if not key_file:
+                raise ValidationError("Key file not provided")
+            key_info = json.loads(key_file.read().decode("utf-8"))
+            instance = GoogleCloudIntegration.integration_from_key(
+                validated_data["kind"], key_info, team_id, request.user
+            )
+            return instance
+
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
+            installation_id = config.get("installation_id")
 
-            token = GitHubIntegration.generate_jwt()
+            if not installation_id:
+                raise ValidationError("An installation_id must be provided")
 
-            print(token)
-
-            print(
-                f'curl --request POST --url "https://api.github.com/app/installations/{config["installation_id"]}/access_tokens" --header "Accept: application/vnd.github+json" --header "Authorization: Bearer {token}" --header "X-GitHub-Api-Version: 2022-11-28"'
-            )
-
-            # if not (config.get("domain")):
-            #     raise ValidationError("Domain is required for email integration")
-            # instance = EmailIntegration.integration_from_domain(
-            #     config["domain"],
-            #     team_id,
-            #     request.user,
-            # )
-            # return instance
+            instance = GitHubIntegration.integration_from_installation(installation_id, team_id, request.user)
+            return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:

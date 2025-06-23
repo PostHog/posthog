@@ -189,7 +189,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         githubIntegrations: [
             (s) => [s.integrations],
             (integrations) => {
-                return integrations?.filter((x) => x.kind == 'linear') || []
+                return integrations?.filter((x) => x.kind == 'github') || []
             },
         ],
 

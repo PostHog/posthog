@@ -931,12 +931,53 @@ class LinearIntegration:
 class GitHubIntegration:
     integration: Integration
 
+    @classmethod
+    def generate_jwt(cls) -> str:
+        payload = {"iat": int(time.time()), "exp": int(time.time()) + 600, "iss": settings.GITHUB_APP_CLIENT_ID}
+        return jwt.encode(payload, settings.GITHUB_APP_PRIVATE_KEY, algorithm="RS256")
+
+    @classmethod
+    def integration_from_installation(
+        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        jwt_token = cls.generate_jwt()
+
+        response = requests.post(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {jwt_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        ).json()
+
+        config = {
+            "installation_id": installation_id,
+            "refreshed_at": int(time.time()),
+            "expires_in": response["expires_at"].timestamp() - int(time.time()),
+            "repositories": response["repository_selection"],
+        }
+
+        sensitive_config = {"access_token": response["token"]}
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="github",
+            integration_id=installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
-
-    @classmethod
-    def generate_jwt(cls) -> Integration:
-        payload = {"iat": int(time.time()), "exp": int(time.time()) + 600, "iss": settings.GITHUB_APP_CLIENT_ID}
-        return jwt.encode(payload, settings.GITHUB_APP_PRIVATE_KEY, algorithm="RS256")
