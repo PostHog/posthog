@@ -395,7 +395,9 @@ export class HedgehogActor {
             this.setAnimation('stop')
         } else {
             let randomChoiceList = Object.keys(this.animations()).reduce((acc, key) => {
-                return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)] as AnimationName[]
+                const newItems = range(this.animations()[key].randomChance || 0).map(() => key as AnimationName)
+                acc.push(...newItems)
+                return acc
             }, [] as AnimationName[])
 
             randomChoiceList = this.hedgehogConfig.walking_enabled

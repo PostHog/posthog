@@ -22,7 +22,6 @@
         "no-irregular-whitespace": "off",
         "require-await": "off",
         "no-await-in-loop": "off",
-        "no-accumulating-spread": "off",
         "react/prop-types": "off",
         "react/react-in-jsx-scope": "off",
         "react/no-unescaped-entities": "off",
@@ -39,6 +38,7 @@
             }
         ],
         "no-useless-spread": "error",
+        "no-accumulating-spread": "error",
         "no-useless-fallback-in-spread": "error",
         "react-hooks/exhaustive-deps": "warn",
         "no-else-return": "warn",
