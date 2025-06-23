@@ -66,9 +66,6 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
-            - name: Wait for ClickHouse & Kafka
-              run: ./bin/check_kafka_clickhouse_up
-
             - name: Set up Python 3.11.9
               uses: actions/setup-python@v5
               with:
@@ -89,11 +86,6 @@ jobs:
             - name: Install Python dependencies via uv
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Download frontend build artifacts
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
-              with:
-                  name: frontend-build
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -127,6 +119,9 @@ jobs:
             - name: Build product static bundle
               run: pnpm --filter=@posthog/frontend build:products
 
+            - name: Wait for ClickHouse & Kafka
+              run: ./bin/check_kafka_clickhouse_up
+
             - name: Apply migrations & seed dev data
               run: |
                   python manage.py migrate --noinput
@@ -153,16 +148,6 @@ jobs:
               run: pnpm --filter=@posthog/playwright test
 
             # ── Artifacts on failure / always ─────────────────────────────────────
-            - name: Upload frontend build artifacts
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-              with:
-                  name: frontend-build
-                  path: |
-                      **/*Type.ts
-                      frontend/src/products.tsx
-                  retention-days: 1
-
             - name: Archive Playwright report on failure
               if: failure()
               uses: actions/upload-artifact@v4
