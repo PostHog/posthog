@@ -19,7 +19,7 @@ from django.conf import settings
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import get_query_tags, QueryTags
+from posthog.clickhouse.query_tagging import get_query_tags, QueryTags, TemporalTags
 from posthog.exceptions_capture import capture_exception
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_internal_logger
@@ -251,12 +251,16 @@ def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] 
     if not query_tags:
         query_tags = get_query_tags()
     info = activity.info()
-    query_tags.kind = "temporal"
-    query_tags.workflow = info.workflow_type
-    query_tags.workflow_id = info.workflow_id
-    query_tags.workflow_run_id = info.workflow_run_id
-    query_tags.activity = info.activity_type
-    query_tags.activity_id = info.activity_id
+    temporal_tags = TemporalTags(
+        workflow_namespace=info.workflow_namespace,
+        workflow_type=info.workflow_type,
+        workflow_id=info.workflow_id,
+        workflow_run_id=info.workflow_run_id,
+        activity_type=info.activity_type,
+        activity_id=info.activity_id,
+        attempt=info.attempt,
+    )
+    query_tags.with_temporal(temporal_tags)
 
 
 def add_log_comment_param(params: dict[str, typing.Any]):
@@ -581,11 +585,11 @@ class ClickHouseClient:
                 failed.
         """
         query = """
-        SELECT type, exception
-        FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-        WHERE query_id = {{query_id:String}}
-        FORMAT JSONEachRow
-        """
+                SELECT type, exception
+                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
+                WHERE query_id = {{query_id:String}}
+                    FORMAT JSONEachRow \
+                """
 
         resp = await self.read_query(
             query,

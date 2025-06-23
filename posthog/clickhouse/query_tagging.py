@@ -4,6 +4,7 @@ import uuid
 from enum import StrEnum
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
+
 from pydantic import BaseModel, ConfigDict
 from typing import Any, Optional
 
@@ -32,6 +33,22 @@ class Feature(StrEnum):
     DASHBOARD = "dashboard"
 
 
+class TemporalTags(BaseModel):
+    """
+    Tags for temporalio workflows and activities.
+    """
+
+    workflow_namespace: Optional[str] = None
+    workflow_type: Optional[str] = None
+    workflow_id: Optional[str] = None
+    workflow_run_id: Optional[str] = None
+    activity_type: Optional[str] = None
+    activity_id: Optional[str] = None
+    attempt: Optional[int] = None
+
+    model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -43,11 +60,7 @@ class QueryTags(BaseModel):
     session_id: Optional[uuid.UUID] = None
 
     # temporalio tags
-    workflow: Optional[str] = None
-    workflow_id: Optional[str] = None
-    workflow_run_id: Optional[str] = None
-    activity: Optional[str] = None
-    activity_id: Optional[str] = None
+    temporal: Optional[TemporalTags] = None
 
     query: Optional[object] = None
     query_settings: Optional[object] = None
@@ -111,11 +124,15 @@ class QueryTags(BaseModel):
     container_hostname: str
     service_name: str
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
     def update(self, **kwargs):
         for field, value in kwargs.items():
             setattr(self, field, value)
+
+    def with_temporal(self, temporal_tags: TemporalTags):
+        self.kind = "temporal"
+        self.temporal = temporal_tags
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)
