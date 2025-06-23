@@ -1,9 +1,9 @@
 import json
 from abc import abstractmethod
-from typing import Any, Literal
 import importlib
 import pkgutil
 import products
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -12,6 +12,10 @@ from pydantic import BaseModel, Field
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantContextualTool
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
@@ -79,7 +83,8 @@ class MaxTool(BaseTool):
     """
 
     _context: dict[str, Any]
-    _team_id: int | None
+    _team: Optional["Team"]
+    _user: Optional["User"]
     _config: RunnableConfig
     _state: AssistantState
 
@@ -108,7 +113,8 @@ class MaxTool(BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self._team_id = config["configurable"].get("team_id", None)
+        self._team = config["configurable"]["team"]
+        self._user = config["configurable"]["user"]
         self._config = {
             "recursion_limit": 48,
             "callbacks": config.get("callbacks", []),
@@ -116,7 +122,8 @@ class MaxTool(BaseTool):
                 "thread_id": config["configurable"].get("thread_id"),
                 "trace_id": config["configurable"].get("trace_id"),
                 "distinct_id": config["configurable"].get("distinct_id"),
-                "team_id": self._team_id,
+                "team": self._team,
+                "user": self._user,
             },
         }
         return self._run_impl(*args, **kwargs)

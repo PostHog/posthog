@@ -6,7 +6,6 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
@@ -73,7 +72,7 @@ export const errorTrackingIssueQuery = ({
     withFirstEvent?: boolean
     withAggregations?: boolean
 }): ErrorTrackingQuery => {
-    return setLatestVersionsOnQuery({
+    return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
         dateRange: resolveDateRange(dateRange).toDateRange(),
@@ -83,7 +82,7 @@ export const errorTrackingIssueQuery = ({
         volumeResolution,
         withFirstEvent,
         withAggregations,
-    })
+    }
 }
 
 export const errorTrackingIssueEventsQuery = ({

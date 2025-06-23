@@ -4,7 +4,6 @@ import { RE2JS } from 're2js'
 
 import { performQuery } from '~/queries/query'
 import { HogQLASTQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side
@@ -38,17 +37,11 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             run: async (queryInput: string | Record<string, any>) => {
                 const queryNode: HogQLQuery | HogQLASTQuery =
                     typeof queryInput === 'object'
-                        ? setLatestVersionsOnQuery(
-                              {
-                                  kind: NodeKind.HogQLASTQuery,
-                                  query: queryInput,
-                              },
-                              { recursion: false }
-                          )
-                        : setLatestVersionsOnQuery(
-                              { kind: NodeKind.HogQLQuery, query: queryInput },
-                              { recursion: false }
-                          )
+                        ? {
+                              kind: NodeKind.HogQLASTQuery,
+                              query: queryInput,
+                          }
+                        : { kind: NodeKind.HogQLQuery, query: queryInput }
                 const response = await performQuery(queryNode)
                 return { results: response.results, columns: response.columns }
             },

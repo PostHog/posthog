@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -48,7 +48,6 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     BillingType,
     Breadcrumb,
@@ -190,11 +189,7 @@ const loadMetrics = async ({
                         experiment_id: experimentId,
                     }
                 }
-                const response = await performQuery(
-                    setLatestVersionsOnQuery(queryWithExperimentId),
-                    undefined,
-                    refresh ? 'force_async' : 'async'
-                )
+                const response = await performQuery(queryWithExperimentId, undefined, refresh ? 'force_async' : 'async')
 
                 // Convert ExperimentQuery responses to typed responses
                 if (
@@ -1531,7 +1526,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
 
-                    const query = setLatestVersionsOnQuery({
+                    const query = {
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
                         experiment_name: experiment.name,
@@ -1540,7 +1535,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         start_date: experiment.start_date,
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
-                    })
+                    }
                     return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },
             },

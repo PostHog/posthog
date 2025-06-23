@@ -1,4 +1,3 @@
-import datetime
 import math
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
@@ -17,6 +16,7 @@ from langchain_openai import ChatOpenAI
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 
@@ -49,7 +49,7 @@ from .prompts import (
     ROOT_INSIGHT_CONTEXT_PROMPT,
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_SYSTEM_PROMPT,
-    ROOT_USER_CONTEXT_PROMPT,
+    ROOT_UI_CONTEXT_PROMPT,
 )
 
 # Map query kinds to their respective full UI query classes
@@ -228,7 +228,7 @@ class RootNodeUIContextMixin(AssistantNode):
 
     def _render_user_context_template(self, dashboard_context: str, insights_context: str) -> str:
         """Render the user context template with the provided context strings."""
-        template = PromptTemplate.from_template(ROOT_USER_CONTEXT_PROMPT, template_format="mustache")
+        template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(
             ui_context_dashboard=dashboard_context, ui_context_insights=insights_context
         ).to_string()
@@ -253,6 +253,7 @@ class RootNode(RootNodeUIContextMixin):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                     *[
                         (
                             "system",
@@ -270,19 +271,18 @@ class RootNode(RootNodeUIContextMixin):
         )
         chain = prompt | self._get_model(state, config)
 
-        utc_now = datetime.datetime.now(datetime.UTC)
-        project_now = utc_now.astimezone(self._team.timezone_info)
-
-        ui_context = self._get_ui_context(state)
-        user_context = self._format_ui_context(ui_context)
+        ui_context = self._format_ui_context(self._get_ui_context(state))
 
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
-                "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
-                "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
-                "project_timezone": self._team.timezone_info.tzname(utc_now),
-                "user_context": user_context,
+                "project_datetime": self.project_now,
+                "project_timezone": self.project_timezone,
+                "project_name": self._team.name,
+                "organization_name": self._team.organization.name,
+                "user_full_name": self._user.get_full_name(),
+                "user_email": self._user.email,
+                "ui_context": ui_context,
             },
             config,
         )
