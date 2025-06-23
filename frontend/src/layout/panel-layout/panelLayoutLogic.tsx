@@ -5,13 +5,13 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
 export type PanelLayoutNavIdentifier =
-    | 'Project'
-    | 'Products'
-    | 'People'
-    | 'Games'
-    | 'Shortcuts'
-    | 'DataManagement'
-    | 'Database'
+    | 'PanelProject'
+    | 'PanelProducts'
+    | 'PanelPeople'
+    | 'PanelGames'
+    | 'PanelShortcuts'
+    | 'PanelDataManagement'
+    | 'PanelDatabase'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
@@ -37,6 +37,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelWidth: (width: number) => ({ width }),
         setPanelIsResizing: (isResizing: boolean) => ({ isResizing }),
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
+        setLastPanelTriggerRef: (ref: React.RefObject<HTMLButtonElement> | null) => ({ ref }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [

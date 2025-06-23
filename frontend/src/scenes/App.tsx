@@ -18,6 +18,7 @@ import { GlobalModals } from '~/layout/GlobalModals'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { universalKeyboardShortcutsLogic } from '~/layout/UniversalKeyboardShortcuts/universalKeyboardShortcutsLogic'
 
 import type { appLogicType } from './AppType'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -72,6 +73,7 @@ export function App(): JSX.Element | null {
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
+    useMountedLogic(universalKeyboardShortcutsLogic)
     useThemedHtml()
 
     if (showApp) {

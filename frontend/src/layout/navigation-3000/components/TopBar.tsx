@@ -237,7 +237,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
                 if (isProjectTreeFolder && breadcrumb.path) {
                     assureVisibility({ type: 'folder', ref: breadcrumb.path })
                     showLayoutPanel(true)
-                    setActivePanelIdentifier('Project')
+                    setActivePanelIdentifier('PanelProject')
                 }
             }}
             data-attr={`breadcrumb-${joinedKey}`}

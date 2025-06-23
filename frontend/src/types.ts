@@ -3521,7 +3521,7 @@ export type HotKey =
     | 'arrowup'
     | 'forwardslash'
 
-export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command' | 'ctrl'
 
 export interface EventDefinition {
     id: string

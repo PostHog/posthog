@@ -1,7 +1,7 @@
 import './SidePanel.scss'
 
 import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -16,8 +16,14 @@ import {
     SidePanelExportsIcon,
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { UniversalKeyboardShortcut } from '~/layout/UniversalKeyboardShortcuts/UniversalKeyboardShortcut'
+import {
+    UniversalKeyboardShortcutItem,
+    universalKeyboardShortcutsLogic,
+} from '~/layout/UniversalKeyboardShortcuts/universalKeyboardShortcutsLogic'
 import { SidePanelTab } from '~/types'
 
+import { KeyboardShortcut } from '../components/KeyboardShortcut'
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
@@ -31,10 +37,15 @@ import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
 
-export const SIDE_PANEL_TABS: Record<
-    SidePanelTab,
-    { label: string; Icon: any; Content: any; noModalSupport?: boolean }
-> = {
+interface SidePanelTabValues {
+    label: string
+    Icon: any
+    Content: any
+    noModalSupport?: boolean
+    shortcut?: Omit<UniversalKeyboardShortcutItem, 'ref'>
+}
+
+export const SIDE_PANEL_TABS: Record<SidePanelTab, SidePanelTabValues> = {
     [SidePanelTab.Max]: {
         label: 'Max AI',
         Icon: function IconMaxFromHedgehogConfig() {
@@ -49,6 +60,13 @@ export const SIDE_PANEL_TABS: Record<
         },
         Content: SidePanelMax,
         noModalSupport: true,
+        shortcut: {
+            name: 'Max AI',
+            category: 'sidepanel',
+            keybind: ['command', 'shift', 'l'],
+            interaction: 'click',
+            intent: 'shortcut to focus max ai',
+        },
     },
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
@@ -120,6 +138,7 @@ export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
+    const { isKeyboardShortcutsVisible } = useValues(universalKeyboardShortcutsLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -204,8 +223,9 @@ export function SidePanel(): JSX.Element | null {
                 <div className="SidePanel3000__tabs">
                     <div className="SidePanel3000__tabs-content">
                         {visibleTabs.map((tab: SidePanelTab) => {
-                            const { Icon, label } = SIDE_PANEL_TABS[tab]
-                            return (
+                            const { Icon, label, shortcut } = SIDE_PANEL_TABS[tab]
+
+                            const button = (
                                 <LemonButton
                                     key={tab}
                                     icon={<Icon />}
@@ -217,10 +237,39 @@ export function SidePanel(): JSX.Element | null {
                                     active={activeTab === tab}
                                     type="secondary"
                                     status="alt"
+                                    buttonWrapper={(button) => {
+                                        if (shortcut) {
+                                            return (
+                                                <Tooltip
+                                                    title={
+                                                        <KeyboardShortcut
+                                                            {...Object.fromEntries(
+                                                                shortcut.keybind.map((k) => [k, true])
+                                                            )}
+                                                        />
+                                                    }
+                                                    placement="left"
+                                                    visible={isKeyboardShortcutsVisible}
+                                                >
+                                                    {button}
+                                                </Tooltip>
+                                            )
+                                        }
+                                        return button
+                                    }}
                                 >
                                     {label}
                                 </LemonButton>
                             )
+
+                            if (shortcut) {
+                                return (
+                                    <UniversalKeyboardShortcut {...shortcut} asChild key={tab}>
+                                        {button}
+                                    </UniversalKeyboardShortcut>
+                                )
+                            }
+                            return button
                         })}
                     </div>
                 </div>
