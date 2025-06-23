@@ -503,7 +503,9 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     urlToAction(({ values }) => ({
         [urls.sqlEditor()]: () => {
             if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
+                panelLayoutLogic.actions.showLayoutPanel(true)
                 panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
             }
         },
     })),

@@ -11,7 +11,7 @@ from ee.session_recordings.session_summary.prompt_data import SessionSummaryMeta
 @pytest.fixture
 def mock_user() -> MagicMock:
     user = MagicMock(spec=User)
-    user.pk = 123
+    user.pk = user.id = 123
     return user
 
 

@@ -244,7 +244,6 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         only_evaluate_survey_feature_flags = process_bool(request.GET.get("only_evaluate_survey_feature_flags", False))
     except ValueError:
         # default value added because of bug in posthog-js 1.19.0
-        # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
         # as a tombstone if the below statsd counter hasn't seen errors for N days
         # then it is likely that no clients are running posthog-js 1.19.0
         # and this defaulting could be removed
@@ -264,8 +263,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
         )
     except RequestParsingError as error:
-        # do not capture for now to allow error tracking to catch up
-        # capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        capture_exception(error)  # We still capture this to identify actual potential bugs
         return cors_response(
             request,
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),

@@ -42,7 +42,7 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
-                        - .eslintrc.js
+                        - .oxlintrc.json
                         - .prettier*
                         - babel.config.js
                         - package.json
@@ -130,6 +130,14 @@ jobs:
                   key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-pnpm-cypress-
 
+            - name: Cache .typegen
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .typegen
+                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-typegen-
+
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: |
@@ -197,11 +205,9 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Lint with ESLint
+            - name: Lint with Oxlint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend lint:js
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
+              run: pnpm --filter=@posthog/frontend lint:js -f github
 
     frontend-toolbar-checks:
         name: Frontend toolbar checks

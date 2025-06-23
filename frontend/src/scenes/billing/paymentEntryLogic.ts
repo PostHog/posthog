@@ -154,7 +154,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     } else {
                         actions.setError('Payment status check timed out')
                     }
-                } catch (error) {
+                } catch {
                     actions.setError('Failed to complete. Please refresh the page and try again.')
                 } finally {
                     // Reset the state
