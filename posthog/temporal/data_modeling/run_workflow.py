@@ -600,12 +600,11 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     if not columns_to_cast:
         return batch
 
-    column_names = list(columns_to_cast.keys())
-    logger.adebug(f"Converting high-precision decimal columns to double: {column_names}")
-
     for column_name, new_type in columns_to_cast.items():
         column_data = batch[column_name]
         cast_column = pc.cast(column_data, new_type)
+        if hasattr(cast_column, "combine_chunks"):
+            cast_column = cast_column.combine_chunks()
         batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, cast_column)
 
     return batch
