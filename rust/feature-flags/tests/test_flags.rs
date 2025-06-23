@@ -4384,5 +4384,54 @@ async fn test_group_key_property_matching() -> Result<()> {
         })
     );
 
+    // Test with non-matching group key
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "wrong_company_id"
+        }
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "group-key-flag": false
+            }
+        })
+    );
+
+    // Test with missing groups entirely
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "group-key-flag": false
+            }
+        })
+    );
+
     Ok(())
 }
