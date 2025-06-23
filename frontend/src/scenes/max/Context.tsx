@@ -211,7 +211,7 @@ export function ContextTags(): JSX.Element | null {
 
         // Events
         if (contextEvents) {
-            contextEvents.forEach((event) => {
+            contextEvents.forEach((event: MaxEventContext) => {
                 tags.push(
                     <LemonTag
                         key={`event-${event.id}`}
@@ -228,7 +228,7 @@ export function ContextTags(): JSX.Element | null {
 
         // Actions
         if (contextActions) {
-            contextActions.forEach((action) => {
+            contextActions.forEach((action: MaxActionContext) => {
                 tags.push(
                     <LemonTag
                         key={`action-${action.id}`}

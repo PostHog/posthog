@@ -89,31 +89,6 @@ const createEntityReducers = <TContext extends { id: string | number }, TInput>(
     reset: createResetReducer<TContext>(),
 })
 
-// Generate complete reducer config for an entity type
-const createEntityReducerConfig = <TContext extends { id: string | number }, TInput>(
-    entityName: string,
-    transformer: (input: TInput) => TContext,
-    getId: (input: TInput) => string | number,
-    additionalReducers?: Record<string, any>
-): Record<string, any> => {
-    const reducers = createEntityReducers(transformer, getId)
-    const contextKey = `context${entityName}s`
-    const addActionKey = `addOrUpdateContext${entityName}`
-    const removeActionKey = `removeContext${entityName}`
-
-    return {
-        [contextKey]: [
-            [] as TContext[],
-            {
-                [addActionKey]: (state: TContext[], { data }: { data: TInput }) => reducers.addOrUpdate(state, data),
-                [removeActionKey]: reducers.remove,
-                resetContext: reducers.reset,
-                ...additionalReducers,
-            },
-        ],
-    }
-}
-
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['lib', 'ai', 'maxContextLogic']),
     connect(() => ({
@@ -148,17 +123,9 @@ export const maxContextLogic = kea<maxContextLogicType>([
     }),
     reducers(() => {
         const insightReducers = createEntityReducers(insightToMaxContext, (insight) => insight.short_id!)
-        const standardEntityConfigs = {
-            ...createEntityReducerConfig('Insight', insightToMaxContext, (insight) => insight.short_id!, {
-                addOrUpdateActiveInsight: (
-                    state: MaxInsightContext[],
-                    { data, autoAdd }: { data: Partial<QueryBasedInsightModel>; autoAdd: boolean }
-                ) => (autoAdd ? insightReducers.addOrUpdate(state, data) : state),
-            }),
-            ...createEntityReducerConfig('Dashboard', dashboardToMaxContext, (dashboard) => dashboard.id),
-            ...createEntityReducerConfig('Event', eventToMaxContext, (event) => event.id),
-            ...createEntityReducerConfig('Action', actionToMaxContext, (action) => action.id),
-        }
+        const dashboardReducers = createEntityReducers(dashboardToMaxContext, (dashboard) => dashboard.id)
+        const eventReducers = createEntityReducers(eventToMaxContext, (event) => event.id)
+        const actionReducers = createEntityReducers(actionToMaxContext, (action) => action.id)
 
         return {
             useCurrentPageContext: [
@@ -169,7 +136,50 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     resetContext: () => false,
                 },
             ],
-            ...standardEntityConfigs,
+            contextInsights: [
+                [] as MaxInsightContext[],
+                {
+                    addOrUpdateContextInsight: (
+                        state: MaxInsightContext[],
+                        { data }: { data: Partial<QueryBasedInsightModel> }
+                    ) => insightReducers.addOrUpdate(state, data),
+                    removeContextInsight: insightReducers.remove,
+                    resetContext: insightReducers.reset,
+                    addOrUpdateActiveInsight: (
+                        state: MaxInsightContext[],
+                        { data, autoAdd }: { data: Partial<QueryBasedInsightModel>; autoAdd: boolean }
+                    ) => (autoAdd ? insightReducers.addOrUpdate(state, data) : state),
+                },
+            ],
+            contextDashboards: [
+                [] as MaxDashboardContext[],
+                {
+                    addOrUpdateContextDashboard: (
+                        state: MaxDashboardContext[],
+                        { data }: { data: DashboardType<QueryBasedInsightModel> }
+                    ) => dashboardReducers.addOrUpdate(state, data),
+                    removeContextDashboard: dashboardReducers.remove,
+                    resetContext: dashboardReducers.reset,
+                },
+            ],
+            contextEvents: [
+                [] as MaxEventContext[],
+                {
+                    addOrUpdateContextEvent: (state: MaxEventContext[], { data }: { data: EventDefinition }) =>
+                        eventReducers.addOrUpdate(state, data),
+                    removeContextEvent: eventReducers.remove,
+                    resetContext: eventReducers.reset,
+                },
+            ],
+            contextActions: [
+                [] as MaxActionContext[],
+                {
+                    addOrUpdateContextAction: (state: MaxActionContext[], { data }: { data: ActionType }) =>
+                        actionReducers.addOrUpdate(state, data),
+                    removeContextAction: actionReducers.remove,
+                    resetContext: actionReducers.reset,
+                },
+            ],
             activeInsights: [
                 [] as MaxInsightContext[],
                 {
