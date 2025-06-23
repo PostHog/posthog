@@ -12,7 +12,8 @@ fi
 
 echo "Running mypy checks..."
 flox activate -- pnpm mypy-check
-if [ $? -ne 0 ]; then
+exit_code=$?
+if [ $exit_code -ne 0 ]; then
     echo "MyPy checks failed. Please fix the issues before pushing."
     exit 1
 fi
