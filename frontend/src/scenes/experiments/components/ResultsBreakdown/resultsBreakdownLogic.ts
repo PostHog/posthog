@@ -142,6 +142,9 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         const { experiment } = props
                         const query = values.query
 
+                        // wait for 10000ms
+                        await new Promise((resolve) => setTimeout(resolve, 20000))
+
                         if (!query) {
                             throw new Error('No query returned from queryBuilder')
                         }
