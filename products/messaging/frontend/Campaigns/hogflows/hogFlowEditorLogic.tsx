@@ -121,7 +121,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
         edgesByActionId: [
             (s) => [s.campaign],
-            (campaign) => {
+            (campaign): Record<string, HogFlow['edges']> => {
                 return campaign.edges.reduce((acc, edge) => {
                     if (!acc[edge.from]) {
                         acc[edge.from] = []
@@ -134,7 +134,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     acc[edge.to].push(edge)
 
                     return acc
-                }, {} as Record<string, Edge[]>)
+                }, {} as Record<string, HogFlow['edges']>)
             },
         ],
     }),
@@ -237,35 +237,36 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // Find all edges connected to the deleted nodes.
             // All edges that are connected to the deleted node should be deleted and replaced with an edge to the original node.
 
-            const updatedActions = values.campaign.actions
-                .filter((action) => !deletedNodeIds.includes(action.id))
-                .map((action) => {
-                    // For each action, update its next_actions to skip deleted nodes
-                    const updatedNextActions: Record<string, { action_id: string; label?: string }> = {}
+            // TODO: Fix this!
+            // const updatedActions = values.campaign.actions
+            //     .filter((action) => !deletedNodeIds.includes(action.id))
+            //     .map((action) => {
+            //         // For each action, update its next_actions to skip deleted nodes
+            //         const updatedNextActions: Record<string, { action_id: string; label?: string }> = {}
 
-                    Object.entries(action.next_actions).forEach(([branch, nextAction]) => {
-                        if (deletedNodeIds.includes(nextAction.action_id)) {
-                            // Find the deleted node's continue action and use that instead
-                            const deletedNode = values.campaign.actions.find((a) => a.id === nextAction.action_id)
-                            if (deletedNode?.next_actions.continue) {
-                                updatedNextActions[branch] = {
-                                    action_id: deletedNode.next_actions.continue.action_id,
-                                    label:
-                                        action.type === deletedNode.type
-                                            ? deletedNode.next_actions.continue.label
-                                            : undefined,
-                                }
-                            }
-                        } else {
-                            updatedNextActions[branch] = nextAction
-                        }
-                    })
+            //         Object.entries(action.next_actions).forEach(([branch, nextAction]) => {
+            //             if (deletedNodeIds.includes(nextAction.action_id)) {
+            //                 // Find the deleted node's continue action and use that instead
+            //                 const deletedNode = values.campaign.actions.find((a) => a.id === nextAction.action_id)
+            //                 if (deletedNode?.next_actions.continue) {
+            //                     updatedNextActions[branch] = {
+            //                         action_id: deletedNode.next_actions.continue.action_id,
+            //                         label:
+            //                             action.type === deletedNode.type
+            //                                 ? deletedNode.next_actions.continue.label
+            //                                 : undefined,
+            //                     }
+            //                 }
+            //             } else {
+            //                 updatedNextActions[branch] = nextAction
+            //             }
+            //         })
 
-                    return {
-                        ...action,
-                        next_actions: updatedNextActions,
-                    }
-                })
+            //         return {
+            //             ...action,
+            //             next_actions: updatedNextActions,
+            //         }
+            //     })
 
             actions.setCampaignValues({ actions: updatedActions })
         },
@@ -351,7 +352,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // First remove the edge to be replaced
                 const edgeToBeReplaced = values.campaign.edges[edgeToBeReplacedIndex]
 
-                console.log('Edges before', [...newEdges])
                 newEdges.splice(edgeToBeReplacedIndex, 1)
 
                 // Now add the new edges for the new action
@@ -374,8 +374,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         from: newAction.id,
                     })
                 }
-
-                console.log('Edges after', [...newEdges])
 
                 const oldActions = values.campaign.actions
                 const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
