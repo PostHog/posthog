@@ -1,4 +1,4 @@
-import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX, IconEye } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX, IconEye, IconHide } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
