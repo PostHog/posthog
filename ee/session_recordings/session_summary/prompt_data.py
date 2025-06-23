@@ -59,6 +59,7 @@ class SessionSummaryPromptData:
         window_id_index = get_column_index(self.columns, "$window_id")
         current_url_index = get_column_index(self.columns, "$current_url")
         timestamp_index = get_column_index(self.columns, "timestamp")
+        uuid_index = get_column_index(self.columns, "uuid")
         event_id_index = len(self.columns) - 2
         event_index_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
@@ -92,8 +93,8 @@ class SessionSummaryPromptData:
                     raise ValueError(f"Current URL is not a string: {event_current_url}")
                 else:
                     simplified_event[current_url_index] = self._simplify_url(event_current_url)
-            # Generate a hex for each event to make sure we can identify repeated events, and identify the event
-            event_id = self._get_deterministic_hex(simplified_event)
+            # Generate an event ID from session and event UUIDs to be able to track them across sessions
+            event_id = self._generate_event_id(session_id=session_id, uuid_index=uuid_index, event=event)
             if event_id in simplified_events_mapping:
                 # Skip repeated events
                 continue
@@ -170,3 +171,12 @@ class SessionSummaryPromptData:
         # so we can get the same string using the same combination of values only.
         event_string = "\0".join(format_value(x) for x in event)
         return hashlib.sha256(event_string.encode()).hexdigest()[:length]
+
+    def _generate_event_id(self, session_id: str, uuid_index: int, event: list[Any]) -> str:
+        event_uuid = event[uuid_index]
+        if event_uuid is None:
+            raise ValueError(f"UUID is not present in the event: {event}")
+        elif not isinstance(event_uuid, str):
+            raise ValueError(f"UUID is not a string: {event_uuid}")
+        event_id = f"{session_id}_{event_uuid}"
+        return event_id
