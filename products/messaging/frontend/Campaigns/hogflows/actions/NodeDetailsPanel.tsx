@@ -1,12 +1,13 @@
 import { IconTrash, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { getOutgoers, Node, Panel, useEdges, useNodes } from '@xyflow/react'
 import { Form } from 'kea-forms'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { useMemo } from 'react'
 
 import type { HogFlowAction } from '../types'
-import { HogFlowActionManager } from './hogFlowActionManager'
+import { TriggerPanelOptions } from './configuration/TriggerPanel'
+import { HogFlowActionManager, TriggerAction } from './hogFlowActionManager'
 import { nodeLogic } from './nodeLogic'
 
 export function NodeDetailsPanel({
@@ -46,32 +47,38 @@ export function NodeDetailsPanel({
                 logic={nodeLogic}
                 props={{ node }}
                 formKey="inputs"
-                className="bg-surface-primary rounded-md shadow-md p-4 gap-2 flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-3/4 overflow-y-scroll"
+                className="bg-surface-primary rounded-md shadow-md flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-3/4"
             >
-                <div className="flex justify-between items-center">
-                    <h3 className="font-semibold">Edit {hogFlowAction.action.name} step</h3>
+                <div className="flex justify-between items-center p-2">
+                    <h3 className="mb-0 font-semibold">Edit {hogFlowAction.action.name} step</h3>
                     <div className="flex gap-1 items-center">
                         {node.deletable && (
                             <LemonButton
-                                size="small"
+                                size="xsmall"
                                 status="danger"
                                 onClick={() => onDelete(node)}
                                 icon={<IconTrash />}
                                 disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
                             />
                         )}
-                        <LemonButton size="small" icon={<IconX />} onClick={onClose} aria-label="close" />
+                        <LemonButton size="xsmall" icon={<IconX />} onClick={onClose} aria-label="close" />
                     </div>
                 </div>
-                <div className="flex flex-col gap-2">
-                    <CyclotronJobInputs
-                        configuration={{
-                            inputs: hogFlowAction.getInputs(),
-                            inputs_schema: hogFlowAction.getInputsSchema(),
-                        }}
-                        onInputChange={handleInputChange}
-                        showSource={false}
-                    />
+                <LemonDivider className="my-0" />
+                <div className="flex overflow-y-auto flex-col gap-2 p-2">
+                    {hogFlowAction instanceof TriggerAction ? (
+                        <TriggerPanelOptions action={hogFlowAction} />
+                    ) : (
+                        <p>TODO</p>
+                        // <CyclotronJobInputs
+                        //     configuration={{
+                        //         inputs: hogFlowAction.getInputs(),
+                        //         inputs_schema: hogFlowAction.getInputsSchema(),
+                        //     }}
+                        //     onInputChange={handleInputChange}
+                        //     showSource={false}
+                        // />
+                    )}
                 </div>
             </Form>
         </Panel>

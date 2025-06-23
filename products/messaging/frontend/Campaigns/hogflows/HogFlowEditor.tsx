@@ -8,118 +8,97 @@ import {
     Node,
     ReactFlow,
     ReactFlowProvider,
-    useEdgesState,
-    useNodesState,
     useReactFlow,
 } from '@xyflow/react'
-import { useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { OnWorkflowChange } from '../campaignLogic'
-import { HogFlowActionManager } from './actions/hogFlowActionManager'
+import { campaignLogic } from '../campaignLogic'
 import { NodeDetailsPanel } from './actions/NodeDetailsPanel'
 import { REACT_FLOW_NODE_TYPES } from './actions/Nodes'
-import { getFormattedNodes } from './autolayout'
-import { Toolbar, ToolbarNode } from './Toolbar'
-import type { HogFlow, HogFlowAction } from './types'
+import { hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
+import type { HogFlowAction } from './types'
 
 // Inner component that encapsulates React Flow
-function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChange: OnWorkflowChange }): JSX.Element {
+function HogFlowEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes: parsedNodes, edges: parsedEdges } = useMemo(
-        () => HogFlowActionManager.getReactFlowFromHogFlow(hogFlow),
-        [hogFlow]
-    )
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node<HogFlowAction>>(parsedNodes)
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(parsedEdges)
+    const { nodes, edges, selectedNode, dropzoneNodes } = useValues(hogFlowEditorLogic)
+    const {
+        onEdgesChange,
+        onNodesChange,
+        setSelectedNode,
+        setReactFlowInstance,
+        onNodesDelete,
+        onDragStart,
+        onDragOver,
+        onDrop,
+    } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
-    const [toolbarNodeUsed, setToolbarNodeUsed] = useState<ToolbarNode>()
-    const [selectedNode, setSelectedNode] = useState<Node<HogFlowAction>>()
-    const { screenToFlowPosition, deleteElements, getIntersectingNodes, fitView } = useReactFlow()
+    const { fitView } = useReactFlow() // TODO: Move this to the logic too
+    const reactFlowInstance = useReactFlow()
 
-    const nodeTypes = useMemo(() => REACT_FLOW_NODE_TYPES, [])
-
-    // Layout the graph on node changes.
     useEffect(() => {
-        void (async () => {
-            const { nodes, edges } = HogFlowActionManager.getReactFlowFromHogFlow(hogFlow)
-            const formattedNodes = await getFormattedNodes(nodes)
-            setNodes(formattedNodes)
-            setEdges(edges)
-        })()
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hogFlow.actions])
+        setReactFlowInstance(reactFlowInstance)
+    }, [reactFlowInstance, setReactFlowInstance])
 
     // Center content whenever nodes positions change
     useEffect(() => {
         void fitView()
     }, [fitView, nodes])
 
-    const onNodesDelete = useCallback(
-        (deleted: Node<HogFlowAction>[]) => {
-            // Hide node details if any deleted node is the selected node
-            if (deleted.some((node) => node.id === selectedNode?.id)) {
-                setSelectedNode(undefined)
-            }
+    // const onDragStart = useCallback(() => {
+    //     setNodes(HogFlowActionManager.addDropzoneNodes(nodes, edges))
+    // }, [nodes, edges, setNodes])
 
-            const updatedActions = HogFlowActionManager.deleteActions(deleted, hogFlow)
-            onChange({ actions: updatedActions })
-        },
-        [hogFlow, selectedNode?.id, setSelectedNode, onChange]
-    )
+    // const onDragOver = useCallback(
+    //     (event: React.DragEvent) => {
+    //         event.preventDefault()
+    //         event.dataTransfer.dropEffect = 'move'
 
-    const onDragStart = useCallback(() => {
-        setNodes(HogFlowActionManager.addDropzoneNodes(nodes, edges))
-    }, [nodes, edges, setNodes])
+    //         setNodes((nds) =>
+    //             HogFlowActionManager.highlightDropzoneNodes(nds, event, screenToFlowPosition, getIntersectingNodes)
+    //         )
+    //     },
+    //     [screenToFlowPosition, getIntersectingNodes, setNodes]
+    // )
 
-    const onDragOver = useCallback(
-        (event: React.DragEvent) => {
-            event.preventDefault()
-            event.dataTransfer.dropEffect = 'move'
+    // const onDrop = useCallback(
+    //     (event: React.DragEvent) => {
+    //         event.preventDefault()
 
-            setNodes((nds) =>
-                HogFlowActionManager.highlightDropzoneNodes(nds, event, screenToFlowPosition, getIntersectingNodes)
-            )
-        },
-        [screenToFlowPosition, getIntersectingNodes, setNodes]
-    )
+    //         const intersectingDropzone = HogFlowActionManager.findIntersectingDropzone(
+    //             event,
+    //             screenToFlowPosition,
+    //             getIntersectingNodes
+    //         )
+    //         if (!toolbarNodeUsed || !intersectingDropzone) {
+    //             // No changes, just hide dropzones
+    //             setNodes((nds) => HogFlowActionManager.removeDropzoneNodes(nds))
+    //             return
+    //         }
 
-    const onDrop = useCallback(
-        (event: React.DragEvent) => {
-            event.preventDefault()
-
-            const intersectingDropzone = HogFlowActionManager.findIntersectingDropzone(
-                event,
-                screenToFlowPosition,
-                getIntersectingNodes
-            )
-            if (!toolbarNodeUsed || !intersectingDropzone) {
-                // No changes, just hide dropzones
-                setNodes((nds) => HogFlowActionManager.removeDropzoneNodes(nds))
-                return
-            }
-
-            // Create the new node in the position of the dropzone using the manager
-            const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
-                hogFlow.actions,
-                toolbarNodeUsed,
-                intersectingDropzone
-            )
-            onChange({ actions: updatedActions })
-        },
-        [screenToFlowPosition, getIntersectingNodes, toolbarNodeUsed, hogFlow.actions, onChange, setNodes]
-    )
+    //         // Create the new node in the position of the dropzone using the manager
+    //         const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
+    //             hogFlow.actions,
+    //             toolbarNodeUsed,
+    //             intersectingDropzone
+    //         )
+    //         onChange({ actions: updatedActions })
+    //     },
+    //     [screenToFlowPosition, getIntersectingNodes, toolbarNodeUsed, hogFlow.actions, onChange, setNodes]
+    // )
 
     return (
-        <div ref={reactFlowWrapper} className="h-full w-full">
+        <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<Node<HogFlowAction>, Edge>
                 fitView
-                nodes={nodes}
+                nodes={[...nodes, ...dropzoneNodes]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -128,7 +107,7 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
                 onDragOver={onDragOver}
                 onNodeClick={(_, node) => node.selectable && setSelectedNode(node)}
                 onDrop={onDrop}
-                nodeTypes={nodeTypes}
+                nodeTypes={REACT_FLOW_NODE_TYPES}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
             >
@@ -136,16 +115,16 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
 
                 <Background gap={36} variant={BackgroundVariant.Dots} />
 
-                <Toolbar setNewNode={setToolbarNodeUsed} />
+                <HogFlowEditorToolbar />
 
                 {selectedNode && (
                     <NodeDetailsPanel
                         node={selectedNode}
-                        onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
-                        onDelete={(node) => {
-                            void deleteElements({ nodes: [node] })
-                        }}
-                        onClose={() => setSelectedNode(undefined)}
+                        // onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
+                        // onDelete={(node) => {
+                        //     void deleteElements({ nodes: [node] })
+                        // }}
+                        // onClose={() => setSelectedNode(undefined)}
                     />
                 )}
             </ReactFlow>
@@ -153,10 +132,13 @@ function HogFlowEditorContent({ hogFlow, onChange }: { hogFlow: HogFlow; onChang
     )
 }
 
-export function HogFlowEditor({ hogFlow, onChange }: { hogFlow: HogFlow; onChange: OnWorkflowChange }): JSX.Element {
+export function HogFlowEditor(): JSX.Element {
+    const { logicProps } = useValues(campaignLogic)
     return (
         <ReactFlowProvider>
-            <HogFlowEditorContent hogFlow={hogFlow} onChange={onChange} />
+            <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
+                <HogFlowEditorContent />
+            </BindLogic>
         </ReactFlowProvider>
     )
 }

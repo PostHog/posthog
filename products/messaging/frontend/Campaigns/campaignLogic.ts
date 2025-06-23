@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
-import type { HogFlow, HogFlowAction } from './hogflows/types'
+import type { HogFlow } from './hogflows/types'
 
 export interface CampaignLogicProps {
     id?: string
@@ -29,6 +29,10 @@ const NEW_CAMPAIGN: HogFlow = {
                 continue: {
                     action_id: 'exit_node',
                 },
+            },
+            config: {
+                type: 'event',
+                filters: {},
             },
         },
         {
@@ -53,8 +57,6 @@ const NEW_CAMPAIGN: HogFlow = {
     team_id: -1,
 }
 
-export type OnWorkflowChange = ({ actions }: { actions: HogFlowAction[] }) => void
-
 export const campaignLogic = kea<campaignLogicType>([
     path(['products', 'messaging', 'frontend', 'Campaigns', 'campaignLogic']),
     props({ id: 'new' } as CampaignLogicProps),
@@ -63,22 +65,25 @@ export const campaignLogic = kea<campaignLogicType>([
         setOriginalCampaign: (campaign: HogFlow) => ({ campaign }),
     }),
     loaders(({ props }) => ({
-        campaign: {
-            loadCampaign: async () => {
-                if (!props.id || props.id === 'new') {
-                    return { ...NEW_CAMPAIGN }
-                }
+        campaign: [
+            null as HogFlow | null,
+            {
+                loadCampaign: async () => {
+                    if (!props.id || props.id === 'new') {
+                        return { ...NEW_CAMPAIGN }
+                    }
 
-                return api.hogFlows.getHogFlow(props.id)
-            },
-            saveCampaign: async (updates: Partial<HogFlow>) => {
-                if (!props.id || props.id === 'new') {
-                    return api.hogFlows.createHogFlow(updates)
-                }
+                    return api.hogFlows.getHogFlow(props.id)
+                },
+                saveCampaign: async (updates: Partial<HogFlow>) => {
+                    if (!props.id || props.id === 'new') {
+                        return api.hogFlows.createHogFlow(updates)
+                    }
 
-                return api.hogFlows.updateHogFlow(props.id, updates)
+                    return api.hogFlows.updateHogFlow(props.id, updates)
+                },
             },
-        },
+        ],
     })),
     forms(({ actions }) => ({
         campaign: {
@@ -98,6 +103,9 @@ export const campaignLogic = kea<campaignLogicType>([
                 },
             },
         ],
+    }),
+    selectors({
+        logicProps: [() => [(_, props) => props], (props) => props],
     }),
     listeners(({ actions }) => ({
         saveCampaignSuccess: async ({ campaign }) => {

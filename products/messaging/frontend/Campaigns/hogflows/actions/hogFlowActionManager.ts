@@ -2,7 +2,7 @@ import { Edge, getSmoothStepPath, Handle, Node, Position } from '@xyflow/react'
 import { uuid } from 'lib/utils'
 import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
-import { CyclotronJobInputSchemaType, CyclotronJobInputType, Optional } from '~/types'
+import { Optional } from '~/types'
 
 import {
     BOTTOM_HANDLE_POSITION,
@@ -14,7 +14,7 @@ import {
     RIGHT_HANDLE_POSITION,
     TOP_HANDLE_POSITION,
 } from '../constants'
-import { ToolbarNode } from '../Toolbar'
+import { ToolbarNode } from '../HogFlowEditorToolbar'
 import type { HogFlow, HogFlowAction } from '../types'
 import { DROPZONE_NODE_TYPES } from './Nodes'
 
@@ -32,11 +32,11 @@ export const HogFlowActionManager = {
         return `action_${type}_${uuid()}`
     },
 
-    fromReactFlowNode(node: Node<HogFlowAction>): BaseNode<HogFlowAction['type']> {
+    fromReactFlowNode(node: Node<HogFlowAction>): BaseHogFlowActionNode<HogFlowAction['type']> {
         return this.fromAction(node.data)
     },
 
-    fromAction(action: HogFlowAction): BaseNode<HogFlowAction['type']> {
+    fromAction(action: HogFlowAction): BaseHogFlowActionNode<HogFlowAction['type']> {
         switch (action.type) {
             case 'trigger':
                 return new TriggerAction(action)
@@ -60,7 +60,10 @@ export const HogFlowActionManager = {
         }
     },
 
-    fromToolbarNode(toolbarNode: ToolbarNode, edgeToInsertNodeInto: Edge): BaseNode<HogFlowAction['type']> {
+    fromToolbarNode(
+        toolbarNode: ToolbarNode,
+        edgeToInsertNodeInto: Edge
+    ): BaseHogFlowActionNode<HogFlowAction['type']> {
         switch (toolbarNode.type) {
             case 'message':
                 return MessageAction.fromToolbarNode(toolbarNode, edgeToInsertNodeInto)
@@ -137,7 +140,7 @@ export const HogFlowActionManager = {
     getReactFlowFromHogFlow(hogFlow: HogFlow): { nodes: Node<HogFlowAction>[]; edges: Edge[] } {
         const nodes = hogFlow.actions
             .map((action: HogFlowAction) => HogFlowActionManager.fromAction(action))
-            .map((hogFlowAction: BaseNode<HogFlowAction['type']>) => {
+            .map((hogFlowAction: BaseHogFlowActionNode<HogFlowAction['type']>) => {
                 return {
                     id: hogFlowAction.action.id,
                     type: hogFlowAction.action.type,
@@ -247,11 +250,15 @@ export const HogFlowActionManager = {
     },
 }
 
-abstract class BaseNode<T extends HogFlowAction['type']> {
+export abstract class BaseHogFlowActionNode<T extends HogFlowAction['type']> {
     action: Extract<HogFlowAction, { type: T }>
 
     constructor(action: Extract<HogFlowAction, { type: T }>) {
         this.action = action
+
+        if (!this.action.config) {
+            this.action.config = this.getDefaultConfig()
+        }
     }
 
     toReactFlowNode(): Node<HogFlowAction> {
@@ -265,13 +272,27 @@ abstract class BaseNode<T extends HogFlowAction['type']> {
         }
     }
 
+    abstract getDefaultConfig(): Extract<HogFlowAction, { type: T }>['config']
     abstract getHandles(): NodeHandle[]
-    abstract getInputs(): Record<string, CyclotronJobInputType>
-    abstract getInputsSchema(): CyclotronJobInputSchemaType[]
-    abstract setInput(key: string, value: any): void
+
+    updateConfig(config: Extract<HogFlowAction, { type: T }>['config']): void {
+        this.action.config = config
+    }
+
+    partialUpdateConfig(config: Partial<Extract<HogFlowAction, { type: T }>['config']>): void {
+        console.log('partialUpdateConfig', config)
+        this.action.config = { ...this.action.config, ...config }
+    }
 }
 
-class TriggerAction extends BaseNode<'trigger'> {
+export class TriggerAction extends BaseHogFlowActionNode<'trigger'> {
+    public getDefaultConfig(): Extract<HogFlowAction, { type: 'trigger' }>['config'] {
+        return {
+            type: 'event',
+            filters: {},
+        }
+    }
+
     public getHandles(): NodeHandle[] {
         return [
             {
@@ -282,21 +303,15 @@ class TriggerAction extends BaseNode<'trigger'> {
             },
         ]
     }
-
-    getInputs(): Record<string, CyclotronJobInputType> {
-        return {}
-    }
-
-    getInputsSchema(): CyclotronJobInputSchemaType[] {
-        return []
-    }
-
-    setInput(): void {
-        throw new Error('TriggerAction does not have inputs')
-    }
 }
 
-class ExitAction extends BaseNode<'exit'> {
+class ExitAction extends BaseHogFlowActionNode<'exit'> {
+    public getDefaultConfig(): Extract<HogFlowAction, { type: 'exit' }>['config'] {
+        return {
+            reason: 'Default exit',
+        }
+    }
+
     public getHandles(): NodeHandle[] {
         return [
             {
@@ -307,37 +322,16 @@ class ExitAction extends BaseNode<'exit'> {
             },
         ]
     }
-
-    getInputs(): Record<string, CyclotronJobInputType> {
-        return {
-            reason: { value: this.action.config?.reason || 'Default exit' },
-        }
-    }
-
-    getInputsSchema(): CyclotronJobInputSchemaType[] {
-        return [
-            {
-                key: 'reason',
-                label: 'Exit reason',
-                type: 'string',
-                required: false,
-                description: 'The reason for exiting the workflow',
-                default: 'Default exit',
-                secret: false,
-            },
-        ]
-    }
-
-    setInput(key: 'reason', value: any): void {
-        switch (key) {
-            case 'reason':
-                this.action.config.reason = value
-                break
-        }
-    }
 }
 
-class MessageAction extends BaseNode<'message'> {
+class MessageAction extends BaseHogFlowActionNode<'message'> {
+    public getDefaultConfig(): Extract<HogFlowAction, { type: 'message' }>['config'] {
+        return {
+            message: { value: NEW_TEMPLATE },
+            channel: 'email',
+        }
+    }
+
     public static fromToolbarNode(toolbarNode: ToolbarNode, edgeToInsertNodeInto: Edge): MessageAction {
         const id = HogFlowActionManager.generateActionId(toolbarNode.type)
         return new MessageAction({
@@ -374,43 +368,49 @@ class MessageAction extends BaseNode<'message'> {
         ]
     }
 
-    getInputs(): Record<string, CyclotronJobInputType> {
-        return {
-            name: { value: this.action.name || '' },
-            email: { value: this.action.config?.message?.value || NEW_TEMPLATE },
-        }
-    }
+    // getInputs(): Record<string, CyclotronJobInputType> {
+    //     return {
+    //         name: { value: this.action.name || '' },
+    //         email: { value: this.action.config?.message?.value || NEW_TEMPLATE },
+    //     }
+    // }
 
-    getInputsSchema(): CyclotronJobInputSchemaType[] {
-        return [
-            {
-                type: 'string',
-                key: 'name',
-                label: 'Name',
-                required: false,
-            },
-            {
-                type: 'email',
-                key: 'email',
-                label: 'Email',
-                required: true,
-            },
-        ]
-    }
+    // getInputsSchema(): CyclotronJobInputSchemaType[] {
+    //     return [
+    //         {
+    //             type: 'string',
+    //             key: 'name',
+    //             label: 'Name',
+    //             required: false,
+    //         },
+    //         {
+    //             type: 'email',
+    //             key: 'email',
+    //             label: 'Email',
+    //             required: true,
+    //         },
+    //     ]
+    // }
 
-    setInput(key: 'name' | 'email', value: any): void {
-        switch (key) {
-            case 'name':
-                this.action.name = value
-                break
-            case 'email':
-                this.action.config.message.value = value
-                break
-        }
-    }
+    // setInput(key: 'name' | 'email', value: any): void {
+    //     switch (key) {
+    //         case 'name':
+    //             this.action.name = value
+    //             break
+    //         case 'email':
+    //             this.action.config.message.value = value
+    //             break
+    //     }
+    // }
 }
 
-class DelayAction extends BaseNode<'delay'> {
+class DelayAction extends BaseHogFlowActionNode<'delay'> {
+    public getDefaultConfig(): Extract<HogFlowAction, { type: 'delay' }>['config'] {
+        return {
+            delay_duration: '10m',
+        }
+    }
+
     public static fromToolbarNode(toolbarNode: ToolbarNode, edgeToInsertNodeInto: Edge): DelayAction {
         const id = HogFlowActionManager.generateActionId(toolbarNode.type)
         return new DelayAction({
@@ -447,43 +447,50 @@ class DelayAction extends BaseNode<'delay'> {
         ]
     }
 
-    getInputs(): Record<string, CyclotronJobInputType> {
-        return {
-            name: { value: this.action.name || '' },
-            duration: { value: this.action.config?.delay_duration || '1h' },
-        }
-    }
+    // getInputs(): Record<string, CyclotronJobInputType> {
+    //     return {
+    //         name: { value: this.action.name || '' },
+    //         duration: { value: this.action.config?.delay_duration || '1h' },
+    //     }
+    // }
 
-    getInputsSchema(): CyclotronJobInputSchemaType[] {
-        return [
-            {
-                type: 'string',
-                key: 'name',
-                label: 'Name',
-                required: false,
-            },
-            {
-                type: 'string',
-                key: 'duration',
-                label: 'Duration',
-                required: true,
-            },
-        ]
-    }
+    // getInputsSchema(): CyclotronJobInputSchemaType[] {
+    //     return [
+    //         {
+    //             type: 'string',
+    //             key: 'name',
+    //             label: 'Name',
+    //             required: false,
+    //         },
+    //         {
+    //             type: 'string',
+    //             key: 'duration',
+    //             label: 'Duration',
+    //             required: true,
+    //         },
+    //     ]
+    // }
 
-    setInput(key: 'name' | 'duration', value: any): void {
-        switch (key) {
-            case 'name':
-                this.action.name = value
-                break
-            case 'duration':
-                this.action.config.delay_duration = value
-                break
-        }
-    }
+    // setInput(key: 'name' | 'duration', value: any): void {
+    //     switch (key) {
+    //         case 'name':
+    //             this.action.name = value
+    //             break
+    //         case 'duration':
+    //             this.action.config.delay_duration = value
+    //             break
+    //     }
+    // }
 }
 
-class WaitUntilConditionAction extends BaseNode<'wait_until_condition'> {
+class WaitUntilConditionAction extends BaseHogFlowActionNode<'wait_until_condition'> {
+    public getDefaultConfig(): Extract<HogFlowAction, { type: 'wait_until_condition' }>['config'] {
+        return {
+            condition: { filter: null },
+            max_wait_duration: '300s',
+        }
+    }
+
     public static fromToolbarNode(toolbarNode: ToolbarNode, edgeToInsertNodeInto: Edge): WaitUntilConditionAction {
         const id = HogFlowActionManager.generateActionId(toolbarNode.type)
         return new WaitUntilConditionAction({
@@ -526,26 +533,32 @@ class WaitUntilConditionAction extends BaseNode<'wait_until_condition'> {
         ]
     }
 
-    getInputs(): Record<string, CyclotronJobInputType> {
-        return {
-            name: { value: this.action.name || '' },
-        }
-    }
+    // getInputs(): Record<string, CyclotronJobInputType> {
+    //     return {
+    //         name: { value: this.action.name || '' },
+    //     }
+    // }
 
-    getInputsSchema(): CyclotronJobInputSchemaType[] {
-        return []
-    }
+    // getInputsSchema(): CyclotronJobInputSchemaType[] {
+    //     return []
+    // }
 
-    setInput(key: 'name', value: any): void {
-        switch (key) {
-            case 'name':
-                this.action.name = value
-                break
-        }
-    }
+    // setInput(key: 'name', value: any): void {
+    //     switch (key) {
+    //         case 'name':
+    //             this.action.name = value
+    //             break
+    //     }
+    // }
 }
 
-class ConditionalBranchAction extends BaseNode<'conditional_branch'> {
+class ConditionalBranchAction extends BaseHogFlowActionNode<'conditional_branch'> {
+    public getDefaultConfig(): Extract<HogFlowAction, { type: 'conditional_branch' }>['config'] {
+        return {
+            conditions: [],
+        }
+    }
+
     public static fromToolbarNode(toolbarNode: ToolbarNode, edgeToInsertNodeInto: Edge): ConditionalBranchAction {
         const id = HogFlowActionManager.generateActionId(toolbarNode.type)
         return new ConditionalBranchAction({
@@ -593,28 +606,28 @@ class ConditionalBranchAction extends BaseNode<'conditional_branch'> {
         ]
     }
 
-    getInputs(): Record<string, CyclotronJobInputType> {
-        return {
-            name: { value: this.action.name || '' },
-        }
-    }
+    // getInputs(): Record<string, CyclotronJobInputType> {
+    //     return {
+    //         name: { value: this.action.name || '' },
+    //     }
+    // }
 
-    getInputsSchema(): CyclotronJobInputSchemaType[] {
-        return [
-            {
-                type: 'string',
-                key: 'name',
-                label: 'Name',
-                required: false,
-            },
-        ]
-    }
+    // getInputsSchema(): CyclotronJobInputSchemaType[] {
+    //     return [
+    //         {
+    //             type: 'string',
+    //             key: 'name',
+    //             label: 'Name',
+    //             required: false,
+    //         },
+    //     ]
+    // }
 
-    setInput(key: 'name', value: any): void {
-        switch (key) {
-            case 'name':
-                this.action.name = value
-                break
-        }
-    }
+    // setInput(key: 'name', value: any): void {
+    //     switch (key) {
+    //         case 'name':
+    //             this.action.name = value
+    //             break
+    //     }
+    // }
 }

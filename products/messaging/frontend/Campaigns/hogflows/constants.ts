@@ -4,7 +4,7 @@ import { HogFlowAction } from './types'
 
 export const getDefaultNodeOptions = (isEntryOrExit?: boolean): Partial<Node<HogFlowAction>> => ({
     deletable: !isEntryOrExit,
-    selectable: !isEntryOrExit,
+    selectable: true,
     draggable: false,
     connectable: false,
 })

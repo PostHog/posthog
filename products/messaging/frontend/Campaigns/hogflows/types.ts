@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BaseHogFlowActionNode } from './actions/hogFlowActionManager'
 
 const _commonActionFields = {
     id: z.string(),
@@ -22,6 +23,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('trigger'),
+        config: z.object({
+            type: z.literal('event'),
+            filters: z.any(),
+        }),
         // A trigger's event filters are stored on the top-level Hogflow object
     }),
     // Branching
@@ -149,4 +154,8 @@ export const HogFlowSchema = z.object({
 })
 
 export type HogFlow = z.infer<typeof HogFlowSchema>
-export type HogFlowAction = HogFlow['actions'][number]
+export type HogFlowAction = z.infer<typeof HogFlowActionSchema>
+
+export type HogFlowActionPanelProps<T extends HogFlowAction['type']> = {
+    action: BaseHogFlowActionNode<T>
+}
