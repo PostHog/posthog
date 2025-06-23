@@ -687,7 +687,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
         mock_query_runner.run_and_format_query.return_value = ("Trend results: 100 users", None)
 
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="User Trends",
             description="Daily active users",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -716,7 +716,7 @@ Trend results: 100 users
         mock_query_runner.run_and_format_query.return_value = ("Funnel results: 50% conversion", None)
 
         insight = MaxInsightContext(
-            id=456,
+            id="456",
             name="Conversion Funnel",
             description=None,
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
@@ -743,7 +743,7 @@ Funnel results: 50% conversion
         mock_query_runner.run_and_format_query.return_value = ("Retention: 30% Day 7", None)
 
         insight = MaxInsightContext(
-            id=789,
+            id="789",
             name=None,
             description=None,
             query=RetentionQuery(
@@ -774,7 +774,7 @@ Retention: 30% Day 7
         mock_query_runner.run_and_format_query.return_value = ("Query results: 42 events", None)
 
         insight = MaxInsightContext(
-            id=101,
+            id="101",
             name="Custom Query",
             description="HogQL analysis",
             query=HogQLQuery(query="SELECT count() FROM events"),
@@ -800,7 +800,7 @@ Query results: 42 events
     def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
 
-        insight = MaxInsightContext(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
+        insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
@@ -813,7 +813,7 @@ Query results: 42 events
         mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
 
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Failed Query",
             description=None,
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -830,7 +830,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Dashboard Insight",
             description="Test insight",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -858,8 +858,8 @@ Query results: 42 events
 
     def test_format_ui_context_with_events(self):
         # Create mock events
-        event1 = MaxEventContext(id=1, name="page_view")
-        event2 = MaxEventContext(id=2, name="button_click")
+        event1 = MaxEventContext(id="1", name="page_view")
+        event2 = MaxEventContext(id="2", name="button_click")
 
         # Create mock UI context
         ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
@@ -871,8 +871,8 @@ Query results: 42 events
 
     def test_format_ui_context_with_events_with_descriptions(self):
         # Create mock events with descriptions
-        event1 = MaxEventContext(id=1, name="page_view", description="User viewed a page")
-        event2 = MaxEventContext(id=2, name="button_click", description="User clicked a button")
+        event1 = MaxEventContext(id="1", name="page_view", description="User viewed a page")
+        event2 = MaxEventContext(id="2", name="button_click", description="User clicked a button")
 
         # Create mock UI context
         ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
@@ -884,8 +884,8 @@ Query results: 42 events
 
     def test_format_ui_context_with_actions(self):
         # Create mock actions
-        action1 = MaxActionContext(id=1, name="Sign Up")
-        action2 = MaxActionContext(id=2, name="Purchase")
+        action1 = MaxActionContext(id=1.0, name="Sign Up")
+        action2 = MaxActionContext(id=2.0, name="Purchase")
 
         # Create mock UI context
         ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
@@ -897,8 +897,8 @@ Query results: 42 events
 
     def test_format_ui_context_with_actions_with_descriptions(self):
         # Create mock actions with descriptions
-        action1 = MaxActionContext(id=1, name="Sign Up", description="User creates account")
-        action2 = MaxActionContext(id=2, name="Purchase", description="User makes a purchase")
+        action1 = MaxActionContext(id=1.0, name="Sign Up", description="User creates account")
+        action2 = MaxActionContext(id=2.0, name="Purchase", description="User makes a purchase")
 
         # Create mock UI context
         ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
@@ -915,7 +915,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Standalone Insight",
             description="Test standalone insight",
             query=FunnelsQuery(series=[EventsNode(event="sign_up")]),
@@ -947,7 +947,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Test Insight",
             description="Test description",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -970,7 +970,7 @@ Query results: 42 events
 
         # Create mock insight that will fail
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Failed Insight",
             description=None,
             query=TrendsQuery(series=[]),
