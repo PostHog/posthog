@@ -392,7 +392,8 @@ export const RecordingsUniversalFilters = ({
     )
 }
 
-const RecordingsUniversalFilterGroup = ({totalFiltersCount,
+const RecordingsUniversalFilterGroup = ({
+    totalFiltersCount,
     showAddFilter = true,
 }: {
     totalFiltersCount?: number
@@ -423,7 +424,6 @@ const RecordingsUniversalFilterGroup = ({totalFiltersCount,
                                     <span className="font-semibold">Applied filters:</span>
                                 )}
                                 <RecordingsUniversalFilterGroup
-                                    
                                     totalFiltersCount={totalFiltersCount}
                                     showAddFilter={showAddFilter}
                                 />
