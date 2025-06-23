@@ -1,15 +1,7 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { actions, connect, kea, key, path, props, reducers } from 'kea'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import {
-    featureFlagLogic as sceneFeatureFlagLogic,
-    indexToVariantKeyFeatureFlagPayloads,
-    variantKeyToIndexFeatureFlagPayloads,
-} from 'scenes/feature-flags/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { FeatureFlagType } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
