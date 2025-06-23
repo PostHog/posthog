@@ -1,6 +1,8 @@
 use envconfig::Envconfig;
 
-#[derive(Envconfig, Clone, Debug)]
+use capture::config::KafkaConfig;
+
+#[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
@@ -34,6 +36,9 @@ pub struct Config {
 
     #[envconfig(from = "INSETER_MAX_ROWS", default = "10000")]
     pub inserter_max_rows: u64,
+
+    #[envconfig(nested = true)]
+    pub kafka: KafkaConfig,
 }
 
 impl Config {

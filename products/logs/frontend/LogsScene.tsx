@@ -81,6 +81,7 @@ export function LogsScene(): JSX.Element {
                         hideScrollbar
                         dataSource={logs}
                         loading={logsLoading}
+                        pagination={{ pageSize: 100 }}
                         size="small"
                         columns={[
                             {

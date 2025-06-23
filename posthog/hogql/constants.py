@@ -129,3 +129,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
+    query_plan_optimize_lazy_materialization: Optional[bool] = None

@@ -161,6 +161,7 @@ def sync_execute(
         tag_queries(team_id=team_id)
 
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
+    print(prepared_sql)
     query_id = validated_client_query_id()
     core_settings = {
         **default_settings(),

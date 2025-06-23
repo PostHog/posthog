@@ -20,7 +20,6 @@ class LogsTable(Table):
         "observed_timestamp": DateTimeDatabaseField(name="observed_timestamp", nullable=False),
         "severity_text": StringDatabaseField(name="severity_text", nullable=False),
         "severity_number": IntegerDatabaseField(name="severity_number", nullable=False),
-        "level": StringDatabaseField(name="level", nullable=False),
         "resource_attributes": StringJSONDatabaseField(name="resource_attributes", nullable=False),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "event_name": StringDatabaseField(name="event_name", nullable=False),
