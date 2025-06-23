@@ -2,6 +2,7 @@ import { HogFlowAction } from '../types'
 import { StepConditionalBranch } from './StepConditionalBranch'
 import { StepDelay } from './StepDelay'
 import { StepExit } from './StepExit'
+import { StepMessage } from './StepMessage'
 import { StepTrigger } from './StepTrigger'
 import { StepWaitUntilCondition } from './StepWaitUntilCondition'
 import { HogFlowStep } from './types'
@@ -14,6 +15,7 @@ export const HogFlowSteps: Partial<{
     exit: StepExit,
     delay: StepDelay,
     wait_until_condition: StepWaitUntilCondition,
+    message: StepMessage,
 } as const
 
 // Type-safe accessor that preserves the key type
