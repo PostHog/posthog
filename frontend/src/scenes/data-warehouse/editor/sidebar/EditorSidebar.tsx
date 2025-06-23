@@ -81,9 +81,17 @@ export const EditorSidebar = ({
             case EditorSidebarTab.QueryDatabase:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
             case EditorSidebarTab.QueryVariables:
-                return <QueryVariables />
+                return (
+                    <div className="px-4 py-2">
+                        <QueryVariables />
+                    </div>
+                )
             case EditorSidebarTab.QueryInfo:
-                return <QueryInfo codeEditorKey={codeEditorKey} />
+                return (
+                    <div className="px-4 py-2">
+                        <QueryInfo codeEditorKey={codeEditorKey} />
+                    </div>
+                )
             default:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
         }

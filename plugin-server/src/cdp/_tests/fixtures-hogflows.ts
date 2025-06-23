@@ -1,45 +1,16 @@
-import { randomUUID } from 'crypto'
-
-import { HogFlow } from '~/src/schema/hogflow'
+import { HogFlow } from '~/schema/hogflow'
 import { insertRow } from '~/tests/helpers/sql'
 
-import { Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../types'
+import { createHogExecutionGlobals } from './fixtures'
 
-export const createHogFlow = (hogFlow: Partial<HogFlow>) => {
-    const item: HogFlow = {
-        id: randomUUID(),
-        version: 1,
-        name: 'Hog Flow',
-        team_id: 1,
-        status: 'active',
-        trigger: {
-            type: 'event',
-            filters: {},
-        },
-        exit_condition: 'exit_on_conversion',
-        edges: [],
-        actions: [],
-        ...hogFlow,
-    }
-
-    return item
-}
-
-export const insertHogFlow = async (
-    postgres: PostgresRouter,
-    team_id: Team['id'],
-    hogFlow: Partial<HogFlow> = {}
-): Promise<HogFlow> => {
+export const insertHogFlow = async (postgres: PostgresRouter, hogFlow: HogFlow): Promise<HogFlow> => {
     // This is only used for testing so we need to override some values
 
     const res = await insertRow(postgres, 'posthog_hogflow', {
-        ...createHogFlow({
-            ...hogFlow,
-            team_id: team_id,
-        }),
+        ...hogFlow,
         description: '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -52,15 +23,18 @@ export const createHogFlowInvocationContext = (
     data: Partial<HogFlowInvocationContext> = {}
 ): HogFlowInvocationContext => {
     return {
+        event: {
+            ...createHogExecutionGlobals().event,
+            ...data.event,
+        },
         ...data,
     }
 }
 
 export const createExampleHogFlowInvocation = (
-    _hogFlow: Partial<HogFlow> = {},
+    hogFlow: HogFlow,
     _context: Partial<HogFlowInvocationContext> = {}
 ): CyclotronJobInvocationHogFlow => {
-    const hogFlow = createHogFlow(_hogFlow)
     // Add the source of the trigger to the globals
 
     const context = createHogFlowInvocationContext(_context)

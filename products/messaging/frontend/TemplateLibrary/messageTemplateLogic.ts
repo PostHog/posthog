@@ -39,14 +39,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
 
                 return [
                     {
-                        key: Scene.MessagingLibrary,
+                        key: Scene.Messaging,
                         name: 'Messaging',
-                        path: urls.messagingLibrary(),
+                        path: urls.messaging(),
                     },
                     {
-                        key: 'library',
+                        key: [Scene.Messaging, 'library'],
                         name: 'Library',
-                        path: urls.messagingLibrary(),
+                        path: urls.messaging('library'),
                     },
                     ...(id === 'new'
                         ? [

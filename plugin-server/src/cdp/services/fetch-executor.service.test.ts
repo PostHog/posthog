@@ -1,7 +1,7 @@
 import { createServer } from 'http'
 import { AddressInfo } from 'net'
 
-import { logger } from '~/src/utils/logger'
+import { logger } from '~/utils/logger'
 
 import { defaultConfig } from '../../config/config'
 import { promisifyCallback } from '../../utils/utils'

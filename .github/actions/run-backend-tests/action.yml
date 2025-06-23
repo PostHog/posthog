@@ -191,7 +191,8 @@ runs:
                   --ignore=posthog/temporal \
                   --ignore=common/hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=1000 --durations-min=1.0 --store-durations \
+                  --splitting-algorithm=duration_based_chunks \
                   $PYTEST_ARGS
 
         # Uncomment this code to create an ssh-able console so you can debug issues with github actions
@@ -212,7 +213,7 @@ runs:
           shell: bash
           run: |
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
-                  --durations=100 --durations-min=1.0 \
+                  --durations=1000 --durations-min=1.0 \
                   $PYTEST_ARGS
 
         - name: Run Temporal tests
@@ -225,6 +226,7 @@ runs:
               pytest posthog/temporal -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
+                  --splitting-algorithm=duration_based_chunks \
                   $PYTEST_ARGS
 
         # Post tests
@@ -239,4 +241,5 @@ runs:
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
               path: .test_durations
+              include-hidden-files: true
               retention-days: 2

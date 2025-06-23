@@ -173,7 +173,7 @@ export function LemonModal({
             {modalContent}
         </div>
     ) : (
-        // eslint-disable-next-line posthog/warn-elements
+        // eslint-disable-next-line react/forbid-elements
         <Modal
             isOpen={isOpen}
             onRequestClose={(e) => {

@@ -111,14 +111,14 @@ def _sanitize_identifier(identifier: str) -> str:
 def _build_query(
     schema: str,
     table_name: str,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     incremental_field: str | None,
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
 ) -> tuple[str, dict[str, Any]]:
     query = f"SELECT * FROM `{schema}`.`{table_name}`"
 
-    if not is_incremental:
+    if not should_use_incremental_field:
         return query, {}
 
     if incremental_field is None or incremental_field_type is None:
@@ -383,7 +383,7 @@ def mysql_source(
     using_ssl: bool,
     schema: str,
     table_names: list[str],
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Any | None,
     incremental_field: str | None = None,
@@ -411,7 +411,7 @@ def mysql_source(
             inner_query, inner_query_args = _build_query(
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -420,7 +420,9 @@ def mysql_source(
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table = _get_table(cursor, schema, table_name)
             rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
-            partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+            partition_settings = (
+                _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+            )
 
             # Fallback on checking for an `id` field on the table
             if primary_keys is None and "id" in table:
@@ -446,7 +448,7 @@ def mysql_source(
                 query, args = _build_query(
                     schema,
                     table_name,
-                    is_incremental,
+                    should_use_incremental_field,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,

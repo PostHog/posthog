@@ -1,19 +1,18 @@
 import { Edge, getSmoothStepPath, Handle, Node, Position, XYPosition } from '@xyflow/react'
+import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
-import { Optional } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, Optional } from '~/types'
 
 import {
     BOTTOM_HANDLE_POSITION,
-    DEFAULT_EDGE_OPTIONS,
-    DEFAULT_NODE_OPTIONS,
+    getDefaultEdgeOptions,
+    getDefaultNodeOptions,
     LEFT_HANDLE_POSITION,
-    NODE_HEIGHT,
-    NODE_WIDTH,
     RIGHT_HANDLE_POSITION,
     TOP_HANDLE_POSITION,
 } from '../constants'
 import { ToolbarNode } from '../Toolbar'
-import type { HogFlowAction, HogFlowEdge } from '../types'
+import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
 
 // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
 export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFlowEdge>[]): Node<HogFlowAction>[] => {
@@ -40,13 +39,14 @@ export const addDropzoneNodes = (nodes: Node<HogFlowAction>[], edges: Edge<HogFl
             newNodes.push({
                 id: dropzoneId,
                 type: 'dropzone',
-                position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                position: { x: labelX, y: labelY },
                 data: {
                     id: dropzoneId,
-                    name: 'Dropzone',
                     description: '',
                     type: 'delay',
-                    config: null,
+                    config: {
+                        inputs: {},
+                    },
                     on_error: 'continue',
                     created_at: 0,
                     updated_at: 0,
@@ -167,6 +167,88 @@ export const getNodeHandles = (nodeId: string, nodeType: HogFlowAction['type']):
             ]
     }
 }
+
+export const getNodeInputs = (node: HogFlowAction | ToolbarNode): Record<string, CyclotronJobInputType> => {
+    switch (node.type) {
+        case 'message':
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+                email: { value: ('config' in node && node.config.inputs.email.value) || NEW_TEMPLATE },
+            }
+        case 'delay':
+            // TODO(messaging-team): Add a dropdown for the duration unit, add new number input from #33673
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+                duration: { value: ('config' in node && node.config.inputs.duration.value) || 15 },
+            }
+        case 'wait_for_condition':
+            // TODO(messaging-team): Add condition filter, add a dropdown for the duration unit, add new number input from #33673
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+            }
+        case 'conditional_branch':
+            // TODO(messaging-team): Add condition filter
+            return {
+                name: { value: ('config' in node && node.config.inputs.name.value) || '' },
+            }
+        default:
+            // Default: show the "This does not require any input variables."
+            return {}
+    }
+}
+
+export const getNodeInputsSchema = (node: HogFlowAction | ToolbarNode): CyclotronJobInputSchemaType[] => {
+    switch (node.type) {
+        case 'message':
+            return [
+                {
+                    type: 'string',
+                    key: 'name',
+                    label: 'Name',
+                    required: false,
+                },
+                {
+                    type: 'email',
+                    key: 'email',
+                    label: 'Email',
+                    required: true,
+                },
+            ]
+        case 'delay':
+            // TODO(messaging-team): Add a dropdown for the duration unit, add new number input from #33673
+            return [
+                {
+                    type: 'string',
+                    key: 'name',
+                    label: 'Name',
+                    required: false,
+                },
+                {
+                    type: 'string',
+                    key: 'duration',
+                    label: 'Duration (minutes)',
+                    required: true,
+                },
+            ]
+        case 'wait_for_condition':
+            // TODO(messaging-team): Add condition filter, add a dropdown for the duration unit, add new number input from #33673
+            return []
+        case 'conditional_branch':
+            // TODO(messaging-team): Add condition filter
+            return [
+                {
+                    type: 'string',
+                    key: 'name',
+                    label: 'Name',
+                    required: false,
+                },
+            ]
+        default:
+            // Default: show the "This function does not require any input variables."
+            return []
+    }
+}
+
 export const createNewNode = (
     toolbarNode: ToolbarNode,
     nodeId?: string,
@@ -178,9 +260,10 @@ export const createNewNode = (
         type: toolbarNode.type,
         data: {
             id,
-            name: toolbarNode.name,
             description: '',
-            config: null,
+            config: {
+                inputs: getNodeInputs(toolbarNode),
+            },
             type: toolbarNode.type,
             on_error: 'continue',
             created_at: 0,
@@ -191,7 +274,7 @@ export const createNewNode = (
             x: position?.x || 0,
             y: position?.y || 0,
         },
-        ...DEFAULT_NODE_OPTIONS,
+        ...getDefaultNodeOptions(false),
     }
 }
 
@@ -211,7 +294,7 @@ export const createEdgesForNewNode = (
                 target: nodeId,
                 sourceHandle: edgeToInsertNodeInto.sourceHandle,
                 targetHandle: handle.id,
-                ...DEFAULT_EDGE_OPTIONS,
+                ...getDefaultEdgeOptions(),
                 label: edgeToInsertNodeInto?.label,
             }
         }
@@ -222,7 +305,7 @@ export const createEdgesForNewNode = (
             target: edgeToInsertNodeInto.target,
             sourceHandle: handle.id,
             targetHandle: edgeToInsertNodeInto.targetHandle,
-            ...DEFAULT_EDGE_OPTIONS,
+            ...getDefaultEdgeOptions(),
             label: handle.label,
         }
     })
@@ -234,35 +317,34 @@ export const DEFAULT_NODES: Node<HogFlowAction>[] = [
         type: 'trigger',
         data: {
             id: 'trigger_node',
-            name: 'Trigger',
             type: 'trigger',
             description: '',
-            config: null,
+            config: {
+                inputs: {},
+            },
             created_at: 0,
             updated_at: 0,
         },
         handles: getNodeHandles('trigger_node', 'trigger'),
         position: { x: 0, y: 0 },
-        ...DEFAULT_NODE_OPTIONS,
-        deletable: false,
+        ...getDefaultNodeOptions(true),
     },
     {
         id: 'exit_node',
         type: 'exit',
         data: {
             id: 'exit_node',
-            name: 'Exit',
             type: 'exit',
             description: '',
-            config: null,
+            config: {
+                inputs: {},
+            },
             created_at: 0,
             updated_at: 0,
         },
         handles: getNodeHandles('exit_node', 'exit'),
         position: { x: 0, y: 100 },
-        ...DEFAULT_NODE_OPTIONS,
-        selectable: false,
-        deletable: false,
+        ...getDefaultNodeOptions(true),
     },
 ]
 
@@ -273,6 +355,27 @@ export const DEFAULT_EDGES: Edge<HogFlowEdge>[] = [
         sourceHandle: 'trigger_node_source',
         target: 'exit_node',
         targetHandle: 'exit_node_target',
-        ...DEFAULT_EDGE_OPTIONS,
+        ...getDefaultEdgeOptions(),
     },
 ]
+
+export const getNodesFromHogFlow = (hogFlow: HogFlow): Node<HogFlowAction>[] => {
+    return hogFlow.actions.map((action) => {
+        return {
+            id: action.id,
+            type: action.type,
+            data: action,
+            position: { x: 0, y: 0 },
+            ...getDefaultNodeOptions(['trigger', 'exit'].includes(action.type)),
+        }
+    })
+}
+
+export const getEdgesFromHogFlow = (hogFlow: HogFlow): Edge<HogFlowEdge>[] => {
+    return hogFlow.edges.map((edge) => ({
+        id: `${edge.from}->${edge.to}`,
+        source: edge.from,
+        target: edge.to,
+        ...getDefaultEdgeOptions(),
+    }))
+}
