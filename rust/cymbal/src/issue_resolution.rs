@@ -443,11 +443,18 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::sanitize_string;
+    use crate::{assignment_rules::Assignee, sanitize_string};
 
     #[test]
     fn it_replaces_null_characters() {
         let content = sanitize_string("\u{0000} is not valid JSON".to_string());
         assert_eq!(content, "� is not valid JSON");
+    }
+
+    #[test]
+    fn it_correctly_orders_stringified_assignee_keys() {
+        let assignee = Assignee::User(1234);
+        let stringified_assignee = serde_json::to_string(&assignee).unwrap();
+        assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
     }
 }
