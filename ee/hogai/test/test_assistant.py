@@ -22,7 +22,7 @@ from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.graph.root.nodes import search_documentation
+from ee.hogai.tool import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
