@@ -23,6 +23,11 @@ def mock_team() -> MagicMock:
 
 
 @pytest.fixture
+def mock_session_id() -> str:
+    return "00000000-0000-0000-0001-000000000000"
+
+
+@pytest.fixture
 def mock_valid_llm_yaml_response() -> str:
     return """```yaml
 segments:
@@ -309,9 +314,9 @@ def mock_chat_completion(mock_valid_llm_yaml_response: str) -> ChatCompletion:
 
 
 @pytest.fixture
-def mock_raw_metadata() -> dict[str, Any]:
+def mock_raw_metadata(mock_session_id: str) -> dict[str, Any]:
     return {
-        "id": "00000000-0000-0000-0000-000000000000",
+        "id": mock_session_id,
         # Anonymized distinct_id for testing
         "distinct_id": "EheLkWe3eZBtiru9xSJgq2SNWoD8YHQnKu0FWkMDZMU",
         "viewed": True,
@@ -361,6 +366,7 @@ def mock_raw_events_columns() -> list[str]:
         "$exception_values",
         "$exception_fingerprint_record",
         "$exception_functions",
+        "uuid",
     ]
 
 
@@ -378,9 +384,9 @@ def mock_events_columns(mock_filtered_events_columns: list[str]) -> list[str]:
     Columns that are used in the LLM.
     """
     return [
-        *mock_filtered_events_columns,
         "event_id",
         "event_index",
+        *mock_filtered_events_columns,
     ]
 
 
@@ -412,6 +418,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
             [],
             [],
             [],
+            "00000000-0000-0000-0001-000000000001",
         ),
         (
             "$autocapture",  # defg4567
@@ -429,6 +436,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
             [],
             [],
             [],
+            "00000000-0000-0000-0001-000000000002",
         ),
         (
             "$pageview",  # vbgs1287 - end of segment 0
@@ -446,6 +454,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
             [],
             [],
             [],
+            "00000000-0000-0000-0001-000000000003",
         ),
         # Second segment events
         (
@@ -464,6 +473,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
             [],
             [],
             [],
+            "00000000-0000-0000-0001-000000000004",
         ),
         (
             "$autocapture",  # ghij7890
@@ -481,6 +491,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
             [],
             [],
             [],
+            "00000000-0000-0000-0001-000000000005",
         ),
         (
             "$autocapture",  # mnop3456
@@ -498,6 +509,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
             [],
             [],
             [],
+            "00000000-0000-0000-0001-000000000006",
         ),
         (
             "$autocapture",  # stuv9012 - end of segment 1
@@ -515,6 +527,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
             [],
             [],
             [],
+            "00000000-0000-0000-0001-000000000007",
         ),
     ]
 
@@ -557,9 +570,12 @@ def mock_events_mapping(
             exception_values,
             exception_fingerprint_record,
             exception_functions,
+            uuid,
         ) = raw_event
         # Some columns don't go into the mapping, as they are filtered out to avoid sending too much data to the LLM
         events_mapping[event_id] = [
+            event_id,
+            event_index,
             event_type,
             timestamp.isoformat(),
             href,
@@ -571,8 +587,7 @@ def mock_events_mapping(
             elements_chain_ids,
             exception_types,
             exception_values,
-            event_id,
-            event_index,
+            uuid,
         ]
     return events_mapping
 
