@@ -275,15 +275,9 @@ pub fn locally_computable_property_overrides(
         return None;
     }
 
-    // Filter out metadata that isn't a real property override
-    let real_overrides = extract_real_property_overrides(overrides);
-    if real_overrides.is_empty() {
-        return None;
-    }
-
     // Only return overrides if they're useful for this flag
-    if are_overrides_useful_for_flag(&real_overrides, property_filters) {
-        Some(real_overrides)
+    if are_overrides_useful_for_flag(overrides, property_filters) {
+        Some(overrides.clone())
     } else {
         None
     }
@@ -294,15 +288,6 @@ fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
     property_filters
         .iter()
         .any(|prop| prop.prop_type == PropertyType::Cohort)
-}
-
-/// Extracts real property overrides, filtering out metadata like $group_key
-fn extract_real_property_overrides(overrides: &HashMap<String, Value>) -> HashMap<String, Value> {
-    overrides
-        .iter()
-        .filter(|(key, _)| *key != "$group_key")
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect()
 }
 
 /// Determines if the provided overrides contain properties that the flag actually needs
