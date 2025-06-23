@@ -331,12 +331,12 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         migration = serializer.save()
 
-        # Track successful batch import creation
         source_type = request.data.get("source_type", "unknown")
         content_type = request.data.get("content_type", "unknown")
 
+        distinct_id = request.user.distinct_id or str(uuid.uuid4())
         posthoganalytics.capture(
-            str(uuid.uuid4()),
+            distinct_id,
             "batch import created",
             properties={
                 "batch_import_id": migration.id,
