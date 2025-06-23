@@ -127,14 +127,13 @@ jobs:
             - name: Build product static bundle
               run: pnpm --filter=@posthog/frontend build:products
 
-            # ── Django setup (migrations + seed) ───────────────────────────────────
             - name: Apply migrations & seed dev data
               run: |
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
                   python manage.py setup_dev
 
-            # ── Launch PostHog web & worker in the background ─────────────────────
+            # Launch PostHog web & worker in the background
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
@@ -148,13 +147,22 @@ jobs:
                   interval: 10000
                   verbose: true
 
-            # ── Execute Playwright tests ───────────────────────────────────────────
             - name: Run Playwright tests
               env:
                   START_PLAYWRIGHT: '1'
               run: pnpm --filter=@posthog/playwright test
 
             # ── Artifacts on failure / always ─────────────────────────────────────
+            - name: Upload frontend build artifacts
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              with:
+                  name: frontend-build
+                  path: |
+                      **/*Type.ts
+                      frontend/src/products.tsx
+                  retention-days: 1
+
             - name: Archive Playwright report on failure
               if: failure()
               uses: actions/upload-artifact@v4
