@@ -1,25 +1,39 @@
-import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconRevert, IconSend } from '@posthog/icons'
+import {
+    IconBolt,
+    IconCode,
+    IconDecisionTree,
+    IconHourglass,
+    IconLeave,
+    IconPlus,
+    IconRandom,
+    IconRevert,
+    IconSend,
+} from '@posthog/icons'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
-import { useEffect, useMemo } from 'react'
+import { useActions } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
 
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowAction } from '../types'
 import { HogFlowActionManager } from './hogFlowActionManager'
 
 // Import the NodeHandle type from the manager
 type NodeHandle = Omit<Handle, 'width' | 'height' | 'nodeId'> & { label?: string }
 
-export const REACT_FLOW_NODE_TYPES = {
+export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
+
+export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<NodeProps>> = {
     dropzone: DropzoneNode,
-    dropzone_highlighted: DropzoneNode,
     trigger: TriggerNode,
     message: EmailNode,
     conditional_branch: ConditionNode,
     delay: DelayNode,
-    wait_for_condition: DelayUntilNode,
+    wait_until_condition: DelayUntilNode,
     exit: ExitNode,
+    random_cohort_branch: RandomCohortBranchNode,
+    wait_until_time_window: WaitUntilTimeWindowNode,
+    function: FunctionNode,
 }
-
-export const DROPZONE_NODE_TYPES = ['dropzone', 'dropzone_highlighted']
 
 interface NodeProps {
     id: string
@@ -30,14 +44,23 @@ interface NodeProps {
     data: HogFlowAction
 }
 
-function DropzoneNode({ type }: NodeProps): JSX.Element {
+function DropzoneNode({ id }: NodeProps): JSX.Element {
+    const [isHighlighted, setIsHighlighted] = useState(false)
+    const { setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
+
+    useEffect(() => {
+        setHighlightedDropzoneNodeId(isHighlighted ? id : null)
+    }, [isHighlighted, setHighlightedDropzoneNodeId])
+
     return (
         <div
+            onDragOver={() => setIsHighlighted(true)}
+            onDragLeave={() => setIsHighlighted(false)}
             className={`w-[100px] h-[34px] bg-surface-secondary border ${
-                type === 'dropzone_highlighted' ? 'border-secondary bg-surface-primary' : 'border-primary'
+                isHighlighted ? 'border-secondary bg-surface-primary' : 'border-primary'
             } border-dashed rounded p-2 cursor-pointer`}
         >
-            <div className="flex items-center justify-center gap-1">
+            <div className="flex gap-1 justify-center items-center">
                 <IconPlus />
             </div>
         </div>
@@ -59,7 +82,7 @@ function BaseNode({ id, icon, selected, data, children }: NodeProps): JSX.Elemen
                 selected ? 'border-secondary' : 'border-primary'
             } rounded p-2 hover:bg-surface-secondary transition-transform duration-300 cursor-pointer`}
         >
-            <div className="flex items-center justify-center gap-1">
+            <div className="flex gap-1 justify-center items-center">
                 {icon}
                 <div className="text-xs">{data.name}</div>
             </div>
@@ -90,6 +113,18 @@ function DelayNode(props: NodeProps): JSX.Element {
 
 function DelayUntilNode(props: NodeProps): JSX.Element {
     return <BaseNode {...props} icon={<IconRevert className="text-muted" />} />
+}
+
+function RandomCohortBranchNode(props: NodeProps): JSX.Element {
+    return <BaseNode {...props} icon={<IconRandom className="text-muted" />} />
+}
+
+function WaitUntilTimeWindowNode(props: NodeProps): JSX.Element {
+    return <BaseNode {...props} icon={<IconHourglass className="text-muted" />} />
+}
+
+function FunctionNode(props: NodeProps): JSX.Element {
+    return <BaseNode {...props} icon={<IconCode className="text-muted" />} />
 }
 
 function ExitNode(props: NodeProps): JSX.Element {

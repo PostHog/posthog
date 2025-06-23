@@ -52,48 +52,6 @@ function HogFlowEditorContent(): JSX.Element {
         void fitView()
     }, [fitView, nodes])
 
-    // const onDragStart = useCallback(() => {
-    //     setNodes(HogFlowActionManager.addDropzoneNodes(nodes, edges))
-    // }, [nodes, edges, setNodes])
-
-    // const onDragOver = useCallback(
-    //     (event: React.DragEvent) => {
-    //         event.preventDefault()
-    //         event.dataTransfer.dropEffect = 'move'
-
-    //         setNodes((nds) =>
-    //             HogFlowActionManager.highlightDropzoneNodes(nds, event, screenToFlowPosition, getIntersectingNodes)
-    //         )
-    //     },
-    //     [screenToFlowPosition, getIntersectingNodes, setNodes]
-    // )
-
-    // const onDrop = useCallback(
-    //     (event: React.DragEvent) => {
-    //         event.preventDefault()
-
-    //         const intersectingDropzone = HogFlowActionManager.findIntersectingDropzone(
-    //             event,
-    //             screenToFlowPosition,
-    //             getIntersectingNodes
-    //         )
-    //         if (!toolbarNodeUsed || !intersectingDropzone) {
-    //             // No changes, just hide dropzones
-    //             setNodes((nds) => HogFlowActionManager.removeDropzoneNodes(nds))
-    //             return
-    //         }
-
-    //         // Create the new node in the position of the dropzone using the manager
-    //         const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
-    //             hogFlow.actions,
-    //             toolbarNodeUsed,
-    //             intersectingDropzone
-    //         )
-    //         onChange({ actions: updatedActions })
-    //     },
-    //     [screenToFlowPosition, getIntersectingNodes, toolbarNodeUsed, hogFlow.actions, onChange, setNodes]
-    // )
-
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<Node<HogFlowAction>, Edge>
@@ -105,8 +63,8 @@ function HogFlowEditorContent(): JSX.Element {
                 onNodesDelete={onNodesDelete}
                 onDragStart={onDragStart}
                 onDragOver={onDragOver}
-                onNodeClick={(_, node) => node.selectable && setSelectedNode(node)}
                 onDrop={onDrop}
+                onNodeClick={(_, node) => node.selectable && setSelectedNode(node)}
                 nodeTypes={REACT_FLOW_NODE_TYPES}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}

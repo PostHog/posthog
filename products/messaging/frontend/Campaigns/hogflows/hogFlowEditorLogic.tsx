@@ -14,55 +14,12 @@ import { subscriptions } from 'kea-subscriptions'
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
 import { HogFlowActionManager } from './actions/hogFlowActionManager'
 import { BaseHogFlowActionNode } from './actions/hogFlowActionManager'
-import { DROPZONE_NODE_TYPES } from './actions/Nodes'
 import { getFormattedNodes } from './autolayout'
 import { getDefaultNodeOptions, NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { getDefaultEdgeOptions } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { ToolbarNode } from './HogFlowEditorToolbar'
 import type { HogFlow, HogFlowAction } from './types'
-
-// const onDragStart = useCallback(() => {
-//     setNodes(HogFlowActionManager.addDropzoneNodes(nodes, edges))
-// }, [nodes, edges, setNodes])
-
-// const onDragOver = useCallback(
-//     (event: React.DragEvent) => {
-//         event.preventDefault()
-//         event.dataTransfer.dropEffect = 'move'
-
-//         setNodes((nds) =>
-//             HogFlowActionManager.highlightDropzoneNodes(nds, event, screenToFlowPosition, getIntersectingNodes)
-//         )
-//     },
-//     [screenToFlowPosition, getIntersectingNodes, setNodes]
-// )
-
-// const onDrop = useCallback(
-//     (event: React.DragEvent) => {
-//         event.preventDefault()
-
-//         const intersectingDropzone = HogFlowActionManager.findIntersectingDropzone(
-//             event,
-//             screenToFlowPosition,
-//             getIntersectingNodes
-//         )
-//         if (!toolbarNodeUsed || !intersectingDropzone) {
-//             // No changes, just hide dropzones
-//             setNodes((nds) => HogFlowActionManager.removeDropzoneNodes(nds))
-//             return
-//         }
-
-//         // Create the new node in the position of the dropzone using the manager
-//         const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
-//             hogFlow.actions,
-//             toolbarNodeUsed,
-//             intersectingDropzone
-//         )
-//         onChange({ actions: updatedActions })
-//     },
-//     [screenToFlowPosition, getIntersectingNodes, toolbarNodeUsed, hogFlow.actions, onChange, setNodes]
-// )
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -89,6 +46,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDragOver: (event: React.DragEvent) => ({ event }),
         onDrop: (event: React.DragEvent) => ({ event }),
         setNewDraggingNode: (newDraggingNode: ToolbarNode | null) => ({ newDraggingNode }),
+        setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
     }),
     reducers(({ props }) => ({
         nodes: [
@@ -101,6 +59,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             [] as Node<HogFlowAction>[],
             {
                 setDropzoneNodes: (_, { dropzoneNodes }) => dropzoneNodes,
+            },
+        ],
+        highlightedDropzoneNodeId: [
+            null as string | null,
+            {
+                setHighlightedDropzoneNodeId: (_, { highlightedDropzoneNodeId }) => highlightedDropzoneNodeId,
             },
         ],
         edges: [
@@ -224,71 +188,31 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
 
         onDragOver: ({ event }) => {
-            if (!values.reactFlowInstance) {
-                return
-            }
-            const { screenToFlowPosition, getIntersectingNodes } = values.reactFlowInstance
             event.preventDefault()
             event.dataTransfer.dropEffect = 'move'
-
-            const position = screenToFlowPosition({
-                x: event.clientX,
-                y: event.clientY,
-            })
-            const intersectingNodes = getIntersectingNodes(
-                // an arbitrary rect to use for intersection detection
-                {
-                    x: position.x,
-                    y: position.y,
-                    width: 10,
-                    height: 10,
-                },
-                true // enable partial intersections
-            )
-
-            const intersectingDropzoneNode = intersectingNodes.find((node) =>
-                DROPZONE_NODE_TYPES.includes(node.type || '')
-            )
-
-            const modifiedDropzoneNodes = values.dropzoneNodes.map((nd) => {
-                if (!DROPZONE_NODE_TYPES.includes(nd.type || '')) {
-                    return nd
-                }
-                return { ...nd, type: nd.id === intersectingDropzoneNode?.id ? 'dropzone_highlighted' : 'dropzone' }
-            })
-
-            actions.setDropzoneNodes(modifiedDropzoneNodes)
         },
 
         onDrop: ({ event }) => {
-            if (!values.reactFlowInstance) {
-                return
-            }
-            const { screenToFlowPosition, getIntersectingNodes } = values.reactFlowInstance
+            console.log('onDrop')
             event.preventDefault()
 
-            const intersectingDropzone = HogFlowActionManager.findIntersectingDropzone(
-                event,
-                screenToFlowPosition,
-                getIntersectingNodes
-            )
+            const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
 
+            console.log('dropzoneNode', dropzoneNode)
+            console.log('newDraggingNode', values.newDraggingNode)
+
+            if (values.newDraggingNode && dropzoneNode) {
+                // Create the new node in the position of the dropzone using the manager
+                const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
+                    values.campaign.actions,
+                    values.newDraggingNode,
+                    dropzoneNode
+                )
+                actions.setCampaignValues({ actions: updatedActions })
+                actions.setNewDraggingNode(null)
+            }
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
-
-            if (!values.newDraggingNode || !intersectingDropzone) {
-                // No changes
-                return
-            }
-
-            // Create the new node in the position of the dropzone using the manager
-            const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
-                values.campaign.actions,
-                values.newDraggingNode,
-                intersectingDropzone
-            )
-            actions.setCampaignValues({ actions: updatedActions })
-            actions.setNewDraggingNode(null)
         },
     })),
 

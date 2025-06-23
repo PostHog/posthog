@@ -1,4 +1,4 @@
-import { Edge, getSmoothStepPath, Handle, Node, Position } from '@xyflow/react'
+import { Edge, Handle, Node, Position } from '@xyflow/react'
 import { uuid } from 'lib/utils'
 import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
@@ -9,14 +9,11 @@ import {
     getDefaultEdgeOptions,
     getDefaultNodeOptions,
     LEFT_HANDLE_POSITION,
-    NODE_HEIGHT,
-    NODE_WIDTH,
     RIGHT_HANDLE_POSITION,
     TOP_HANDLE_POSITION,
 } from '../constants'
 import { ToolbarNode } from '../HogFlowEditorToolbar'
 import type { HogFlow, HogFlowAction } from '../types'
-import { DROPZONE_NODE_TYPES } from './Nodes'
 
 type NodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
@@ -100,43 +97,6 @@ export const HogFlowActionManager = {
         return [...actions.slice(0, -1), newNode.action, actions[actions.length - 1]]
     },
 
-    // When a new node is starting to be dragged into the workflow, show a dropzone node in the middle of every edge
-    addDropzoneNodes(nodes: Node<HogFlowAction>[], edges: Edge[]): Node<HogFlowAction>[] {
-        const newNodes: Node[] = [...nodes]
-
-        edges.forEach((edge) => {
-            const sourceNode = nodes.find((n) => n.id === edge.source)
-            const targetNode = nodes.find((n) => n.id === edge.target)
-
-            if (sourceNode && targetNode) {
-                const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
-                const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
-
-                const [, labelX, labelY] = getSmoothStepPath({
-                    sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
-                    sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
-                    targetX: targetNode.position.x + (targetHandle?.x || 0),
-                    targetY: targetNode.position.y + (targetHandle?.y || 0),
-                    sourcePosition: sourceHandle?.position || Position.Bottom,
-                    targetPosition: targetHandle?.position || Position.Top,
-                })
-
-                newNodes.push({
-                    id: `dropzone_edge_${edge.id}`,
-                    type: 'dropzone',
-                    position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
-                    data: {
-                        edge,
-                    },
-                    draggable: false,
-                    selectable: false,
-                })
-            }
-        })
-
-        return newNodes as Node<HogFlowAction>[]
-    },
-
     getReactFlowFromHogFlow(hogFlow: HogFlow): { nodes: Node<HogFlowAction>[]; edges: Edge[] } {
         const nodes = hogFlow.actions
             .map((action: HogFlowAction) => HogFlowActionManager.fromAction(action))
@@ -163,33 +123,6 @@ export const HogFlowActionManager = {
         )
 
         return { nodes, edges }
-    },
-
-    findIntersectingDropzone(
-        event: React.DragEvent,
-        screenToFlowPosition: (position: { x: number; y: number }) => { x: number; y: number },
-        getIntersectingNodes: (
-            rect: { x: number; y: number; width: number; height: number },
-            partial?: boolean
-        ) => Node[]
-    ): Node<{ edge: Edge }> | undefined {
-        const position = screenToFlowPosition({
-            x: event.clientX,
-            y: event.clientY,
-        })
-        const intersectingNodes = getIntersectingNodes(
-            // an arbitrary rect to use for intersection detection
-            {
-                x: position.x,
-                y: position.y,
-                width: 10,
-                height: 10,
-            },
-            true // enable partial intersections
-        )
-
-        const intersectingDropzoneNode = intersectingNodes.find((node) => DROPZONE_NODE_TYPES.includes(node.type || ''))
-        return intersectingDropzoneNode as Node<{ edge: Edge }> | undefined
     },
 
     deleteActions(deleted: Node<HogFlowAction>[], hogFlow: HogFlow): HogFlowAction[] {
@@ -224,29 +157,6 @@ export const HogFlowActionManager = {
                     next_actions: updatedNextActions,
                 }
             })
-    },
-
-    highlightDropzoneNodes(
-        nodes: Node<HogFlowAction>[],
-        event: React.DragEvent,
-        screenToFlowPosition: (position: { x: number; y: number }) => { x: number; y: number },
-        getIntersectingNodes: (
-            rect: { x: number; y: number; width: number; height: number },
-            partial?: boolean
-        ) => Node[]
-    ): Node<HogFlowAction>[] {
-        const intersectingDropzone = this.findIntersectingDropzone(event, screenToFlowPosition, getIntersectingNodes)
-
-        return nodes.map((nd) => {
-            if (!DROPZONE_NODE_TYPES.includes(nd.type || '')) {
-                return nd
-            }
-            return { ...nd, type: nd.id === intersectingDropzone?.id ? 'dropzone_highlighted' : 'dropzone' }
-        })
-    },
-
-    removeDropzoneNodes(nodes: Node<HogFlowAction>[]): Node<HogFlowAction>[] {
-        return nodes.filter((nd) => !DROPZONE_NODE_TYPES.includes(nd.type || ''))
     },
 }
 
