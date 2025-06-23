@@ -393,9 +393,10 @@ async fn send_internal_event(
 
     if let Some(assignment) = new_assignment {
         let assignee = Assignee::try_from(&assignment)?;
+        let stringified_assignee = serde_json::to_string(&assignee)?;
 
         event
-            .insert_prop("assignee", assignee)
+            .insert_prop("assignee", stringified_assignee)
             .expect("Strings are serializable");
     }
 
