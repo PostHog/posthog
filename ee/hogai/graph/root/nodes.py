@@ -54,6 +54,8 @@ from .prompts import (
     ROOT_UI_CONTEXT_PROMPT,
 )
 
+from langgraph.errors import NodeInterrupt
+
 # TRICKY: Dynamically import max_tools from all products
 for module_info in pkgutil.iter_modules(products.__path__):
     if module_info.name in ("conftest", "test"):
@@ -481,6 +483,22 @@ class RootNodeTools(AssistantNode):
             tool_class = ToolClass(state)
             result = tool_class.invoke(tool_call.model_dump(), config)
             assert isinstance(result, LangchainToolMessage)
+
+            # If this is a navigation tool call, pause the graph execution
+            # so that the frontend can re-initialise Max with a new set of contextual tools.
+            if tool_call.name == "navigate":
+                navigate_message = AssistantToolCallMessage(
+                    content=str(result.content) if result.content else "",
+                    ui_payload={tool_call.name: result.artifact},
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                    visible=True,
+                )
+                # Raising a `NodeInterrupt` ensures the assistant graph stops here and
+                # surfaces the navigation confirmation to the client. The next user
+                # interaction will resume the graph with potentially different
+                # contextual tools.
+                raise NodeInterrupt(navigate_message)
 
             new_state = tool_class._state  # latest state, in case the tool has updated it
             last_message = new_state.messages[-1]

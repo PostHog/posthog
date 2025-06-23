@@ -29,13 +29,15 @@ logger = structlog.get_logger(__name__)
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, max_length=40000)  ## roughly 10k tokens
+    content = serializers.CharField(required=True, allow_blank=True, max_length=40000)  ## roughly 10k tokens
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
     ui_context = serializers.JSONField(required=False)
 
     def validate(self, data):
+        if not data["content"]:
+            return data
         try:
             message_data = {"content": data["content"]}
             if "ui_context" in data:
@@ -101,7 +103,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         assistant = Assistant(
             self.team,
             conversation,
-            new_message=serializer.validated_data["message"],
+            new_message=serializer.validated_data.get("message"),
             user=cast(User, request.user),
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,

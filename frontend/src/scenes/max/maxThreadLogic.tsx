@@ -196,7 +196,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
-            if (generationAttempt === 0) {
+            if (generationAttempt === 0 && prompt) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: prompt,
@@ -274,6 +274,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     values.toolMap[toolName]?.callback(toolResult)
+                                    if (toolName === 'navigate') {
+                                        // Not deterministic!
+                                        setTimeout(() => actions.askMax(''), 200)
+                                    }
                                 }
                                 actions.addMessage({
                                     ...parsedResponse,

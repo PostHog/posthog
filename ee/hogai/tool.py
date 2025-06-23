@@ -121,10 +121,11 @@ class MaxTool(BaseTool):
 
 # Define the exact possible page keys for navigation. Extracted using the following Cursor prompt:
 # "
-# List every key of the `frontend/src/products.tsx::productUrls` object,
-# whose function takes either zero arguments, or only one optional argument named `tab` (exactly `tab`).
-# Your only output should be a list of those string keysin Python `Literal[..., ..., ...]` syntax.
-# Once done, verify whether indeed each item of the output satisfies the argument criterion.
+# List every key of the `frontend/src/products.tsx::productUrls` object, whose function takes either zero arguments,
+# or only optional arguments, of which the first is named `tab` (exactly `tab`, and it CAN be the only argument).
+# Exclude beta or alpha products. Exclude scenes about importing a file. Your only output should be a list of those
+# string keys in Python `Literal[..., ..., ...]` syntax. Once done, verify whether indeed each item of the output
+# satisfies the argument criterion.
 # "
 PageKeyLiterals = Literal[
     "createAction",
@@ -132,39 +133,30 @@ PageKeyLiterals = Literal[
     "cohorts",
     "dashboards",
     "earlyAccessFeatures",
-    "errorTracking",
     "errorTrackingConfiguration",
     "experiments",
     "experimentsSharedMetrics",
-    "featureFlags",
     "game368hedgehogs",
-    "links",
-    "llmObservabilityDashboard",
-    "llmObservabilityGenerations",
-    "llmObservabilityTraces",
-    "llmObservabilityUsers",
-    "llmObservabilityPlayground",
-    "logs",
     "managedMigration",
     "managedMigrationNew",
-    "messaging",
     "messagingCampaignNew",
     "messagingLibraryTemplateNew",
     "notebooks",
-    "canvas",
     "persons",
     "insights",
-    "savedInsights",
     "alerts",
-    "replayFilePlayback",
     "revenueAnalytics",
-    "surveys",
     "surveyTemplates",
-    "userInterviews",
     "webAnalytics",
     "webAnalyticsWebVitals",
     "webAnalyticsPageReports",
     "webAnalyticsMarketing",
+    "featureFlags",
+    "savedInsights",
+    "surveys",
+    "replay",
+    "sqlEditor",
+    "insightNew",
 ]
 
 
@@ -172,13 +164,6 @@ class NavigateToolArgs(BaseModel):
     page_key: PageKeyLiterals = Field(
         description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
     )
-
-
-PAGE_TOOL_MAP: dict[PageKeyLiterals, list[str]] = {
-    "insightNew": ["create_and_query_insight"],
-    "sqlEditor": ["generate_hogql_query"],
-    "replay": ["search_session_recordings"],
-}
 
 
 class NavigateTool(MaxTool):
@@ -193,8 +178,7 @@ class NavigateTool(MaxTool):
         "You're currently on the {current_page} page. "
         "You can navigate to one of the available pages using the 'navigate' tool. "
         "Some of these pages have tools that you can use to get more information or perform actions. "
-        f"Here's a mapping of pages to tools available:\n"
-        "\n".join([f"- {page}: {', '.join(PAGE_TOOL_MAP[page])}" for page in PAGE_TOOL_MAP])
+        "After navigating to a new page, you'll have access to that page's specific tools."
     )
     thinking_message: str = "Navigating"
     args_schema: type[BaseModel] = NavigateToolArgs
