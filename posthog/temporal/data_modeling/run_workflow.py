@@ -603,10 +603,7 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     for column_name, new_type in columns_to_cast.items():
         column_data = batch[column_name]
         cast_column = pc.cast(column_data, new_type)
-        if hasattr(cast_column, "combine_chunks"):
-            array_column = cast_column.combine_chunks()
-        else:
-            array_column = cast_column
+        array_column = cast_column.combine_chunks()
         batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, array_column)
 
     return batch
