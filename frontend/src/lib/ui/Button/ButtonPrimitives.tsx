@@ -40,6 +40,7 @@ type ButtonBaseProps = {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
+    loading?: boolean
 } & VariantProps<typeof buttonPrimitiveVariants>
 
 /* -------------------------------------------------------------------------- */
@@ -165,6 +166,10 @@ export const buttonPrimitiveVariants = cva({
         isSideActionRight: {
             true: 'absolute right-0 -top-px -bottom-px rounded-l-none',
         },
+        loading: {
+            true: 'disabled:pointer-events-none disabled:opacity-50',
+            false: '',
+        },
     },
     defaultVariants: {
         variant: 'default',
@@ -202,7 +207,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     const {
         className,
         variant,
-        size,
+        size = 'base',
         fullWidth,
         children,
         iconOnly,
@@ -215,6 +220,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltip,
         tooltipPlacement,
         tooltipDocLink,
+        loading,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -236,6 +242,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     hasSideActionRight,
                     isSideActionRight,
                     className,
+                    loading,
                 })
             ),
             ref,

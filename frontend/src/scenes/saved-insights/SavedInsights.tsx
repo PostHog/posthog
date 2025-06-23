@@ -32,7 +32,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -57,6 +56,8 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneHeader } from '~/layout/scenes/SceneHeader'
+import { SceneLayout } from '~/layout/scenes/SceneLayout'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
@@ -746,8 +747,60 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <div className="saved-insights">
-            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
+        <SceneLayout
+            className="saved-insights"
+            header={
+                <SceneHeader
+                    pageTitle="Insights"
+                    pageIcon={<IconGraph />}
+                    pageTitleEditable={true}
+                    // handlePageTitleSubmit={(title) => {
+                    //     console.log('saved title', title)
+                    // }}
+                    navItems={[
+                        {
+                            title: 'File',
+                            id: 'file',
+                            children: [
+                                {
+                                    title: 'New Insight',
+                                    id: 'new-insight',
+                                    icon: <IconPlusSmall />,
+                                    to: urls.insightNew(),
+                                    type: 'link',
+                                },
+                                {
+                                    title: 'New...',
+                                    id: 'new',
+                                    icon: <IconPlusSmall />,
+                                    type: 'submenu',
+                                    children: [
+                                        {
+                                            title: 'Trend',
+                                            id: 'new-trend',
+                                            icon: <IconPlusSmall />,
+                                            to: urls.insightNew(),
+                                            type: 'link',
+                                        },
+                                        {
+                                            title: 'Lifecycle',
+                                            id: 'new-trend',
+                                            icon: <IconPlusSmall />,
+                                            to: urls.insightNew(),
+                                            type: 'link',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ]}
+                >
+                    <NewInsightButton dataAttr="saved-insights-create-new-insight" />
+                </SceneHeader>
+            }
+        >
+            {/* <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} /> */}
+
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
@@ -830,6 +883,6 @@ export function SavedInsights(): JSX.Element {
                     )}
                 </>
             )}
-        </div>
+        </SceneLayout>
     )
 }

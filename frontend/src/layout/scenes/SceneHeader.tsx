@@ -1,218 +1,251 @@
-import { IconCheck, IconCopy, IconDocument, IconFolderOpen, IconGear, IconGraph, IconPlusSmall, IconShare } from "@posthog/icons";
-import { IconBlank, IconChevronRight } from "lib/lemon-ui/icons";
-import { Link } from "lib/lemon-ui/Link";
-import { ButtonPrimitive, buttonPrimitiveVariants } from "lib/ui/Button/ButtonPrimitives";
+import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { useActions } from 'kea'
+import { Link } from 'lib/lemon-ui/Link'
+import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { urls } from "scenes/urls";
-import { breadcrumbsLogic } from "../navigation/Breadcrumbs/breadcrumbsLogic";
-import { useActions, useValues } from "kea";
-import { cn } from "lib/utils/css-classes";
-import { sidePanelSettingsLogic } from "../navigation-3000/sidepanel/panels/sidePanelSettingsLogic";
-import { topBarSettingsButtonLogic } from "lib/components/TopBarSettingsButton/topBarSettingsButtonLogic";
+import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
+import { cn } from 'lib/utils/css-classes'
+import { useRef, useState } from 'react'
+import { urls } from 'scenes/urls'
 
-export function SceneHeader(): JSX.Element {
-    const { setActionsContainer } = useActions(breadcrumbsLogic)
-    const { loadedSceneSettingsSectionId } = useValues(topBarSettingsButtonLogic)
-    const { openSettingsPanel, closeSettingsPanel } = useActions(sidePanelSettingsLogic)
-    const { isOpen: isSettingsPanelOpen } = useValues(sidePanelSettingsLogic)
+import { SceneHeaderChildItemProps, SceneHeaderItemProps, sceneHeaderLogic } from './sceneHeaderLogic'
 
-    return <header>
-        <div className="flex justify-center h-[68px] border-b border-primary px-2">
-            <div className="flex gap-[6px] flex-1 items-center">
-                <Link to={urls.activity()} buttonProps={{
-                    size: 'base',
-                    className: 'size-[52px] bg-[#2F80FA] hover:bg-[#498df4] rounded flex justify-center items-center'
-                }}>
-
-                    <IconGraph className="fill-white size-[30px]" />
+function renderChildItem(item: SceneHeaderChildItemProps): JSX.Element {
+    if (item.type === 'link') {
+        return (
+            <DropdownMenuItem asChild key={item.id}>
+                <Link
+                    to={item.to}
+                    buttonProps={{
+                        menuItem: true,
+                        ...item.buttonProps,
+                    }}
+                    onClick={item.onClick}
+                >
+                    {item.icon}
+                    {item.title}
                 </Link>
-                <div className="flex flex-col gap-px">
-                    <h1 className={cn(buttonPrimitiveVariants(), 'text-[18px] font-semibold m-0')}>
-                        Go/Revenue
-                    </h1>
-                    <ul className="list">
-                        <li>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <ButtonPrimitive>
-                                        File
-                                    </ButtonPrimitive>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent loop align="start" side="bottom" className="max-w-[250px]">
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconPlusSmall /> New 
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconCopy /> Make a copy
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconFolderOpen /> Open in file tree
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
+            </DropdownMenuItem>
+        )
+    }
+    if (item.type === 'submenu') {
+        return (
+            <DropdownMenuSub key={item.id}>
+                <DropdownMenuSubTrigger asChild>
+                    <ButtonPrimitive menuItem>
+                        {item.icon}
+                        {item.title}
+                        <IconChevronRight className="ml-auto size-3 text-tertiary" />
+                    </ButtonPrimitive>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>{item.children?.map((child) => renderChildItem(child))}</DropdownMenuSubContent>
+            </DropdownMenuSub>
+        )
+    }
+    return (
+        <DropdownMenuItem asChild key={item.id}>
+            <ButtonPrimitive menuItem onClick={item.onClick} {...item.buttonProps}>
+                {item.icon}
+                {item.title}
+            </ButtonPrimitive>
+        </DropdownMenuItem>
+    )
+}
 
-                                    <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger asChild>
-                                            <ButtonPrimitive menuItem>
-                                                <IconShare /> Export <IconChevronRight className="ml-auto" />
-                                            </ButtonPrimitive>
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent>
-                                            <DropdownMenuItem asChild>
-                                                <ButtonPrimitive menuItem>
-                                                    <IconDocument /> .png
-                                                </ButtonPrimitive>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem asChild>
-                                                <ButtonPrimitive menuItem>
-                                                    <IconDocument /> .csv
-                                                </ButtonPrimitive>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem asChild>
-                                                <ButtonPrimitive menuItem>
-                                                    <IconDocument /> .xlsx
-                                                </ButtonPrimitive>
-                                            </DropdownMenuItem>
+interface SceneHeaderProps {
+    pageTitle: string
+    pageIcon?: React.ReactNode
+    navItems: SceneHeaderItemProps[]
+    children?: React.ReactNode
+    pageTitleEditable?: boolean
+    onPageTitleSubmit?: (title: string) => void
+    handlePageTitleSubmit?: (title: string) => void
+}
+export function SceneHeader({
+    pageTitle,
+    pageIcon,
+    navItems,
+    children,
+    onPageTitleSubmit,
+    pageTitleEditable = false,
+    handlePageTitleSubmit,
+}: SceneHeaderProps): JSX.Element {
+    // const { loadedSceneSettingsSectionId } = useValues(topBarSettingsButtonLogic)
+    // const { openSettingsPanel, closeSettingsPanel } = useActions(sidePanelSettingsLogic)
+    // const { isOpen: isSettingsPanelOpen } = useValues(sidePanelSettingsLogic)
+    // const { fileNewProps } = useValues(sceneHeaderLogic)
+    const { setFileNewContainer } = useActions(sceneHeaderLogic)
+    const headerRef = useRef<HTMLElement>(null)
+    const sentinelRef = useRef<HTMLDivElement>(null)
+    // const [isSticky, setIsSticky] = useState(true)
+    const [isPageTitleClicked, setIsPageTitleClicked] = useState(false)
+    const [pageTitleValue, setPageTitleValue] = useState(pageTitle)
+    const pageTitleEditableButtonRef = useRef<HTMLButtonElement>(null)
+    const isSticky = true
+    const canSubmitPageTitleForm = pageTitleValue !== pageTitle
 
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
+    // useEffect(() => {
+    //     const mainContent = document.getElementById('main-content')
+    //     const sentinel = sentinelRef.current
 
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                            
-                            
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <ButtonPrimitive>
-                                        Edit
-                                    </ButtonPrimitive>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent loop align="start" side="bottom" className="max-w-[250px]">
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconPlusSmall /> New
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconCopy /> Make a copy
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconFolderOpen /> Open in file tree
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
+    //     if (!mainContent || !sentinel) {
+    //         return
+    //     }
+    //     const observer = new IntersectionObserver(
+    //         ([entry]) => {
+    //             setIsSticky(!entry.isIntersecting)
+    //         },
+    //         {
+    //             root: mainContent,
+    //             threshold: 1.0,
+    //         }
+    //     )
+    //     observer.observe(sentinel)
 
-                                    <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger asChild>
-                                            <ButtonPrimitive menuItem>
-                                                <IconShare /> Export <IconChevronRight className="ml-auto" />
-                                            </ButtonPrimitive>
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent>
-                                            <DropdownMenuItem asChild>
-                                                <ButtonPrimitive menuItem>
-                                                    <IconDocument /> .png
-                                                </ButtonPrimitive>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem asChild>
-                                                <ButtonPrimitive menuItem>
-                                                    <IconDocument /> .csv
-                                                </ButtonPrimitive>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem asChild>
-                                                <ButtonPrimitive menuItem>
-                                                    <IconDocument /> .xlsx
-                                                </ButtonPrimitive>
-                                            </DropdownMenuItem>
+    //     return () => {
+    //         observer.disconnect()
+    //     }
+    // }, [])
 
-                                        </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
+    function handleSubmit(e: React.FormEvent<HTMLFormElement>): void {
+        e.preventDefault()
+        const data = new FormData(e.target as HTMLFormElement)
+        onPageTitleSubmit?.(data.get('page-title') as string)
+        setIsPageTitleClicked(false)
+        handlePageTitleSubmit?.(data.get('page-title') as string)
+    }
 
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <ButtonPrimitive>
-                                        View
-                                    </ButtonPrimitive>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent loop align="start" side="bottom" className="max-w-[250px]">
-                                    {loadedSceneSettingsSectionId ? (
-                                        <DropdownMenuItem
-                                            asChild
-                                        >
-                                            <ButtonPrimitive menuItem onClick={() =>
-                                                isSettingsPanelOpen ? closeSettingsPanel() : openSettingsPanel({ sectionId: loadedSceneSettingsSectionId })
-                                            }>
-                                                {isSettingsPanelOpen ? <IconCheck/> : <IconBlank/>} <IconGear /> Settings
-                                            </ButtonPrimitive>
-                                        </DropdownMenuItem>
-                                    ): null}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <ButtonPrimitive>
-                                        Help
-                                    </ButtonPrimitive>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent loop align="start" side="bottom" className="max-w-[250px]">
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconPlusSmall /> New
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconCopy /> Make a copy
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                    >
-                                        <ButtonPrimitive menuItem>
-                                            <IconFolderOpen /> Open in file tree
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </li>
-                    </ul>
+    function handleResetPageTitle(): void {
+        setPageTitleValue(pageTitle)
+        setIsPageTitleClicked(false)
+        setTimeout(() => {
+            pageTitleEditableButtonRef.current?.focus()
+        }, 0)
+    }
+
+    function handlePageTitleInputBlur(): void {
+        if (pageTitleValue !== pageTitle) {
+            handlePageTitleSubmit?.(pageTitleValue)
+        } else {
+            handleResetPageTitle()
+        }
+    }
+
+    function Title(): JSX.Element {
+        return <h1 className="text-[18px] font-semibold m-0 whitespace-nowrap">{pageTitle}</h1>
+    }
+
+    function RenderPageTitle(): JSX.Element {
+        if (pageTitleEditable && isPageTitleClicked) {
+            return (
+                <form className="absolute z-1 flex gap-1 w-full" onSubmit={handleSubmit}>
+                    <TextInputPrimitive
+                        name="page-title"
+                        defaultValue={pageTitleValue}
+                        onChange={(e) => setPageTitleValue(e.target.value)}
+                        className={cn(
+                            buttonPrimitiveVariants(),
+                            'cursor-text text-[18px] font-semibold m-0 min-w-[300px]'
+                        )}
+                        autoFocus
+                        onBlur={handlePageTitleInputBlur}
+                    />
+                    <div className="flex gap-px">
+                        <ButtonPrimitive type="submit" disabled={!canSubmitPageTitleForm} iconOnly>
+                            <IconCheck />
+                        </ButtonPrimitive>
+                        <ButtonPrimitive type="button" onClick={handleResetPageTitle} iconOnly>
+                            <IconX />
+                        </ButtonPrimitive>
+                    </div>
+                </form>
+            )
+        }
+        if (pageTitleEditable) {
+            return (
+                <ButtonPrimitive
+                    onClick={() => {
+                        if (pageTitleEditable) {
+                            setIsPageTitleClicked(!isPageTitleClicked)
+                        }
+                    }}
+                    tooltip="Click to edit page title"
+                    tooltipPlacement="top"
+                    ref={pageTitleEditableButtonRef}
+                >
+                    <Title />
+                </ButtonPrimitive>
+            )
+        }
+        return <Title />
+    }
+
+    return (
+        <>
+            <div ref={sentinelRef} />
+            <header
+                className={cn('sticky top-0 z-50 px-4 py-2 bg-surface-secondary border-b border-primary')}
+                ref={headerRef}
+            >
+                <div className="flex justify-center">
+                    <div className="flex gap-[6px] flex-1 items-center">
+                        <Link
+                            to={urls.activity()}
+                            buttonProps={{
+                                size: 'base',
+                                className: cn(
+                                    'size-[52px] bg-[#2F80FA] hover:bg-[#498df4] rounded flex justify-center items-center',
+                                    isSticky && 'size-[30px]'
+                                ),
+                            }}
+                        >
+                            <span
+                                className={cn(
+                                    '[&_svg]:fill-white [&_svg]:size-[30px]',
+                                    isSticky && '[&_svg]:size-[20px]'
+                                )}
+                            >
+                                {pageIcon}
+                            </span>
+                        </Link>
+                        <div className={cn('relative flex flex-col gap-px items-center', isSticky && 'flex-row')}>
+                            <RenderPageTitle />
+
+                            <ul className="list flex gap-1">
+                                {navItems.map((item) => (
+                                    <li key={item.id}>
+                                        {navItems.length > 0 && (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <ButtonPrimitive>{item.title}</ButtonPrimitive>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent
+                                                    loop
+                                                    align="start"
+                                                    side="bottom"
+                                                    className="max-w-[250px]"
+                                                    ref={setFileNewContainer}
+                                                >
+                                                    {item.children?.map((child) => renderChildItem(child))}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                    <div className="flex-1 flex justify-end items-center">{children}</div>
                 </div>
-            </div>
-            <div ref={setActionsContainer} className="h-full flex items-center"/>
-        </div>
-    </header>
+            </header>
+        </>
+    )
 }

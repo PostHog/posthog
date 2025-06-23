@@ -1,4 +1,5 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { IconPlusSmall } from '@posthog/icons'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
@@ -9,6 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -17,10 +19,18 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { sceneHeaderLogic } from '~/layout/scenes/sceneHeaderLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    InsightModel,
+    LayoutView,
+    QueryBasedInsightModel,
+    SavedInsightsTabs,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -67,6 +77,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
         logic: [eventUsageLogic],
+        actions: [sceneHeaderLogic, ['setFileNewProps']],
     })),
     actions({
         setSavedInsightsFilters: (
@@ -397,4 +408,23 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.setFileNewProps([
+            {
+                id: 'new-insight',
+                name: 'New insight',
+                icon: <IconPlusSmall />,
+                to: urls.insightNew(),
+                type: 'link',
+                buttonProps: {
+                    children: 'New insight',
+                },
+                accessControl: {
+                    resourceType: AccessControlResourceType.Insight,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
+                },
+            },
+        ])
+    }),
 ])

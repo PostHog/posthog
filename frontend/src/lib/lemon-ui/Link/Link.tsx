@@ -191,7 +191,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             : undefined
 
         const elementClasses = buttonProps
-            ? buttonPrimitiveVariants(buttonProps)
+            ? buttonPrimitiveVariants({ ...buttonProps })
             : `Link ${subtle ? 'Link--subtle' : ''}`
 
         let element = (
