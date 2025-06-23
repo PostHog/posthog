@@ -83,8 +83,11 @@ class OrganizationInvite(UUIDModel):
     ) -> None:
         _email = email or getattr(user, "email", None)
 
-        if _email and EmailNormalizer.normalize_case_insensitive(_email) != EmailNormalizer.normalize_case_insensitive(
-            self.target_email
+        if (
+            _email
+            and self.target_email
+            and EmailNormalizer.normalize_case_insensitive(_email)
+            != EmailNormalizer.normalize_case_insensitive(self.target_email)
         ):
             raise exceptions.ValidationError(
                 "This invite is intended for another email address.",
@@ -94,7 +97,7 @@ class OrganizationInvite(UUIDModel):
         if self.is_expired():
             raise InviteExpiredException()
 
-        if user is None and EmailValidationHelper.user_exists(invite_email):
+        if user is None and invite_email and EmailValidationHelper.user_exists(invite_email):
             raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
@@ -103,9 +106,12 @@ class OrganizationInvite(UUIDModel):
                 code="user_already_member",
             )
 
-        if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email__iexact=self.target_email
-        ).exists():
+        if (
+            self.target_email
+            and OrganizationMembership.objects.filter(
+                organization=self.organization, user__email__iexact=self.target_email
+            ).exists()
+        ):
             raise exceptions.ValidationError(
                 "Another user with this email address already belongs to this organization.",
                 code="existing_email_address",

@@ -45,7 +45,7 @@ class TestEmailLookupHandler(TestCase):
                 with self.subTest(email=email_variation):
                     found_user = EmailLookupHandler.get_user_by_email(email_variation)
                     self.assertIsNotNone(found_user)
-                    self.assertEqual(found_user.id, user.id)
+                    found_user is not None and self.assertEqual(found_user.id, user.id)
         finally:
             user.delete()
 
