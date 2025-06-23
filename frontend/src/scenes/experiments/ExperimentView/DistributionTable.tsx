@@ -21,10 +21,13 @@ import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
+import { modalsLogic } from '../modalsLogic'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, experimentLoading, isDistributionModalOpen } = useValues(experimentLogic({ experimentId }))
-    const { closeDistributionModal, updateDistributionModal } = useActions(experimentLogic({ experimentId }))
+    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
+    const { updateDistributionModal } = useActions(experimentLogic({ experimentId }))
+    const { closeDistributionModal } = useActions(modalsLogic)
+    const { isDistributionModalOpen } = useValues(modalsLogic)
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
     const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
@@ -132,7 +135,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 }
 
 export function DistributionTable(): JSX.Element {
-    const { openDistributionModal } = useActions(experimentLogic)
+    const { openDistributionModal } = useActions(modalsLogic)
     const { experimentId, experiment, legacyPrimaryMetricsResults } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
     const { isDarkModeOn } = useValues(themeLogic)
