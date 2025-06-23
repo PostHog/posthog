@@ -259,7 +259,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     type: step.type,
                     created_at: Date.now(),
                     updated_at: Date.now(),
-                    next_actions: {},
                     ...step.create(edgeToInsertNodeInto),
                 }
 

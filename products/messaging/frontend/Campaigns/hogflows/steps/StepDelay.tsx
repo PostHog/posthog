@@ -3,7 +3,7 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { Node, Position } from '@xyflow/react'
 import { useActions } from 'kea'
 
-import { LEFT_HANDLE_POSITION, RIGHT_HANDLE_POSITION, TOP_HANDLE_POSITION } from '../constants'
+import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
@@ -44,14 +44,8 @@ export const StepDelay: HogFlowStep<'delay'> = {
             {
                 id: `continue_${action.id}`,
                 type: 'source',
-                position: Position.Left,
-                ...LEFT_HANDLE_POSITION,
-            },
-            {
-                id: `abort_${action.id}`,
-                type: 'source',
-                position: Position.Right,
-                ...RIGHT_HANDLE_POSITION,
+                position: Position.Bottom,
+                ...BOTTOM_HANDLE_POSITION,
             },
         ]
     },
