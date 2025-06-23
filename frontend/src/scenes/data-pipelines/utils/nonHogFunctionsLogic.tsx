@@ -43,7 +43,7 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                         try {
                             const { user, repo, path } = parseGithubRepoURL(plugin.url || '')
                             iconUrl = `https://raw.githubusercontent.com/${user}/${repo}/${path || 'main'}/logo.png`
-                        } catch  {
+                        } catch {
                             // Do nothing
                         }
 

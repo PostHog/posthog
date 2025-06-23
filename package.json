@@ -29,7 +29,7 @@
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "mypy-baseline-sync": "TEST=1 mypy -p posthog | mypy-baseline sync",
         "mypy-check": "TEST=1 mypy -p posthog | mypy-baseline filter",
-        "format:backend": "./bin/ruff.sh .",
+        "format:backend": "./bin/ruff.sh format .",
         "format:frontend": "pnpm --filter=@posthog/frontend run format",
         "format": "pnpm format:backend && pnpm format:frontend",
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",

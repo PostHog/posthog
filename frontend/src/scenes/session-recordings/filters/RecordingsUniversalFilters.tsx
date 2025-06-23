@@ -255,7 +255,7 @@ export const RecordingsUniversalFilters = ({
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                         >
-                            <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
+                            <RecordingsUniversalFilterGroup totalFiltersCount={totalFiltersCount} />
                         </UniversalFilters>
                     </div>
                     {(totalFiltersCount ?? 0) > 0 && (
@@ -393,11 +393,9 @@ export const RecordingsUniversalFilters = ({
 }
 
 const RecordingsUniversalFilterGroup = ({
-    size = 'small',
     totalFiltersCount,
     showAddFilter = true,
 }: {
-    size?: LemonButtonProps['size']
     totalFiltersCount?: number
     showAddFilter?: boolean
 }): JSX.Element => {
@@ -426,7 +424,6 @@ const RecordingsUniversalFilterGroup = ({
                                     <span className="font-semibold">Applied filters:</span>
                                 )}
                                 <RecordingsUniversalFilterGroup
-                                    size={size}
                                     totalFiltersCount={totalFiltersCount}
                                     showAddFilter={showAddFilter}
                                 />
