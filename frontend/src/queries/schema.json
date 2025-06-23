@@ -13581,20 +13581,13 @@
                     "type": "string"
                 },
                 "id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/integer"
-                        }
-                    ]
+                    "type": "number"
                 },
                 "name": {
                     "type": "string"
                 }
             },
-            "required": ["id"],
+            "required": ["id", "name"],
             "type": "object"
         },
         "MaxContextShape": {
@@ -13646,14 +13639,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/integer"
-                        }
-                    ]
+                    "type": "number"
                 },
                 "insights": {
                     "items": {
@@ -13675,14 +13661,7 @@
                     "type": "string"
                 },
                 "id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/integer"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -13714,14 +13693,7 @@
                     "type": "string"
                 },
                 "id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/integer"
-                        }
-                    ]
+                    "$ref": "#/definitions/InsightShortId"
                 },
                 "name": {
                     "type": "string"

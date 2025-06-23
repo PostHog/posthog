@@ -1495,6 +1495,24 @@ class MatchedRecordingEvent(BaseModel):
     uuid: str
 
 
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: float
+    name: str
+
+
+class MaxEventContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: str
+    name: Optional[str] = None
+
+
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3309,24 +3327,6 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: Optional[str] = None
-
-
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    id: Union[str, int]
-    name: Optional[str] = None
-
-
-class MaxEventContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    id: Union[str, int]
-    name: Optional[str] = None
 
 
 class NewExperimentQueryResponse(BaseModel):
@@ -11434,7 +11434,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: Optional[str] = None
     filters: DashboardFilter
-    id: Union[str, int]
+    id: float
     insights: list[MaxInsightContext]
     name: Optional[str] = None
 
@@ -11444,7 +11444,7 @@ class MaxInsightContext(BaseModel):
         extra="forbid",
     )
     description: Optional[str] = None
-    id: Union[str, int]
+    id: str
     name: Optional[str] = None
     query: Union[
         EventsNode,
