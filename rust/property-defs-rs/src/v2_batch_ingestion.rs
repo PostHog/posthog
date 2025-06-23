@@ -559,7 +559,7 @@ async fn write_event_definitions_batch(
         match result {
             Err(e) => {
                 let rollback_msg = format!(
-                    "failed to rollback posthog_eventydefinition insert w/error: {:?}",
+                    "failed to rollback posthog_eventdefinition insert w/error: {:?}",
                     &e
                 );
                 tx.rollback().await.expect(&rollback_msg);
