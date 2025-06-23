@@ -367,6 +367,7 @@ class ParquetStreamTransformer:
         current_file_size = 0
 
         async for record_batch in record_batches:
+            # Running write in a thread to yield control back to event loop.
             chunk = await asyncio.to_thread(self.write_record_batch, record_batch)
 
             yield Chunk(chunk, False)
