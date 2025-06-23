@@ -125,7 +125,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             }
         },
 
-        pollAuthorizationStatus: async ({ paymentIntentId }, breakpoint) => {
+        pollAuthorizationStatus: async ({ paymentIntentId }) => {
             const pollInterval = 2000 // Poll every 2 seconds
             const maxAttempts = 30 // Max 1 minute of polling (30 * 2 seconds)
             let attempts = 0
