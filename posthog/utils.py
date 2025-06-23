@@ -335,16 +335,6 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-def get_unlayer_editor_project_id() -> Optional[int]:
-    """Returns the appropriate Unlayer project ID based on the environment."""
-    if is_cloud():
-        if settings.DEBUG:
-            return 275256  # cloud dev environment
-        elif not settings.DEBUG and not settings.TEST:
-            return 275430  # cloud prod environment
-    return None  # FOSS, testing, any other case
-
-
 def render_template(
     template_name: str,
     request: HttpRequest,
@@ -398,7 +388,6 @@ def render_template(
     posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "unlayer_editor_project_id": get_unlayer_editor_project_id(),
     }
 
     posthog_bootstrap: dict[str, Any] = {}
