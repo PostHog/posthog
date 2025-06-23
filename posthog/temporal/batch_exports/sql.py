@@ -555,8 +555,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    ORDER BY
-        _inserted_at, event
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.

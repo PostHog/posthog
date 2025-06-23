@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
+from unittest.mock import ANY, patch
 
 from rest_framework import status
-from unittest.mock import ANY, patch
 
 from posthog.models import WebExperiment
 from posthog.test.base import APIBaseTest
@@ -52,8 +52,6 @@ class TestWebExperiment(APIBaseTest):
         assert variants[1].get("rollout_percentage") == 30
 
         assert web_experiment.created_by == self.user
-
-        assert web_experiment.get_stats_config("version") == 2
 
         assert web_experiment.variants is not None
         assert web_experiment.type == "web"

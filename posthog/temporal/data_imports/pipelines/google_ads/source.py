@@ -270,7 +270,7 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
 
 def google_ads_source(
     config: GoogleAdsSourceConfig,
-    is_incremental: bool = False,
+    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
@@ -283,15 +283,15 @@ def google_ads_source(
     name = NamingConvention().normalize_identifier(config.resource_name)
     table = get_schemas(config)[config.resource_name]
 
-    if table.requires_filter and not is_incremental:
-        is_incremental = True
+    if table.requires_filter and not should_use_incremental_field:
+        should_use_incremental_field = True
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
         query = f"SELECT {','.join(f'{field.qualified_name}' for field in table)} FROM {table.name}"
 
-        if is_incremental:
+        if should_use_incremental_field:
             if incremental_field is None or incremental_field_type is None:
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
