@@ -233,7 +233,9 @@ jobs:
 
             - name: Build Storybook
               if: needs.changes.outputs.frontend == 'true'
-              run: bin/turbo --filter=@posthog/storybook build -- --test
+              run: |
+                  bin/turbo --filter=@posthog/storybook prepare
+                  pnpm --filter=@posthog/storybook build
 
             - name: Serve Storybook in the background
               if: needs.changes.outputs.frontend == 'true'
