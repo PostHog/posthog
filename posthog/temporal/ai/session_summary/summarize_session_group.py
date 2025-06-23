@@ -183,6 +183,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         async with asyncio.TaskGroup() as tg:
             tasks = {}
             for session_input in inputs:
+                # TODO: When stories summaries in Redis (>50) - rework to use tuples also
+                # to have the same taskgroun function for both fetch/summarize tasks
                 tasks[session_input.session_id] = tg.create_task(self._run_summary(session_input))
         for session_id, task in tasks.items():
             res = task.result()
