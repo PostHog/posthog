@@ -900,11 +900,9 @@ class _Printer(Visitor):
         # only used for hogql direct printing (no prepare called)
         elif node.op == ast.CompareOperationOp.InCohort:
             op = f"{left} IN COHORT {right}"
-            return op
         # only used for hogql direct printing (no prepare called)
         elif node.op == ast.CompareOperationOp.NotInCohort:
             op = f"{left} NOT IN COHORT {right}"
-            return op
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
