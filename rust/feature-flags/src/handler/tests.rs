@@ -1156,7 +1156,7 @@ async fn test_fetch_and_filter_flags() {
     // Insert flags into redis
     let flags_json = serde_json::to_string(&flags).unwrap();
     insert_flags_for_team_in_redis(
-        redis_client.clone(),
+        redis_reader_client.clone(),
         team.id,
         team.project_id,
         Some(flags_json),
