@@ -347,6 +347,7 @@ jobs:
 
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Stop/Start stack with Docker Compose
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
@@ -381,10 +382,12 @@ jobs:
                   exit 1
 
             - name: Add Kafka and ClickHouse to /etc/hosts
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: ${{ matrix.python-version }}
@@ -393,12 +396,14 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
             - name: Determine if hogql-parser has changed compared to master
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               id: hogql-parser-diff
               run: |
@@ -407,14 +412,17 @@ jobs:
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
             - name: Install SAML (python3-saml) dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
               with:
                   node-version: 18.12.1
@@ -427,18 +435,20 @@ jobs:
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
 
             - name: Install plugin_transpiler
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-transpiler build
 
             - name: Install Python dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install the working version of hogql-parser
-              if: steps.hogql-parser-diff.outputs.changed == 'true'
+              if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
               # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
               # changed (requirements.txt has the already-published version)
@@ -464,6 +474,7 @@ jobs:
                   uv pip install ./common/hogql_parser
 
             - name: Set up needed files
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
                   mkdir -p frontend/dist
@@ -473,11 +484,12 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Wait for Clickhouse & Kafka
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: bin/check_kafka_clickhouse_up
 
             - name: Wait for Temporal
-              if: ${{ matrix.segment == 'Temporal' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
               run: |
                   bin/check_temporal_up
@@ -485,14 +497,14 @@ jobs:
             - name: Determine if --snapshot-update should be on
               # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
               # runs, as we want to ignore snapshots diverging there
-              if: github.event.pull_request.head.repo.full_name == github.repository || matrix.person-on-events == 'true'
+              if: ${{ needs.changes.outputs.backend == 'true' && (github.event.pull_request.head.repo.full_name == github.repository || matrix.person-on-events == 'true') }}
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
             # Tests
             - name: Run Core tests
               id: run-core-tests
-              if: ${{ matrix.segment == 'Core' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events }}
               shell: bash
@@ -519,7 +531,7 @@ jobs:
 
             - name: Run /decide read replica tests
               id: run-decide-read-replica-tests
-              if: ${{ matrix.segment == 'Core' && matrix.group == 1 && matrix.person-on-events != 'true' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.group == 1 && matrix.person-on-events != 'true' }}
               env:
                   POSTHOG_DB_NAME: posthog
                   READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
@@ -534,7 +546,7 @@ jobs:
 
             - name: Run Temporal tests
               id: run-temporal-tests
-              if: ${{ matrix.segment == 'Temporal' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
@@ -547,13 +559,13 @@ jobs:
 
             # Post tests
             - name: Show docker compose logs on failure
-              if: failure() && (steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
+              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-              if: ${{ matrix.person-on-events != 'true' && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:24.8.7.41' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.person-on-events != 'true' && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:24.8.7.41' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
