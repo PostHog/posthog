@@ -16,7 +16,6 @@ function ToolbarNode({ node }: { node: ToolbarNode }): JSX.Element {
     const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
-        console.log('onDragStart', node)
         setNewDraggingNode(node)
         event.dataTransfer.setData('application/reactflow', node.type)
         event.dataTransfer.effectAllowed = 'move'

@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { BaseHogFlowActionNode } from './actions/hogFlowActionManager'
+
+import { BaseHogFlowActionNode } from './steps/hogFlowActionManager'
 
 const _commonActionFields = {
     id: z.string(),

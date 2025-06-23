@@ -1,13 +1,34 @@
+import { IconBolt } from '@posthog/icons'
+import { Node } from '@xyflow/react'
+import { useActions } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { HogFlowActionPanelProps } from '../../types'
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { HogFlowAction } from '../types'
+import { StepView } from './components/StepView'
+import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
-export function TriggerPanelOptions({ action }: HogFlowActionPanelProps<'trigger'>): JSX.Element {
-    const { filters } = action.action.config
+export const StepTrigger: HogFlowStep<'trigger'> = {
+    type: 'trigger',
+    renderNode: (props) => <StepTriggerNode {...props} />,
+    renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
+}
 
-    console.log('filters', filters)
+export function StepTriggerNode({ data }: HogFlowStepNodeProps): JSX.Element {
+    // TODO: Use node data to render trigger node
+    return <StepView name={data.name} icon={<IconBolt className="text-green-400" />} selected={false} handles={[]} />
+}
+
+export function StepTriggerConfiguration({
+    node,
+}: {
+    node: Node<Extract<HogFlowAction, { type: 'trigger' }>>
+}): JSX.Element {
+    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const action = node.data
+    const { filters } = action.config
 
     return (
         <>
@@ -17,7 +38,7 @@ export function TriggerPanelOptions({ action }: HogFlowActionPanelProps<'trigger
             </div>
             <ActionFilter
                 filters={filters ?? {}}
-                setFilters={(filters) => action.partialUpdateConfig({ filters })}
+                setFilters={(filters) => setCampaignActionConfig(action.id, { filters })}
                 typeKey="campaign-trigger"
                 mathAvailability={MathAvailability.None}
                 hideRename

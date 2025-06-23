@@ -6,14 +6,13 @@ import { Optional } from '~/types'
 
 import {
     BOTTOM_HANDLE_POSITION,
-    getDefaultEdgeOptions,
     getDefaultNodeOptions,
     LEFT_HANDLE_POSITION,
     RIGHT_HANDLE_POSITION,
     TOP_HANDLE_POSITION,
 } from '../constants'
 import { ToolbarNode } from '../HogFlowEditorToolbar'
-import type { HogFlow, HogFlowAction } from '../types'
+import type { HogFlowAction } from '../types'
 
 type NodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
@@ -71,92 +70,6 @@ export const HogFlowActionManager = {
             case 'conditional_branch':
                 return ConditionalBranchAction.fromToolbarNode(toolbarNode, edgeToInsertNodeInto)
         }
-    },
-
-    insertNodeIntoDropzone(
-        actions: HogFlowAction[],
-        toolbarNode: ToolbarNode,
-        dropzone: Node<{ edge: Edge }>
-    ): HogFlowAction[] {
-        const edgeToInsertNodeInto = dropzone?.data.edge
-
-        const newNode = this.fromToolbarNode(toolbarNode, edgeToInsertNodeInto)
-        const edgeSourceNode = actions.find((action) => action.id === edgeToInsertNodeInto.source)
-
-        if (!edgeSourceNode) {
-            throw new Error('Edge source node not found')
-        }
-
-        Object.keys(edgeSourceNode.next_actions).forEach((key) => {
-            edgeSourceNode.next_actions[key] = {
-                action_id: newNode.action.id,
-                label: edgeSourceNode.next_actions[key].label,
-            }
-        })
-
-        return [...actions.slice(0, -1), newNode.action, actions[actions.length - 1]]
-    },
-
-    getReactFlowFromHogFlow(hogFlow: HogFlow): { nodes: Node<HogFlowAction>[]; edges: Edge[] } {
-        const nodes = hogFlow.actions
-            .map((action: HogFlowAction) => HogFlowActionManager.fromAction(action))
-            .map((hogFlowAction: BaseHogFlowActionNode<HogFlowAction['type']>) => {
-                return {
-                    id: hogFlowAction.action.id,
-                    type: hogFlowAction.action.type,
-                    data: hogFlowAction.action,
-                    position: { x: 0, y: 0 },
-                    handles: hogFlowAction.getHandles(),
-                    ...getDefaultNodeOptions(['trigger', 'exit'].includes(hogFlowAction.action.type)),
-                }
-            })
-        const edges = hogFlow.actions.flatMap((action: HogFlowAction) =>
-            Object.entries(action.next_actions).map(([branch, next_action]) => ({
-                id: `${branch}_${action.id}->${next_action.action_id}`,
-                label: next_action.label,
-                source: action.id,
-                sourceHandle: `${branch}_${action.id}`,
-                target: next_action.action_id,
-                targetHandle: `target_${next_action.action_id}`,
-                ...getDefaultEdgeOptions(),
-            }))
-        )
-
-        return { nodes, edges }
-    },
-
-    deleteActions(deleted: Node<HogFlowAction>[], hogFlow: HogFlow): HogFlowAction[] {
-        // Get the nodes that are incoming to the deleted nodes, and connect them to their deleted nodes' continue next action
-        const deletedNodeIds = deleted.map((node) => node.id)
-        return hogFlow.actions
-            .filter((action) => !deletedNodeIds.includes(action.id))
-            .map((action) => {
-                // For each action, update its next_actions to skip deleted nodes
-                const updatedNextActions: Record<string, { action_id: string; label?: string }> = {}
-
-                Object.entries(action.next_actions).forEach(([branch, nextAction]) => {
-                    if (deletedNodeIds.includes(nextAction.action_id)) {
-                        // Find the deleted node's continue action and use that instead
-                        const deletedNode = hogFlow.actions.find((a) => a.id === nextAction.action_id)
-                        if (deletedNode?.next_actions.continue) {
-                            updatedNextActions[branch] = {
-                                action_id: deletedNode.next_actions.continue.action_id,
-                                label:
-                                    action.type === deletedNode.type
-                                        ? deletedNode.next_actions.continue.label
-                                        : undefined,
-                            }
-                        }
-                    } else {
-                        updatedNextActions[branch] = nextAction
-                    }
-                })
-
-                return {
-                    ...action,
-                    next_actions: updatedNextActions,
-                }
-            })
     },
 }
 

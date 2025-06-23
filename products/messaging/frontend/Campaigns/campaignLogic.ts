@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
-import type { HogFlow } from './hogflows/types'
+import type { HogFlow, HogFlowAction } from './hogflows/types'
 
 export interface CampaignLogicProps {
     id?: string
@@ -63,6 +63,7 @@ export const campaignLogic = kea<campaignLogicType>([
     key((props) => props.id || 'new'),
     actions({
         setOriginalCampaign: (campaign: HogFlow) => ({ campaign }),
+        setCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({ actionId, config }),
     }),
     loaders(({ props }) => ({
         campaign: [
@@ -107,7 +108,7 @@ export const campaignLogic = kea<campaignLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         saveCampaignSuccess: async ({ campaign }) => {
             lemonToast.success('Campaign saved')
             campaign.id &&
@@ -116,6 +117,15 @@ export const campaignLogic = kea<campaignLogicType>([
                 )
             actions.resetCampaign(campaign)
             actions.setOriginalCampaign(campaign)
+        },
+        setCampaignActionConfig: async ({ actionId, config }) => {
+            const action = values.campaign?.actions.find((action) => action.id === actionId)
+            if (!action) {
+                return
+            }
+
+            action.config = { ...action.config, ...config }
+            actions.setCampaignValues({ actions: [...values.campaign.actions] })
         },
     })),
     afterMount(({ actions, props }) => {

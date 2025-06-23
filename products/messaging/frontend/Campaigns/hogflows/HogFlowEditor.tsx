@@ -6,6 +6,7 @@ import {
     Controls,
     Edge,
     Node,
+    NodeTypes,
     ReactFlow,
     ReactFlowProvider,
     useReactFlow,
@@ -16,17 +17,17 @@ import { useEffect, useRef } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { campaignLogic } from '../campaignLogic'
-import { NodeDetailsPanel } from './actions/NodeDetailsPanel'
-import { REACT_FLOW_NODE_TYPES } from './actions/Nodes'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
+import { NodeDetailsPanel } from './steps/NodeDetailsPanel'
+import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import type { HogFlowAction } from './types'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges, selectedNode, dropzoneNodes } = useValues(hogFlowEditorLogic)
+    const { nodes, edges, dropzoneNodes } = useValues(hogFlowEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -56,7 +57,7 @@ function HogFlowEditorContent(): JSX.Element {
         <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<Node<HogFlowAction>, Edge>
                 fitView
-                nodes={[...nodes, ...dropzoneNodes]}
+                nodes={[...nodes, ...(dropzoneNodes as unknown as Node<HogFlowAction>[])]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -65,7 +66,7 @@ function HogFlowEditorContent(): JSX.Element {
                 onDragOver={onDragOver}
                 onDrop={onDrop}
                 onNodeClick={(_, node) => node.selectable && setSelectedNode(node)}
-                nodeTypes={REACT_FLOW_NODE_TYPES}
+                nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
             >
@@ -75,16 +76,7 @@ function HogFlowEditorContent(): JSX.Element {
 
                 <HogFlowEditorToolbar />
 
-                {selectedNode && (
-                    <NodeDetailsPanel
-                        node={selectedNode}
-                        // onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
-                        // onDelete={(node) => {
-                        //     void deleteElements({ nodes: [node] })
-                        // }}
-                        // onClose={() => setSelectedNode(undefined)}
-                    />
-                )}
+                <NodeDetailsPanel />
             </ReactFlow>
         </div>
     )

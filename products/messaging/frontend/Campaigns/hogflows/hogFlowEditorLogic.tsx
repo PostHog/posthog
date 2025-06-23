@@ -12,13 +12,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
-import { HogFlowActionManager } from './actions/hogFlowActionManager'
-import { BaseHogFlowActionNode } from './actions/hogFlowActionManager'
 import { getFormattedNodes } from './autolayout'
 import { getDefaultNodeOptions, NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { getDefaultEdgeOptions } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { ToolbarNode } from './HogFlowEditorToolbar'
+import { HogFlowActionManager } from './steps/hogFlowActionManager'
+import { BaseHogFlowActionNode } from './steps/hogFlowActionManager'
 import type { HogFlow, HogFlowAction } from './types'
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
@@ -27,17 +27,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
         values: [campaignLogic(props), ['campaign']],
-        actions: [campaignLogic(props), ['setCampaignValues']],
+        actions: [campaignLogic(props), ['setCampaignValues', 'setCampaignActionConfig']],
     })),
     actions({
         onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
         onNodesChange: (nodes: NodeChange<Node<HogFlowAction>>[]) => ({ nodes }),
         onNodesDelete: (deleted: Node<HogFlowAction>[]) => ({ deleted }),
         setNodes: (nodes: Node<HogFlowAction>[]) => ({ nodes }),
-        setDropzoneNodes: (dropzoneNodes: Node[]) => ({ dropzoneNodes }),
+        setDropzoneNodes: (dropzoneNodes: Node<{ edge: Edge }>[]) => ({ dropzoneNodes }),
         setNodesRaw: (nodes: Node<HogFlowAction>[]) => ({ nodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
-        setSelectedNode: (selectedNode: Node<HogFlowAction> | undefined) => ({ selectedNode }),
+        setSelectedNode: (selectedNode: Node<HogFlowAction> | null) => ({ selectedNode }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
@@ -74,7 +74,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNode: [
-            undefined as Node<HogFlowAction> | undefined,
+            null as Node<HogFlowAction> | null,
             {
                 setSelectedNode: (_, { selectedNode }) => selectedNode,
             },
@@ -88,7 +88,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
 
         reactFlowInstance: [
-            undefined as ReactFlowInstance<Node, Edge> | undefined,
+            null as ReactFlowInstance<Node, Edge> | null,
             {
                 setReactFlowInstance: (_, { reactFlowInstance }) => reactFlowInstance,
             },
@@ -143,7 +143,37 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.setSelectedNode(undefined)
             }
 
-            const updatedActions = HogFlowActionManager.deleteActions(deleted, values.campaign)
+            const deletedNodeIds = deleted.map((node) => node.id)
+            const updatedActions = values.campaign.actions
+                .filter((action) => !deletedNodeIds.includes(action.id))
+                .map((action) => {
+                    // For each action, update its next_actions to skip deleted nodes
+                    const updatedNextActions: Record<string, { action_id: string; label?: string }> = {}
+
+                    Object.entries(action.next_actions).forEach(([branch, nextAction]) => {
+                        if (deletedNodeIds.includes(nextAction.action_id)) {
+                            // Find the deleted node's continue action and use that instead
+                            const deletedNode = values.campaign.actions.find((a) => a.id === nextAction.action_id)
+                            if (deletedNode?.next_actions.continue) {
+                                updatedNextActions[branch] = {
+                                    action_id: deletedNode.next_actions.continue.action_id,
+                                    label:
+                                        action.type === deletedNode.type
+                                            ? deletedNode.next_actions.continue.label
+                                            : undefined,
+                                }
+                            }
+                        } else {
+                            updatedNextActions[branch] = nextAction
+                        }
+                    })
+
+                    return {
+                        ...action,
+                        next_actions: updatedNextActions,
+                    }
+                })
+
             actions.setCampaignValues({ actions: updatedActions })
         },
 
@@ -195,13 +225,28 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
 
             if (values.newDraggingNode && dropzoneNode) {
-                // Create the new node in the position of the dropzone using the manager
-                const updatedActions = HogFlowActionManager.insertNodeIntoDropzone(
-                    values.campaign.actions,
-                    values.newDraggingNode,
-                    dropzoneNode
+                const edgeToInsertNodeInto = dropzoneNode?.data.edge
+
+                const newNode = HogFlowActionManager.fromToolbarNode(values.newDraggingNode, edgeToInsertNodeInto)
+                const edgeSourceNode = values.campaign.actions.find(
+                    (action) => action.id === edgeToInsertNodeInto.source
                 )
-                actions.setCampaignValues({ actions: updatedActions })
+
+                if (!edgeSourceNode) {
+                    throw new Error('Edge source node not found')
+                }
+
+                Object.keys(edgeSourceNode.next_actions).forEach((key) => {
+                    edgeSourceNode.next_actions[key] = {
+                        action_id: newNode.action.id,
+                        label: edgeSourceNode.next_actions[key].label,
+                    }
+                })
+
+                const oldActions = values.campaign.actions
+                const newActions = [...oldActions.slice(0, -1), newNode.action, oldActions[oldActions.length - 1]]
+
+                actions.setCampaignValues({ actions: newActions })
                 actions.setNewDraggingNode(null)
             }
             // We can clear the dropzones now
