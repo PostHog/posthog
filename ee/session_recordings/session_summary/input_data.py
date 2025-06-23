@@ -30,7 +30,6 @@ COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT = [
     "$exception_sources",
     "$exception_fingerprint_record",
     "$exception_functions",
-    "uuid",
 ]
 
 
