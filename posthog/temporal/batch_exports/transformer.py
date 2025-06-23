@@ -139,7 +139,7 @@ class JSONLBrotliStreamTransformer:
 
         self._futures_pending: set[asyncio.Future[list[bytes]]] = set()
         self._semaphore = asyncio.Semaphore(max_workers)
-        self._brotli_compressor = brotli.Compressor()
+        self._brotli_compressor = None
 
     async def iter(
         self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
@@ -204,14 +204,20 @@ class JSONLBrotliStreamTransformer:
         else:
             encoded = content
 
-        self._brotli_compressor.process(encoded)
-        return self._brotli_compressor.flush()
+        self.brotli_compressor.process(encoded)
+        return self.brotli_compressor.flush()
 
     def _finish_brotli_compressor(self) -> bytes:
         """Flush remaining brotli bytes."""
-        bytes = self._brotli_compressor.finish()
+        bytes = self.brotli_compressor.finish()
         self._brotli_compressor = None
         return bytes
+
+    @property
+    def brotli_compressor(self) -> brotli._brotli.Compressor:
+        if self._brotli_compressor is None:
+            self._brotli_compressor = brotli.Compressor()
+        return self._brotli_compressor
 
 
 @contextlib.asynccontextmanager
