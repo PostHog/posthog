@@ -143,7 +143,7 @@ def eval_ui_context_events(call_root_with_ui_context):
                     "ui_context": MaxContextShape(
                         events=[
                             MaxEventContext(
-                                id=1,
+                                id="1",
                                 name="checkout_started",
                                 description="User initiated the checkout process",
                             )
@@ -165,12 +165,12 @@ def eval_ui_context_events(call_root_with_ui_context):
                     "ui_context": MaxContextShape(
                         events=[
                             MaxEventContext(
-                                id=1,
+                                id="1",
                                 name="feature_used",
                                 description="User interacted with a premium feature",
                             ),
                             MaxEventContext(
-                                id=2,
+                                id="2",
                                 name="content_shared",
                                 description="User shared content on social media",
                             ),
@@ -193,7 +193,7 @@ def eval_ui_context_events(call_root_with_ui_context):
                     "ui_context": MaxContextShape(
                         events=[
                             MaxEventContext(
-                                id=1,
+                                id="1",
                                 name="button_clicked",
                                 description="User clicked a CTA button",
                             )
