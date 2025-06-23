@@ -23,20 +23,17 @@ const PG_CONSTRAINT_CODES: [&str; 7] = [
 ];
 
 pub struct AppContext {
-    // this points to the (original, shared) CLOUD PG instance
-    // in both property-defs-rs and property-defs-rs-v2 deployments.
-    // the v2 deployment will use this pool to access tables that
-    // aren't slated to migrate to the isolated PROPDEFS DB in production
+    // this points to the original (shared) CLOUD DB instance in prod deployments
     pub pool: PgPool,
 
-    // this points to the new, isolated Persons PG instance in CLOUD
-    // envs. It will point to the shared DB in dev/hobby envs. It is only
-    // used to access the posthog_grouptypemappings table
+    // if populated, this pool will be used to read from the new, isolated
+    // persons DB instance in production. call sites will fall back to the
+    // std (shared) pool above if this is unset
     pub persons_pool: Option<PgPool>,
 
-    // this is only used by the property-defs-rs-v2 deployments, and
-    // only when the enable_mirror config is set. intended for deploys
-    // that will write to the new isolated propdefs DB instance in prod
+    // if populated, this pool can be used to write to the new, isolated
+    // propdefs DB instance in production. call sites will fall back to the
+    // std (shared) pool above if this is unset
     pub propdefs_pool: Option<PgPool>,
 
     pub query_manager: Manager,
