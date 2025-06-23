@@ -103,6 +103,12 @@ export const personShadowModeComparisonCounter = new Counter({
     labelNames: ['outcome_type'],
 })
 
+export const personShadowModeReturnIntermediateOutcomeCounter = new Counter({
+    name: 'person_shadow_mode_return_intermediate_outcome_total',
+    help: 'Person shadow mode intermediate comparison results for updatePersonForUpdate and updatePersonForMerge methods',
+    labelNames: ['method', 'outcome'],
+})
+
 export function getVersionBucketLabel(version: number): string {
     if (version === 0) {
         return 'v0'

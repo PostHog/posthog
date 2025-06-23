@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ProjectTreeRef } from '~/types'
@@ -110,8 +111,15 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         end_date: values.end_date,
                     }
                 }
-                const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
-                return response
+                try {
+                    const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
+                    return response
+                } catch (error: any) {
+                    if (error.status === 400 && error.data?.error) {
+                        throw new Error(error.data.error)
+                    }
+                    throw error
+                }
             },
         },
     }),
@@ -119,6 +127,13 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         submitManagedMigrationSuccess: async () => {
             actions.loadMigrations()
             router.actions.push(urls.managedMigration())
+        },
+        submitManagedMigrationFailure: async ({ error }) => {
+            if (error?.message) {
+                lemonToast.error(error.message)
+            } else {
+                lemonToast.error('Failed to create migration. Please try again.')
+            }
         },
         loadMigrationsSuccess: () => {
             const hasRunningMigrations = values.migrations.some(

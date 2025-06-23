@@ -59,7 +59,7 @@ export default defineConfig({
             try {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
                 require('cypress-terminal-report/src/installLogsPrinter')(on)
-            } catch (e) {}
+            } catch {}
 
             on('before:browser:launch', (browser, launchOptions) => {
                 if (browser.name === 'chrome') {
@@ -106,7 +106,7 @@ export default defineConfig({
 
                 async resetInsightCache() {
                     const redisClient = await createClient()
-                        .on('error', (err) => console.log('Redis client error', err))
+                        .on('error', (err) => console.error('Redis client error', err))
                         .connect()
                     // Clear cache
                     for await (const key of redisClient.scanIterator({
