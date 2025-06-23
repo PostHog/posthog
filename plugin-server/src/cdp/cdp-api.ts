@@ -13,6 +13,8 @@ import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.ser
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
+import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
@@ -30,6 +32,8 @@ import { createInvocationResult } from './utils/invocation-utils'
 export class CdpApi {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
+    private hogFlowManager: HogFlowManagerService
+    private hogFlowExecutor: HogFlowExecutorService
     private fetchExecutor: FetchExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
@@ -39,7 +43,9 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(hub)
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
@@ -79,6 +85,7 @@ export class CdpApi {
                 fn(req, res).catch(next)
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
+        router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
@@ -131,7 +138,12 @@ export class CdpApi {
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
+            const {
+                clickhouse_event,
+                mock_async_functions: _mock_async_functions,
+                configuration,
+                invocation_id,
+            } = req.body
             let { globals } = req.body
 
             logger.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
@@ -194,7 +206,6 @@ export class CdpApi {
                     id: team.id,
                     name: team.name,
                     url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
-                    ...globals.project,
                 },
             }
 
@@ -234,7 +245,7 @@ export class CdpApi {
                         let response: CyclotronJobInvocationResult
 
                         if (invocation.queue === 'fetch') {
-                            if (mock_async_functions) {
+                            if (_mock_async_functions) {
                                 // Add the state, simulating what executeAsyncResponse would do
                                 // Re-parse the fetch args for the logging
                                 const { url: fetchUrl, ...fetchArgs }: HogFunctionQueueParametersFetchRequest =
@@ -333,6 +344,130 @@ export class CdpApi {
             res.status(500).json({ errors: [e.message] })
         } finally {
             await this.hogFunctionMonitoringService.produceQueuedMessages()
+        }
+    }
+
+    private postHogflowInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id } = req.params
+            const {
+                clickhouse_event,
+                mock_async_functions: _mock_async_functions,
+                configuration,
+                invocation_id,
+            } = req.body
+
+            logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
+
+            const invocationID = invocation_id ?? new UUIDT().toString()
+
+            // Check the invocationId is a valid UUID
+            if (!UUID.validateString(invocationID)) {
+                res.status(400).json({ error: 'Invalid invocation ID' })
+                return
+            }
+
+            const isNewHogFlow = req.params.id === 'new'
+
+            const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)
+
+            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            // NOTE: We allow the hog flow to be null if it is a "new" hog flow
+            // The real security happens at the django layer so this is more of a sanity check
+            if (!isNewHogFlow && (!hogFlow || hogFlow.team_id !== team.id)) {
+                return res.status(404).json({ error: 'Hog flow not found' })
+            }
+
+            let globals: HogFunctionInvocationGlobals
+
+            if (clickhouse_event) {
+                globals = convertToHogFunctionInvocationGlobals(
+                    clickhouse_event,
+                    team,
+                    this.hub.SITE_URL ?? 'http://localhost:8000'
+                )
+            } else {
+                return res.status(400).json({ error: 'Missing clickhouse_event' })
+            }
+
+            if (!globals || !globals.event) {
+                return res.status(400).json({ error: 'Missing event' })
+            }
+
+            // We use the provided config if given, otherwise the flow's config
+            const compoundConfiguration = {
+                ...(hogFlow ?? {}),
+                ...(configuration ?? {}),
+                team_id: team.id,
+            }
+
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                ...globals,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+            }
+
+            const {
+                invocations,
+                logs: filterLogs,
+                metrics: filterMetrics,
+            } = this.hogFlowExecutor.buildHogFlowInvocations([compoundConfiguration], triggerGlobals)
+
+            let logs: MinimalLogEntry[] = []
+            const errors: any[] = []
+
+            // Add metrics to the logs
+            filterMetrics.forEach((metric) => {
+                if (metric.metric_name === 'filtered') {
+                    logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Hog flow not matching filters was ignored.`,
+                    })
+                }
+            })
+
+            filterLogs.forEach((log) => {
+                logs.push(log)
+            })
+
+            if (invocations.length === 0) {
+                return res.json({
+                    result: null,
+                    status: 'skipped',
+                    errors: [],
+                    logs: logs,
+                })
+            }
+
+            // Execute the first invocation (assuming single flow execution)
+            const invocation = invocations[0]
+            invocation.id = invocationID
+
+            const response = await this.hogFlowExecutor.execute(invocation)
+
+            logs = logs.concat(response.logs)
+            if (response.error) {
+                errors.push(response.error)
+            }
+
+            res.json({
+                result: null, // HogFlows don't have a result property like HogFunctions
+                status: errors.length > 0 ? 'error' : 'success',
+                errors: errors.map((e) => String(e)),
+                logs: logs,
+            })
+        } catch (e) {
+            console.error(e)
+            res.status(500).json({ errors: [e.message] })
         }
     }
 

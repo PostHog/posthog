@@ -61,6 +61,14 @@ def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict
     )
 
 
+def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    logger.info(f"Creating hog flow invocation test for hog flow {hog_flow_id} on workers")
+    return requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations",
+        json=payload,
+    )
+
+
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
     return requests.get(CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status")
 

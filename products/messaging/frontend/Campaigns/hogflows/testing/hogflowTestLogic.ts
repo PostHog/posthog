@@ -3,6 +3,7 @@ import equal from 'fast-deep-equal'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 
@@ -207,27 +208,31 @@ export const hogFlowTestLogic = kea<hogFlowTestLogicType>([
                 mock_async_functions: true,
             } as HogflowTestInvocation,
             {
-                submitTestInvocation: async (testInvocation: HogflowTestInvocation) => {
+                submitTestInvocation: async () => {
                     try {
-                        // TODO: Replace with actual API call when endpoint is available
-                        // const response = await api.hogFlows.test(props.hogFlow.id, {
-                        //     globals: JSON.parse(testInvocation.globals),
-                        //     mock_async_functions: testInvocation.mock_async_functions,
-                        // })
+                        const apiResponse = await api.hogFlows.test(props.hogFlow.id, {
+                            configuration: {},
+                            globals: JSON.parse(values.testInvocation.globals),
+                            mock_async_functions: values.testInvocation.mock_async_functions,
+                        })
 
-                        // Mock response for now
+                        // Use the actual API response
                         const response: HogflowTestResult = {
-                            status: 'success',
+                            status: apiResponse.status === 'error' ? 'error' : 'success',
+                            result: apiResponse,
                             logs: [
                                 {
                                     timestamp: new Date().toISOString(),
-                                    level: 'info',
-                                    message: 'Workflow test completed successfully',
+                                    level: apiResponse.status === 'error' ? 'error' : 'info',
+                                    message:
+                                        apiResponse.status === 'error'
+                                            ? 'Workflow test failed'
+                                            : 'Workflow test completed successfully',
                                 },
                             ],
                         }
                         actions.setTestResult(response)
-                        return testInvocation
+                        return values.testInvocation
                     } catch (error: any) {
                         console.error('Workflow test error:', error)
                         lemonToast.error('Error testing workflow')
@@ -311,20 +316,17 @@ export const hogFlowTestLogic = kea<hogFlowTestLogicType>([
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(() => ({
         testInvocation: {
             defaults: {} as HogflowTestInvocation,
             errors: (data: HogflowTestInvocation) => {
                 const errors: Record<string, string> = {}
                 try {
-                    JSON.parse(data.globals)
+                    JSON.parse(JSON.stringify(data.globals))
                 } catch (e) {
                     errors.globals = 'Invalid JSON'
                 }
                 return errors
-            },
-            submit: (data: HogflowTestInvocation) => {
-                void actions.submitTestInvocation(data)
             },
         },
     })),

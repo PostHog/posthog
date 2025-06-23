@@ -7,6 +7,9 @@ from loginas.utils import is_impersonated_session
 
 
 from rest_framework import serializers, viewsets, exceptions
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
@@ -16,6 +19,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 
 
 logger = structlog.get_logger(__name__)
@@ -161,3 +165,21 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             activity="updated",
             detail=Detail(changes=changes, name=serializer.instance.name),
         )
+
+    @action(detail=True, methods=["POST"])
+    def invocations(self, request: Request, *args, **kwargs):
+        try:
+            hog_flow = self.get_object()
+        except Exception:
+            hog_flow = None
+
+        res = create_hog_flow_invocation_test(
+            team_id=self.team_id,
+            hog_flow_id=str(hog_flow.id) if hog_flow else "new",
+            payload=request.data,
+        )
+
+        if res.status_code != 200:
+            return Response({"status": "error"}, status=res.status_code)
+
+        return Response(res.json())
