@@ -31,7 +31,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         let flag_service = FlagService::new(
             context.state.redis_reader.clone(),
             context.state.redis_writer.clone(),
-            context.state.reader.clone(),
+            context.state.database_pools.non_persons_reader.clone(),
         );
 
         let (original_distinct_id, verified_token, request) =

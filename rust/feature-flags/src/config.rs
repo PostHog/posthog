@@ -1,6 +1,5 @@
 use common_cookieless::CookielessConfig;
 use envconfig::Envconfig;
-use once_cell::sync::Lazy;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
@@ -9,6 +8,12 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
+
+impl Default for FlexBool {
+    fn default() -> Self {
+        FlexBool(false)
+    }
+}
 
 impl FromStr for FlexBool {
     type Err = String;
@@ -41,6 +46,12 @@ pub enum TeamIdCollection {
     All,
     None,
     TeamIds(Vec<i32>),
+}
+
+impl Default for TeamIdCollection {
+    fn default() -> Self {
+        TeamIdCollection::All
+    }
 }
 
 #[derive(Debug)]
@@ -112,6 +123,13 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
+    // New database URLs for persons/groups routing
+    #[envconfig(default = "")]
+    pub persons_write_database_url: String,
+
+    #[envconfig(default = "")]
+    pub persons_read_database_url: String,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -177,37 +195,41 @@ pub struct Config {
     pub session_replay_rrweb_script_allowed_teams: TeamIdCollection,
 }
 
-impl Config {
-    pub fn default_test_config() -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Self {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
-            redis_url: "redis://localhost:6379/".to_string(),
-            redis_reader_url: "".to_string(),
-            redis_writer_url: "".to_string(),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            persons_write_database_url: String::default(),
+            persons_read_database_url: String::default(),
             max_concurrency: 1000,
             max_pg_connections: 10,
+            redis_url: "redis://localhost:6379/".to_string(),
+            redis_reader_url: String::default(),
+            redis_writer_url: String::default(),
             acquire_timeout_secs: 5,
-            maxmind_db_path: "".to_string(),
+            maxmind_db_path: String::default(),
             enable_metrics: false,
-            team_ids_to_track: TeamIdCollection::All,
+            team_ids_to_track: TeamIdCollection::default(),
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
-            new_analytics_capture_endpoint: "".to_string(),
+            new_analytics_capture_endpoint: String::default(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
-            debug: FlexBool(false),
-            session_replay_rrweb_script: "".to_string(),
+            debug: FlexBool::default(),
+            session_replay_rrweb_script: String::default(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
         }
     }
+}
 
+impl Config {
     pub fn get_maxmind_db_path(&self) -> PathBuf {
         if self.maxmind_db_path.is_empty() {
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -254,9 +276,37 @@ impl Config {
             TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
         }
     }
-}
 
-pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
+    /// Get the appropriate read database URL for persons/groups operations
+    pub fn get_persons_read_database_url(&self) -> &str {
+        if self.persons_read_database_url.is_empty() {
+            // Fall back to persons writer if reader not set
+            if self.persons_write_database_url.is_empty() {
+                // Fall back to default reader if no persons URLs are set
+                &self.read_database_url
+            } else {
+                &self.persons_write_database_url
+            }
+        } else {
+            &self.persons_read_database_url
+        }
+    }
+
+    /// Get the appropriate write database URL for persons/groups operations
+    pub fn get_persons_write_database_url(&self) -> &str {
+        if self.persons_write_database_url.is_empty() {
+            // Fall back to default writer if no persons writer URL is set
+            &self.write_database_url
+        } else {
+            &self.persons_write_database_url
+        }
+    }
+
+    /// Check if persons database routing is enabled
+    pub fn is_persons_db_routing_enabled(&self) -> bool {
+        !self.persons_write_database_url.is_empty()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -278,6 +328,14 @@ mod tests {
             config.read_database_url,
             "postgres://posthog:posthog@localhost:5432/posthog"
         );
+        assert_eq!(
+            config.persons_write_database_url,
+            "postgres://posthog:posthog@localhost:5432/posthog"
+        );
+        assert_eq!(
+            config.persons_read_database_url,
+            "postgres://posthog:posthog@localhost:5432/posthog"
+        );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 50);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
@@ -294,7 +352,7 @@ mod tests {
 
     #[test]
     fn test_default_test_config() {
-        let config = Config::default_test_config();
+        let config = Config::default();
         assert_eq!(config.address, SocketAddr::from_str("127.0.0.1:0").unwrap());
         assert_eq!(
             config.write_database_url,
@@ -304,30 +362,12 @@ mod tests {
             config.read_database_url,
             "postgres://posthog:posthog@localhost:5432/test_posthog"
         );
-        assert_eq!(config.max_concurrency, 1000);
-        assert_eq!(config.max_pg_connections, 10);
-        assert_eq!(config.redis_url, "redis://localhost:6379/");
-        assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
-            config.new_analytics_capture_excluded_team_ids,
-            TeamIdCollection::None
-        );
-        assert_eq!(
-            config.element_chain_as_string_excluded_teams,
-            TeamIdCollection::None
-        );
-    }
-
-    #[test]
-    fn test_default_test_config_static() {
-        let config = &*DEFAULT_TEST_CONFIG;
-        assert_eq!(config.address, SocketAddr::from_str("127.0.0.1:0").unwrap());
-        assert_eq!(
-            config.write_database_url,
+            config.persons_write_database_url,
             "postgres://posthog:posthog@localhost:5432/test_posthog"
         );
         assert_eq!(
-            config.read_database_url,
+            config.persons_read_database_url,
             "postgres://posthog:posthog@localhost:5432/test_posthog"
         );
         assert_eq!(config.max_concurrency, 1000);

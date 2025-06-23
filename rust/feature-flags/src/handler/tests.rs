@@ -37,7 +37,7 @@ use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use uuid::Uuid;
 
 fn create_test_geoip_service() -> GeoIpClient {
-    let config = Config::default_test_config();
+    let config = Config::default();
     GeoIpClient::new(config.get_maxmind_db_path())
         .expect("Failed to create GeoIpService for testing")
 }

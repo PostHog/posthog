@@ -45,6 +45,7 @@ pub struct FeatureFlagEvaluationContext {
     pub project_id: i64,
     pub distinct_id: String,
     pub feature_flags: FeatureFlagList,
+    // NB: this is the persons database pool, not the flag matching database pool
     pub reader: Arc<dyn common_database::Client + Send + Sync>,
     pub writer: Arc<dyn common_database::Client + Send + Sync>,
     pub cohort_cache: Arc<CohortCacheManager>,

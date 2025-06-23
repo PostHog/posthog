@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_database::get_pool;
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
@@ -12,6 +11,7 @@ use tokio::net::TcpListener;
 
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
+use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::router;
 use common_cookieless::CookielessManager;
@@ -46,40 +46,14 @@ where
         }
     };
 
-    let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
-        Ok(client) => {
-            tracing::info!("Successfully created read Postgres client");
-            Arc::new(client)
-        }
+    // Create database pools
+    let database_pools = match DatabasePools::from_config(&config).await {
+        Ok(pools) => Arc::new(pools),
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                url = %config.read_database_url,
-                max_connections = config.max_pg_connections,
-                "Failed to create read Postgres client"
-            );
+            tracing::error!("Failed to create database pools: {}", e);
             return;
         }
     };
-
-    let writer =
-        // TODO - we should have a dedicated URL for both this and the reader – the reader will read
-        // from the replica, and the writer will write to the main database.
-        match get_pool(&config.write_database_url, config.max_pg_connections).await {
-            Ok(client) => {
-                tracing::info!("Successfully created write Postgres client");
-                Arc::new(client)
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    url = %config.write_database_url,
-                    max_connections = config.max_pg_connections,
-                    "Failed to create write Postgres client"
-                );
-                return;
-            }
-        };
 
     let geoip_service = match GeoIpClient::new(config.get_maxmind_db_path()) {
         Ok(service) => Arc::new(service),
@@ -94,7 +68,7 @@ where
     };
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
-        reader.clone(),
+        database_pools.non_persons_reader.clone(),
         Some(config.cache_max_cohort_entries),
         Some(config.cache_ttl_seconds),
     ));
@@ -107,8 +81,8 @@ where
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
-    // Start database pool monitoring
-    let db_monitor = DatabasePoolMonitor::new(reader.clone(), writer.clone());
+    // Start database pool monitoring for both flag matching and persons databases
+    let db_monitor = DatabasePoolMonitor::new_with_pools(database_pools.clone());
     tokio::spawn(async move {
         db_monitor.start_monitoring().await;
     });
@@ -136,8 +110,7 @@ where
     let app = router::router(
         redis_reader_client,
         redis_writer_client,
-        reader,
-        writer,
+        database_pools,
         cohort_cache,
         geoip_service,
         health,

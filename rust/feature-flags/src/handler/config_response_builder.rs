@@ -26,7 +26,7 @@ impl ConfigContext {
     pub fn from_request_context(context: &RequestContext) -> Self {
         Self {
             config: context.state.config.clone(),
-            reader: context.state.reader.clone(),
+            reader: context.state.database_pools.non_persons_reader.clone(),
             redis: context.state.redis_reader.clone(),
             headers: context.headers.clone(),
         }
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn test_basic_config_fields() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let team = create_base_team();
 
         apply_core_config_fields(&mut response, &config, &team);
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_analytics_config_enabled() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.debug = FlexBool(false);
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_analytics_config_disabled_debug_mode() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.debug = FlexBool(true);
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_analytics_config_disabled_excluded_team() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.debug = FlexBool(false);
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // All means exclude all teams
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_analytics_config_disabled_empty_endpoint() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.debug = FlexBool(false);
         config.new_analytics_capture_endpoint = "".to_string(); // Empty endpoint
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_elements_chain_as_string_enabled() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.element_chain_as_string_excluded_teams = TeamIdCollection::None; // None means exclude nobody
 
         let mut response = create_base_response();
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_elements_chain_as_string_excluded() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.element_chain_as_string_excluded_teams = TeamIdCollection::All; // All means exclude all teams
 
         let mut response = create_base_response();
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn test_capture_performance_both_disabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.capture_performance_opt_in = Some(false);
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn test_capture_performance_network_only() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.capture_performance_opt_in = Some(true);
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn test_capture_performance_web_vitals_only() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.capture_performance_opt_in = Some(false);
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn test_capture_performance_both_enabled_with_metrics() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.capture_performance_opt_in = Some(true);
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn test_autocapture_exceptions_enabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.autocapture_exceptions_opt_in = Some(true);
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn test_autocapture_exceptions_disabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.autocapture_exceptions_opt_in = Some(false);
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn test_autocapture_exceptions_none() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let team = create_base_team(); // autocapture_exceptions_opt_in is None
 
         apply_core_config_fields(&mut response, &config, &team);
@@ -468,7 +468,7 @@ mod tests {
     #[test]
     fn test_surveys_enabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.surveys_opt_in = Some(true);
@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn test_surveys_disabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.surveys_opt_in = Some(false);
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn test_heatmaps_enabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.heatmaps_opt_in = Some(true);
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn test_heatmaps_disabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.heatmaps_opt_in = Some(false);
@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn test_flags_persistence_default_enabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.flags_persistence_default = Some(true);
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn test_flags_persistence_default_disabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.flags_persistence_default = Some(false);
@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn test_autocapture_opt_out_enabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.autocapture_opt_out = Some(true);
@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn test_autocapture_opt_out_disabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.autocapture_opt_out = Some(false);
@@ -572,7 +572,7 @@ mod tests {
     #[test]
     fn test_capture_dead_clicks_enabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.capture_dead_clicks = Some(true);
@@ -585,7 +585,7 @@ mod tests {
     #[test]
     fn test_capture_dead_clicks_disabled() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
 
         team.capture_dead_clicks = Some(false);
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn test_all_optional_fields_none() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
+        let config = Config::default();
         let team = create_base_team(); // all optional fields are None/false
 
         apply_core_config_fields(&mut response, &config, &team);
@@ -617,7 +617,7 @@ mod tests {
 
     #[test]
     fn test_team_exclusion_all_teams() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // All means exclude all teams
         config.element_chain_as_string_excluded_teams = TeamIdCollection::All; // All means exclude all teams
 
@@ -633,7 +633,7 @@ mod tests {
 
     #[test]
     fn test_team_exclusion_specific_teams() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::TeamIds(vec![1, 3, 4]); // team 1 is in list, so excluded
         config.element_chain_as_string_excluded_teams = TeamIdCollection::TeamIds(vec![1, 3, 4]); // team 1 is in list, so excluded
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn test_team_not_in_exclusion_list() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
         config.element_chain_as_string_excluded_teams = TeamIdCollection::None; // None means exclude nobody
         config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_disabled() {
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
         team.session_recording_opt_in = false; // Disabled
 
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_enabled_no_rrweb_script() {
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
         team.session_recording_opt_in = true; // Enabled
 
@@ -703,7 +703,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_rrweb_script_wildcard_allowed() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.session_replay_rrweb_script = "console.log('custom script')".to_string();
         config.session_replay_rrweb_script_allowed_teams = "all".parse().unwrap(); // All teams allowed
 
@@ -725,7 +725,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_rrweb_script_specific_team_allowed() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.session_replay_rrweb_script = "console.log('team script')".to_string();
         config.session_replay_rrweb_script_allowed_teams = "1,5,10".parse().unwrap(); // Team 1 is allowed
 
@@ -747,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_rrweb_script_team_not_allowed() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.session_replay_rrweb_script = "console.log('restricted script')".to_string();
         config.session_replay_rrweb_script_allowed_teams = "5,10,15".parse().unwrap(); // Team 1 is NOT in list
 
@@ -767,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_rrweb_script_empty_string() {
-        let mut config = Config::default_test_config();
+        let mut config = Config::default();
         config.session_replay_rrweb_script = "".to_string(); // Empty script
         config.session_replay_rrweb_script_allowed_teams = "all".parse().unwrap();
 
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_empty_domains_allowed() {
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
         team.recording_domains = Some(vec![]); // Empty domains list
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn test_session_recording_no_domains_allowed() {
-        let config = Config::default_test_config();
+        let config = Config::default();
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
         team.recording_domains = None; // No domains list

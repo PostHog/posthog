@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
-use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
+use feature_flags::config::{Config, FlexBool, TeamIdCollection};
 use feature_flags::utils::test_utils::{
     create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
     insert_new_team_in_redis, insert_person_for_team_in_pg, insert_suppression_rule_in_pg,
@@ -27,7 +27,7 @@ pub mod common;
 async fn it_gets_legacy_response_by_default_or_invalid_version(
     #[case] version: Option<&str>,
 ) -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -102,7 +102,7 @@ async fn it_gets_legacy_response_by_default_or_invalid_version(
 #[case("3")]
 #[tokio::test]
 async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -187,7 +187,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
 
 #[tokio::test]
 async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -230,7 +230,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 
 #[tokio::test]
 async fn it_rejects_empty_distinct_id() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -262,7 +262,7 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
 
 #[tokio::test]
 async fn it_rejects_missing_distinct_id() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let client = setup_redis_client(Some(config.redis_url.clone()));
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -285,7 +285,7 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
 
 #[tokio::test]
 async fn it_rejects_missing_token() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -305,7 +305,7 @@ async fn it_rejects_missing_token() -> Result<()> {
 
 #[tokio::test]
 async fn it_rejects_invalid_token() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -326,7 +326,7 @@ async fn it_rejects_invalid_token() -> Result<()> {
 
 #[tokio::test]
 async fn it_handles_malformed_json() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let server = ServerHandle::for_config(config).await;
 
     let payload = "{invalid_json}";
@@ -347,7 +347,7 @@ async fn it_handles_malformed_json() -> Result<()> {
 
 #[tokio::test]
 async fn it_handles_quota_limiting() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     // Create a token for testing
     let token = format!("test_token_{}", rand::thread_rng().gen::<u64>());
@@ -386,7 +386,7 @@ async fn it_handles_quota_limiting() -> Result<()> {
 
 #[tokio::test]
 async fn it_handles_quota_limiting_v2() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     // Create a token for testing
     let token = format!("test_token_{}", rand::thread_rng().gen::<u64>());
@@ -425,7 +425,7 @@ async fn it_handles_quota_limiting_v2() -> Result<()> {
 
 #[tokio::test]
 async fn it_handles_multivariate_flags() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -517,7 +517,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
 
 #[tokio::test]
 async fn it_handles_flag_with_property_filter() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -620,7 +620,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
 
 #[tokio::test]
 async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -732,7 +732,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
 
 #[tokio::test]
 async fn test_feature_flags_with_json_payloads() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
@@ -821,7 +821,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
 
 #[tokio::test]
 async fn test_feature_flags_with_group_relationships() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
@@ -996,7 +996,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
 
 #[tokio::test]
 async fn it_handles_not_contains_property_filter() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1072,7 +1072,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
 
 #[tokio::test]
 async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1225,7 +1225,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
 
 #[tokio::test]
 async fn test_complex_regex_and_name_match_flag() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
@@ -1368,7 +1368,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
 
 #[tokio::test]
 async fn test_super_condition_with_complex_request() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "test_user".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
@@ -1478,7 +1478,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
 
 #[tokio::test]
 async fn test_flag_matches_with_no_person_profile() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -1562,7 +1562,7 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
 
 #[tokio::test]
 async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let token = format!("test_token_{}", rand::thread_rng().gen::<u64>());
     let team_id = 12345;
 
@@ -1606,7 +1606,7 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 
 #[tokio::test]
 async fn it_only_includes_config_fields_when_requested() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1679,7 +1679,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_basic_fields() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1746,7 +1746,7 @@ async fn test_config_basic_fields() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_analytics_enabled() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     config.debug = FlexBool(false);
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     // default config has new_analytics_capture_excluded_team_ids as All (exclude nobody)
@@ -1791,7 +1791,7 @@ async fn test_config_analytics_enabled() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     config.debug = FlexBool(true); // Debug mode disables analytics
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
@@ -1829,7 +1829,7 @@ async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_capture_performance_combinations() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1867,7 +1867,7 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_autocapture_exceptions() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1904,7 +1904,7 @@ async fn test_config_autocapture_exceptions() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_optional_team_features() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1949,7 +1949,7 @@ async fn test_config_optional_team_features() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_site_apps_empty_by_default() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -1986,7 +1986,7 @@ async fn test_config_site_apps_empty_by_default() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_included_in_legacy_response() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -2055,7 +2055,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -2162,7 +2162,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     // Configure rrweb script for all teams
     config.session_replay_rrweb_script =
         "console.log('Custom session recording script')".to_string();
@@ -2238,7 +2238,7 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_session_recording_team_not_allowed_for_script() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     // Configure rrweb script only for specific teams (not including our test team)
     config.session_replay_rrweb_script = "console.log('Restricted script')".to_string();
     config.session_replay_rrweb_script_allowed_teams = "999,1000,1001".parse().unwrap(); // Our team won't be in this list
@@ -2309,7 +2309,7 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
 
 #[tokio::test]
 async fn test_config_comprehensive_enterprise_team() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     config.debug = FlexBool(false);
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None;
@@ -2484,7 +2484,7 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_comprehensive_minimal_team() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     config.debug = FlexBool(true); // Debug mode disables analytics
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // Exclude all teams
@@ -2588,7 +2588,7 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_mixed_feature_combinations() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     config.debug = FlexBool(false);
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None;
@@ -2700,7 +2700,7 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_team_exclusions_and_overrides() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = Config::default();
     config.debug = FlexBool(false);
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
@@ -2789,7 +2789,7 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "consistency_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -2880,7 +2880,7 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "error_tracking_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -2959,7 +2959,7 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
 
 #[tokio::test]
 async fn test_config_error_tracking_disabled() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "error_tracking_disabled_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -3007,7 +3007,7 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
 
 #[tokio::test]
 async fn test_disable_flags_returns_empty_response() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3079,7 +3079,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
 
 #[tokio::test]
 async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3150,7 +3150,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
 
 #[tokio::test]
 async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3223,7 +3223,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
 
 #[tokio::test]
 async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3312,7 +3312,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
 
 #[tokio::test]
 async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3400,7 +3400,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
 
 #[tokio::test]
 async fn test_disable_flags_without_config_param_has_minimal_response() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3479,7 +3479,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
 
 #[tokio::test]
 async fn test_numeric_group_ids_work_correctly() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone()));
     let pg_client = setup_pg_reader_client(None).await;
@@ -3651,7 +3651,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     // "$feature_enrollment/discussions": false
     // as an override, it would be ignored if the flag's super_groups checked for that property.
 
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "super_condition_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -3845,7 +3845,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
 
 #[tokio::test]
 async fn test_property_override_bug_real_scenario() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "test_real_bug".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -3984,7 +3984,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn test_super_condition_with_cohort_filters() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "super_condition_cohort_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -4169,7 +4169,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
 
 #[tokio::test]
 async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
@@ -4310,7 +4310,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
 
 #[tokio::test]
 async fn test_group_key_property_matching() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let config = Config::default();
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone()));
