@@ -485,7 +485,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        updateDistributionModal: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
     }),
     reducers({
         experiment: [
@@ -1049,7 +1049,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistributionModal: async ({ featureFlag }) => {
+        updateDistribution: async ({ featureFlag }) => {
             const { created_at, id, ...flag } = featureFlag
 
             const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)

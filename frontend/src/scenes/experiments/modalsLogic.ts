@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, connect, kea, reducers } from 'kea'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -7,14 +7,7 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 import type { modalsLogicType } from './modalsLogicType'
 
-export interface ModalsLogicProps {
-    experimentId?: string
-}
-
 export const modalsLogic = kea<modalsLogicType>([
-    props({} as ModalsLogicProps),
-    key((props) => props.experimentId || 'new'),
-    path((key) => ['scenes', 'experiment', 'modalsLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], teamLogic, ['currentTeamId']],
         actions: [featureFlagsLogic, ['updateFlag']],

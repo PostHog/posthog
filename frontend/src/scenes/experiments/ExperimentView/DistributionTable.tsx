@@ -25,7 +25,7 @@ import { modalsLogic } from '../modalsLogic'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
-    const { updateDistributionModal } = useActions(experimentLogic({ experimentId }))
+    const { updateDistribution } = useActions(experimentLogic({ experimentId }))
     const { closeDistributionModal } = useActions(modalsLogic)
     const { isDistributionModalOpen } = useValues(modalsLogic)
 
@@ -66,7 +66,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                     </LemonButton>
                     <LemonButton
                         onClick={() => {
-                            updateDistributionModal(featureFlag)
+                            updateDistribution(featureFlag)
                             closeDistributionModal()
                         }}
                         type="primary"
