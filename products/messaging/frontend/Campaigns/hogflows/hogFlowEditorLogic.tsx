@@ -56,7 +56,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         dropzoneNodes: [
-            [] as Node<HogFlowAction>[],
+            [] as Node<{ edge: Edge }>[],
             {
                 setDropzoneNodes: (_, { dropzoneNodes }) => dropzoneNodes,
             },
@@ -147,12 +147,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setCampaignValues({ actions: updatedActions })
         },
 
-        onDragStart: ({ event }) => {
+        onDragStart: () => {
             const { nodes, edges } = values
-            // event.preventDefault()
-            // event.dataTransfer.dropEffect = 'move'
 
-            const dropzoneNodes: Node[] = []
+            const dropzoneNodes: Node<{ edge: Edge }>[] = []
 
             edges.forEach((edge) => {
                 const sourceNode = nodes.find((n) => n.id === edge.source)
@@ -193,13 +191,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
 
         onDrop: ({ event }) => {
-            console.log('onDrop')
             event.preventDefault()
-
             const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
-
-            console.log('dropzoneNode', dropzoneNode)
-            console.log('newDraggingNode', values.newDraggingNode)
 
             if (values.newDraggingNode && dropzoneNode) {
                 // Create the new node in the position of the dropzone using the manager

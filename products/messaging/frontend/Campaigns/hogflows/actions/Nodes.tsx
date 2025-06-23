@@ -5,12 +5,12 @@ import {
     IconHourglass,
     IconLeave,
     IconPlus,
-    IconRandom,
     IconRevert,
     IconSend,
 } from '@posthog/icons'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import { useActions } from 'kea'
+import { IconCohort } from 'lib/lemon-ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -116,7 +116,7 @@ function DelayUntilNode(props: NodeProps): JSX.Element {
 }
 
 function RandomCohortBranchNode(props: NodeProps): JSX.Element {
-    return <BaseNode {...props} icon={<IconRandom className="text-muted" />} />
+    return <BaseNode {...props} icon={<IconCohort className="text-muted" />} />
 }
 
 function WaitUntilTimeWindowNode(props: NodeProps): JSX.Element {
