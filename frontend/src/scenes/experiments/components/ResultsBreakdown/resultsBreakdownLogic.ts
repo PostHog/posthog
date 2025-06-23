@@ -12,7 +12,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -99,13 +99,18 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         filterTestAccounts: !!experiment.exposure_criteria?.filterTestAccounts,
                         dateRange: getExperimentDateRange(experiment),
                         breakdownFilter: {
-                            breakdown: `$feature/${experiment.feature_flag_key}`,
+                            breakdown:
+                                exposureEventNode.event === '$feature_flag_called'
+                                    ? '$feature_flag_response'
+                                    : `$feature/${experiment.feature_flag_key}`,
                             breakdown_type: 'event',
                         },
                         funnelsFilter: {
                             layout: FunnelLayout.vertical,
                             breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                            funnelOrderType: StepOrderValue.ORDERED,
+                            funnelOrderType:
+                                (isExperimentFunnelMetric(metric) && metric.funnel_order_type) ||
+                                StepOrderValue.ORDERED,
                             funnelStepReference: FunnelStepReference.total,
                             funnelVizType: FunnelVizType.Steps,
                             funnelWindowInterval: 14,

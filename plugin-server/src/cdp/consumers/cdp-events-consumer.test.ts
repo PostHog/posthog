@@ -26,6 +26,7 @@ import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogFlow } from '~/schema/hogflow'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 
 jest.setTimeout(1000)
 
@@ -370,11 +371,10 @@ describe('hog flow processing', () => {
     let hub: Hub
     let team: Team
 
-    const insertHogFlow = async (hogFlow: Partial<HogFlow>) => {
+    const insertHogFlow = async (hogFlow: HogFlow) => {
         const teamId = hogFlow.team_id ?? team.id
-        const item = await _insertHogFlow(hub.postgres, teamId, {
-            ...hogFlow,
-        })
+
+        const item = await _insertHogFlow(hub.postgres, hogFlow)
         // Trigger the reload that django would do
         processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
         return item
@@ -432,19 +432,22 @@ describe('hog flow processing', () => {
         })
 
         it('should not create hog flow invocations with no filters', async () => {
-            await insertHogFlow({})
+            await insertHogFlow(new FixtureHogFlowBuilder().withTeamId(team.id).build())
 
             const invocations = await processor['createHogFlowInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
         it('should create hog flow invocations with matching filters', async () => {
-            const hogFlow = await insertHogFlow({
-                trigger: {
-                    type: 'event',
-                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-                },
-            })
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withTrigger({
+                        type: 'event',
+                        filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    })
+                    .build()
+            )
 
             const noInvocations = await processor['createHogFlowInvocations']([
                 {
