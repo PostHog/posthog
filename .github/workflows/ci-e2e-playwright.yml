@@ -53,7 +53,7 @@ jobs:
         name: Playwright E2E tests (local)
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 45
         permissions:
             id-token: write
