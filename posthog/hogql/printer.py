@@ -532,7 +532,9 @@ class _Printer(Visitor):
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
-                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                    node.next_join
+                    or node.join_type == "JOIN"
+                    or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
             else:
