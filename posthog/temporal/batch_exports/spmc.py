@@ -51,7 +51,9 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
     get_batch_export_writer,
 )
-from posthog.temporal.batch_exports.transformer import get_stream_transformer
+from posthog.temporal.batch_exports.transformer import (
+    get_stream_transformer,
+)
 from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
@@ -1223,15 +1225,20 @@ class ConsumerFromStage:
             schema=schema,
             include_inserted_at=include_inserted_at,
         )
-
         record_batches_count = 0
         records_count = 0
         bytes_count = 0
-        current_file_size = 0
-        try:
+
+        async def track_iteration_of_record_batches():
+            """Wrap generator of record batches to track execution."""
+            nonlocal record_batches_count
+            nonlocal records_count
+            nonlocal bytes_count
+
             async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
-                record_batches_count += 1
                 record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
+
+                record_batches_count += 1
                 records_count += record_batch.num_rows
                 bytes_count += record_batch.nbytes
 
@@ -1244,20 +1251,17 @@ class ConsumerFromStage:
                     bytes_count / 1024**2,
                 )
 
-                # Transform batch to chunks
-                # We also split the file if we reach the max file size
-                for chunk in transformer.transform_batch(record_batch):
-                    await self.consume_chunk(data=chunk)
-                    current_file_size += len(chunk)
-                    if max_file_size_bytes and current_file_size > max_file_size_bytes:
-                        for chunk in transformer.finalize():
-                            await self.consume_chunk(chunk)
-                        await self.finalize_file()
-                        current_file_size = 0
+                yield record_batch
 
-            # Finalize transformer and consume any remaining data
-            for chunk in transformer.finalize():
-                await self.consume_chunk(chunk)
+        try:
+            async for chunk, is_eof in transformer.iter(
+                track_iteration_of_record_batches(),
+                max_file_size_bytes,
+            ):
+                await self.consume_chunk(data=chunk)
+
+                if is_eof:
+                    await self.finalize_file()
 
             # Finalize upload
             await self.finalize()

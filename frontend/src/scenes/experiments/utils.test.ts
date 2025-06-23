@@ -28,6 +28,7 @@ import {
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
+    StepOrderValue,
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/shared/utils'
@@ -872,7 +873,7 @@ describe('metricToFilter', () => {
                     math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
-                    properties: undefined,
+                    properties: [],
                 },
             ],
         })
@@ -1049,6 +1050,7 @@ describe('metricToQuery', () => {
                     kind: NodeKind.EventsNode,
                     name: '$pageview',
                     event: '$pageview',
+                    properties: [],
                 },
             ],
         })
@@ -1087,6 +1089,7 @@ describe('metricToQuery', () => {
                     name: '$pageview',
                     math: PropertyMathType.Sum,
                     math_property: 'property_value',
+                    properties: [],
                 },
             ],
         })
@@ -1122,6 +1125,7 @@ describe('metricToQuery', () => {
                     event: '$pageview',
                     name: '$pageview',
                     math: ExperimentMetricMathType.UniqueSessions,
+                    properties: [],
                 },
             ],
         })
@@ -1175,6 +1179,7 @@ describe('metricToQuery', () => {
                     name: 'test action',
                     math: PropertyMathType.Sum,
                     math_property: 'property_value',
+                    properties: [],
                 },
             ],
         })
@@ -1213,6 +1218,312 @@ describe('metricToQuery', () => {
                     name: 'purchase',
                     math_property: 'amount',
                     math: ExperimentMetricMathType.Max,
+                    properties: [],
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a mean metric with device type filter', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                properties: [
+                    {
+                        key: '$device_type',
+                        value: ['Desktop'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+            },
+        }
+
+        const query = metricToQuery(metric, false)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: false,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    properties: [
+                        {
+                            key: '$device_type',
+                            value: ['Desktop'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a mean metric with multiple property filters', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                properties: [
+                    {
+                        key: '$device_type',
+                        value: ['Mobile', 'Tablet'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+            },
+        }
+
+        const query = metricToQuery(metric, true)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    properties: [
+                        {
+                            key: '$device_type',
+                            value: ['Mobile', 'Tablet'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                        {
+                            key: '$browser',
+                            value: ['Chrome'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a mean metric with no properties', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                properties: undefined,
+            },
+        }
+
+        const query = metricToQuery(metric, false)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: false,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    properties: [],
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a funnel metric with unordered step order', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                {
+                    event: 'signup',
+                    kind: NodeKind.EventsNode,
+                    name: 'signup',
+                },
+                {
+                    event: 'purchase',
+                    kind: NodeKind.EventsNode,
+                    name: 'purchase',
+                },
+            ],
+            funnel_order_type: StepOrderValue.UNORDERED,
+        }
+
+        const query = metricToQuery(metric, false)
+        expect(query).toEqual({
+            kind: NodeKind.FunnelsQuery,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+                funnelOrderType: StepOrderValue.UNORDERED,
+            },
+            filterTestAccounts: false,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    custom_name: 'Placeholder for experiment exposure',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'signup',
+                    name: 'signup',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a funnel metric with sequential step order (default)', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                {
+                    event: 'signup',
+                    kind: NodeKind.EventsNode,
+                    name: 'signup',
+                },
+                {
+                    event: 'purchase',
+                    kind: NodeKind.EventsNode,
+                    name: 'purchase',
+                },
+            ],
+            funnel_order_type: StepOrderValue.ORDERED,
+        }
+
+        const query = metricToQuery(metric, false)
+        expect(query).toEqual({
+            kind: NodeKind.FunnelsQuery,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+                funnelOrderType: StepOrderValue.ORDERED,
+            },
+            filterTestAccounts: false,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    custom_name: 'Placeholder for experiment exposure',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'signup',
+                    name: 'signup',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a funnel metric without funnel_order_type specified', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                {
+                    event: 'signup',
+                    kind: NodeKind.EventsNode,
+                    name: 'signup',
+                },
+                {
+                    event: 'purchase',
+                    kind: NodeKind.EventsNode,
+                    name: 'purchase',
+                },
+            ],
+        }
+
+        const query = metricToQuery(metric, false)
+        expect(query).toEqual({
+            kind: NodeKind.FunnelsQuery,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+            },
+            filterTestAccounts: false,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    custom_name: 'Placeholder for experiment exposure',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'signup',
+                    name: 'signup',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
                 },
             ],
         })

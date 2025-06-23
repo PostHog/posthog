@@ -322,7 +322,6 @@ class CHQueries:
             route_id=route.route,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
-            container_hostname=settings.CONTAINER_HOSTNAME,
             http_referer=request.META.get("HTTP_REFERER"),
             http_user_agent=request.META.get("HTTP_USER_AGENT"),
         )
@@ -410,7 +409,6 @@ class ShortCircuitMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    container_hostname=settings.CONTAINER_HOSTNAME,
                     http_referer=request.META.get("HTTP_REFERER"),
                     http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
@@ -484,7 +482,6 @@ class CaptureMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    container_hostname=settings.CONTAINER_HOSTNAME,
                     http_referer=request.META.get("HTTP_REFERER"),
                     http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
