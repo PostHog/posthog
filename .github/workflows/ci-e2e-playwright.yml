@@ -90,29 +90,41 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@v4
+            - name: Download frontend build artifacts
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
               with:
-                  version: 9
-                  run_install: false
+                  name: frontend-build
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
 
-            - name: Cache pnpm store
-              id: pnpm-cache
-              uses: actions/cache@v4
-              with:
-                  path: ~/.local/share/pnpm/store/v3
-                  key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - name: Install JS dependencies
-              run: pnpm install --frozen-lockfile
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Install Playwright browsers
               run: pnpm --filter=@posthog/playwright exec playwright install --with-deps
