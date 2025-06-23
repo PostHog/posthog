@@ -77,7 +77,10 @@ export function ErrorTrackingIntegrations(): JSX.Element {
             <div className="flex">
                 <LemonButton
                     type="secondary"
-                    to="https://github.com/apps/posthog-error-tracking/installations/new"
+                    to={api.integrations.authorizeUrl({
+                        kind: 'github',
+                        next: router.values.currentLocation.pathname,
+                    })}
                     disableClientSideRouting
                 >
                     Connect <>{githubIntegrations?.length > 0 ? 'another' : 'a'}</> GitHub organization

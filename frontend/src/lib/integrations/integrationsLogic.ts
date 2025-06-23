@@ -43,6 +43,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
 
     actions({
+        handleGithubCallback: (searchParams: any) => ({ searchParams }),
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
         newGoogleCloudKey: (kind: string, key: File, callback?: (integration: IntegrationType) => void) => ({
             kind,
@@ -101,6 +102,27 @@ export const integrationsLogic = kea<integrationsLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
+        handleGithubCallback: async ({ searchParams }) => {
+            const { state, installation_id } = searchParams
+
+            try {
+                // if (state !== getCookie('ph_github_state')) {
+                //     throw new Error('Invalid state token')
+                // }
+
+                await api.integrations.create({
+                    kind: 'github',
+                    config: { installation_id },
+                })
+
+                actions.loadIntegrations()
+                lemonToast.success(`Integration successful.`)
+            } catch (e) {
+                lemonToast.error(`Something went wrong. Please try again.`)
+            } finally {
+                // router.actions.replace(urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }))
+            }
+        },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
             const { next, token } = fromParamsGivenUrl(state)
@@ -144,6 +166,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
+        '/integrations/github/callback': (_, searchParams) => {
+            actions.handleGithubCallback(searchParams)
+        },
         '/integrations/:kind/callback': ({ kind = '' }, searchParams) => {
             actions.handleOauthCallback(kind as IntegrationKind, searchParams)
         },

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import time
+import jwt
 from datetime import timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
@@ -925,3 +926,17 @@ class LinearIntegration:
 
         teams = dot_get(response.json(), "data.teams.nodes")
         return teams
+
+
+class GitHubIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "github":
+            raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def generate_jwt(cls) -> Integration:
+        payload = {"iat": int(time.time()), "exp": int(time.time()) + 600, "iss": settings.GITHUB_APP_CLIENT_ID}
+        return jwt.encode(payload, settings.GITHUB_APP_PRIVATE_KEY, algorithm="RS256")

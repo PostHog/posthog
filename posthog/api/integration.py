@@ -3,6 +3,7 @@ import json
 import os
 from typing import Any
 
+from urllib.parse import urlencode
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from rest_framework import mixins, serializers, viewsets
@@ -24,6 +25,7 @@ from posthog.models.integration import (
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
     EmailIntegration,
+    GitHubIntegration,
 )
 
 
@@ -74,6 +76,26 @@ class IntegrationSerializer(serializers.ModelSerializer):
             )
             return instance
 
+        elif validated_data["kind"] == "github":
+            config = validated_data.get("config", {})
+
+            token = GitHubIntegration.generate_jwt()
+
+            print(token)
+
+            print(
+                f'curl --request POST --url "https://api.github.com/app/installations/{config["installation_id"]}/access_tokens" --header "Accept: application/vnd.github+json" --header "Authorization: Bearer {token}" --header "X-GitHub-Api-Version: 2022-11-28"'
+            )
+
+            # if not (config.get("domain")):
+            #     raise ValidationError("Domain is required for email integration")
+            # instance = EmailIntegration.integration_from_domain(
+            #     config["domain"],
+            #     team_id,
+            #     request.user,
+            # )
+            # return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -113,6 +135,13 @@ class IntegrationViewSet(
                 return response
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+        elif kind == "github":
+            query_params = urlencode({"state": token})
+            installation_url = f"https://github.com/apps/{'posthog-error-tracking'}/installations/new?{query_params}"
+            response = redirect(installation_url)
+            response.set_cookie("ph_github_state", token, max_age=60 * 5)
+
+            return response
 
         raise ValidationError("Kind not supported")
 
