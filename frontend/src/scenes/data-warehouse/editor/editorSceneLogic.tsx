@@ -2,9 +2,11 @@ import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
@@ -17,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaManagedViewTable,
@@ -84,6 +87,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 'viewsMapById',
                 'managedViews',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             queryDatabaseLogic,
@@ -494,6 +499,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 return [...dataWarehouseSavedQueries, ...managedViews].map((item) => [item, null])
             },
         ],
+    })),
+    urlToAction(({ values }) => ({
+        [urls.sqlEditor()]: () => {
+            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
+                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+            }
+        },
     })),
     subscriptions({
         allTables: (allTables: DatabaseSchemaTable[]) => {

@@ -178,8 +178,8 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                             type: 'authorization status timed out',
                         })
                     }
-                } catch (error) {
-                    actions.setApiError('Failed to complete. Please refresh the page and try again.')
+                } catch {
+                    actions.setStripeError('Failed to complete. Please refresh the page and try again.')
                 } finally {
                     actions.setLoading(false)
                     actions.setClientSecret(null)
