@@ -18,7 +18,6 @@ class TeamRevenueAnalyticsConfig(models.Model):
     filter_test_accounts = models.BooleanField(default=False)
     notified_first_sync = models.BooleanField(default=False, null=True)
 
-    # Mangled fields incoming:
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
     _events = models.JSONField(default=list, db_column="events")

@@ -17,8 +17,17 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     StringJSONDatabaseField,
 )
+from .revenue_analytics_base_view import events_exprs_for_team
+from posthog.hogql.database.schema.exchange_rate import (
+    revenue_comparison_and_value_exprs_for_events,
+)
+from posthog.schema import (
+    RevenueAnalyticsPersonsJoinMode,
+    HogQLQueryModifiers,
+)
 
 SOURCE_VIEW_SUFFIX = "customer_revenue_view"
+EVENTS_VIEW_SUFFIX = "customer_revenue_view_events"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -28,10 +37,12 @@ FIELDS: dict[str, FieldOrTable] = {
     "email": StringDatabaseField(name="email"),
     "phone": StringDatabaseField(name="phone"),
     "address": StringJSONDatabaseField(name="address"),
+    "metadata": StringJSONDatabaseField(name="metadata"),
     "country": StringDatabaseField(name="country"),
     "cohort": StringDatabaseField(name="cohort"),
     "initial_coupon": StringDatabaseField(name="initial_coupon"),
     "initial_coupon_id": StringDatabaseField(name="initial_coupon_id"),
+    "distinct_id": StringDatabaseField(name="distinct_id"),
 }
 
 
@@ -42,11 +53,59 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
 
     # No customer views for events, we only have that for schema sources
     @classmethod
-    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
-        return []
+    def for_events(cls, team: Team, _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
+        if len(team.revenue_analytics_config.events) == 0:
+            return []
+
+        revenue_config = team.revenue_analytics_config
+        generic_team_exprs = events_exprs_for_team(team)
+
+        queries: list[tuple[str, str, ast.SelectQuery]] = []
+        for event in revenue_config.events:
+            prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
+            comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
+                team, event, do_currency_conversion=False
+            )
+
+            query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="id", expr=ast.Field(chain=["distinct_id"])),
+                    ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
+                    ast.Alias(alias="timestamp", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+                    ast.Alias(alias="name", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="email", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="phone", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="metadata", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="address", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="country", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="cohort", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="initial_coupon_id", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="distinct_id", expr=ast.Field(chain=["distinct_id"])),
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=ast.And(exprs=[comparison_expr, *generic_team_exprs]),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                group_by=[ast.Field(chain=["distinct_id"])],
+            )
+
+            queries.append((event.eventName, prefix, query))
+
+        return [
+            RevenueAnalyticsCustomerView(
+                id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                prefix=prefix,
+                query=query.to_hogql(),
+                fields=FIELDS,
+            )
+            for event_name, prefix, query in queries
+        ]
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(
+        cls, source: ExternalDataSource, modifiers: HogQLQueryModifiers
+    ) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -87,6 +146,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="name", expr=ast.Field(chain=["name"])),
                 ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
                 ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
+                ast.Alias(alias="metadata", expr=ast.Field(chain=["metadata"])),
                 ast.Alias(alias="address", expr=ast.Field(chain=["address"])),
                 ast.Alias(
                     alias="country",
@@ -97,6 +157,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="cohort", expr=ast.Constant(value=None)),
                 ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
                 ast.Alias(alias="initial_coupon_id", expr=ast.Constant(value=None)),
+                ast.Alias(alias="distinct_id", expr=cls._schema_source_distinct_id_expr(modifiers)),
             ],
             select_from=ast.JoinExpr(alias="outer", table=ast.Field(chain=[table.name])),
         )
@@ -135,7 +196,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                     alias="cohort_inner",
                     table=ast.SelectQuery(
                         select=[
-                            ast.Field(chain=["customer_id"]),
+                            ast.Field(chain=["invoice", "customer_id"]),
                             ast.Alias(alias="cohort", expr=parse_expr("toStartOfMonth(min(created_at))")),
                             ast.Alias(alias="cohort_readable", expr=parse_expr("formatDateTime(cohort, '%Y-%m')")),
                             ast.Alias(
@@ -148,7 +209,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                             ),
                         ],
                         select_from=ast.JoinExpr(alias="invoice", table=ast.Field(chain=[invoice_table.name])),
-                        group_by=[ast.Field(chain=["customer_id"])],
+                        group_by=[ast.Field(chain=["invoice", "customer_id"])],
                     ),
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
@@ -171,3 +232,23 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 source_id=str(source.id),
             )
         ]
+
+    @classmethod
+    def _schema_source_distinct_id_expr(cls, modifiers: HogQLQueryModifiers) -> ast.Expr:
+        if modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.ID:
+            return ast.Field(chain=["id"])
+        elif modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.EMAIL:
+            return ast.Field(chain=["email"])
+        elif (
+            modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.CUSTOM
+            and modifiers.revenueAnalyticsPersonsJoinModeCustom
+        ):
+            return ast.Call(
+                name="JSONExtractString",
+                args=[
+                    ast.Field(chain=["metadata"]),
+                    ast.Constant(value=modifiers.revenueAnalyticsPersonsJoinModeCustom),
+                ],
+            )
+        else:
+            return ast.Field(chain=["id"])  # Fallback to ID, should never happen

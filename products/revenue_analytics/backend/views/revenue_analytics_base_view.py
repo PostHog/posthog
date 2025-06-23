@@ -1,5 +1,6 @@
 from typing import Optional
 from posthog.models.team.team import Team
+from posthog.schema import HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.database.models import SavedQuery
 from posthog.schema import DatabaseSchemaManagedViewTableKind
@@ -12,31 +13,33 @@ class RevenueAnalyticsBaseView(SavedQuery):
     prefix: str
 
     @classmethod
-    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, team: "Team", modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         from .revenue_analytics_charge_view import RevenueAnalyticsChargeView
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
         from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
         from .revenue_analytics_product_view import RevenueAnalyticsProductView
 
         return [
-            *RevenueAnalyticsChargeView.for_events(team),
-            *RevenueAnalyticsCustomerView.for_events(team),
-            *RevenueAnalyticsInvoiceItemView.for_events(team),
-            *RevenueAnalyticsProductView.for_events(team),
+            *RevenueAnalyticsChargeView.for_events(team, modifiers),
+            *RevenueAnalyticsCustomerView.for_events(team, modifiers),
+            *RevenueAnalyticsInvoiceItemView.for_events(team, modifiers),
+            *RevenueAnalyticsProductView.for_events(team, modifiers),
         ]
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(
+        cls, source: ExternalDataSource, modifiers: HogQLQueryModifiers
+    ) -> list["RevenueAnalyticsBaseView"]:
         from .revenue_analytics_charge_view import RevenueAnalyticsChargeView
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
         from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
         from .revenue_analytics_product_view import RevenueAnalyticsProductView
 
         return [
-            *RevenueAnalyticsChargeView.for_schema_source(source),
-            *RevenueAnalyticsCustomerView.for_schema_source(source),
-            *RevenueAnalyticsInvoiceItemView.for_schema_source(source),
-            *RevenueAnalyticsProductView.for_schema_source(source),
+            *RevenueAnalyticsChargeView.for_schema_source(source, modifiers),
+            *RevenueAnalyticsCustomerView.for_schema_source(source, modifiers),
+            *RevenueAnalyticsInvoiceItemView.for_schema_source(source, modifiers),
+            *RevenueAnalyticsProductView.for_schema_source(source, modifiers),
         ]
 
     # Used in child classes to generate view names

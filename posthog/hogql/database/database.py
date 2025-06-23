@@ -51,6 +51,9 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
     join_with_error_tracking_issue_fingerprint_overrides_table,
 )
+from posthog.hogql.database.schema.revenue_analytics import (
+    RawRevenueAnalyticsTable,
+)
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -174,6 +177,7 @@ class Database(BaseModel):
     raw_error_tracking_issue_fingerprint_overrides: RawErrorTrackingIssueFingerprintOverridesTable = (
         RawErrorTrackingIssueFingerprintOverridesTable()
     )
+    raw_revenue_analytics: RawRevenueAnalyticsTable = RawRevenueAnalyticsTable()
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
     raw_query_log: RawQueryLogTable = RawQueryLogTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
@@ -461,26 +465,6 @@ def create_hogql_database(
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
-    with timings.measure("initial_domain_type"):
-        database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            name="$virt_initial_referring_domain_type", timings=timings
-        )
-        poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            name="$virt_initial_referring_domain_type",
-            timings=timings,
-            properties_path=["poe", "properties"],
-        )
-    with timings.measure("initial_channel_type"):
-        database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
-        )
-        poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            name="$virt_initial_channel_type",
-            custom_rules=modifiers.customChannelTypeRules,
-            timings=timings,
-            properties_path=["poe", "properties"],
-        )
-
     with timings.measure("group_type_mapping"):
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
             if database.events.fields.get(mapping.group_type) is None:
@@ -510,7 +494,7 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source, modifiers)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
@@ -524,7 +508,7 @@ def create_hogql_database(
         # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
         # so let's make sure we have the proper nested queries
         with timings.measure("for_events"):
-            revenue_views = RevenueAnalyticsBaseView.for_events(team)
+            revenue_views = RevenueAnalyticsBaseView.for_events(team, modifiers)
             for view in revenue_views:
                 views[view.name] = view
                 create_nested_table_group(view.name.split("."), views, view)
@@ -810,6 +794,52 @@ def create_hogql_database(
 
             except Exception as e:
                 capture_exception(e)
+
+    # with timings.measure("revenue_analytics_tables"):
+    #     database.persons.fields["pdi"] = LazyJoin(
+    #         from_field=["pdi", "distinct_id"],
+    #         join_table=database.raw_revenue_analytics,
+    #         join_function=join_with_revenue_analytics_table,
+    #     )
+
+    with timings.measure("virtual_properties"):
+        with timings.measure("initial_domain_type"):
+            field_name = "$virt_initial_referring_domain_type"
+            database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
+            poe.fields[field_name] = create_initial_domain_type(
+                name=field_name,
+                timings=timings,
+                properties_path=["poe", "properties"],
+            )
+        with timings.measure("initial_channel_type"):
+            field_name = "$virt_initial_channel_type"
+            database.persons.fields[field_name] = create_initial_channel_type(
+                name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
+            )
+            poe.fields[field_name] = create_initial_channel_type(
+                name=field_name,
+                custom_rules=modifiers.customChannelTypeRules,
+                timings=timings,
+                properties_path=["poe", "properties"],
+            )
+        with timings.measure("revenue"):
+            field_name = "$virt_revenue"
+            database.persons.fields[field_name] = ast.ExpressionField(
+                name=field_name, expr=parse_expr("sum(pdi.revenue_analytics.revenue) OVER(PARTITION BY persons.id)")
+            )
+            poe.fields[field_name] = ast.ExpressionField(
+                name=field_name, expr=parse_expr("sum(pdi.revenue_analytics.revenue) OVER(PARTITION BY persons.id)")
+            )
+        with timings.measure("revenue_last_30_days"):
+            field_name = "$virt_revenue_last_30_days"
+            database.persons.fields[field_name] = ast.ExpressionField(
+                name=field_name,
+                expr=parse_expr("sum(pdi.revenue_analytics.revenue_last_30_days) OVER(PARTITION BY persons.id)"),
+            )
+            poe.fields[field_name] = ast.ExpressionField(
+                name=field_name,
+                expr=parse_expr("sum(pdi.revenue_analytics.revenue_last_30_days) OVER(PARTITION BY persons.id)"),
+            )
 
     return database
 

@@ -308,6 +308,8 @@ export interface HogQLQueryModifiers {
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
+    revenueAnalyticsPersonsJoinMode?: RevenueAnalyticsPersonsJoinMode
+    revenueAnalyticsPersonsJoinModeCustom?: string | null
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
@@ -327,6 +329,12 @@ export interface DataWarehouseEventsModifier {
     timestamp_field: string
     distinct_id_field: string
     id_field: string
+}
+
+export enum RevenueAnalyticsPersonsJoinMode {
+    ID = 'id',
+    EMAIL = 'email',
+    CUSTOM = 'custom',
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {

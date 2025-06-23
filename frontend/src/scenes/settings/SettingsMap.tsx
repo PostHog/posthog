@@ -11,6 +11,7 @@ import { EventConfiguration } from 'products/revenue_analytics/frontend/settings
 import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from 'products/revenue_analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
+import { PersonsJoinModeConfiguration } from 'products/revenue_analytics/frontend/settings/PersonsJoinModeConfiguration'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -245,6 +246,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-revenue-analytics',
         title: 'Revenue analytics',
+        flag: 'REVENUE_ANALYTICS',
         settings: [
             {
                 id: 'revenue-base-currency',
@@ -257,10 +259,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
             },
             {
+                id: 'revenue-analytics-persons-join-mode',
+                title: 'Join mode for persons',
+                component: <PersonsJoinModeConfiguration />,
+            },
+            {
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 component: <GoalsConfiguration />,
-                flag: 'REVENUE_ANALYTICS',
             },
             {
                 id: 'revenue-analytics-events',
@@ -271,7 +277,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
-                flag: 'REVENUE_ANALYTICS',
             },
         ],
     },

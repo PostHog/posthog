@@ -1949,6 +1949,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_revenue": {
+            "description": "The total revenue for this person.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": True,
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this person in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
+            "virtual": True,
+        },
     },
     "session_properties": {
         "$session_duration": {
@@ -2105,46 +2117,55 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Amount",
             "description": "The amount of the revenue event.",
             "type": "Numeric",
+            "virtual": True,
         },
         "product": {
             "label": "Product",
             "description": "The product of the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "country": {
             "label": "Country",
             "description": "The country of the customer connected to the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "cohort": {
             "label": "Cohort",
             "description": "The cohort of the customer connected to the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "source": {
             "label": "Source",
             "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "type": "String",
+            "virtual": True,
         },
         "coupon": {
             "label": "Coupon",
             "description": "The name of the coupon on the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "coupon_id": {
             "label": "Coupon ID",
             "description": "The ID of the coupon on the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "initial_coupon": {
             "label": "Initial coupon",
             "description": "The name of the coupon on the initial revenue event for the customer.",
             "type": "String",
+            "virtual": True,
         },
         "initial_coupon_id": {
             "label": "Initial coupon ID",
             "description": "The ID of the coupon on the initial revenue event for the customer.",
             "type": "String",
+            "virtual": True,
         },
     },
 }

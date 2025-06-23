@@ -7853,6 +7853,12 @@
                       $virt_initial_referring_domain_type: {
                         hidden: False
                       },
+                      $virt_revenue: {
+                        hidden: False
+                      },
+                      $virt_revenue_last_30_days: {
+                        hidden: False
+                      },
                       created_at: {
                         hidden: False
                       },
@@ -9323,6 +9329,9 @@
                       person_id: {
                         hidden: False
                       },
+                      revenue_analytics: {
+                        hidden: False
+                      },
                       team_id: {
                         hidden: False
                       }
@@ -9555,6 +9564,9 @@
                       person_id: {
                         hidden: False
                       },
+                      revenue_analytics: {
+                        hidden: False
+                      },
                       team_id: {
                         hidden: False
                       }
@@ -9770,6 +9782,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    revenue_analytics: {
                       hidden: False
                     },
                     team_id: {
@@ -9991,6 +10006,9 @@
                     person_id: {
                       hidden: False
                     },
+                    revenue_analytics: {
+                      hidden: False
+                    },
                     team_id: {
                       hidden: False
                     }
@@ -10057,6 +10075,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  revenue_analytics: {
                     hidden: False
                   },
                   team_id: {
@@ -10672,6 +10693,12 @@
                     hidden: False
                   },
                   $virt_initial_referring_domain_type: {
+                    hidden: False
+                  },
+                  $virt_revenue: {
+                    hidden: False
+                  },
+                  $virt_revenue_last_30_days: {
                     hidden: False
                   },
                   created_at: {

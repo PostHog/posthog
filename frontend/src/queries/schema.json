@@ -11996,6 +11996,12 @@
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
+                "revenueAnalyticsPersonsJoinMode": {
+                    "$ref": "#/definitions/RevenueAnalyticsPersonsJoinMode"
+                },
+                "revenueAnalyticsPersonsJoinModeCustom": {
+                    "type": ["string", "null"]
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
@@ -18657,6 +18663,10 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "RevenueAnalyticsPersonsJoinMode": {
+            "enum": ["id", "email", "custom"],
+            "type": "string"
         },
         "RevenueAnalyticsPropertyFilter": {
             "additionalProperties": false,
