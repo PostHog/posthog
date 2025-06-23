@@ -54,6 +54,8 @@ from .prompts import (
     ROOT_USER_CONTEXT_PROMPT,
 )
 
+importlib.import_module("ee.api.max_tools")
+
 # TRICKY: Dynamically import max_tools from all products
 for module_info in pkgutil.iter_modules(products.__path__):
     if module_info.name in ("conftest", "test"):
