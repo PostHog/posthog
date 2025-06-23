@@ -1567,7 +1567,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertStateMessagesEqual(state.messages, expected_state_messages)
 
     def test_parse_sse_chunk_valid_chunks(self):
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"))
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
 
         chunk = (
             "event: message\n"
@@ -1584,7 +1584,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(events[1][1], {"type": "completed"})
 
     def test_parse_sse_chunk_invalid_json(self):
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"))
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
 
         chunk = "event: message\ndata: {invalid json}\n\n"
         events = assistant._parse_sse_chunk(chunk)
@@ -1592,7 +1592,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(events), 0)
 
     def test_parse_sse_chunk_malformed_event(self):
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"))
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
 
         chunk = 'event: message\n{"content": "no data prefix"}\n\n'
         events = assistant._parse_sse_chunk(chunk)
@@ -1600,7 +1600,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(events), 0)
 
     def test_parse_sse_chunk_mixed_valid_invalid(self):
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"))
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
 
         chunk = (
             "event: message\n"
@@ -1620,7 +1620,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch.object(Assistant, "_stream")
     def test_generate_filters_messages(self, mock_stream):
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"))
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
 
         mock_stream.return_value = [
             'event: conversation\ndata: {"id": "123", "status": "active"}\n\n',
