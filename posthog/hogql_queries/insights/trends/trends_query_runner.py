@@ -661,7 +661,7 @@ class TrendsQueryRunner(QueryRunner):
 
         # If user requests 'all' time, determine the true earliest timestamp
         earliest_timestamp = None
-        if self.query.dateRange.date_from == "all":
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
             earliest_timestamp = get_earliest_timestamp_from_series(
                 self.team, [series.series for series in self.series]
             )

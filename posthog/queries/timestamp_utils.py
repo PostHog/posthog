@@ -53,11 +53,10 @@ def get_earliest_timestamp_from_series(
     if has_other_nodes:
         earliest_timestamps.append(get_earliest_timestamp(team_id=team.pk))
 
-    # keep non-null timestamps only
-    earliest_timestamps = [ts for ts in earliest_timestamps if ts is not None]
+    timestamp = min(earliest_timestamps)
 
-    if earliest_timestamps:
-        return min(earliest_timestamps)
+    if not timestamp:
+        # default to the earliest timestamp from the events table
+        return get_earliest_timestamp(team_id=team.pk)
 
-    # default to the earliest timestamp from the events table
-    return get_earliest_timestamp(team_id=team.pk)
+    return timestamp
