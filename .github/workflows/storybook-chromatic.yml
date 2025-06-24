@@ -35,26 +35,29 @@ jobs:
 
     build-storybook:
         name: Build Storybook
-        runs-on: depot-ubuntu-24.04-8
+        runs-on: ${{ needs.changes.outputs.frontend == 'true' && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
         timeout-minutes: 15
         needs: changes
-        if: needs.changes.outputs.frontend == 'true'
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: pnpm
 
             - name: Install dependencies
+              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Build Storybook
+              if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
@@ -62,6 +65,7 @@ jobs:
                   pnpm --filter=@posthog/storybook build --test
 
             - name: Upload Storybook build artifact
+              if: needs.changes.outputs.frontend == 'true'
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: storybook-build
@@ -114,7 +118,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ubuntu-latest
+        runs-on: ${{ needs.changes.outputs.frontend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
         needs: [changes, build-storybook]
         timeout-minutes: 20
         container:
