@@ -138,12 +138,7 @@ export class CdpApi {
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const {
-                clickhouse_event,
-                mock_async_functions: _mock_async_functions,
-                configuration,
-                invocation_id,
-            } = req.body
+            const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
             logger.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
@@ -206,6 +201,7 @@ export class CdpApi {
                     id: team.id,
                     name: team.name,
                     url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                    ...globals.project,
                 },
             }
 
@@ -245,7 +241,7 @@ export class CdpApi {
                         let response: CyclotronJobInvocationResult
 
                         if (invocation.queue === 'fetch') {
-                            if (_mock_async_functions) {
+                            if (mock_async_functions) {
                                 // Add the state, simulating what executeAsyncResponse would do
                                 // Re-parse the fetch args for the logging
                                 const { url: fetchUrl, ...fetchArgs }: HogFunctionQueueParametersFetchRequest =
@@ -396,6 +392,8 @@ export class CdpApi {
                 ...(configuration ?? {}),
                 team_id: team.id,
             }
+
+            await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
