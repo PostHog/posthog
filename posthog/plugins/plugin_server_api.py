@@ -44,7 +44,7 @@ def reload_hog_flows_on_workers(team_id: int, hog_flow_ids: list[str]):
 
 
 def reload_all_hog_functions_on_workers():
-    logger.info(f"Reloading all hog functionson workers")
+    logger.info(f"Reloading all hog functions on workers")
     publish_message("reload-all-hog-functions", {})
 
 
