@@ -67,7 +67,7 @@ return anonymizedEvent
         {
             key: 'privateFields',
             type: 'string',
-            label: 'Fields to Anonymize',
+            label: 'Fields to hash',
             description:
                 'Comma-separated list of field names to hash. Can include both event properties and top-level event fields like distinct_id.',
             default: 'distinct_id,name,userid,email',
