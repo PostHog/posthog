@@ -201,6 +201,55 @@ class ConversionGoalProcessor:
         else:
             return 'timestamp'
 
+    def generate_cte_query(self, additional_conditions: list = None) -> str:
+        """Generate the complete CTE query for this conversion goal"""
+        from .constants import UNKNOWN_CAMPAIGN, UNKNOWN_SOURCE
+        
+        # Get all required components
+        cte_name = self.get_cte_name()
+        table = self.get_table_name()
+        select_field = self.get_select_field()
+        utm_campaign_expr, utm_source_expr = self.get_utm_expressions()
+        
+        # Build WHERE conditions
+        where_conditions = self.get_base_where_conditions()
+        
+        # Apply conversion goal specific property filters
+        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
+        
+        # Add any additional conditions (like date range and global filters)
+        if additional_conditions:
+            where_conditions.extend(additional_conditions)
+        
+        # Build the CTE query
+        cte_query = f"""
+{cte_name} AS (
+    SELECT 
+        coalesce({utm_campaign_expr}, '{UNKNOWN_CAMPAIGN}') as campaign_name,
+        coalesce({utm_source_expr}, '{UNKNOWN_SOURCE}') as source_name,
+        {select_field} as conversion_{self.index}
+    FROM {table}
+    WHERE {' AND '.join(where_conditions)}
+    GROUP BY campaign_name, source_name
+)"""
+        
+        return cte_query.strip()
+
+    def generate_join_clause(self) -> str:
+        """Generate the JOIN clause for this conversion goal"""
+        cte_name = self.get_cte_name()
+        return f"""LEFT JOIN {cte_name} cg_{self.index} ON cc.campaign_name = cg_{self.index}.campaign_name 
+    AND cc.source_name = cg_{self.index}.source_name"""
+
+    def generate_select_columns(self) -> list[str]:
+        """Generate the SELECT columns for this conversion goal"""
+        goal_name = getattr(self.goal, 'conversion_goal_name', f'Goal {self.index + 1}')
+        
+        return [
+            f'    cg_{self.index}.conversion_{self.index} as "{goal_name}"',
+            f'    round(cc.total_cost / nullif(cg_{self.index}.conversion_{self.index}, 0), 2) as "Cost per {goal_name}"'
+        ]
+
 
 def add_conversion_goal_property_filters(conditions, conversion_goal, team):
     """Add conversion goal specific property filters to conditions"""

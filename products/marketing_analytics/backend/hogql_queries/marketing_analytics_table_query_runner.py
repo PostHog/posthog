@@ -7,18 +7,16 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.schema import MarketingAnalyticsTableQuery, MarketingAnalyticsTableQueryResponse, CachedMarketingAnalyticsTableQueryResponse, ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
+from posthog.schema import MarketingAnalyticsTableQuery, MarketingAnalyticsTableQueryResponse, CachedMarketingAnalyticsTableQueryResponse
 
 from .constants import (
     DEFAULT_CURRENCY, DEFAULT_LIMIT, PAGINATION_EXTRA, FALLBACK_COST_VALUE,
-    UNKNOWN_CAMPAIGN, UNKNOWN_SOURCE, TABLE_COLUMNS, DEFAULT_MARKETING_ANALYTICS_COLUMNS,
-    MARKETING_ANALYTICS_SCHEMA, VALID_NATIVE_MARKETING_SOURCES,
-    NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS
+    TABLE_COLUMNS, DEFAULT_MARKETING_ANALYTICS_COLUMNS, CTR_PERCENTAGE_MULTIPLIER,
+    QUERY_CONFIG
 )
 from .utils import (
-    get_marketing_analytics_columns_with_conversion_goals, get_source_map_field,
-    get_marketing_config_value, ConversionGoalProcessor, add_conversion_goal_property_filters,
-    get_global_property_conditions, convert_team_conversion_goals_to_objects
+    get_marketing_analytics_columns_with_conversion_goals, get_marketing_config_value, 
+    ConversionGoalProcessor, get_global_property_conditions, convert_team_conversion_goals_to_objects
 )
 from .adapters.factory import MarketingSourceFactory
 from .adapters.base import QueryContext
@@ -50,12 +48,16 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Get the raw select input, using defaults if none specified"""
         return DEFAULT_MARKETING_ANALYTICS_COLUMNS if len(self.query.select) == 0 else self.query.select
 
+    @cached_property
+    def _factory(self):
+        """Cached factory instance for reuse"""
+        return MarketingSourceFactory(team=self.team)
+
     def _get_marketing_source_adapters(self):
         """Get marketing source adapters using the new adapter architecture"""
         try:
-            factory = MarketingSourceFactory(team=self.team)
-            adapters = factory.create_adapters()
-            valid_adapters = factory.get_valid_adapters(adapters)
+            adapters = self._factory.create_adapters()
+            valid_adapters = self._factory.get_valid_adapters(adapters)
             
             logger.info(f"Found {len(valid_adapters)} valid marketing source adapters")
             
@@ -76,18 +78,16 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             context = QueryContext(
                 date_range=self.query_date_range,
                 team=self.team,
-                global_filters=self._get_global_property_conditions(),
+                global_filters=get_global_property_conditions(self.query, self.team),
                 base_currency=getattr(self.team, 'primary_currency', DEFAULT_CURRENCY)
             )
             
             # Build the union query string using the factory
-            factory = MarketingSourceFactory(team=self.team)
-            union_query_string = factory.build_union_query(adapters, context)
+            union_query_string = self._factory.build_union_query(adapters, context)
             
             # Build the final query with ordering and pagination
             final_query_string = self._build_final_query_string(union_query_string)
-            print(parse_select(final_query_string))
-            print(final_query_string)
+
             return parse_select(final_query_string)
 
     def calculate(self) -> MarketingAnalyticsTableQueryResponse:
@@ -117,11 +117,10 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         
         # Get conversion goals from team config for column names
         conversion_goals = self._get_team_conversion_goals()
-        filtered_conversion_goals = conversion_goals
         
         return MarketingAnalyticsTableQueryResponse(
             results=results,
-            columns=get_marketing_analytics_columns_with_conversion_goals(filtered_conversion_goals),
+            columns=get_marketing_analytics_columns_with_conversion_goals(conversion_goals),
             types=response.types,
             hogql=response.hogql,
             timings=response.timings,
@@ -131,16 +130,31 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             offset=self.query.offset or 0,
         )
 
-
-
-
-
-
-
     def _build_final_query_string(self, union_query_string: str) -> str:
         """Build the final query with the same structure as frontend"""
         conversion_goals = self._get_team_conversion_goals()
         
+        # Create processors once and reuse across all methods
+        processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
+        
+        # Build query components
+        with_clause = self._build_with_clause(union_query_string, processors)
+        order_by_clause = self._build_order_by_clause()
+        limit_offset = self._build_limit_offset()
+        select_clause = self._build_select_clause(processors)
+        
+        # Assemble final query
+        final_query = f"""
+{with_clause}
+{select_clause}
+{order_by_clause}
+{limit_offset}
+        """.strip()
+        
+        return final_query
+
+    def _build_with_clause(self, union_query_string: str, processors: list) -> str:
+        """Build the WITH clause including campaign_costs CTE and conversion goal CTEs"""
         # Build the campaign_costs CTE
         with_clause = f"""
 WITH campaign_costs AS (
@@ -157,12 +171,17 @@ GROUP BY {TABLE_COLUMNS['campaign_name']}, {TABLE_COLUMNS['source_name']}
 )"""
         
         # Add conversion goal CTEs if any
-        conversion_goal_ctes = self._generate_conversion_goal_ctes(conversion_goals)
-        if conversion_goal_ctes:
-            with_clause += f", {conversion_goal_ctes}"
+        if processors:
+            conversion_goal_ctes = self._generate_conversion_goal_ctes_from_processors(processors)
+            if conversion_goal_ctes:
+                with_clause += f", {conversion_goal_ctes}"
         
-        # Build ORDER BY clause
+        return with_clause
+
+    def _build_order_by_clause(self) -> str:
+        """Build the ORDER BY clause with proper null handling"""
         order_by_parts = []
+        
         if hasattr(self.query, 'orderBy') and self.query.orderBy:
             for order_expr in self.query.orderBy:
                 # Fix ordering expressions for null handling
@@ -179,71 +198,67 @@ GROUP BY {TABLE_COLUMNS['campaign_name']}, {TABLE_COLUMNS['source_name']}
         else:
             order_by_parts = ["cc.total_cost DESC"]
         
-        order_by_clause = "ORDER BY " + ", ".join(order_by_parts) if order_by_parts else ""
-        
-        # Calculate limit and offset
+        return "ORDER BY " + ", ".join(order_by_parts) if order_by_parts else ""
+
+    def _build_limit_offset(self) -> str:
+        """Build the LIMIT and OFFSET clause"""
         limit = self.query.limit or DEFAULT_LIMIT
         offset = self.query.offset or 0
         actual_limit = limit + PAGINATION_EXTRA  # Request one extra for pagination
         
-        # Build conversion goal joins and selects
-        conversion_joins = self._generate_conversion_goal_joins(conversion_goals)
-        conversion_columns = self._generate_conversion_goal_selects(conversion_goals)
+        return f"LIMIT {actual_limit}\nOFFSET {offset}"
+
+    def _build_select_clause(self, processors: list) -> str:
+        """Build the SELECT clause with base columns and conversion goal columns"""
+        # Get conversion goal components (processors already created and passed in)
+        if processors:
+            conversion_joins = self._generate_conversion_goal_joins_from_processors(processors)
+            conversion_columns = self._generate_conversion_goal_selects_from_processors(processors)
+        else:
+            conversion_joins = ""
+            conversion_columns = ""
         
-        # Build final SELECT
+        # Build base columns
+        decimal_precision = QUERY_CONFIG['decimal_precision']
         base_columns = f"""    cc.campaign_name as "Campaign",
     cc.source_name as "Source",
-    round(cc.total_cost, 2) as "Total Cost",
+    round(cc.total_cost, {decimal_precision}) as "Total Cost",
     round(cc.total_clicks, 0) as "Total Clicks", 
     round(cc.total_impressions, 0) as "Total Impressions",
-    round(cc.total_cost / nullif(cc.total_clicks, 0), 2) as "Cost per Click",
-    round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR\""""
+    round(cc.total_cost / nullif(cc.total_clicks, 0), {decimal_precision}) as "Cost per Click",
+    round(cc.total_clicks / nullif(cc.total_impressions, 0) * {CTR_PERCENTAGE_MULTIPLIER}, {decimal_precision}) as "CTR\""""
         
+        # Combine base and conversion goal columns
         all_columns = base_columns
         if conversion_columns:
             all_columns += f",\n{conversion_columns}"
         
-        final_query = f"""
-{with_clause}
-SELECT 
+        return f"""SELECT 
 {all_columns}
 FROM campaign_costs cc
-{conversion_joins}
-{order_by_clause}
-LIMIT {actual_limit}
-OFFSET {offset}
-        """.strip()
-        
-        return final_query
+{conversion_joins}"""
 
-    def _generate_conversion_goal_ctes(self, conversion_goals: list) -> str:
-        """Generate CTEs for conversion goals with proper property filtering"""
-        if not conversion_goals:
-            return ""
-        
-        ctes = []
+    def _create_conversion_goal_processors(self, conversion_goals: list) -> list:
+        """Create conversion goal processors for reuse across different methods"""
+        processors = []
         for index, conversion_goal in enumerate(conversion_goals):
-            # Create processor for this conversion goal
             processor = ConversionGoalProcessor(
                 goal=conversion_goal,
                 index=index,
                 team=self.team,
                 query_date_range=self.query_date_range
             )
-            
-            # Get all required components using the processor
-            cte_name = processor.get_cte_name()
-            table = processor.get_table_name()
-            select_field = processor.get_select_field()
-            utm_campaign_expr, utm_source_expr = processor.get_utm_expressions()
-            
-            # Build WHERE conditions
-            where_conditions = processor.get_base_where_conditions()
-            
-            # Apply conversion goal specific property filters
-            where_conditions = self._add_conversion_goal_property_filters(where_conditions, conversion_goal)
-            
-            # Add date range and global filters using helper
+            processors.append(processor)
+        return processors
+
+    def _generate_conversion_goal_ctes_from_processors(self, processors: list) -> str:
+        """Generate CTEs for conversion goals with proper property filtering"""
+        if not processors:
+            return ""
+        
+        ctes = []
+        for processor in processors:
+            # Build additional conditions (date range and global filters)
             date_field = processor.get_date_field()
             additional_conditions = self._build_where_conditions(
                 include_date_range=True,
@@ -251,60 +266,38 @@ OFFSET {offset}
                 date_field=date_field,
                 use_date_not_datetime=True  # Conversion goals use toDate instead of toDateTime
             )
-            where_conditions.extend(additional_conditions)
             
-            # Build the CTE query - simplified for performance
-            cte_query = f"""
-{cte_name} AS (
-    SELECT 
-        coalesce({utm_campaign_expr}, '{UNKNOWN_CAMPAIGN}') as campaign_name,
-        coalesce({utm_source_expr}, '{UNKNOWN_SOURCE}') as source_name,
-        {select_field} as conversion_{index}
-    FROM {table}
-    WHERE {' AND '.join(where_conditions)}
-    GROUP BY campaign_name, source_name
-)"""
-            
-            ctes.append(cte_query.strip())
+            # Let the processor generate its own CTE query
+            cte_query = processor.generate_cte_query(additional_conditions)
+            ctes.append(cte_query)
         
         return ",\n".join(ctes)
 
-    def _generate_conversion_goal_joins(self, conversion_goals: list) -> str:
+    def _generate_conversion_goal_joins_from_processors(self, processors: list) -> str:
         """Generate JOIN clauses for conversion goals"""
-        if not conversion_goals:
+        if not processors:
             return ""
         
         joins = []
-        for index, conversion_goal in enumerate(conversion_goals):
-            processor = ConversionGoalProcessor(
-                goal=conversion_goal, index=index, team=self.team, query_date_range=self.query_date_range
-            )
-            cte_name = processor.get_cte_name()
-            join = f"""
-LEFT JOIN {cte_name} cg_{index} ON cc.campaign_name = cg_{index}.campaign_name 
-    AND cc.source_name = cg_{index}.source_name"""
-            joins.append(join.strip())
+        for processor in processors:
+            # Let the processor generate its own JOIN clause
+            join_clause = processor.generate_join_clause()
+            joins.append(join_clause)
         
         return "\n".join(joins)
 
-    def _generate_conversion_goal_selects(self, conversion_goals: list) -> str:
+    def _generate_conversion_goal_selects_from_processors(self, processors: list) -> str:
         """Generate SELECT columns for conversion goals"""
-        if not conversion_goals:
+        if not processors:
             return ""
         
-        selects = []
-        for index, conversion_goal in enumerate(conversion_goals):
-            goal_name = getattr(conversion_goal, 'conversion_goal_name', f'Goal {index + 1}')
-            
-            # Add conversion count column
-            selects.append(f'    cg_{index}.conversion_{index} as "{goal_name}"')
-            
-            # Add cost per conversion column
-            selects.append(f'    round(cc.total_cost / nullif(cg_{index}.conversion_{index}, 0), 2) as "Cost per {goal_name}"')
+        all_selects = []
+        for processor in processors:
+            # Let the processor generate its own SELECT columns
+            select_columns = processor.generate_select_columns()
+            all_selects.extend(select_columns)
         
-        return ",\n".join(selects)
-
-
+        return ",\n".join(all_selects)
 
     def _get_team_conversion_goals(self):
         """Get conversion goals from team marketing analytics config and convert to proper objects"""
@@ -315,7 +308,7 @@ LEFT JOIN {cte_name} cg_{index} ON cc.campaign_name = cg_{index}.campaign_name
             
             team_conversion_goals = []
             if marketing_config:
-                team_conversion_goals = self._get_marketing_config_value(marketing_config, 'conversion_goals', [])
+                team_conversion_goals = get_marketing_config_value(marketing_config, 'conversion_goals', [])
             
             # Convert to proper ConversionGoalFilter objects
             converted_goals = convert_team_conversion_goals_to_objects(team_conversion_goals, self.team.pk)
@@ -327,14 +320,6 @@ LEFT JOIN {cte_name} cg_{index} ON cc.campaign_name = cg_{index}.campaign_name
                 "team_id": self.team.pk
             })
             return []
-
-    def _get_source_map_field(self, source_map, field_name, fallback=None):
-        """Helper to safely get field from source_map regardless of type"""
-        return get_source_map_field(source_map, field_name, fallback)
-
-    def _get_marketing_config_value(self, config, key, default=None):
-        """Safely extract value from marketing config regardless of type"""
-        return get_marketing_config_value(config, key, default)
 
     def _build_where_conditions(self, base_conditions=None, include_date_range=True, 
                               include_global_filters=True, date_field='timestamp', 
@@ -358,18 +343,6 @@ LEFT JOIN {cte_name} cg_{index} ON cc.campaign_name = cg_{index}.campaign_name
                 ])
         
         if include_global_filters:
-            conditions.extend(self._get_global_property_conditions())
+            conditions.extend(get_global_property_conditions(self.query, self.team))
         
         return conditions
-
-    def _get_global_property_conditions(self):
-        """Extract global property filter conditions"""
-        return get_global_property_conditions(self.query, self.team)
-
-    def _add_conversion_goal_property_filters(self, conditions, conversion_goal):
-        """Add conversion goal specific property filters to conditions"""
-        return add_conversion_goal_property_filters(conditions, conversion_goal, self.team)
-
-
-
-

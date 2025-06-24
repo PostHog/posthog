@@ -12,7 +12,11 @@ from .self_managed import (
     SelfManagedAdapter, AWSAdapter, GoogleCloudAdapter, 
     CloudflareR2Adapter, AzureAdapter
 )
-from ..constants import VALID_NATIVE_MARKETING_SOURCES, VALID_NON_NATIVE_MARKETING_SOURCES, VALID_SELF_MANAGED_MARKETING_SOURCES
+from ..constants import (
+    VALID_NATIVE_MARKETING_SOURCES, VALID_NON_NATIVE_MARKETING_SOURCES, 
+    VALID_SELF_MANAGED_MARKETING_SOURCES, FALLBACK_EMPTY_QUERY, 
+    UNKNOWN_TABLE_NAME, TABLE_PATTERNS, ADAPTER_CONFIG
+)
 from ..utils import get_marketing_config_value, map_url_to_provider
 
 logger = structlog.get_logger(__name__)
@@ -117,34 +121,62 @@ class MarketingSourceFactory:
         return adapters
     
     def _create_native_source_adapter(self, source, tables) -> Optional[MarketingSourceAdapter]:
-        """Create adapter for a specific native source"""
+        """Create adapter for a specific native source using registry pattern"""
         try:
-            if source.source_type == 'GoogleAds':
-                return self._create_google_ads_adapter(source, tables)
-            elif source.source_type == 'MetaAds':
-                return self._create_meta_ads_adapter(source, tables)
+            # Use registry pattern instead of hardcoded if/elif chains
+            adapter_class = self._adapter_registry.get(source.source_type)
+            if not adapter_class:
+                self.logger.warning(f"No adapter available for native source type: {source.source_type}")
+                return None
             
-            self.logger.warning(f"No adapter available for native source type: {source.source_type}")
-            return None
+            # Call source-specific config creation method
+            config = self._create_native_adapter_config(source, tables)
+            if not config:
+                return None
+                
+            return adapter_class(team=self.team, config=config)
             
         except Exception as e:
             self.logger.error("Error creating native source adapter", source_type=source.source_type, error=str(e))
             return None
     
-    def _create_google_ads_adapter(self, source, tables) -> Optional[GoogleAdsAdapter]:
-        """Create Google Ads adapter with campaign and stats tables"""
+    def _create_native_adapter_config(self, source, tables) -> Optional[Dict[str, Any]]:
+        """Create config for native adapters based on source type using registry pattern"""
         try:
-            # Find required tables (replicating existing logic)
+            # Use registry pattern for config builders too
+            config_method_name = f"_create_{source.source_type.lower()}_config"
+            config_method = getattr(self, config_method_name, None)
+            
+            if config_method:
+                return config_method(source, tables)
+            else:
+                self.logger.warning(f"No config builder for native source type: {source.source_type}")
+                return None
+            
+        except Exception as e:
+            self.logger.error("Error creating native adapter config", source_type=source.source_type, error=str(e))
+            return None
+    
+    def _create_googleads_config(self, source, tables) -> Optional[Dict[str, Any]]:
+        """Create Google Ads adapter config with campaign and stats tables"""
+        try:
+            # Find required tables using pattern matching
             campaign_table = None
             campaign_stats_table = None
+            
+            patterns = TABLE_PATTERNS['GoogleAds']
             
             for table in tables:
                 table_name_parts = getattr(table, 'name', '').split('.')
                 table_suffix = table_name_parts[-1] if table_name_parts else ''
+                table_suffix_lower = table_suffix.lower()
                 
-                if 'campaign' in table_suffix.lower() and 'stats' not in table_suffix.lower():
+                # Check for campaign table (has campaign keywords but not exclusions)
+                if (any(keyword in table_suffix_lower for keyword in patterns['campaign_table_keywords']) and
+                    not any(exclusion in table_suffix_lower for exclusion in patterns['campaign_table_exclusions'])):
                     campaign_table = table
-                elif 'campaign_stats' in table_suffix.lower():
+                # Check for stats table
+                elif any(keyword in table_suffix_lower for keyword in patterns['stats_table_keywords']):
                     campaign_stats_table = table
             
             if not campaign_table or not campaign_stats_table:
@@ -153,28 +185,27 @@ class MarketingSourceFactory:
                                    has_stats=bool(campaign_stats_table))
                 return None
             
-            config = {
+            return {
                 'campaign_table': campaign_table,
                 'stats_table': campaign_stats_table,
                 'source_id': source.id
             }
             
-            return GoogleAdsAdapter(team=self.team, config=config)
-            
         except Exception as e:
-            self.logger.error("Error creating Google Ads adapter", error=str(e))
+            self.logger.error("Error creating Google Ads config", error=str(e))
             return None
     
-    def _create_meta_ads_adapter(self, source, tables) -> Optional[MetaAdsAdapter]:
-        """Create Meta Ads adapter - example of single table structure"""
+    def _create_metaads_config(self, source, tables) -> Optional[Dict[str, Any]]:
+        """Create Meta Ads adapter config - example of single table structure"""
         try:
             # Meta Ads typically uses a single table structure
-            # Find the main campaign table
+            # Find the main campaign table using pattern matching
             meta_table = None
+            patterns = TABLE_PATTERNS['MetaAds']
             
             for table in tables:
                 table_name = getattr(table, 'name', '').lower()
-                if 'campaign' in table_name or 'ads' in table_name:
+                if any(keyword in table_name for keyword in patterns['campaign_table_keywords']):
                     meta_table = table
                     break
             
@@ -182,15 +213,13 @@ class MarketingSourceFactory:
                 self.logger.warning("Meta Ads source missing campaign table")
                 return None
             
-            config = {
+            return {
                 'table': meta_table,
                 'source_id': source.id
             }
             
-            return MetaAdsAdapter(team=self.team, config=config)
-            
         except Exception as e:
-            self.logger.error("Error creating Meta Ads adapter", error=str(e))
+            self.logger.error("Error creating Meta Ads config", error=str(e))
             return None
     
     def _create_self_managed_source_adapters(self, datawarehouse_tables, sources_map) -> List[MarketingSourceAdapter]:
@@ -217,7 +246,7 @@ class MarketingSourceFactory:
                     adapters.append(adapter)
             except Exception as e:
                 self.logger.error("Error creating external table adapter", 
-                                 table_name=getattr(table, 'name', 'unknown'), 
+                                 table_name=getattr(table, 'name', UNKNOWN_TABLE_NAME), 
                                  error=str(e))
         return adapters
     
@@ -250,7 +279,7 @@ class MarketingSourceFactory:
             
         except Exception as e:
             self.logger.error("Error creating external table adapter", 
-                             table_name=getattr(table, 'name', 'unknown'), 
+                             table_name=getattr(table, 'name', UNKNOWN_TABLE_NAME), 
                              error=str(e))
             return None
     
@@ -286,23 +315,23 @@ class MarketingSourceFactory:
             url_pattern = getattr(table, 'url_pattern', '')
             
             if not url_pattern:
-                self.logger.warning("No url_pattern found for self-managed table", table_name=getattr(table, 'name', 'unknown'))
-                return 'aws'  # Safe default
+                self.logger.warning("No url_pattern found for self-managed table", table_name=getattr(table, 'name', UNKNOWN_TABLE_NAME))
+                return ADAPTER_CONFIG['default_platform']
             
             # Use the utility function that mirrors frontend logic
             platform = map_url_to_provider(url_pattern)
             
             # Handle unknown platform (BlushingHog in frontend)
             if platform == 'BlushingHog':
-                self.logger.info(f"Unknown URL pattern, defaulting to AWS", url_pattern=url_pattern, table_name=getattr(table, 'name', 'unknown'))
-                return 'aws'
+                self.logger.info(f"Unknown URL pattern, defaulting to {ADAPTER_CONFIG['default_platform']}", url_pattern=url_pattern, table_name=getattr(table, 'name', UNKNOWN_TABLE_NAME))
+                return ADAPTER_CONFIG['default_platform']
             
-            self.logger.info(f"Detected platform from URL pattern", platform=platform, url_pattern=url_pattern, table_name=getattr(table, 'name', 'unknown'))
+            self.logger.info(f"Detected platform from URL pattern", platform=platform, url_pattern=url_pattern, table_name=getattr(table, 'name', UNKNOWN_TABLE_NAME))
             return platform
             
         except Exception as e:
             self.logger.error("Error detecting self-managed platform from URL pattern", error=str(e))
-            return 'aws'  # Safe default
+            return ADAPTER_CONFIG['default_platform']
     
     def _get_table_source_config(self, table, sources_map) -> tuple[Optional[Dict], str]:
         """Get source map and type for a table (replicating existing logic)"""
@@ -332,7 +361,7 @@ class MarketingSourceFactory:
                 
         except Exception as e:
             self.logger.error("Error getting table source config", error=str(e))
-            return None, 'unknown'
+            return None, UNKNOWN_TABLE_NAME
     
     def get_valid_adapters(self, adapters: List[MarketingSourceAdapter]) -> List[MarketingSourceAdapter]:
         """Filter adapters to only return valid ones"""
@@ -370,7 +399,7 @@ class MarketingSourceFactory:
         
         if not queries:
             self.logger.warning("No valid queries generated from adapters")
-            return "SELECT 'No Campaign' as campaign_name, 'No Source' as source_name, 0.0 as impressions, 0.0 as clicks, 0.0 as cost WHERE 1=0"
+            return FALLBACK_EMPTY_QUERY
         
         return '\nUNION ALL\n'.join(queries)
     
@@ -440,8 +469,8 @@ class MarketingSourceFactory:
                 return table.name
                 
         except Exception as e:
-            self.logger.error("Error getting table schema name", table_name=getattr(table, 'name', 'unknown'), error=str(e))
-            return getattr(table, 'name', 'unknown')
+            self.logger.error("Error getting table schema name", table_name=getattr(table, 'name', UNKNOWN_TABLE_NAME), error=str(e))
+            return getattr(table, 'name', UNKNOWN_TABLE_NAME)
     
     def _create_non_native_source_adapters(self, datawarehouse_tables, sources_map) -> List[MarketingSourceAdapter]:
         """Create adapters for non-native marketing sources (e.g., BigQuery)"""
@@ -512,15 +541,11 @@ class MarketingSourceFactory:
                     
                     adapter = BigQueryAdapter(team=self.team, config=config)
                     adapters.append(adapter)
-                    self.logger.info(f"JFBW: Created BigQuery adapter for table {table.name}")
-                else:
-                    self.logger.info(f"JFBW: No source map found for BigQuery table {table.name}")
             
             if not adapters:
                 self.logger.warning("BigQuery source has no configured tables with source maps")
                 return None
             
-            self.logger.info(f"JFBW: Created {len(adapters)} BigQuery adapters for source {source.id}")
             return adapters
             
         except Exception as e:
