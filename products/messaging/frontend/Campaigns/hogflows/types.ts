@@ -108,7 +108,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('exit'),
         config: z.object({
-            reason: z.string(),
+            reason: z.string().optional(),
         }),
     }),
 ])
