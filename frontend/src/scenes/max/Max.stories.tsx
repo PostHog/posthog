@@ -91,10 +91,16 @@ export const Thread: StoryFn = () => {
 
     useEffect(() => {
         if (dataProcessingAccepted) {
-            setConversationId(CONVERSATION_ID)
-            askMax(humanMessage.content)
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
         }
-    }, [dataProcessingAccepted, askMax, setConversationId])
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -113,10 +119,16 @@ export const EmptyThreadLoading: StoryFn = () => {
 
     useEffect(() => {
         if (dataProcessingAccepted) {
-            setConversationId(CONVERSATION_ID)
-            askMax(humanMessage.content)
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
         }
-    }, [setConversationId, askMax, dataProcessingAccepted])
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -141,10 +153,12 @@ export const GenerationFailureThread: StoryFn = () => {
 
     useEffect(() => {
         if (dataProcessingAccepted) {
-            setConversationId(CONVERSATION_ID)
-            askMax(humanMessage.content)
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
         }
-    }, [setConversationId, askMax, dataProcessingAccepted])
+    }, [dataProcessingAccepted, setConversationId, askMax])
 
     useEffect(() => {
         if (threadRaw.length === 2 && !threadLoading) {
@@ -152,6 +166,9 @@ export const GenerationFailureThread: StoryFn = () => {
         }
     }, [threadRaw.length, threadLoading, setMessageStatus])
 
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
     return <Template />
 }
 
@@ -169,10 +186,16 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
 
     useEffect(() => {
         if (dataProcessingAccepted) {
-            setConversationId(CONVERSATION_ID)
-            askMax(humanMessage.content)
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
         }
-    }, [setConversationId, askMax, dataProcessingAccepted])
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -193,10 +216,16 @@ export const ThreadWithRateLimit: StoryFn = () => {
 
     useEffect(() => {
         if (dataProcessingAccepted) {
-            setConversationId(CONVERSATION_ID)
-            askMax('Is Bielefeld real?')
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
         }
-    }, [setConversationId, askMax, dataProcessingAccepted])
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -217,10 +246,16 @@ export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
 
     useEffect(() => {
         if (dataProcessingAccepted) {
-            setConversationId(CONVERSATION_ID)
-            askMax('Is Finland real?')
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
         }
-    }, [setConversationId, askMax, dataProcessingAccepted])
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -239,10 +274,16 @@ export const ThreadWithForm: StoryFn = () => {
 
     useEffect(() => {
         if (dataProcessingAccepted) {
-            setConversationId(CONVERSATION_ID)
-            askMax(humanMessage.content)
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
         }
-    }, [setConversationId, askMax, dataProcessingAccepted])
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
