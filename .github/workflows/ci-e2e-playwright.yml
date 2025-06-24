@@ -186,6 +186,12 @@ jobs:
               if: always()
               run: cat /tmp/server.log
 
+            - name: Show server logs
+              if: always()
+              run: |
+                  docker ps
+                  docker logs posthog-proxy-1
+
             - name: Archive Playwright report on failure
               if: failure()
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
