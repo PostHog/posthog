@@ -130,7 +130,7 @@ export function ResultDetails({
     return (
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {metric.metric_type === 'funnel' && !isSecondary && (
+            {metric.metric_type === 'funnel' && (
                 <ResultsBreakdown
                     result={result}
                     experiment={experiment}
