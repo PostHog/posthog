@@ -633,7 +633,7 @@ function CyclotronJobInputWithSchema({
                                         </span>
                                         <LemonButton
                                             onClick={() => {
-                                                onChange({ value: '' })
+                                                onChange({ value: '', secret: false })
                                             }}
                                             size="small"
                                             type="secondary"
