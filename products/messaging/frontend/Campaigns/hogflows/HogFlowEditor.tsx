@@ -40,17 +40,11 @@ function HogFlowEditorContent(): JSX.Element {
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
 
-    const { fitView } = useReactFlow() // TODO: Move this to the logic too
     const reactFlowInstance = useReactFlow()
 
     useEffect(() => {
         setReactFlowInstance(reactFlowInstance)
     }, [reactFlowInstance, setReactFlowInstance])
-
-    // Center content whenever nodes positions change
-    useEffect(() => {
-        void fitView()
-    }, [fitView, nodes])
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
@@ -68,6 +62,7 @@ function HogFlowEditorContent(): JSX.Element {
                 nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
+                onPaneClick={() => setSelectedNodeId(null)}
             >
                 <Controls showInteractive={false} />
 

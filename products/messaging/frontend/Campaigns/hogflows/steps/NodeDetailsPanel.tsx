@@ -28,14 +28,12 @@ export function NodeDetailsPanel(): JSX.Element | null {
         return new Set(outgoingNodes.map((node) => node.id)).size === 1
     }
 
-    // TODO: Add default "conditions" for filtering people out
-
     const action = selectedNode.data
     const Step = getHogFlowStep(action.type)
 
     return (
         <Panel position="top-right" className="bottom">
-            <div className="bg-surface-primary rounded-md shadow-md flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-full">
+            <div className="bg-surface-primary border rounded-md shadow-lg flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-full">
                 <div className="flex justify-between items-center p-2">
                     <h3 className="mb-0 font-semibold">Edit {selectedNode.data.name} step</h3>
                     <div className="flex gap-1 items-center">
@@ -60,22 +58,7 @@ export function NodeDetailsPanel(): JSX.Element | null {
                     </div>
                 </div>
                 <LemonDivider className="my-0" />
-                <div className="flex overflow-y-auto flex-col gap-2 p-2">
-                    {Step?.renderConfiguration(selectedNode)}
-                    {/* {hogFlowAction instanceof TriggerAction ? (
-                        <TriggerPanelOptions action={hogFlowAction} />
-                    ) : (
-                        <p>TODO</p>
-                        // <CyclotronJobInputs
-                        //     configuration={{
-                        //         inputs: hogFlowAction.getInputs(),
-                        //         inputs_schema: hogFlowAction.getInputsSchema(),
-                        //     }}
-                        //     onInputChange={handleInputChange}
-                        //     showSource={false}
-                        // />
-                    )} */}
-                </div>
+                <div className="flex overflow-y-auto flex-col gap-2 p-2">{Step?.renderConfiguration(selectedNode)}</div>
 
                 <LemonDivider className="my-0" />
                 {!['trigger', 'exit'].includes(action.type) && (

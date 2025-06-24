@@ -95,6 +95,10 @@ function StepConditionalBranchConfiguration({
         ])
     }
 
+    const removeCondition = (index: number): void => {
+        setConditions(conditions.filter((_, i) => i !== index))
+    }
+
     return (
         <>
             <div className="flex flex-col">

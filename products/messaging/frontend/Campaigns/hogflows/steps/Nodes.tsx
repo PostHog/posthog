@@ -1,5 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { Handle, Node, useUpdateNodeInternals } from '@xyflow/react'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
@@ -10,6 +11,9 @@ import { getHogFlowStep } from './HogFlowSteps'
 import { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
+
+export const DROPZONE_NODE_WIDTH = 100
+export const DROPZONE_NODE_HEIGHT = 34
 
 export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<HogFlowStepNodeProps>> = {
     dropzone: DropzoneNode,
@@ -25,16 +29,7 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
     function: HogFlowActionNode,
 }
 
-interface NodeProps {
-    id: string
-    children?: React.ReactNode
-    icon?: React.ReactNode
-    selected?: boolean
-    type?: string
-    data: HogFlowAction
-}
-
-function DropzoneNode({ id }: NodeProps): JSX.Element {
+function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     const [isHighlighted, setIsHighlighted] = useState(false)
     const { setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
 
@@ -46,12 +41,18 @@ function DropzoneNode({ id }: NodeProps): JSX.Element {
         <div
             onDragOver={() => setIsHighlighted(true)}
             onDragLeave={() => setIsHighlighted(false)}
-            className={`w-[100px] h-[34px] bg-surface-secondary border ${
-                isHighlighted ? 'border-secondary bg-surface-primary' : 'border-primary'
-            } border-dashed rounded p-2 cursor-pointer`}
+            className={clsx(
+                'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer',
+                isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: DROPZONE_NODE_WIDTH,
+                height: DROPZONE_NODE_HEIGHT,
+            }}
         >
-            <div className="flex gap-1 justify-center items-center">
-                <IconPlus />
+            <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full bg-surface-primary">
+                <IconPlus className="text-sm text-primary" />
             </div>
         </div>
     )
