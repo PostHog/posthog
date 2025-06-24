@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
+from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.models import (
     Organization,
@@ -123,7 +124,10 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={
             "invite": invite,
-            "expiry_date": (timezone.now() + timezone.timedelta(days=3)).strftime("%b %d %Y"),
+            "expiry_days": INVITE_DAYS_VALIDITY,
+            "expiry_datetime": (timezone.now() + timezone.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
+                "%B %d, %Y at %H:%M %Z"
+            ),
             "inviter_first_name": invite.created_by.first_name if invite.created_by else "someone",
             "organization_name": invite.organization.name,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
