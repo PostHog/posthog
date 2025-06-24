@@ -39,10 +39,6 @@ fun normalizePath(path, splitBy) {
 }
 
 fun normalizeQueryString(queryString) {
-    if (empty(queryString) or inputs.removeQueryString) {
-        return ''
-    }
-
     let params := splitByString('&', queryString)
     let normalizedParams := []
     for (let param in params) {
@@ -56,18 +52,14 @@ fun normalizeQueryString(queryString) {
 }
 
 fun normalizeHash(hash) {
-    if (empty(hash) or inputs.removeHash) {
-        return ''
-    }
-
     // Hash params are sometimes used as sub-urls
     // Remove query params from hash
     let hashParts := splitByString('?', hash, 2)
     let hashPath := hashParts[1]
     hashPath := normalizePath(hashPath, '/')
 
-    // Normalize the hash path
-    return normalizePath(hashPath, '/')
+    // Now normalize it like a query string
+    return normalizeQueryString(hashPath)
 }
 
 fun normalizeUrl(url) {
@@ -120,8 +112,8 @@ fun normalizeUrl(url) {
     }
 
     let normalizedPath := normalizePath(path, '/')
-    let normalizedHash := normalizeHash(hash)
-    let normalizedQuery := normalizeQueryString(query)
+    let normalizedHash := (empty(hash) or inputs.removeHash) ? '' : normalizeHash(hash)
+    let normalizedQuery := (empty(query) or inputs.removeQueryString) ? '' : normalizeQueryString(query)
     let result := concat(domain, normalizedPath)
     if (not empty(normalizedQuery)) {
         result := concat(result, '?', normalizedQuery)
