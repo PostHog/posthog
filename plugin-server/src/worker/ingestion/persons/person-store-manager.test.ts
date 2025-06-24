@@ -85,6 +85,12 @@ describe('PersonStoreManager', () => {
             deletePerson: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
+            moveDistinctIds: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
+            addDistinctId: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
         } as unknown as DB
 
         hub = {
@@ -206,18 +212,24 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 ),
             updatePerson: jest.fn().mockImplementation((personInput, update) => {
                 dbCounter++
-                latestPerson = {
-                    ...latestPerson,
+                const updatedPerson = {
+                    ...personInput,
                     properties: { ...personInput.properties, ...(update.properties || {}) },
                     version: dbCounter,
                 }
-                return Promise.resolve([latestPerson, [], false]) // no version disparity
+                return Promise.resolve([updatedPerson, [], false]) // no version disparity
             }),
             updatePersonAssertVersion: jest.fn().mockImplementation(() => {
                 dbCounter++
                 return Promise.resolve(dbCounter)
             }),
             deletePerson: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
+            moveDistinctIds: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
+            addDistinctId: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
         } as unknown as DB
@@ -262,7 +274,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that batch store update cache was set
             const updateCache = batchStoreForBatch.getUpdateCache()
-            const cachedUpdate = updateCache.get('1:test-distinct')
+            const cachedUpdate = updateCache.get(`${teamId}:${person.uuid}`)
             expect(cachedUpdate).toBeDefined()
             expect(cachedUpdate!.distinct_id).toBe('test-distinct')
         })
@@ -281,7 +293,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Cache should still have the pre-existing data
             const updateCache = batchStoreForBatch.getUpdateCache()
-            const cachedUpdate = updateCache.get('1:test-distinct')
+            const cachedUpdate = updateCache.get(`${teamId}:${person.uuid}`)
             expect(cachedUpdate!.properties).toEqual({ pre_existing: 'value' })
         })
     })
@@ -307,7 +319,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that batch store cache was set
             const updateCache = batchStoreForBatch.getUpdateCache()
-            const cachedUpdate = updateCache.get('1:test-distinct')
+            const cachedUpdate = updateCache.get(`${teamId}:${result[0].uuid}`)
             expect(cachedUpdate).toBeDefined()
         })
     })
@@ -614,14 +626,16 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             const update3 = { properties: { prop3: 'value3' } }
 
             // Person 1: Same outcome, same batch (ideal case)
-            await shadowManager.updatePersonForUpdate(person, update1, 'person1-distinct')
-            const expectedPerson1 = { ...person, properties: { test: 'test', prop1: 'value1' }, version: 2 }
+            const person1 = { ...person, uuid: 'person1-uuid' }
+            await shadowManager.updatePersonForUpdate(person1, update1, 'person1-distinct')
+            const expectedPerson1 = { ...person1, properties: { test: 'test', prop1: 'value1' }, version: 2 }
             const personUpdate1 = fromInternalPerson(expectedPerson1, 'person1-distinct')
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'person1-distinct', personUpdate1)
 
             // Person 2: Different outcome, same batch (logic error)
-            await shadowManager.updatePersonForUpdate(person, update2, 'person2-distinct')
-            const differentPerson2 = { ...person, properties: { test: 'test', wrong_prop: 'wrong_value' }, version: 3 }
+            const person2 = { ...person, uuid: 'person2-uuid' }
+            await shadowManager.updatePersonForUpdate(person2, update2, 'person2-distinct')
+            const differentPerson2 = { ...person2, properties: { test: 'test', wrong_prop: 'wrong_value' }, version: 3 }
             const personUpdate2 = fromInternalPerson(differentPerson2, 'person2-distinct')
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'person2-distinct', personUpdate2)
 
@@ -631,16 +645,22 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             db.updatePerson = jest.fn().mockImplementation((personInput, update) => {
                 const isPersonThree = JSON.stringify(update).includes('prop3')
                 if (isPersonThree) {
-                    const personCopy = { ...personInput, ...update, version: personInput.version + 1 }
+                    const personCopy = {
+                        ...personInput,
+                        ...update,
+                        version: personInput.version + 1,
+                        uuid: 'person3-uuid',
+                    }
                     return Promise.resolve([personCopy, [], true]) // version disparity = true
                 } else {
                     return originalUpdatePerson(personInput, update)
                 }
             })
 
-            await shadowManager.updatePersonForUpdate(person, update3, 'person3-distinct')
+            const person3 = { ...person, uuid: 'person3-uuid' }
+            await shadowManager.updatePersonForUpdate(person3, update3, 'person3-distinct')
             const concurrentPerson3 = {
-                ...person,
+                ...person3,
                 properties: { test: 'test', concurrent_prop: 'concurrent_value' },
                 version: 4,
             }
@@ -712,6 +732,159 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     ]),
                 })
             )
+        })
+
+        it('should handle addDistinctId ', async () => {
+            const teamId = 126617
+            const personUuid = '483a46b9-aea8-5205-828e-85a6f77ad6b0'
+            const distinctId = '0197a209-f567-7daa-8810-900f7c7f7b5d'
+
+            const existingPerson: InternalPerson = {
+                id: '11212424398',
+                uuid: personUuid,
+                created_at: DateTime.fromISO('2025-04-11T00:22:49.998Z'),
+                team_id: teamId,
+                properties: {
+                    $os: 'Android',
+                    $app_name: 'Skorlife',
+                    $creator_event_uuid: '0196223a-5299-72a2-b7cd-3c9cc03d6869',
+                },
+                properties_last_updated_at: {
+                    $os: '2025-04-11T00:22:49.998Z',
+                    $app_name: '2025-04-11T00:22:49.998Z',
+                },
+                properties_last_operation: {},
+                is_user_id: null,
+                is_identified: true,
+                version: 1,
+            }
+
+            // Step 1: Add a distinct ID to an existing person
+            // This simulates the production scenario where we're adding a new distinct ID
+            await shadowManager.addDistinctId(existingPerson, distinctId, 0)
+
+            // Step 2: Flush to trigger comparison
+            await shadowManager.flush()
+
+            const metrics = shadowManager.getShadowMetrics()
+            const finalStates = shadowManager.getFinalStates()
+            const finalState = finalStates.get(`${teamId}:${distinctId}`)
+
+            // Verify the final state is tracked correctly
+            expect(finalState?.person).toEqual(existingPerson)
+            expect(finalState?.operations).toEqual([
+                {
+                    type: 'addDistinctId',
+                    timestamp: expect.any(Number),
+                    distinctId: distinctId,
+                },
+            ])
+
+            expect(metrics.totalComparisons).toBe(1)
+            expect(metrics.sameOutcomeSameBatch).toBe(1)
+            expect(metrics.differentOutcomeSameBatch).toBe(0)
+            expect(metrics.logicErrors).toHaveLength(0)
+        })
+
+        it('should handle createPerson followed by moveDistinctIds', async () => {
+            const teamId = 61953
+            const personUuid = 'de69137b-e7d8-5eea-a494-357e01d2f012'
+
+            // Mock the main store to successfully create a person
+            const createdPerson: InternalPerson = {
+                id: '13219553701',
+                created_at: DateTime.fromISO('2025-06-23T13:05:07.461Z'),
+                properties: {
+                    $creator_event_uuid: '01979ce4-7561-7b81-b188-4d2a6e9bbae3',
+                },
+                team_id: teamId,
+                is_user_id: null,
+                is_identified: false,
+                uuid: personUuid,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                version: 1,
+            }
+
+            // Create another person that will be the merge target
+            const targetPerson: InternalPerson = {
+                ...createdPerson,
+                id: '13219553702',
+                uuid: 'target-person-uuid',
+                version: 2,
+            }
+
+            db.createPerson = jest.fn().mockResolvedValue([createdPerson, []])
+
+            // Create shadow manager
+            const measuringStore = new MeasuringPersonsStore(db, {
+                personCacheEnabledForUpdates: true,
+                personCacheEnabledForChecks: true,
+            })
+            const batchStore = new BatchWritingPersonsStore(db)
+            const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
+            const batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
+            const shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
+
+            // Step 1: Create person - this sets batch cache
+            await shadowManager.createPerson(
+                createdPerson.created_at,
+                createdPerson.properties,
+                createdPerson.properties_last_updated_at,
+                createdPerson.properties_last_operation || {},
+                teamId,
+                null,
+                false,
+                personUuid,
+                [{ distinctId: createdPerson.uuid, version: 0 }]
+            )
+
+            // Verify batch cache was set after create
+            const batchUpdateCache = batchStoreForBatch.getUpdateCache()
+            expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeDefined()
+
+            // Step 2: Move distinct IDs (simulate merge)
+            await shadowManager.moveDistinctIds(createdPerson, targetPerson, targetPerson.uuid)
+
+            // Verify batch cache is populated after moveDistinctIds
+            expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeDefined()
+            expect(batchUpdateCache.get(`${teamId}:${targetPerson.uuid}`)).toBeDefined()
+
+            // Step 3: Flush and compare final states
+            await shadowManager.flush()
+
+            const metrics = shadowManager.getShadowMetrics()
+            const finalStates = shadowManager.getFinalStates()
+            const finalStateSource = finalStates.get(`${teamId}:${createdPerson.uuid}`)
+
+            expect(finalStateSource?.person).toEqual(createdPerson)
+            expect(finalStateSource?.operations).toEqual([
+                {
+                    type: 'createPerson',
+                    timestamp: expect.any(Number),
+                    distinctId: createdPerson.uuid,
+                },
+                {
+                    type: 'moveDistinctIds',
+                    timestamp: expect.any(Number),
+                    distinctId: createdPerson.uuid,
+                },
+            ])
+
+            const finalStateTarget = finalStates.get(`${teamId}:${targetPerson.uuid}`)
+            expect(finalStateTarget?.person).toEqual(targetPerson)
+            expect(finalStateTarget?.operations).toEqual([
+                {
+                    type: 'moveDistinctIds',
+                    timestamp: expect.any(Number),
+                    distinctId: targetPerson.uuid,
+                },
+            ])
+
+            expect(metrics.totalComparisons).toBe(2)
+            expect(metrics.differentOutcomeSameBatch).toBe(0)
+            expect(metrics.logicErrors).toHaveLength(0)
+            expect(metrics.sameOutcomeSameBatch).toBe(2)
         })
     })
 

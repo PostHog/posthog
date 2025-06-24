@@ -1,3 +1,4 @@
+import { Node } from '@xyflow/react'
 import { z } from 'zod'
 
 const _commonActionFields = {
@@ -8,13 +9,6 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
-    next_actions: z.record(
-        z.literal('continue').or(z.string().startsWith('branch_')),
-        z.object({
-            action_id: z.string(),
-            label: z.string().optional(),
-        })
-    ),
 }
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -22,6 +16,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('trigger'),
+        config: z.object({
+            type: z.literal('event'),
+            filters: z.any(),
+        }),
         // A trigger's event filters are stored on the top-level Hogflow object
     }),
     // Branching
@@ -31,7 +29,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             conditions: z.array(
                 z.object({
-                    filter: z.any(), // type this stronger
+                    filters: z.any(), // type this stronger
                 })
             ),
             delay_duration: z.string().optional(),
@@ -62,7 +60,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_condition'),
         config: z.object({
             condition: z.object({
-                filter: z.any(), // type this stronger
+                filters: z.any(), // type this stronger
             }),
             max_wait_duration: z.string(),
         }),
@@ -110,10 +108,17 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('exit'),
         config: z.object({
-            reason: z.string(),
+            reason: z.string().optional(),
         }),
     }),
 ])
+
+const HogFlowEdgeSchema = z.object({
+    from: z.string(),
+    to: z.string(),
+    type: z.enum(['continue', 'branch']),
+    index: z.number().optional(),
+})
 
 export const HogFlowSchema = z.object({
     id: z.string(),
@@ -146,7 +151,11 @@ export const HogFlowSchema = z.object({
     ]),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
+    edges: z.array(HogFlowEdgeSchema),
 })
 
-export type HogFlow = z.infer<typeof HogFlowSchema>
-export type HogFlowAction = HogFlow['actions'][number]
+// NOTE: these are purposefully exported as interfaces to support kea typegen
+export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
+export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
+export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
+export interface HogFlowActionNode extends Node<HogFlowAction> {}

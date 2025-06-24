@@ -1,8 +1,8 @@
-import { Node, Position } from '@xyflow/react'
-import ELK, { ElkNode } from 'elkjs/lib/elk.bundled.js'
+import { Edge, Position } from '@xyflow/react'
+import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
-import type { HogFlowAction } from './types'
+import type { HogFlowActionNode } from './types'
 
 /**
  * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm
@@ -26,7 +26,7 @@ const getElkPortSide = (position: Position): string => {
 
 const elk = new ELK()
 
-export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<Node<HogFlowAction>[]> => {
+export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[]): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
@@ -34,6 +34,7 @@ export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<N
         'elk.spacing.edgeEdge': `${NODE_GAP}`,
         'elk.spacing.edgeNode': `${NODE_GAP}`,
         'elk.direction': 'DOWN',
+        'elk.layered.nodePlacement.strategy': 'SIMPLE',
         'elk.alignment': 'CENTER',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
         'elk.padding': '[left=0, top=0, right=0, bottom=0]',
@@ -60,16 +61,15 @@ export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<N
                 properties: {
                     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
                 },
-                ports: handles,
+                ports: [...handles],
             }
         }),
-        edges: nodes.flatMap((node) =>
-            Object.entries(node.data.next_actions).map(([branch, next_action]) => ({
-                id: `${node.id}->${next_action.action_id}`,
-                sources: [`${branch}_${node.id}`],
-                targets: [`target_${next_action.action_id}`],
-            }))
-        ),
+        edges: edges.map((edge) => ({
+            ...edge,
+            id: edge.id,
+            sources: [edge.sourceHandle || edge.source],
+            targets: [edge.targetHandle || edge.target],
+        })) as ElkExtendedEdge[],
     }
 
     const layoutedGraph = await elk.layout(graph)
@@ -95,5 +95,5 @@ export const getFormattedNodes = async (nodes: Node<HogFlowAction>[]): Promise<N
     return layoutedGraph.children?.map((node) => ({
         ...node,
         position: { x: node.x, y: node.y },
-    })) as Node<HogFlowAction>[]
+    })) as HogFlowActionNode[]
 }

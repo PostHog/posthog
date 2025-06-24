@@ -236,24 +236,15 @@ impl PropertyDefinitionsBatch {
 }
 
 // HACK: making this public so the test suite file can live under "../tests/" dir
-pub async fn process_batch_v2(
-    config: &Config,
-    cache: Arc<Cache>,
-    pool: &PgPool,
-    batch: Vec<Update>,
-) {
+pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, batch: Vec<Update>) {
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
     let mut prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
     let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
 
-    // loop on the Update batch, splitting into smaller vectorized PG write batches
-    // and submitted async. note for testing and simplicity, we don't work with
-    // the AppContext in process_batch_v2, just it's PgPool. We clone that all over
-    // the place to pass into `tokio::spawn()` which is fine b/c it's designed for
-    // this and manages concurrent access internaly. Some details here:
-    // https://github.com/launchbadge/sqlx/blob/main/sqlx-core/src/pool/mod.rs#L109-L111
+    // loop over Update batch, grouping by record type into single-target-table
+    // batches for async write attempts with retries
     for update in batch {
         match update {
             Update::Event(ed) => {

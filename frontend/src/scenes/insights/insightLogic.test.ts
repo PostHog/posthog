@@ -224,7 +224,7 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/:id/viewed': [201],
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },

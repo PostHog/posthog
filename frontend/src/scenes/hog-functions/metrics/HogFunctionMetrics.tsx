@@ -87,11 +87,7 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
                             </div>
                         }
                     >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            tooltip="Filtering for any log groups containing any of the selected levels"
-                        >
+                        <LemonButton size="small" type="secondary">
                             Filters
                         </LemonButton>
                     </LemonDropdown>
@@ -176,14 +172,12 @@ function AppMetricsGraph(): JSX.Element {
                 type: 'line',
                 data: {
                     labels: appMetrics.labels,
-                    datasets: [
-                        ...appMetrics.series.map((series) => ({
-                            label: series.name,
-                            data: series.values,
-                            borderColor: '',
-                            ...colorConfig(series.name),
-                        })),
-                    ],
+                    datasets: appMetrics.series.map((series) => ({
+                        label: series.name,
+                        data: series.values,
+                        borderColor: '',
+                        ...colorConfig(series.name),
+                    })),
                 },
                 options: {
                     scales: {

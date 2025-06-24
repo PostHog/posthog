@@ -1,31 +1,8 @@
-import { Edge, MarkerType, Node } from '@xyflow/react'
-
-import { HogFlowAction } from './types'
-
-export const getDefaultNodeOptions = (isEntryOrExit?: boolean): Partial<Node<HogFlowAction>> => ({
-    deletable: !isEntryOrExit,
-    selectable: !isEntryOrExit,
-    draggable: false,
-    connectable: false,
-})
-
-export const getDefaultEdgeOptions = (): Partial<Edge> => ({
-    type: 'smoothstep',
-    deletable: false,
-    reconnectable: false,
-    selectable: false,
-    focusable: false,
-    markerEnd: {
-        type: MarkerType.ArrowClosed,
-    },
-    labelShowBg: false,
-})
-
 // Keep in sync with Nodes.tsx -> BaseNode styling
 export const NODE_WIDTH = 100
 export const NODE_HEIGHT = 34
 
-export const NODE_GAP = 100
+export const NODE_GAP = 50
 
 export const TOP_HANDLE_POSITION = {
     x: NODE_WIDTH / 2,

@@ -33,7 +33,7 @@ export const storiesLogic = kea<storiesLogicType>([
                     try {
                         const stored = localStorage.getItem(STORAGE_KEY)
                         return stored ? JSON.parse(stored) : { storyIds: [] }
-                    } catch (e) {
+                    } catch {
                         return { storyIds: [] }
                     }
                 },

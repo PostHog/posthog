@@ -11,6 +11,7 @@ import { experimentLogic } from '../experimentLogic'
 import { formatUnitByQuantity } from '../utils'
 import { EllipsisAnimation } from './components'
 import { DataCollectionCalculator } from './DataCollectionCalculator'
+import { modalsLogic } from '../modalsLogic'
 
 export function DataCollection(): JSX.Element {
     const {
@@ -23,7 +24,7 @@ export function DataCollection(): JSX.Element {
         firstPrimaryMetric,
     } = useValues(experimentLogic)
 
-    const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
+    const { openExperimentCollectionGoalModal } = useActions(modalsLogic)
 
     const insightType = getInsightType(firstPrimaryMetric)
 
@@ -170,15 +171,14 @@ export function DataCollection(): JSX.Element {
 }
 
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const {
-        isExperimentCollectionGoalModalOpen,
-        getInsightType,
-        firstPrimaryMetric,
-        trendMetricInsightLoading,
-        funnelMetricInsightLoading,
-    } = useValues(experimentLogic({ experimentId }))
-    const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal, restoreUnmodifiedExperiment } =
-        useActions(experimentLogic({ experimentId }))
+    const { getInsightType, firstPrimaryMetric, trendMetricInsightLoading, funnelMetricInsightLoading } = useValues(
+        experimentLogic({ experimentId })
+    )
+    const { updateExperimentCollectionGoal, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
+    const { closeExperimentCollectionGoalModal } = useActions(modalsLogic)
+    const { isExperimentCollectionGoalModalOpen } = useValues(modalsLogic)
 
     const isInsightLoading =
         getInsightType(firstPrimaryMetric) === InsightType.TRENDS
