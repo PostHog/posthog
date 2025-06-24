@@ -16,6 +16,10 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
+from ee.session_recordings.session_summary.patterns.output_data import (
+    SessionGroupSummaryPatternsList,
+    load_patterns_from_llm_content,
+)
 from ee.session_recordings.session_summary.summarize_session import PatternsExtractionPrompt, SessionSummaryPrompt
 
 logger = structlog.get_logger(__name__)
@@ -103,7 +107,7 @@ def _convert_llm_content_to_session_summary_json_str(
 
 async def get_llm_session_group_patterns_extraction(
     prompt: PatternsExtractionPrompt, user_id: int, session_ids: list[str]
-) -> str:
+) -> SessionGroupSummaryPatternsList:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
@@ -118,8 +122,8 @@ async def get_llm_session_group_patterns_extraction(
         raise ValueError(
             f"No content consumed when calling LLM for session group patterns extraction, session_ids {sessions_identifier}"
         )
-    # TODO: Convert YAML to JSON and store to reuse in the next steps
-    return raw_content
+    patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
+    return patterns
 
 
 async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_id: int, session_ids: list[str]) -> str:
