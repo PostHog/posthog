@@ -44,7 +44,7 @@ class TestRevenueAnalyticsInvoiceItemView(ClickhouseTestMixin, APIBaseTest):
             ("2021-01-01", "2021-02-17", 2),
             ("2021-01-01", "2021-02-20", 2),
             ("2021-01-01", "2021-02-25", 2),
-            ("2021-01-01", "2021-02-30", 2),
+            ("2021-01-01", "2021-02-28", 2),
         ]
     )
     def test_calculate_months_for_period_parameterized(self, start_date, end_date, expected_months):
