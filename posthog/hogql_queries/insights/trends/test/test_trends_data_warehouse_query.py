@@ -522,3 +522,39 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         # Should only match the row where both prop_1='a' AND prop_2='e'
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+
+    def test_trends_events_and_data_warehouse_all_time(self):
+        table_name = self.setup_data_warehouse()
+
+        # Create an event after the first data warehouse row
+        # This tests that the query uses the earliest timestamp from the data warehouse not the events
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2023-01-05 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        self.assertEqual(1, len(response.results))
+
+        self.assertIn(
+            "2023-01-01",
+            response.results[0]["days"],
+        )
