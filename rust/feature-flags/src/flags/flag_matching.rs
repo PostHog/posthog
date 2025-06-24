@@ -439,9 +439,9 @@ impl FeatureFlagMatcher {
     }
 
     /// Evaluates a set of flags using a fallback strategy:
-    /// 1. First tries to evaluate with property overrides
-    /// 2. For flags that need DB properties, prepares evaluation state
-    /// 3. Evaluates remaining flags with cached properties
+    /// 1. First tries to evaluate with property overrides (i.e., can be computed exclusively from the property overrides)
+    /// 2. For flags that need DB properties, prepares evaluation state (i.e., fetches the properties from the DB)
+    /// 3. Evaluates remaining flags with a combination of property overrides and DB properties
     ///
     /// This function is designed to be used as part of a level-based evaluation strategy
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
@@ -452,17 +452,20 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
     ) -> (HashMap<String, FlagDetails>, bool) {
+        // initialize some state
         let mut errors_while_computing_flags = false;
         let mut flag_details_map = HashMap::new();
+        let mut flags_needing_db_properties = Vec::new();
+        let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
+            HashMap::new();
 
-        // Pre-compute property overrides for all flags upfront to avoid duplicate work
-        let mut flag_override_map: HashMap<String, Option<HashMap<String, Value>>> = HashMap::new();
         for flag in flags {
             // Skip disabled or deleted flags early
             if !flag.active || flag.deleted {
                 continue;
             }
 
+            // Pre-compute property overrides for all flags upfront
             let relevant_property_overrides = match flag.get_group_type_index() {
                 Some(group_type_index) => {
                     // For group flags, extract the relevant group overrides
@@ -471,29 +474,35 @@ impl FeatureFlagMatcher {
                         group_property_overrides,
                     ) {
                         Ok(overrides) => overrides,
-                        Err(_) => None, // If we can't get the mapping, pretend we have no overrides; we'll hit the DB later if needed.
-                                        // TODO ^ is that correct, or is that an error?
+                        Err(e) => {
+                            warn!(
+                                "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
+                                flag.key, group_type_index, e
+                            );
+                            None // If we can't get the mapping, treat as no overrides; we'll hit the DB later if needed.
+                        }
                     }
                 }
                 None => person_property_overrides.clone(),
             };
-            flag_override_map.insert(flag.key.clone(), relevant_property_overrides);
+            precomputed_property_overrides.insert(flag.key.clone(), relevant_property_overrides);
         }
 
-        let mut flags_needing_db_properties = Vec::new();
-
-        // Step 1: Evaluate flags with locally computable property overrides first
+        // Begin flag evaluation
         for flag in flags {
             // Skip disabled or deleted flags
             if !flag.active || flag.deleted {
                 continue;
             }
 
+            // Step 1: Evaluate flags with locally computable (i.e., can be computed exclusively from the property overrides) properties first
             let property_override_match_timer =
                 common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
 
             // Use pre-computed overrides
-            let property_overrides = flag_override_map.get(&flag.key).unwrap_or(&None); // Safe fallback: if flag not in map, treat as no overrides
+            let property_overrides = precomputed_property_overrides
+                .get(&flag.key)
+                .unwrap_or(&None); // Safe fallback: if flag not in map, treat as no overrides
 
             match self.match_flag_exclusively_with_overrides(
                 flag,
@@ -584,9 +593,12 @@ impl FeatureFlagMatcher {
             flags_needing_db_properties
                 .par_iter()
                 .map(|flag| {
-                    // Safe access: if flag not in pre-computed map, treat as no overrides
-                    let property_overrides =
-                        flag_override_map.get(&flag.key).unwrap_or(&None).clone();
+                    // Safe access: if the overrides for this flag are not in the pre-computed map, assume no overrides
+                    // this shouldn't happen, but it's here to avoid panics
+                    let property_overrides = precomputed_property_overrides
+                        .get(&flag.key)
+                        .unwrap_or(&None)
+                        .clone();
                     (
                         flag.key.clone(),
                         self.get_match(flag, property_overrides, hash_key_overrides.clone()),

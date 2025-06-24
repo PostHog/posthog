@@ -4039,7 +4039,7 @@ mod tests {
         // The flag should evaluate using DB properties for condition 1 (which has focus="all-of-the-above")
         // and overrides for condition 2 (which won't match the email).
         let flag_result = result.flags.get(&flag.key).unwrap();
-        assert_eq!(flag_result.enabled, true);
+        assert!(flag_result.enabled);
 
         // Test case 2: Complete overrides for condition 2
         // This should use overrides and match condition 2
@@ -4072,7 +4072,7 @@ mod tests {
         let flag_result2 = result2.flags.get(&flag.key).unwrap();
 
         // Should match condition 2 since email matches and rollout is 100%
-        assert_eq!(flag_result2.enabled, true);
+        assert!(flag_result2.enabled);
 
         // Test case 3: Complete overrides for condition 2 with non-matching value
         // This should use overrides and not match condition 2
@@ -4103,7 +4103,7 @@ mod tests {
 
         assert!(!result3.errors_while_computing_flags);
         let flag_result3 = result3.flags.get(&flag.key).unwrap();
-        assert_eq!(flag_result3.enabled, true); // Should be true because condition 1 matches (email override doesn't affect condition 1 properties)
+        assert!(flag_result3.enabled); // Should be true because condition 1 matches (email override doesn't affect condition 1 properties)
 
         // Should not match condition 2 since email doesn't match, but condition 1 still matches
         // because it only depends on app_version, focus, and os (which come from DB and still match)
@@ -4138,7 +4138,7 @@ mod tests {
 
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
-        assert_eq!(flag_result4.enabled, true);
+        assert!(flag_result4.enabled);
     }
 
     #[tokio::test]
@@ -4281,7 +4281,7 @@ mod tests {
         // The flag should evaluate using DB properties for condition 1 (which has feature_access="full")
         // and overrides for condition 2 (which won't match the billing_email).
         let flag_result = result.flags.get(&flag.key).unwrap();
-        assert_eq!(flag_result.enabled, true);
+        assert!(flag_result.enabled);
 
         // Test case 2: Complete group overrides for condition 2
         // This should use overrides and match condition 2
@@ -4320,7 +4320,7 @@ mod tests {
         let flag_result2 = result2.flags.get(&flag.key).unwrap();
 
         // Should match condition 2 since billing_email matches and rollout is 100%
-        assert_eq!(flag_result2.enabled, true);
+        assert!(flag_result2.enabled);
 
         // Test case 3: Complete group overrides for condition 2 with non-matching value
         // This should use overrides and not match condition 2
@@ -4357,7 +4357,7 @@ mod tests {
 
         assert!(!result3.errors_while_computing_flags);
         let flag_result3 = result3.flags.get(&flag.key).unwrap();
-        assert_eq!(flag_result3.enabled, true); // Should be true because condition 1 matches (billing_email override doesn't affect condition 1 properties)
+        assert!(flag_result3.enabled); // Should be true because condition 1 matches (billing_email override doesn't affect condition 1 properties)
 
         // Test case 4: Complete group overrides with all properties for condition 1
         let complete_group_overrides_condition1 = HashMap::from([(
@@ -4392,7 +4392,7 @@ mod tests {
 
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
-        assert_eq!(flag_result4.enabled, true);
+        assert!(flag_result4.enabled);
 
         // Test case 5: Mixed overrides - some properties sufficient for fast path, others require DB merge
         let mixed_group_overrides = HashMap::from([(
@@ -4434,6 +4434,6 @@ mod tests {
         // Should match because:
         // - Condition 1: plan=pro (matches), region=us-west-2 (matches regex), feature_access=full (from DB merge)
         // - Condition 2: billing_email matches exactly
-        assert_eq!(flag_result5.enabled, true);
+        assert!(flag_result5.enabled);
     }
 }
