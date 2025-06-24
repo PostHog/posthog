@@ -72,7 +72,7 @@ function CinemaMode(): JSX.Element {
             onClick={() => setIsZenMode(!isZenMode)}
             tooltip={
                 <>
-                    <span>{!isZenMode ? 'Go' : 'Exit'}</span> cinema mode
+                    <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
                 </>
             }
             status={isZenMode ? 'danger' : 'default'}
