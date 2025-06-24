@@ -118,11 +118,11 @@ def unpack_full_event_id(full_event_id: str | None, session_id: str) -> tuple[st
     if not full_event_id:
         raise ValueError(f"Full event ID is not present when unpacking for session_id {session_id}")
     try:
-        upacked_session_id, event_uuid = full_event_id.split("_")
+        unpacked_session_id, event_uuid = full_event_id.split("_")
     except ValueError as err:
         raise ValueError(f"Invalid full event ID for session_id {session_id}: {full_event_id}") from err
-    if upacked_session_id != session_id:
+    if unpacked_session_id != session_id:
         raise ValueError(
             f"Session ID mismatch when unpacking full event ID for session_id {session_id}: {full_event_id}"
         )
-    return upacked_session_id, event_uuid
+    return unpacked_session_id, event_uuid
