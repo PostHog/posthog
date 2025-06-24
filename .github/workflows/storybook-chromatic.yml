@@ -56,6 +56,14 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
+            - name: Cache webpack build
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: common/storybook/node_modules/.cache/
+                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-webpack-storybook-
+
             - name: Build Storybook
               if: needs.changes.outputs.frontend == 'true'
               env:
