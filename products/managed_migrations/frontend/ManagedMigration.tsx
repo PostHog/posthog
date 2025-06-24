@@ -315,9 +315,9 @@ export function ManagedMigrations(): JSX.Element {
                         align: 'right',
                     },
                     {
-                        title: 'Error',
-                        dataIndex: 'error',
-                        render: (_: any, migration: ManagedMigration) => migration.error || '-',
+                        title: 'Status Message',
+                        dataIndex: 'status_message',
+                        render: (_: any, migration: ManagedMigration) => migration.status_message || '-',
                     },
                 ]}
                 emptyState="No migrations found. Create a new migration to get started."

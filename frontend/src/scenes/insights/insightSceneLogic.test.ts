@@ -25,7 +25,7 @@ describe('insightSceneLogic', () => {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
             },
         })

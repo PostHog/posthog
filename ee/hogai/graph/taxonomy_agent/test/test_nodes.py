@@ -42,7 +42,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 toolkit = DummyToolkit(self._team)
                 return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
-        return Node(self.team)
+        return Node(self.team, self.user)
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
@@ -275,7 +275,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
                 toolkit = DummyToolkit(self._team)
                 return super()._run_with_toolkit(state, toolkit, config=config)
 
-        return Node(self.team)
+        return Node(self.team, self.user)
 
     def test_node_handles_action_name_validation_error(self):
         state = AssistantState(

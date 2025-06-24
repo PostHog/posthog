@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
-import { StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
+import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 import {
     NPS_DETRACTOR_LABEL,
     NPS_DETRACTOR_VALUES,
@@ -18,7 +18,6 @@ import {
     NPS_PROMOTER_VALUES,
 } from 'scenes/surveys/constants'
 import { ChoiceQuestionProcessedResponses, surveyLogic } from 'scenes/surveys/surveyLogic'
-import { NPSStackedBar } from 'scenes/surveys/surveyViewViz'
 import { calculateNpsBreakdownFromProcessedData, NPSBreakdown } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
@@ -99,6 +98,16 @@ const CHART_LABELS: Record<number, string[]> = {
     7: ['1', '2', '3', '4', '5', '6', '7'],
     5: ['1', '2', '3', '4', '5'],
     3: ['1', '2', '3'],
+}
+
+function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
+    const segments: StackedBarSegment[] = [
+        { count: npsBreakdown.promoters, label: NPS_PROMOTER_LABEL, colorClass: 'bg-success' },
+        { count: npsBreakdown.passives, label: NPS_PASSIVE_LABEL, colorClass: 'bg-warning' },
+        { count: npsBreakdown.detractors, label: NPS_DETRACTOR_LABEL, colorClass: 'bg-danger' },
+    ]
+
+    return <StackedBar segments={segments} />
 }
 
 export function NPSBreakdownSkeleton(): JSX.Element {
