@@ -142,8 +142,10 @@ jobs:
               run: pnpm --filter=@posthog/playwright exec playwright install --with-deps
 
             # Pre-build product bundles needed by UI
-            - name: Build product static bundle
-              run: pnpm --filter=@posthog/frontend build:products
+            - name: Build frontend
+              run: |
+                  pnpm --filter=@posthog/frontend build:products
+                  pnpm --filter=@posthog/frontend build
 
             - name: Wait for ClickHouse & Kafka
               run: ./bin/check_kafka_clickhouse_up
