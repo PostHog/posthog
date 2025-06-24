@@ -34,8 +34,8 @@ export function NodeDetailsPanel(): JSX.Element | null {
     const Step = getHogFlowStep(action.type)
 
     return (
-        <Panel position="top-right">
-            <div className="bg-surface-primary rounded-md shadow-md flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-3/4">
+        <Panel position="top-right" className="bottom">
+            <div className="bg-surface-primary rounded-md shadow-md flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-full">
                 <div className="flex justify-between items-center p-2">
                     <h3 className="mb-0 font-semibold">Edit {selectedNode.data.name} step</h3>
                     <div className="flex gap-1 items-center">

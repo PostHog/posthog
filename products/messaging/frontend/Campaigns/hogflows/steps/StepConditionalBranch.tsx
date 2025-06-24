@@ -45,7 +45,6 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
 }
 
 function StepConditionalBranchNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    // TODO: Use node data to render trigger node
     return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
 }
 
