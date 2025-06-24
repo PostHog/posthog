@@ -173,33 +173,9 @@ class RootNodeUIContextMixin(AssistantNode):
                     .to_string()
                 )
 
-        # Format events context
-        events_context = ""
-        if ui_context.events:
-            event_details = []
-            for event in ui_context.events:
-                event_detail = f'"{event.name or f"Event {event.id}"}'
-                if event.description:
-                    event_detail += f": {event.description}"
-                event_detail += '"'
-                event_details.append(event_detail)
-
-            if event_details:
-                events_context = f"<events_context>Event names the user is referring to:\n{', '.join(event_details)}\n</events_context>"
-
-        # Format actions context
-        actions_context = ""
-        if ui_context.actions:
-            action_details = []
-            for action in ui_context.actions:
-                action_detail = f'"{action.name or f"Action {action.id}"}'
-                if action.description:
-                    action_detail += f": {action.description}"
-                action_detail += '"'
-                action_details.append(action_detail)
-
-            if action_details:
-                actions_context = f"<actions_context>Action names the user is referring to:\n{', '.join(action_details)}\n</actions_context>"
+        # Format events and actions context
+        events_context = self._format_entity_context(ui_context.events, "events", "Event")
+        actions_context = self._format_entity_context(ui_context.actions, "actions", "Action")
 
         if dashboard_context or insights_context or events_context or actions_context:
             return self._render_user_context_template(
@@ -267,6 +243,34 @@ class RootNodeUIContextMixin(AssistantNode):
             # Skip insights that fail to run
             capture_exception()
             return None
+
+    def _format_entity_context(self, entities, context_tag: str, entity_type: str) -> str:
+        """
+        Format entity context (events or actions) into XML context string.
+
+        Args:
+            entities: List of entities (events or actions) or None
+            context_tag: XML tag name (e.g., "events" or "actions")
+            entity_type: Entity type for display (e.g., "Event" or "Action")
+
+        Returns:
+            Formatted context string or empty string if no entities
+        """
+        if not entities:
+            return ""
+
+        entity_details = []
+        for entity in entities:
+            name = entity.name or f"{entity_type} {entity.id}"
+            entity_detail = f'"{name}'
+            if entity.description:
+                entity_detail += f": {entity.description}"
+            entity_detail += '"'
+            entity_details.append(entity_detail)
+
+        if entity_details:
+            return f"<{context_tag}_context>{entity_type} names the user is referring to:\n{', '.join(entity_details)}\n</{context_tag}_context>"
+        return ""
 
     def _render_user_context_template(
         self, dashboard_context: str, insights_context: str, events_context: str, actions_context: str

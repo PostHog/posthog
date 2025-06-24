@@ -9,6 +9,10 @@ import React from 'react'
 import { maxContextLogic } from './maxContextLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
+function pluralize(count: number, word: string): string {
+    return `${count} ${word}${count > 1 ? 's' : ''}`
+}
+
 interface ContextSummaryProps {
     insights?: MaxInsightContext[]
     dashboards?: MaxDashboardContext[]
@@ -48,16 +52,16 @@ export function ContextSummary({
             parts.push('page')
         }
         if (contextCounts.dashboards > 0) {
-            parts.push(`${contextCounts.dashboards} dashboard${contextCounts.dashboards > 1 ? 's' : ''}`)
+            parts.push(pluralize(contextCounts.dashboards, 'dashboard'))
         }
         if (contextCounts.insights > 0) {
-            parts.push(`${contextCounts.insights} insight${contextCounts.insights > 1 ? 's' : ''}`)
+            parts.push(pluralize(contextCounts.insights, 'insight'))
         }
         if (contextCounts.events > 0) {
-            parts.push(`${contextCounts.events} event${contextCounts.events > 1 ? 's' : ''}`)
+            parts.push(pluralize(contextCounts.events, 'event'))
         }
         if (contextCounts.actions > 0) {
-            parts.push(`${contextCounts.actions} action${contextCounts.actions > 1 ? 's' : ''}`)
+            parts.push(pluralize(contextCounts.actions, 'action'))
         }
 
         if (parts.length === 1) {

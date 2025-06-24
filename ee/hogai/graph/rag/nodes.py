@@ -70,6 +70,7 @@ class InsightRagContextNode(AssistantNode):
         trace_id: Any | None = None,
         distinct_id: Any | None = None,
     ) -> str:
+        # action.id in UI context actions is typed as float from schema.py, so we need to convert it to int to match the Action.id field
         ids = [str(int(action.id)) for action in actions_in_context] if actions_in_context else []
 
         if embedding:
@@ -86,7 +87,9 @@ class InsightRagContextNode(AssistantNode):
         if len(ids) == 0:
             return ""
 
-        actions = Action.objects.filter(team__project_id=self._team.project_id, id__in=ids)
+        actions = Action.objects.filter(team__project_id=self._team.project_id, id__in=ids).only(
+            "id", "name", "description"
+        )
 
         root = ET.Element("defined_actions")
         for action in actions:
