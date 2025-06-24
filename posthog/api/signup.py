@@ -110,7 +110,7 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def validate_email(self, value):
-        if EmailValidationHelper.user_exists(value):
+        if not settings.DEMO and EmailValidationHelper.user_exists(value):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         return value
 
