@@ -152,6 +152,8 @@ mkdir -p ./share &&
 if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
     curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
     echo '{\"date\": \"'$(date +%Y-%m-%d)'\"}' > ./share/GeoLite2-City.json; 
+    chmod 644 ./share/GeoLite2-City.mmdb &&
+    chmod 644 ./share/GeoLite2-City.json
 fi
 
 # write entrypoint
