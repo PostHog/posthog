@@ -157,8 +157,8 @@ describe('BatchWritingPersonStore', () => {
         const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
         const personStoreForBatch = assertVersionStore.forBatch()
 
-        // Mock optimistic update to fail
-        db.updatePersonAssertVersion = jest.fn().mockResolvedValue(undefined) // version mismatch
+        // Mock optimistic update to fail (version mismatch)
+        db.updatePersonAssertVersion = jest.fn().mockResolvedValue(undefined)
 
         // Add a person update to cache
         await personStoreForBatch.updatePersonForUpdate(person, { properties: { new_value: 'new_value' } }, 'test')
@@ -334,7 +334,6 @@ describe('BatchWritingPersonStore', () => {
                     existing_prop: 'existing_value',
                     new_prop: 'new_value',
                     shared_prop: 'new_value',
-                    test: 'test',
                 },
             }),
             undefined,
@@ -689,5 +688,78 @@ describe('BatchWritingPersonStore', () => {
                 expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // ASSERT_VERSION mode
             })
         })
+    })
+
+    it('should handle concurrent updates with ASSERT_VERSION mode and preserve both properties', async () => {
+        // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
+        const assertVersionStore = new BatchWritingPersonsStore(db, {
+            dbWriteMode: 'ASSERT_VERSION',
+        })
+        const personStoreForBatch = assertVersionStore.forBatch()
+
+        // Initial person in database with 2 properties
+        const initialPerson = {
+            ...person,
+            version: 1,
+            properties: {
+                existing_prop1: 'initial_value1',
+                existing_prop2: 'initial_value2',
+            },
+        }
+
+        // Simulate that another pod directly writes to the database
+        // This increases the version and updates one property
+        const updatedByOtherPod = {
+            ...initialPerson,
+            version: 2,
+            properties: {
+                existing_prop1: 'updated_by_other_pod',
+                existing_prop2: 'initial_value2', // This property stays the same
+            },
+        }
+
+        // Mock optimistic update to fail on first try, succeed on retry
+        // Completely replace the mock from beforeEach
+        db.updatePersonAssertVersion = jest
+            .fn()
+            .mockResolvedValueOnce(undefined) // First call fails (version mismatch)
+            .mockResolvedValueOnce(3) // Second call succeeds with new version
+
+        // Mock fetchPerson to return the updated person when called during conflict resolution
+        db.fetchPerson = jest.fn().mockResolvedValue(updatedByOtherPod)
+
+        // Process an event that will override one of the properties
+        // We pass the initial person directly, so no initial fetch is needed
+        await personStoreForBatch.updatePersonForUpdate(
+            initialPerson,
+            { properties: { existing_prop2: 'updated_by_this_pod' } },
+            'test'
+        )
+
+        // Flush should trigger optimistic update, fail, then merge and retry
+        await personStoreForBatch.flush()
+
+        // Verify the optimistic update was attempted (should be called twice: once initially, once on retry)
+        expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(2)
+
+        // Verify fetchPerson was called once during conflict resolution
+        expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+
+        // Since the second retry succeeds, there should be no fallback to updatePerson
+        expect(db.updatePerson).not.toHaveBeenCalled()
+
+        // Verify the second call to updatePersonAssertVersion had the merged properties
+        expect(db.updatePersonAssertVersion).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                version: 3, // Should use the latest version from the database
+                properties: {
+                    existing_prop1: 'updated_by_other_pod', // Preserved from other pod's update
+                    existing_prop2: 'updated_by_this_pod', // Updated by this pod
+                },
+                property_changeset: {
+                    existing_prop2: 'updated_by_this_pod', // Only the changed property should be in changeset
+                },
+            })
+        )
     })
 })

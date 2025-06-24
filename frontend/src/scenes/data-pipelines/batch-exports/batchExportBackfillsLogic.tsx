@@ -107,7 +107,7 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                 await api.batchExports.cancelBackfill(props.id, backfill.id)
                 lemonToast.success('Backfill has been cancelled.')
                 actions.loadBackfills()
-            } catch (error) {
+            } catch {
                 lemonToast.error('Failed to cancel backfill. Please try again.')
             }
         },

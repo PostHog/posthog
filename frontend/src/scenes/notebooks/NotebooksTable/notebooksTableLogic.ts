@@ -45,7 +45,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
             {
                 setFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...state,
                         ...filters,
                     }),
             },

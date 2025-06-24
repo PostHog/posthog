@@ -201,7 +201,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_funnel_planner_run):
         output, _ = self._run_assistant_graph(
-            InsightsAssistantGraph(self.team)
+            InsightsAssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
             .add_trends_planner(AssistantNodeName.QUERY_EXECUTOR, AssistantNodeName.END)
             .add_query_executor(AssistantNodeName.END)
@@ -264,7 +264,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     def test_reasoning_messages_with_substeps_added(self, _mock_funnel_planner_run):
         output, _ = self._run_assistant_graph(
-            InsightsAssistantGraph(self.team)
+            InsightsAssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
             .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
             .compile(),
@@ -330,7 +330,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ):
             output, _ = self._run_assistant_graph(
-                InsightsAssistantGraph(self.team)
+                InsightsAssistantGraph(self.team, self.user)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
                 .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
                 .compile(),
@@ -367,7 +367,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
@@ -451,7 +451,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
             graph = (
-                InsightsAssistantGraph(self.team)
+                InsightsAssistantGraph(self.team, self.user)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
                 .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
                 .compile()
@@ -500,7 +500,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_new_conversation_handles_serialized_conversation(self):
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="Hello")]})
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
@@ -526,13 +526,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @pytest.mark.asyncio
     async def test_async_stream(self):
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="bar")]})
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="foo"))
+        assistant = Assistant(self.team, self.conversation, user=self.user, new_message=HumanMessage(content="foo"))
         assistant._graph = graph
 
         expected_output = [
@@ -548,13 +548,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             raise ValueError()
 
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, node_handler)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="foo"))
+        assistant = Assistant(self.team, self.conversation, user=self.user, new_message=HumanMessage(content="foo"))
         assistant._graph = graph
 
         expected_output = [
@@ -854,7 +854,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(mock_response)
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team).add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END).compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
+            .compile()
+        )
 
         # First run - get the product description
         output, _ = self._run_assistant_graph(
@@ -911,7 +915,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team).add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END).compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
+            .compile()
+        )
 
         # First run - get the product description
         output, _ = self._run_assistant_graph(
@@ -960,7 +968,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_memory_collector_flow(self, model_mock):
         # Create a graph with just memory collection
         graph = (
-            AssistantGraph(self.team).add_memory_collector(AssistantNodeName.END).add_memory_collector_tools().compile()
+            AssistantGraph(self.team, self.user)
+            .add_memory_collector(AssistantNodeName.END)
+            .add_memory_collector_tools()
+            .compile()
         )
 
         # Mock the memory collector to first analyze and then append memory
@@ -1047,7 +1058,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # Create a graph that only uses the root node
-        graph = AssistantGraph(self.team).compile_full_graph()
+        graph = AssistantGraph(self.team, self.user).compile_full_graph()
 
         # Run the assistant and capture output
         output, _ = self._run_assistant_graph(graph)
@@ -1063,7 +1074,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_conversation_is_locked_when_generating(self):
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
             .compile()
@@ -1081,7 +1092,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_conversation_saves_state_after_cancellation(self):
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
             .compile()
@@ -1132,7 +1143,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
         """Test basic documentation search functionality using Inkeep."""
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
@@ -1252,7 +1263,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_conversation_metadata_updated(self, title_generator_model_mock):
         """Test that metadata (title, created_at, updated_at) is generated and set for a new conversation."""
         # Create a test graph with only the title generator node
-        graph = AssistantGraph(self.team).add_title_generator().compile()
+        graph = AssistantGraph(self.team, self.user).add_title_generator().compile()
         initial_updated_at = self.conversation.updated_at
         initial_created_at = self.conversation.created_at
 
@@ -1298,7 +1309,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         updater = MessageUpdatingNode()
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, updater)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
@@ -1361,7 +1372,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
             # Create a graph with our test node
             graph = (
-                AssistantGraph(self.team)
+                AssistantGraph(self.team, self.user)
                 .add_node(AssistantNodeName.ROOT, MessageFilteringNode(test_message))
                 .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
                 .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
@@ -1387,7 +1398,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             return {"messages": [AssistantMessage(content="Response from assistant")]}
 
         graph = (
-            AssistantGraph(self.team)
+            AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, return_initial_state)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
@@ -1492,7 +1503,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         output, assistant = self._run_assistant_graph(
-            test_graph=AssistantGraph(self.team)
+            test_graph=AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
