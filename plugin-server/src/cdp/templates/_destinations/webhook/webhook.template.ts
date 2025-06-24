@@ -37,6 +37,7 @@ if (inputs.debug) {
             label: 'Webhook URL',
             secret: false,
             required: true,
+            description: 'Endpoint URL to send event data to.',
         },
         {
             key: 'method',
@@ -67,6 +68,7 @@ if (inputs.debug) {
             ],
             default: 'POST',
             required: false,
+            description: 'HTTP method to use for the request.',
         },
         {
             key: 'body',
@@ -75,6 +77,7 @@ if (inputs.debug) {
             default: { event: '{event}', person: '{person}' },
             secret: false,
             required: false,
+            description: 'JSON payload to send in the request body.',
         },
         {
             key: 'headers',
@@ -83,6 +86,7 @@ if (inputs.debug) {
             secret: false,
             required: false,
             default: { 'Content-Type': 'application/json' },
+            description: 'HTTP headers to send in the request.',
         },
         {
             key: 'debug',

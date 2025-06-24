@@ -468,6 +468,15 @@ async def materialize_model(
             await mark_job_as_failed(job, error_message, logger)
 
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
+
+        elif "Invalid data type for Delta Lake" in error_message:
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+
+            raise CannotCoerceColumnException(
+                f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
+            ) from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
             error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
