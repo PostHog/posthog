@@ -43,7 +43,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 responses=[LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")]
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
             next_state = node.run(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -78,7 +78,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ],
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = node.run(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -125,7 +125,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ],
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = node.run(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -149,7 +149,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_node_reconstructs_conversation(self, mock_model):
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
         self.assertEqual(
             node._construct_and_update_messages_window(state_1, {})[0], [LangchainHumanMessage(content="Hello")]
@@ -174,7 +174,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -215,7 +215,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_node_filters_tool_calls_without_responses(self, mock_model):
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -271,7 +271,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.root.nodes.ChatOpenAI",
             return_value=mock_with_tokens,
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
 
             # Create a state that has hit the hard limit (4 tool calls)
             state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=4)
@@ -295,7 +295,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_token_limit_is_respected(self, mock_model):
         # Trims after 64k
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hi" * 64100, id="1"),
@@ -394,7 +394,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     )
     def test_run_updates_conversation_window(self, mock_model):
         # Mock the model to return a simple response
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
 
         # Create initial state with a large conversation
         initial_state = AssistantState(
@@ -438,7 +438,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             mock_model.bind_tools.return_value = mock_model
             mock_chat_openai.return_value = mock_model
 
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
 
             node._get_model(
                 AssistantState(messages=[HumanMessage(content="show me long recordings")]),
@@ -468,7 +468,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 return_value=("Success", {}),
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             next_state = node.run(state, {})
@@ -488,7 +488,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             fake_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="I'll help with recordings")])
             mock_get_model.return_value = fake_model
 
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             # Test with contextual tools
@@ -515,10 +515,34 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("contextual_tools", config_arg["configurable"])
             self.assertIn("search_session_recordings", config_arg["configurable"]["contextual_tools"])
 
+    def test_node_includes_project_org_user_context_in_prompt_template(self):
+        with (
+            # This test mocks deeper than ideal, and really it should be spying on the actual LLM call, rather than
+            # prompt template construction. However, LangChain's chaining mechanics make it even more painful to
+            # mock the "right" thing, so going for a kludge here.
+            patch("ee.hogai.graph.root.nodes.ChatPromptTemplate.from_messages") as mock_chat_prompt_template,
+            patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai,
+            patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+
+            node.run(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
+
+            mock_chat_prompt_template.assert_called_once()
+            system_content = "\n\n".join(
+                content for role, content in mock_chat_prompt_template.call_args[0][0] if role == "system"
+            )
+            self.assertIn("You are currently in project ", system_content)
+            self.assertIn("The user's name appears to be ", system_content)
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
 
         # Test case 1: Last message is AssistantToolCallMessage - should return "root"
         state_1 = AssistantState(
@@ -556,12 +580,12 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(node.router(state_4), "root")
 
     def test_run_no_assistant_message(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
         self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
 
     def test_run_valid_tool_call(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -584,7 +608,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_insight_type, "trends")
 
     def test_run_valid_contextual_tool_call(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -606,7 +630,14 @@ class TestRootNodeTools(BaseTest):
             return_value=("Success", {}),
         ):
             result = node.run(
-                state, {"configurable": {"contextual_tools": {"search_session_recordings": {"current_filters": {}}}}}
+                state,
+                {
+                    "configurable": {
+                        "team": self.team,
+                        "user": self.user,
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
+                    }
+                },
             )
 
         self.assertIsInstance(result, PartialAssistantState)
@@ -616,7 +647,7 @@ class TestRootNodeTools(BaseTest):
         self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
 
     def test_run_multiple_tool_calls_raises(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -642,7 +673,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
 
     def test_run_increments_tool_count(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -663,7 +694,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_calls_count, 3)  # Should increment by 1
 
     def test_run_resets_tool_count(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
 
         # Test reset when no tool calls in AssistantMessage
         state_1 = AssistantState(messages=[AssistantMessage(content="Hello", tool_calls=[])], root_tool_calls_count=3)
@@ -679,7 +710,7 @@ class TestRootNodeTools(BaseTest):
 class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.mixin = RootNode(self.team)  # Using RootNode since it inherits from RootNodeUIContextMixin
+        self.mixin = RootNode(self.team, self.user)  # Using RootNode since it inherits from RootNodeUIContextMixin
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
@@ -922,7 +953,7 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=[insight])
+        ui_context = MaxContextShape(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 

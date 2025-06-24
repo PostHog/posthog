@@ -21,7 +21,7 @@ class TestTitleGenerator(BaseTest):
             "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
             return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Test Title")]),
         ):
-            node = TitleGeneratorNode(self.team)
+            node = TitleGeneratorNode(self.team, self.user)
             new_state = node.run(
                 AssistantState(messages=[HumanMessage(content="Test Message")]),
                 {"configurable": {"thread_id": self.conversation.id}},
@@ -40,7 +40,7 @@ class TestTitleGenerator(BaseTest):
             "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
             return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="New Title")]),
         ):
-            node = TitleGeneratorNode(self.team)
+            node = TitleGeneratorNode(self.team, self.user)
             new_state = node.run(
                 AssistantState(messages=[HumanMessage(content="Test Message")]),
                 {"configurable": {"thread_id": self.conversation.id}},
@@ -55,7 +55,7 @@ class TestTitleGenerator(BaseTest):
         mock_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="Conversation Title")])
 
         with patch.object(TitleGeneratorNode, "_model", new=Mock(return_value=mock_model)):
-            node = TitleGeneratorNode(self.team)
+            node = TitleGeneratorNode(self.team, self.user)
             new_state = node.run(
                 AssistantState(
                     messages=[
@@ -72,7 +72,7 @@ class TestTitleGenerator(BaseTest):
 
     def test_no_messages_should_skip(self):
         """Test that title generation is skipped when there are no messages in the conversation."""
-        node = TitleGeneratorNode(self.team)
+        node = TitleGeneratorNode(self.team, self.user)
         new_state = node.run(
             AssistantState(messages=[]),
             {"configurable": {"thread_id": self.conversation.id}},

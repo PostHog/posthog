@@ -10,7 +10,6 @@
         "cypress-axe": "^1.5.0",
         "cypress-network-idle": "^1.14.2",
         "cypress-terminal-report": "^6.1.0",
-        "eslint-plugin-posthog": "workspace:*",
         "typescript": "5.2.2"
     },
     "devDependencies": {

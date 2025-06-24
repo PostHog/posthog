@@ -934,7 +934,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         # with session/team ids of your choice and set `local_reads_prod` to True
         session_id = recording.session_id
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_pk=user.pk, team=self.team),
+            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
 
