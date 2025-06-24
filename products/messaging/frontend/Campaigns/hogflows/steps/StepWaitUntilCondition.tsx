@@ -22,8 +22,8 @@ export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
                 type: 'wait_until_condition',
                 on_error: 'continue',
                 config: {
-                    condition: { filter: null },
-                    max_wait_duration: '300s',
+                    condition: { filters: null },
+                    max_wait_duration: '5m',
                 },
             },
             branchEdges: 1,
@@ -53,7 +53,6 @@ function StepWaitUntilConditionConfiguration({
                 <HogFlowDuration
                     value={max_wait_duration}
                     onChange={(value) => {
-                        console.log('value', value)
                         setCampaignActionConfig(action.id, { max_wait_duration: value })
                     }}
                 />
