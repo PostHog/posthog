@@ -77,7 +77,7 @@ interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
     setQuery: (query: DataTableNode) => void
-    /** Custom table columns */
+    /** Custom table columns and export configuration */
     context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
