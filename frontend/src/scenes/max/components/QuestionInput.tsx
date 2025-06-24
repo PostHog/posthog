@@ -2,7 +2,7 @@ import './QuestionInput.scss'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group'
-import clsx from 'clsx'
+
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
@@ -32,7 +32,11 @@ export function QuestionInput(): JSX.Element {
     }, [focusCounter]) // Update focus when focusCounter changes
 
     return (
-        <BaseQuestionInput isFloating={false} textAreaRef={textAreaRef} containerClassName={clsx('px-3 w-full mb-3')}>
+        <BaseQuestionInput
+            isFloating={false}
+            textAreaRef={textAreaRef}
+            containerClassName="px-3 w-full max-w-140 mx-auto"
+        >
             <SuggestionsList />
         </BaseQuestionInput>
     )
