@@ -44,11 +44,25 @@ fun normalizeQueryString(queryString) {
     for (let param in params) {
         if (not empty(param)) {
             let keyValue := splitByString('=', param, 2)
-            let key := keyValue[1]
-            let value := (length(keyValue) > 1) ? keyValue[2] : ''
+            print('keyValue', keyValue)
+            if (length(keyValue) > 1) {
+                let key := keyValue[1]
+                let value := keyValue[2]
+
+                if (match(value, inputs.regex)) {
+                    value := inputs.replaceWith
+                    normalizedParams := arrayPushBack(normalizedParams, concat(key, '=', value))
+                } else {
+                    normalizedParams := arrayPushBack(normalizedParams, param)
+                }
+            } else {
+                normalizedParams := arrayPushBack(normalizedParams, param)
+            }
         }
     }
-    return queryString
+
+    print('normalizedParams', normalizedParams)
+    return arrayStringConcat(normalizedParams, '&')
 }
 
 fun normalizeHash(hash) {
@@ -131,7 +145,6 @@ let normalizedEvent := event
 let urlProperties := splitByString(',', inputs.urlProperties)
 for (let propName in urlProperties) {
     propName := trim(propName)
-    print('propName', propName)
     if (not empty(event.properties?.[propName])) {
         normalizedEvent.properties[propName] := normalizeUrl(event.properties[propName])
     }

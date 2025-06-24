@@ -27,6 +27,14 @@ describe('url-normalization.template', () => {
         await tester.beforeEach()
     })
 
+    const invoke = async (inputs: Record<string, any>, globals: HogFunctionInvocationGlobals): Promise<EventResult> => {
+        const response = await tester.invoke(inputs, globals)
+        expect(response.finished).toBe(true)
+        expect(response.error).toBeUndefined()
+        const result = response.execResult as EventResult
+        return result
+    }
+
     it('should normalize URLs by replacing IDs in path segments', async () => {
         mockGlobals = tester.createGlobals({
             event: {
@@ -36,13 +44,34 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/example.html#accounts/:id/cards')
+    })
+
+    it('should normalize URLs with query parameters', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $current_url: 'https://example.com/example.html?id=120991231290239&test=foo',
+                },
+            },
+        })
+
+        const result = await invoke(commonInputs, mockGlobals)
+        expect(result.properties.$current_url).toBe('https://example.com/example.html?id=:id&test=foo')
+    })
+
+    it('should normalize URLs with hash parameters', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $current_url: 'https://example.com/example.html#id=120991231290239&test=foo',
+                },
+            },
+        })
+
+        const result = await invoke(commonInputs, mockGlobals)
+        expect(result.properties.$current_url).toBe('https://example.com/example.html#id=:id&test=foo')
     })
 
     it('should remove query parameters from URL hash', async () => {
@@ -54,12 +83,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/example.html#accounts/cards')
     })
 
@@ -73,12 +97,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/example.html#/path/to/THE_THING/:id')
     })
 
@@ -92,12 +111,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/?at=c#/currentAccount/:id/transactions')
     })
 
@@ -118,9 +132,6 @@ describe('url-normalization.template', () => {
             mockGlobals
         )
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
         const result = response.execResult as EventResult
         expect(result.properties.$current_url).toBe('https://example.com/index.html#/overview')
     })
@@ -135,12 +146,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/#/currentAccount/:id/transactions')
     })
 
@@ -163,9 +169,6 @@ describe('url-normalization.template', () => {
             },
             mockGlobals
         )
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
 
         const result = response.execResult as EventResult
         expect(result.properties).toMatchInlineSnapshot(`
@@ -200,9 +203,6 @@ describe('url-normalization.template', () => {
             mockGlobals
         )
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
         const result = response.execResult as EventResult
         expect(result.properties).toMatchInlineSnapshot(`
             {
@@ -226,12 +226,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/users/:id/profile')
     })
 
@@ -244,12 +239,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/search?q=test&page=1')
     })
 
@@ -289,12 +279,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/Users/:id/Profile/:id')
     })
 
@@ -307,12 +292,7 @@ describe('url-normalization.template', () => {
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-
-        const result = response.execResult as EventResult
+        const result = await invoke(commonInputs, mockGlobals)
         expect(result.properties.$current_url).toBe('https://example.com/api/v1/users/:id/profile/settings')
     })
 })
