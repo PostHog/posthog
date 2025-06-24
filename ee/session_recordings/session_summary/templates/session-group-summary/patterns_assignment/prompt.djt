@@ -23,8 +23,6 @@ You'll receive a list of summaries of sessions of users visiting a site or an ap
 - session_outcome: The overall outcome of the session
 
 Focus on the `key_actions` field which contains sessions events with their "confusion", "exception", "abandonment" flags. Use this data to assign events, where at least one flag is true/non-null, to a relevant pattern. You SHOULD NOT assign events that aren't confusions, exceptions, or abandonments.
-
-
 </session_summaries_input_format>
 
 <session_summaries_input>
@@ -36,94 +34,112 @@ Focus on the `key_actions` field which contains sessions events with their "conf
 <pattern_assignment_instructions>
 You are tasked with assigning specific problematic events from user session summaries to predefined patterns of user experience issues.
 
-### Step 1: Analyze Patterns 
-For each pattern:
+CRITICAL: Only assign events that have at least ONE of these issue flags:
+- confusion: true
+- exception: "blocking" or "non-blocking" 
+- abandonment: true
 
-1.1. Identify the key Ccharacteristics:
-- Which features/areas are affected
-- What specific user behaviors indicate this pattern
+Events without these flags are included for context only and MUST NOT be assigned to patterns.
 
-1.2. Track tndicators
-- Note all specific indicators that would confirm an event matches this pattern
-- It's allowed to add event to the pattern even if it's doesn't match indicators 1v1, but matches the general theme of the pattern
+# Step 1: Analyze Each Pattern Thoroughly
 
-### Step 2: Screen Session Summaries Events
-For each session summary:
+For each pattern in the input:
 
-2.1. Filter events
+1.1. Understand the Pattern Core
+- Identify the specific user flow or feature affected
+- Note the type of friction (technical failure, UI confusion, workflow abandonment)
+- Understand the impact on user journey and conversion flows
 
-Keep ONLY events that have at least ONE of the following issue flags:
+1.2. Analyze Pattern Indicators
+- Understand all specific behaviors mentioned in indicators
+- Note key URLs, page types, or features mentioned
+- Identify action sequences that signal this pattern
+- Remember: indicators are guidelines, not strict requirements
 
-- `confusion: true` - User showed signs of confusion (rageclicks, repeated attempts, etc.)
-- `exception: "blocking"` or `exception: "non-blocking"` - Technical error occurred
-- `abandonment: true` - User abandoned a flow or task
+1.3. Create Pattern Profile
+- Summarize in your mind: "This pattern occurs when users [action] on [feature/page] and experience [issue type]"
+- Note any specific UI elements, form fields, or buttons mentioned
 
-2.2. Analyze events context
+# Step 2: Process Session Events Systematically
 
-For each filtered event, check if it could match any pattern based on:
+For each session in the input:
 
-- The page/URL where it occurred
-- The action description
-- The type of issue (which flags are set)
-- The surrounding context from the segment
+2.1. Filter for Problematic Events
+- Scan ONLY the key_actions field
+- Keep ONLY events where AT LEAST ONE of these is true:
+  - confusion: true
+  - exception: "blocking" or "non-blocking"
+  - abandonment: true
+- IGNORE all other events completely
 
-### Step 3: Match Events with Patterns
-For each candidate event:
+2.2. Analyze Event Context
+For each filtered event:
+- Note the current_url and identify the feature/flow
+- Read the event description carefully
+- Check which issue flags are set and their values
+- Look at surrounding events in the segment and segment description for context
+- Identify the user's goal based on the segment
 
-3.1. Compare against each pattern's indicators, name, and description
+2.3. Create Event Profile
+- Summarize: "User experienced [issue type] while [action] on [feature/page]"
+- Note any specific elements mentioned (buttons, fields, modals)
 
-3.2. Look for alignment between:
-   - Event location (current_url) and pattern's affected areas
-   - Event description and pattern's described behaviors  
-   - Issue type and pattern's issue type
+# Step 3: Match Events to Patterns
 
-3.3. Only assign if there's strong evidence of a match
+For each problematic event identified in Step 2:
 
-### Step 4: Verification
-Before finalizing assignments:
+3.1. Compare Against Each Pattern
+- Does the event's feature/page match the pattern's affected area?
+- Does the event's issue type align with the pattern's issue type?
+- Does the event description match any pattern indicators?
+- Does the context suggest the same root cause as the pattern?
 
-1. Ensure each assigned event actually has an issue flag
-2. Verify the event's context supports the pattern assignment
-3. Check that similar events are consistently assigned to the same pattern
-4. Remove any assignments based on speculation rather than evidence
+3.2. Evaluate Match Strength
+Strong Match (assign):
+- Event location matches pattern's affected feature
+- Event behavior matches at least one indicator
+- Issue type aligns with pattern description
 
-## Common Pitfalls to Avoid
+Moderate Match (consider carefully):
+- Event is in related feature area
+- Behavior is similar but not exact match to indicators
+- Issue type matches but context differs slightly
 
-✗ DO NOT assign events without issue flags, even if they seem related to a pattern
-✗ DO NOT assign based on vague similarity - require specific indicator matches
-✗ DO NOT assign the same event to multiple patterns
-✗ DO NOT infer or imagine connections not supported by the data
-✗ DO NOT assign events just because they're in the same segment as a matching event
+Weak Match (do not assign):
+- Only vague thematic similarity
+- Different feature area entirely
+- Issue type doesn't align with pattern
 
-## Assignment Guidelines by Pattern Type
+3.3. Make Assignment Decision
+- Only assign if match strength is Strong or clearly Moderate
+- If unsure between patterns, choose the more specific match
+- Never assign the same event to multiple patterns
 
-### Technical Failure Patterns
-- Look for events with `exception: "blocking"` or `exception: "non-blocking"`
-- Match error locations and types to pattern descriptions
-- Consider the impact described in both pattern and event
+# Step 4: Quality Verification
 
-### Confusion/Friction Patterns  
-- Look for events with `confusion: true`
-- Match specific confusion behaviors (rageclicks, repeated attempts)
-- Verify the UI element or flow matches the pattern
+4.1. For Each Pattern's Assignments:
+- Verify every assigned event has a proper active issue flag (confusion/exception/abandonment)
+- Check that assignments are consistent (similar events assigned to same pattern)
+- Ensure assignments match the pattern's core theme
+- Remove any speculative assignments
 
-### Abandonment Patterns
-- Look for events with `abandonment: true`
-- Match the abandoned flow type to the pattern
-- Verify the stage of abandonment aligns with the pattern
+4.2. Cross-Pattern Check:
+- Ensure no event is assigned to multiple patterns
+- Verify related events are grouped appropriately
+- Check that assignment distribution makes sense
 
-## Quality Checks
+4.3. Final Review:
+- Would a product manager looking at these assignments understand the pattern?
+- Are the assignments actionable for fixing the issues?
+- Have you avoided over-interpreting the data?
+</pattern_assignment_instructions>
 
-For each pattern's assignments:
-1. Do all assigned events have at least one issue flag?
-2. Does each assignment have clear supporting evidence?
-3. Are assignments consistent across similar scenarios?
-4. Have you avoided over-assignment based on weak matches?
+<output_format>
+Provide your pattern assignment analysis in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+</output_format>
 
-## Important Notes
-
-- Some patterns may have no matching events in the provided sessions - this is normal
-- Some events may not match any pattern - they should remain unassigned
-- Focus on quality over quantity - only make high-confidence assignments
-- Event IDs must be copied exactly as they appear in the session data
-</event_assignment_instructions>
+<output_example>
+```
+{{ PATTERNS_ASSIGNMENT_EXAMPLE|safe }}
+```
+</output_example>
