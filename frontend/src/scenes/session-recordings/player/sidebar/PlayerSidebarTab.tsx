@@ -4,7 +4,6 @@ import { PlayerInspector } from 'scenes/session-recordings/player/inspector/Play
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { PlayerSidebarDebuggerTab } from './PlayerSidebarDebuggerTab'
 import { playerSidebarLogic } from './playerSidebarLogic'
 import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
 import { PlayerSidebarSessionSummaryTab } from './PlayerSidebarSessionSummaryTab'
