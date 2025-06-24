@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
-import type { HogFlow, HogFlowAction } from './hogflows/types'
+import type { HogFlow, HogFlowAction, HogFlowEdge } from './hogflows/types'
 
 export interface CampaignLogicProps {
     id?: string
@@ -109,7 +109,7 @@ export const campaignLogic = kea<campaignLogicType>([
         campaignLoading: [(s) => [s.originalCampaignLoading], (originalCampaignLoading) => originalCampaignLoading],
         edgesByActionId: [
             (s) => [s.campaign],
-            (campaign): Record<string, HogFlow['edges']> => {
+            (campaign): Record<string, HogFlowEdge[]> => {
                 return campaign.edges.reduce((acc, edge) => {
                     if (!acc[edge.from]) {
                         acc[edge.from] = []
@@ -122,7 +122,7 @@ export const campaignLogic = kea<campaignLogicType>([
                     acc[edge.to].push(edge)
 
                     return acc
-                }, {} as Record<string, HogFlow['edges']>)
+                }, {} as Record<string, HogFlowEdge[]>)
             },
         ],
     }),
