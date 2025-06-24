@@ -35,7 +35,7 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
         <QuestionInput
             isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName="px-3 w-full max-w-140 mx-auto self-center pb-2"
+            containerClassName="px-3 w-full mx-auto self-center pb-2 max-w-[45rem]"
         >
             <SuggestionsList />
         </QuestionInput>
