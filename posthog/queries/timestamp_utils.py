@@ -1,35 +1,38 @@
 from datetime import datetime
-from typing import Union, Optional
+from django.utils import timezone
+from typing import Union
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectQuery
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
-from posthog.queries.util import get_earliest_timestamp
+from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.schema import DataWarehouseNode, ActionsNode, EventsNode
 
 
-def _get_earliest_timestamp_from_data_warehouse(team: Team, node: DataWarehouseNode) -> Optional[datetime]:
+def _get_data_warehouse_earliest_timestamp_query(node: DataWarehouseNode) -> SelectQuery:
     """
-    Get the earliest timestamp from a DataWarehouseNode.
+    Get the select query for the earliest timestamp from a DataWarehouseNode.
 
-    :param team: The team for which to get the earliest timestamp.
     :param node: The DataWarehouseNode containing the table name and timestamp field.
-    :return: The earliest timestamp as a datetime object, or None if no results are found.
+    :return: A SelectQuery object that retrieves the earliest timestamp from the specified data warehouse table.
     """
-    ts_field = ast.Field(chain=[node.timestamp_field])
-    query = ast.SelectQuery(
-        select=[ts_field],
-        distinct=True,
+    return ast.SelectQuery(
+        select=[ast.Call(name="min", args=[ast.Field(chain=[node.timestamp_field])])],
         select_from=ast.JoinExpr(table=ast.Field(chain=[node.table_name])),
-        order_by=[ast.OrderExpr(expr=ts_field, order="ASC")],
-        limit=ast.Constant(value=1),
     )
 
-    result = execute_hogql_query(query=query, team=team)
-    if result and len(result.results) > 0:
-        return result.results[0][0]
 
-    return None
+def _get_events_earliest_timestamp_query() -> SelectQuery:
+    """
+    Get the select query for the earliest timestamp from the events table.
+
+    :return: A SelectQuery object that retrieves the earliest timestamp from the events table.
+    """
+    return ast.SelectQuery(
+        select=[ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+    )
 
 
 def get_earliest_timestamp_from_series(
@@ -43,20 +46,21 @@ def get_earliest_timestamp_from_series(
     :param series: A list of series nodes which can be EventsNode, ActionsNode, or DataWarehouseNode.
     :return: The earliest timestamp as a datetime object.
     """
-    earliest_timestamps = []
-    included_events_ts = False
-    for series_node in series:
-        if isinstance(series_node, DataWarehouseNode):
-            ts = _get_earliest_timestamp_from_data_warehouse(team, series_node)
-            if ts:
-                earliest_timestamps.append(ts)
-        elif isinstance(series_node, EventsNode | ActionsNode) and not included_events_ts:
-            earliest_timestamps.append(get_earliest_timestamp(team_id=team.pk))
-            included_events_ts = True
+    timestamp_queries = [
+        _get_data_warehouse_earliest_timestamp_query(series_node)
+        for series_node in series
+        if isinstance(series_node, DataWarehouseNode)
+    ]
 
-    timestamp = min(earliest_timestamps)
-    if not timestamp:
-        # default to the earliest timestamp from the events table
-        return get_earliest_timestamp(team_id=team.pk)
+    if not timestamp_queries or any(isinstance(series_node, EventsNode | ActionsNode) for series_node in series):
+        timestamp_queries.append(_get_events_earliest_timestamp_query())
 
-    return timestamp
+    query = ast.SelectQuery(
+        select=[ast.Call(name="arrayMin", args=[ast.Array(exprs=timestamp_queries)])],
+    )
+
+    result = execute_hogql_query(query=query, team=team)
+    if result and len(result.results) > 0:
+        return result.results[0][0]
+
+    raise timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
