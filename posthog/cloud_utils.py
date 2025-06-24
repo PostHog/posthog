@@ -20,6 +20,10 @@ def is_cloud() -> bool:
     return bool(settings.CLOUD_DEPLOYMENT)
 
 
+def is_dev_mode() -> bool:
+    return bool(settings.DEBUG)
+
+
 def is_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") is not None
 
@@ -49,16 +53,22 @@ def get_cached_instance_license() -> Optional["License"]:
 
     # TRICKY - The license table may not exist if a migration is running
     license = License.objects.first_valid()
-    if not license:
-        # No license found locally, try to get one from billing service
+
+    # No license found locally, create one for dev mode
+    if not license and is_dev_mode():
         license = License.objects.create(
             key=f"{uuid.uuid4()}::{settings.LICENSE_SECRET_KEY}",
             plan="enterprise",
             valid_until=timezone.now() + timedelta(weeks=52),
         )
-    instance_license_cached = license
-    is_instance_licensed_cached = True
-    return license
+
+    if license:
+        instance_license_cached = license
+        is_instance_licensed_cached = True
+    else:
+        is_instance_licensed_cached = False
+
+    return instance_license_cached
 
 
 # NOTE: This is purely for testing purposes
