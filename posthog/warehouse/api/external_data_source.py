@@ -1147,11 +1147,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "table": name,
                     "should_sync": False,
                     "incremental_fields": [
-                        {"label": column_name, "type": column_name, "field": column_name, "field_type": column_type}
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                         for column_name, column_type in incremental_fields.get(name, [])
                     ],
                     "incremental_available": True,
-                    "incremental_field": incremental_fields[name][0]
+                    "append_available": True,
+                    "incremental_field": incremental_fields[name][0][0]
                     if len(incremental_fields.get(name, [])) > 0
                     else None,
                     "sync_type": None,
