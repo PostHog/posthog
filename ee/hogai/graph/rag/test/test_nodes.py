@@ -94,7 +94,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         )
         mock_get_ui_context.return_value = mock_ui_context
 
-        retriever = InsightRagContextNode(team=self.team)
+        retriever = InsightRagContextNode(team=self.team, user=self.user)
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
 
         assert response is not None
@@ -124,7 +124,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         )
         mock_get_ui_context.return_value = mock_ui_context
 
-        retriever = InsightRagContextNode(team=self.team)
+        retriever = InsightRagContextNode(team=self.team, user=self.user)
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
 
         assert response is not None
