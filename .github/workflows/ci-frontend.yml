@@ -164,8 +164,8 @@ jobs:
 
     frontend-lint:
         name: Frontend linting
-        needs: [changes, frontend-build-and-typegen]
-        runs-on: depot-ubuntu-24.04-4
+        needs: [changes]
+        runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
