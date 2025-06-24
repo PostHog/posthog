@@ -91,7 +91,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
-        setOpenedWithQuery: (query: Node | null) => ({ query }),
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
     }),
     reducers({
@@ -169,7 +168,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
-        openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors(() => ({
@@ -374,8 +372,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     if (!queryFromUrl) {
                         actions.setFreshQuery(true)
                     }
-
-                    actions.setOpenedWithQuery(query)
 
                     eventUsageLogic.actions.reportInsightCreated(query)
                 }
