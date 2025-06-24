@@ -145,12 +145,12 @@ export const urls = {
                 // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
-                    (acc, [key, val]) => ({
-                        ...acc,
-                        // just sends the key and not a value
-                        // e.g., &showInspector not &showInspector=true
-                        [key]: val === true ? null : val,
-                    }),
+                    (acc, [key, val]) =>
+                        Object.assign(acc, {
+                            // just sends the key and not a value
+                            // e.g., &showInspector not &showInspector=true
+                            [key]: val === true ? null : val,
+                        }),
                     {}
                 )
         ).url,

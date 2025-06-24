@@ -393,6 +393,7 @@ def test_add_context_and_filter_events(
 def test_get_paginated_session_events(
     mock_raw_metadata: dict[str, Any],
     mock_events_columns: list[str],
+    mock_team: MagicMock,
     pages_data: list[list[tuple[Any, ...]] | None],
     expected_count: int,
     expected_iterations: int,
@@ -404,7 +405,10 @@ def test_get_paginated_session_events(
     mock_columns = mock_events_columns
     # Prepare mock pages data (add columns to each page)
     processed_pages_data = [(mock_columns, events) if events is not None else (None, None) for events in pages_data]
-    with patch("ee.session_recordings.session_summary.input_data.SessionReplayEvents") as mock_replay_events:
+    with (
+        patch("ee.session_recordings.session_summary.input_data.SessionReplayEvents") as mock_replay_events,
+        patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
+    ):
         # Mock the SessionReplayEvents DB model to return different data for each page
         mock_instance = MagicMock()
         mock_replay_events.return_value = mock_instance
@@ -414,7 +418,7 @@ def test_get_paginated_session_events(
                 get_session_events(
                     session_id=mock_metadata["distinct_id"],
                     session_metadata=mock_metadata,
-                    team=MagicMock(),
+                    team_id=mock_team.id,
                     max_pages=max_pages,
                     items_per_page=items_per_page,
                 )
@@ -422,7 +426,7 @@ def test_get_paginated_session_events(
         result_columns, events = get_session_events(
             session_id=mock_metadata["distinct_id"],
             session_metadata=mock_metadata,
-            team=MagicMock(),
+            team_id=mock_team.id,
             max_pages=max_pages,
             items_per_page=items_per_page,
         )
