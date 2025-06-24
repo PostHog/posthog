@@ -1,11 +1,10 @@
 import { IconBolt } from '@posthog/icons'
-import { Node, Position } from '@xyflow/react'
+import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { BOTTOM_HANDLE_POSITION } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'

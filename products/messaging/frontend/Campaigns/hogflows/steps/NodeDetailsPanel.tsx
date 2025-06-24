@@ -1,6 +1,6 @@
 import { IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
-import { Panel } from '@xyflow/react'
+import { getOutgoers, Panel, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -10,21 +10,23 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from './HogFlowSteps'
 
 export function NodeDetailsPanel(): JSX.Element | null {
-    const { selectedNode } = useValues(hogFlowEditorLogic)
+    const { selectedNode, nodes, edges } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, setCampaignAction } = useActions(hogFlowEditorLogic)
+
+    const { deleteElements } = useReactFlow()
 
     if (!selectedNode) {
         return null
     }
 
-    // const canBeDeleted = (): boolean => {
-    //     const outgoingNodes = getOutgoers(node, nodes, edges)
-    //     if (outgoingNodes.length === 1) {
-    //         return true
-    //     }
+    const canBeDeleted = (): boolean => {
+        const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+        if (outgoingNodes.length === 1) {
+            return true
+        }
 
-    //     return new Set(outgoingNodes.map((node) => node.id)).size === 1
-    // }
+        return new Set(outgoingNodes.map((node) => node.id)).size === 1
+    }
 
     // TODO: Add default "conditions" for filtering people out
 
@@ -41,9 +43,12 @@ export function NodeDetailsPanel(): JSX.Element | null {
                             <LemonButton
                                 size="xsmall"
                                 status="danger"
-                                onClick={() => alert('not implemented')}
+                                onClick={() => {
+                                    void deleteElements({ nodes: [selectedNode] })
+                                    setSelectedNodeId(null)
+                                }}
                                 icon={<IconTrash />}
-                                // disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
+                                disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
                             />
                         )}
                         <LemonButton

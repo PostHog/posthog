@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { Handle, useUpdateNodeInternals } from '@xyflow/react'
+import { Handle, Node, useUpdateNodeInternals } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
@@ -7,7 +7,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
-import { HogFlowStepNodeProps } from './types'
+import { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
 
@@ -40,7 +40,7 @@ function DropzoneNode({ id }: NodeProps): JSX.Element {
 
     useEffect(() => {
         setHighlightedDropzoneNodeId(isHighlighted ? id : null)
-    }, [isHighlighted, setHighlightedDropzoneNodeId])
+    }, [id, isHighlighted, setHighlightedDropzoneNodeId])
 
     return (
         <div
@@ -70,14 +70,33 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
+    const getHandleStyle = (handle: StepViewNodeHandle, node: Node): React.CSSProperties | undefined => {
+        if (handle.type === 'source') {
+            const sourceHandles = node.handles?.filter((h: any) => h.type === 'source') || []
+            const sourceHandleIndex = sourceHandles.findIndex((h: any) => h.id === handle.id)
+            const numSourceHandles = sourceHandles.length
+            return {
+                // Spread out outgoing ports evenly along bottom of nodes
+                left: `${((sourceHandleIndex + 1) / (numSourceHandles + 1)) * 100}%`,
+            }
+        }
+        return undefined
+    }
+
     return (
         <>
-            {node?.handles.map((handle) => (
+            {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
-                <Handle key={handle.id} {...handle} isConnectable={false} />
+                <Handle
+                    key={handle.id}
+                    className="opacity-0"
+                    {...handle}
+                    isConnectable={false}
+                    style={getHandleStyle(handle, node)}
+                />
             ))}
             {Step?.renderNode(props) || (
-                <StepView name={`Error: ${props.data.type} not implemented`} selected={false} handles={[]} />
+                <StepView name={`Error: ${props.data.type} not implemented`} selected={false} />
             )}
         </>
     )

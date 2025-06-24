@@ -3,6 +3,7 @@ import {
     applyEdgeChanges,
     applyNodeChanges,
     EdgeChange,
+    getOutgoers,
     getSmoothStepPath,
     MarkerType,
     NodeChange,
@@ -16,14 +17,14 @@ import { uuid } from 'lib/utils'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
-import { LEFT_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, RIGHT_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
+import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { ToolbarNode } from './HogFlowEditorToolbar'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
-const getEdgeId = (edge: HogFlow['edges'][number]) => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
+const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -182,8 +183,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     handlesByIdByNodeId[edge.source][edge.sourceHandle ?? ''] = {
                         id: edge.sourceHandle,
                         type: 'source',
-                        position: edge.sourceHandle?.includes('continue') ? Position.Right : Position.Left,
-                        ...(edge.sourceHandle?.includes('continue') ? RIGHT_HANDLE_POSITION : LEFT_HANDLE_POSITION),
+                        position: Position.Bottom,
+                        ...BOTTOM_HANDLE_POSITION,
                     }
 
                     handlesByIdByNodeId[edge.target][edge.targetHandle ?? ''] = {
@@ -193,8 +194,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         ...TOP_HANDLE_POSITION,
                     }
                 })
-
-                console.log({ HogFlowedges: hogFlow.edges, edges })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
                     const step = getHogFlowStep(action.type)
@@ -229,6 +228,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             actions.setNodesRaw(formattedNodes)
         },
+
         onNodesDelete: ({ deleted }) => {
             if (deleted.some((node) => node.id === values.selectedNodeId)) {
                 actions.setSelectedNodeId(null)
@@ -236,41 +236,35 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             const deletedNodeIds = deleted.map((node) => node.id)
 
-            // Find all edges connected to the deleted nodes.
-            // All edges that are connected to the deleted node should be deleted and replaced with an edge to the original node.
+            // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
+            const updatedEdges = values.campaign.edges
+                .map((hogFlowEdge) => {
+                    if (deletedNodeIds.includes(hogFlowEdge.to)) {
+                        // Find the deleted node
+                        const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
+                        if (deletedNode) {
+                            // Find the first outgoer of the deleted node
+                            const outgoers = getOutgoers(deletedNode, values.nodes, values.edges)
+                            if (outgoers.length > 0) {
+                                // Change target to the first outgoer
+                                return {
+                                    ...hogFlowEdge,
+                                    to: outgoers[0].id,
+                                }
+                            }
+                        }
+                    }
+                    return hogFlowEdge
+                })
+                .filter(
+                    (hogFlowEdge) =>
+                        !deletedNodeIds.includes(hogFlowEdge.from) && !deletedNodeIds.includes(hogFlowEdge.to)
+                )
 
-            // TODO: Fix this!
-            // const updatedActions = values.campaign.actions
-            //     .filter((action) => !deletedNodeIds.includes(action.id))
-            //     .map((action) => {
-            //         // For each action, update its next_actions to skip deleted nodes
-            //         const updatedNextActions: Record<string, { action_id: string; label?: string }> = {}
+            // Update campaign actions to match the new flow
+            const updatedActions = values.campaign.actions.filter((action) => !deletedNodeIds.includes(action.id))
 
-            //         Object.entries(action.next_actions).forEach(([branch, nextAction]) => {
-            //             if (deletedNodeIds.includes(nextAction.action_id)) {
-            //                 // Find the deleted node's continue action and use that instead
-            //                 const deletedNode = values.campaign.actions.find((a) => a.id === nextAction.action_id)
-            //                 if (deletedNode?.next_actions.continue) {
-            //                     updatedNextActions[branch] = {
-            //                         action_id: deletedNode.next_actions.continue.action_id,
-            //                         label:
-            //                             action.type === deletedNode.type
-            //                                 ? deletedNode.next_actions.continue.label
-            //                                 : undefined,
-            //                     }
-            //                 }
-            //             } else {
-            //                 updatedNextActions[branch] = nextAction
-            //             }
-            //         })
-
-            //         return {
-            //             ...action,
-            //             next_actions: updatedNextActions,
-            //         }
-            //     })
-
-            actions.setCampaignValues({ actions: updatedActions })
+            actions.setCampaignValues({ actions: updatedActions, edges: updatedEdges })
         },
 
         onDragStart: () => {
@@ -329,14 +323,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
 
                 const { action: partialNewAction, branchEdges = 0 } = step.create()
-                // TRICKY: Typing is a bit weird here...
-                const newAction: HogFlowAction = {
+
+                const newAction = {
                     id: `action_${step.type}_${uuid()}`,
                     type: step.type,
                     created_at: Date.now(),
                     updated_at: Date.now(),
                     ...partialNewAction,
-                }
+                } as HogFlowAction
 
                 const edgeToBeReplacedIndex = values.campaign.edges.findIndex(
                     (edge) => getEdgeId(edge) === edgeToInsertNodeInto.id

@@ -34,6 +34,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         'elk.spacing.edgeEdge': `${NODE_GAP}`,
         'elk.spacing.edgeNode': `${NODE_GAP}`,
         'elk.direction': 'DOWN',
+        'elk.layered.nodePlacement.strategy': 'SIMPLE',
         'elk.alignment': 'CENTER',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
         'elk.padding': '[left=0, top=0, right=0, bottom=0]',
@@ -60,7 +61,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
                 properties: {
                     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
                 },
-                ports: [{ id: node.id }, ...handles],
+                ports: [...handles],
             }
         }),
         edges: edges.map((edge) => ({

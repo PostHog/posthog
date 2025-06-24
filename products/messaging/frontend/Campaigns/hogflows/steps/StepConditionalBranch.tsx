@@ -19,7 +19,7 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
     create: () => {
         return {
             action: {
-                name: 'Conditional Branch',
+                name: 'Conditional',
                 description: '',
                 type: 'conditional_branch',
                 on_error: 'continue',
@@ -61,7 +61,6 @@ function StepConditionalBranchConfiguration({
     const { setCampaignAction, setCampaignEdges } = useActions(hogFlowEditorLogic)
 
     const edges = edgesByActionId[action.id]
-    const branchEdges = edges.filter((edge) => edge.type === 'branch' && edge.from === action.id)
 
     const setConditions = (
         conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
@@ -100,7 +99,7 @@ function StepConditionalBranchConfiguration({
     return (
         <>
             <div className="flex flex-col">
-                <p className="mb-1 text-lg font-semibold">Conditional Branch</p>
+                <p className="mb-1 text-lg font-semibold">Conditional branch</p>
                 <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
             </div>
 
