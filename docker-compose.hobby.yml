@@ -278,6 +278,8 @@ services:
             service: property-defs-rs
 
     livestream:
+        build:
+            context: ./posthog/rust
         extends:
             file: docker-compose.base.yml
             service: livestream
