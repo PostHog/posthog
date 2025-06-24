@@ -47,7 +47,7 @@ import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schem
 import { isHogQLQuery } from '~/queries/utils'
 import { ProductKey } from '~/types'
 
-import { ContextSummary } from './ContextTags'
+import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -173,6 +173,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                     <ContextSummary
                                         insights={message.ui_context.insights}
                                         dashboards={message.ui_context.dashboards}
+                                        events={message.ui_context.events}
+                                        actions={message.ui_context.actions}
                                         useCurrentPageContext={false}
                                     />
                                 )}
