@@ -191,12 +191,6 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Verify it has the expected name
         assert response.json()["name"] == template.name
 
-        # Verify non-existent template returns 404
-        response_missing = self.client.get(
-            "/api/projects/@current/hog_function_templates/non-existent-template?db_templates=true"
-        )
-        assert response_missing.status_code == status.HTTP_404_NOT_FOUND
-
     def test_get_specific_missing_template_from_db(self):
         """Test retrieving a specific template from the database via API"""
         # Verify non-existent template returns 404
