@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { HogFlowActionResult } from './types'
@@ -9,9 +10,15 @@ type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
 
 export class HogFlowActionRunnerWaitUntilTimeWindow {
-    run(action: Action): HogFlowActionResult {
+    run(invocation: CyclotronJobInvocationHogFlow, action: Action): HogFlowActionResult {
         const now = DateTime.utc().setZone(action.config.timezone)
         const nextTime = this.getNextValidTime(now, action.config)
+
+        if (invocation.state.mockDelays) {
+            return {
+                done: true,
+            }
+        }
 
         return {
             done: true,

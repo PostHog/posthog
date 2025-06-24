@@ -14,7 +14,7 @@ export class HogFlowActionRunnerDelay {
             invocation.state.currentAction?.startedAtTimestamp
         )
 
-        if (scheduledAt && !invocation.state.mockDelays) {
+        if (scheduledAt) {
             return {
                 done: false,
                 scheduledAt,

@@ -46,7 +46,7 @@ export class HogFlowActionRunnerConditionalBranch {
                 DEFAULT_WAIT_DURATION_SECONDS
             )
 
-            if (scheduledAt) {
+            if (scheduledAt && !invocation.state.mockDelays) {
                 return {
                     done: false,
                     scheduledAt,

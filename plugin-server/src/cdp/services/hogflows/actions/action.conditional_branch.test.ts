@@ -102,6 +102,15 @@ describe('HogFlowActionRunnerCondition', () => {
                 })
             })
 
+            it('should return done immediately when mockDelays is enabled', () => {
+                action.config.delay_duration = '2h'
+                invocation.state.mockDelays = true
+                const result = runner.run(invocation, action)
+                expect(result).toEqual({
+                    done: true,
+                })
+            })
+
             it('should throw error if action started at timestamp is invalid', () => {
                 invocation.state.currentAction = undefined
                 action.config.delay_duration = '300s'

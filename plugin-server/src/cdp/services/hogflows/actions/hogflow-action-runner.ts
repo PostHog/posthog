@@ -130,7 +130,7 @@ export class HogFlowActionRunner {
                     actionResult = this.hogFlowActionRunnerConditionalBranch.runWaitUntilCondition(invocation, action)
                     break
                 case 'wait_until_time_window':
-                    actionResult = this.hogFlowActionRunnerWaitUntilTimeWindow.run(action)
+                    actionResult = this.hogFlowActionRunnerWaitUntilTimeWindow.run(invocation, action)
                     break
                 case 'random_cohort_branch':
                     actionResult = this.hogFlowActionRunnerRandomCohortBranch.run(invocation, action)
