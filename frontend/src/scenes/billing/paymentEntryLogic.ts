@@ -125,7 +125,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             }
         },
 
-        pollAuthorizationStatus: async ({ paymentIntentId }, breakpoint) => {
+        pollAuthorizationStatus: async ({ paymentIntentId }) => {
             const pollInterval = 2000 // Poll every 2 seconds
             const maxAttempts = 30 // Max 1 minute of polling (30 * 2 seconds)
             let attempts = 0
@@ -148,8 +148,6 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
-                            // Push success to the url
-                            await breakpoint(1000)
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
                                 success: true,

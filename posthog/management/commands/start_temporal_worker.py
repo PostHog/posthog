@@ -11,6 +11,7 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     BATCH_EXPORTS_TASK_QUEUE,
     DATA_MODELING_TASK_QUEUE,
@@ -178,6 +179,8 @@ class Command(BaseCommand):
         metrics_port = int(options["metrics_port"])
 
         shutdown_task = None
+
+        tag_queries(kind="temporal")
 
         def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
