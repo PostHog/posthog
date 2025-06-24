@@ -126,6 +126,7 @@ class TestEnrichRawSessionSummary:
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
         mock_events_columns: list[str],
+        mock_event_ids_mapping: dict[str, str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
         mock_session_metadata: SessionSummaryMetadata,
@@ -133,16 +134,16 @@ class TestEnrichRawSessionSummary:
     ) -> None:
         assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         result = enrich_raw_session_summary_with_meta(
-            mock_raw_session_summary,
-            mock_events_mapping,
-            mock_events_columns,
-            mock_url_mapping_reversed,
-            mock_window_mapping_reversed,
-            mock_session_id,
-            mock_session_metadata.start_time.isoformat(),
-            mock_session_metadata.duration,
+            raw_session_summary=mock_raw_session_summary,
+            simplified_events_mapping=mock_events_mapping,
+            event_ids_mapping=mock_event_ids_mapping,
+            simplified_events_columns=mock_events_columns,
+            url_mapping_reversed=mock_url_mapping_reversed,
+            window_mapping_reversed=mock_window_mapping_reversed,
+            session_id=mock_session_id,
+            session_start_time_str=mock_session_metadata.start_time.isoformat(),
+            session_duration=mock_session_metadata.duration,
         )
-        # Ensure the enriched content is valid
         assert result.is_valid()
         # Check segments
         segments = result.data["segments"]
@@ -176,6 +177,7 @@ class TestEnrichRawSessionSummary:
         self,
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
+        mock_event_ids_mapping: dict[str, str],
         mock_events_columns: list[str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
@@ -190,20 +192,22 @@ class TestEnrichRawSessionSummary:
             match=f"Mapping data for event_id mnop3456 not found when summarizing session_id {mock_session_id}",
         ):
             enrich_raw_session_summary_with_meta(
-                mock_raw_session_summary,
-                mock_events_mapping,
-                mock_events_columns,
-                mock_url_mapping_reversed,
-                mock_window_mapping_reversed,
-                mock_session_id,
-                mock_session_metadata.start_time.isoformat(),
-                mock_session_metadata.duration,
+                raw_session_summary=mock_raw_session_summary,
+                simplified_events_mapping=mock_events_mapping,
+                event_ids_mapping=mock_event_ids_mapping,
+                simplified_events_columns=mock_events_columns,
+                url_mapping_reversed=mock_url_mapping_reversed,
+                window_mapping_reversed=mock_window_mapping_reversed,
+                session_id=mock_session_id,
+                session_start_time_str=mock_session_metadata.start_time.isoformat(),
+                session_duration=mock_session_metadata.duration,
             )
 
     def test_calculate_segment_meta_missing_event(
         self,
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
+        mock_event_ids_mapping: dict[str, str],
         mock_events_columns: list[str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
@@ -215,15 +219,17 @@ class TestEnrichRawSessionSummary:
         del mock_events_mapping["vbgs1287"]
         # Should not raise an error anymore, but use fallback from key actions
         result = enrich_raw_session_summary_with_meta(
-            mock_raw_session_summary,
-            mock_events_mapping,
-            mock_events_columns,
-            mock_url_mapping_reversed,
-            mock_window_mapping_reversed,
-            mock_session_id,
-            mock_session_metadata.start_time.isoformat(),
-            mock_session_metadata.duration,
+            raw_session_summary=mock_raw_session_summary,
+            simplified_events_mapping=mock_events_mapping,
+            event_ids_mapping=mock_event_ids_mapping,
+            simplified_events_columns=mock_events_columns,
+            url_mapping_reversed=mock_url_mapping_reversed,
+            window_mapping_reversed=mock_window_mapping_reversed,
+            session_id=mock_session_id,
+            session_start_time_str=mock_session_metadata.start_time.isoformat(),
+            session_duration=mock_session_metadata.duration,
         )
+        assert result.is_valid()
         # Verify the result has segments and the missing event was handled
         assert result.data["segments"] is not None
         assert len(result.data["segments"]) > 0
@@ -243,6 +249,7 @@ class TestEnrichRawSessionSummary:
         self,
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
+        mock_event_ids_mapping: dict[str, str],
         mock_events_columns: list[str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
@@ -258,20 +265,22 @@ class TestEnrichRawSessionSummary:
             match=f"Error validating enriched content against the schema when summarizing session_id {mock_session_id}",
         ):
             enrich_raw_session_summary_with_meta(
-                mock_raw_session_summary,
-                mock_events_mapping,
-                mock_events_columns,
-                mock_url_mapping_reversed,
-                mock_window_mapping_reversed,
-                mock_session_id,
-                mock_session_metadata.start_time.isoformat(),
-                mock_session_metadata.duration,
+                raw_session_summary=mock_raw_session_summary,
+                simplified_events_mapping=mock_events_mapping,
+                event_ids_mapping=mock_event_ids_mapping,
+                simplified_events_columns=mock_events_columns,
+                url_mapping_reversed=mock_url_mapping_reversed,
+                window_mapping_reversed=mock_window_mapping_reversed,
+                session_id=mock_session_id,
+                session_start_time_str=mock_session_metadata.start_time.isoformat(),
+                session_duration=mock_session_metadata.duration,
             )
 
     def test_enrich_raw_session_summary_missing_url(
         self,
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
+        mock_event_ids_mapping: dict[str, str],
         mock_events_columns: list[str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
@@ -283,20 +292,22 @@ class TestEnrichRawSessionSummary:
         mock_url_mapping_reversed.pop("url_1")
         # Some events are missing URLs (for example, coming from BE, like Python SDK ones), so enrichment should not fail
         enrich_raw_session_summary_with_meta(
-            mock_raw_session_summary,
-            mock_events_mapping,
-            mock_events_columns,
-            mock_url_mapping_reversed,
-            mock_window_mapping_reversed,
-            mock_session_id,
-            mock_session_metadata.start_time.isoformat(),
-            mock_session_metadata.duration,
+            raw_session_summary=mock_raw_session_summary,
+            simplified_events_mapping=mock_events_mapping,
+            event_ids_mapping=mock_event_ids_mapping,
+            simplified_events_columns=mock_events_columns,
+            url_mapping_reversed=mock_url_mapping_reversed,
+            window_mapping_reversed=mock_window_mapping_reversed,
+            session_id=mock_session_id,
+            session_start_time_str=mock_session_metadata.start_time.isoformat(),
+            session_duration=mock_session_metadata.duration,
         )
 
     def test_enrich_raw_session_summary_missing_window_id(
         self,
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
+        mock_event_ids_mapping: dict[str, str],
         mock_events_columns: list[str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
@@ -308,20 +319,22 @@ class TestEnrichRawSessionSummary:
         mock_window_mapping_reversed.pop("window_1")
         # Some events are missing window IDs (for example, coming from BE, like Python SDK ones), so enrichment should not fail
         enrich_raw_session_summary_with_meta(
-            mock_raw_session_summary,
-            mock_events_mapping,
-            mock_events_columns,
-            mock_url_mapping_reversed,
-            mock_window_mapping_reversed,
-            mock_session_id,
-            mock_session_metadata.start_time.isoformat(),
-            mock_session_metadata.duration,
+            raw_session_summary=mock_raw_session_summary,
+            simplified_events_mapping=mock_events_mapping,
+            event_ids_mapping=mock_event_ids_mapping,
+            simplified_events_columns=mock_events_columns,
+            url_mapping_reversed=mock_url_mapping_reversed,
+            window_mapping_reversed=mock_window_mapping_reversed,
+            session_id=mock_session_id,
+            session_start_time_str=mock_session_metadata.start_time.isoformat(),
+            session_duration=mock_session_metadata.duration,
         )
 
     def test_enrich_raw_session_summary_chronological_sorting(
         self,
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
+        mock_event_ids_mapping: dict[str, str],
         mock_events_columns: list[str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
@@ -334,14 +347,15 @@ class TestEnrichRawSessionSummary:
         mock_events_mapping["defg4567"][timestamp_index] = "2025-03-31T18:40:38.302000+00:00"  # Earlier timestamp
         assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         result = enrich_raw_session_summary_with_meta(
-            mock_raw_session_summary,
-            mock_events_mapping,
-            mock_events_columns,
-            mock_url_mapping_reversed,
-            mock_window_mapping_reversed,
-            mock_session_id,
-            mock_session_metadata.start_time.isoformat(),
-            mock_session_metadata.duration,
+            raw_session_summary=mock_raw_session_summary,
+            simplified_events_mapping=mock_events_mapping,
+            event_ids_mapping=mock_event_ids_mapping,
+            simplified_events_columns=mock_events_columns,
+            url_mapping_reversed=mock_url_mapping_reversed,
+            window_mapping_reversed=mock_window_mapping_reversed,
+            session_id=mock_session_id,
+            session_start_time_str=mock_session_metadata.start_time.isoformat(),
+            session_duration=mock_session_metadata.duration,
         )
         assert result.is_valid()
         # Check that events are sorted chronologically
@@ -356,6 +370,7 @@ class TestEnrichRawSessionSummary:
         self,
         mock_raw_session_summary: RawSessionSummarySerializer,
         mock_events_mapping: dict[str, list[Any]],
+        mock_event_ids_mapping: dict[str, str],
         mock_events_columns: list[str],
         mock_url_mapping_reversed: dict[str, str],
         mock_window_mapping_reversed: dict[str, str],
@@ -364,14 +379,15 @@ class TestEnrichRawSessionSummary:
     ) -> None:
         assert mock_session_metadata.start_time is not None and mock_session_metadata.duration is not None
         result = enrich_raw_session_summary_with_meta(
-            mock_raw_session_summary,
-            mock_events_mapping,
-            mock_events_columns,
-            mock_url_mapping_reversed,
-            mock_window_mapping_reversed,
-            mock_session_id,
-            mock_session_metadata.start_time.isoformat(),
-            mock_session_metadata.duration,
+            raw_session_summary=mock_raw_session_summary,
+            simplified_events_mapping=mock_events_mapping,
+            event_ids_mapping=mock_event_ids_mapping,
+            simplified_events_columns=mock_events_columns,
+            url_mapping_reversed=mock_url_mapping_reversed,
+            window_mapping_reversed=mock_window_mapping_reversed,
+            session_id=mock_session_id,
+            session_start_time_str=mock_session_metadata.start_time.isoformat(),
+            session_duration=mock_session_metadata.duration,
         )
         assert result.is_valid()
 

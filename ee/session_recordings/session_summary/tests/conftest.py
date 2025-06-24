@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from datetime import datetime, UTC
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
+from ee.session_recordings.session_summary.utils import generate_full_event_id
 from posthog.models import Team, User
 from ee.session_recordings.session_summary.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
@@ -543,6 +544,19 @@ def mock_filtered_events(
     """
     column_indices = [mock_raw_events_columns.index(col) for col in mock_filtered_events_columns]
     return [tuple(event[i] for i in column_indices) for event in mock_raw_events]
+
+
+@pytest.fixture
+def mock_event_ids_mapping(mock_session_id: str) -> dict[str, str]:
+    return {
+        "abcd1234": generate_full_event_id(mock_session_id, "00000000-0000-0000-0001-000000000001"),
+        "defg4567": generate_full_event_id(mock_session_id, "00000000-0000-0000-0001-000000000002"),
+        "vbgs1287": generate_full_event_id(mock_session_id, "00000000-0000-0000-0001-000000000003"),
+        "gfgz6242": generate_full_event_id(mock_session_id, "00000000-0000-0000-0001-000000000004"),
+        "ghij7890": generate_full_event_id(mock_session_id, "00000000-0000-0000-0001-000000000005"),
+        "mnop3456": generate_full_event_id(mock_session_id, "00000000-0000-0000-0001-000000000006"),
+        "stuv9012": generate_full_event_id(mock_session_id, "00000000-0000-0000-0001-000000000007"),
+    }
 
 
 @pytest.fixture
