@@ -369,15 +369,19 @@ export function OverViewTab({
                     dropdownMatchSelectWidth={false}
                     size="small"
                     onChange={(status) => {
+                        const { active, ...restFilters } = filters
                         if (status === 'all') {
                             if (filters) {
-                                const { active, ...restFilters } = filters
                                 setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                             }
                         } else if (status === 'STALE') {
-                            setFeatureFlagsFilters({ active: 'STALE', page: 1 })
+                            if (filters) {
+                                setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
+                            }
                         } else {
-                            setFeatureFlagsFilters({ active: status, page: 1 })
+                            if (filters) {
+                                setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
+                            }
                         }
                     }}
                     options={[
