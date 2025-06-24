@@ -20,7 +20,6 @@ env:
     EMAIL_HOST: email.test.posthog.net
     SITE_URL: http://localhost:8000
     NO_RESTART_LOOP: 1
-    CLICKHOUSE_SECURE: 0
     OBJECT_STORAGE_ENABLED: 1
     OBJECT_STORAGE_ENDPOINT: http://localhost:19000
     OBJECT_STORAGE_ACCESS_KEY_ID: object_storage_root_user
@@ -28,6 +27,9 @@ env:
     GITHUB_ACTION_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     CELERY_METRICS_PORT: 8999
     CLOUD_DEPLOYMENT: 1
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
