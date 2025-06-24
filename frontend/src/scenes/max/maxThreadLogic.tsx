@@ -492,7 +492,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
-        inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+        inputDisabled: [
+            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted],
+            (formPending, threadLoading, dataProcessingAccepted) =>
+                // Input unavailable when:
+                // - Answer must be provided using a form returned by Max only
+                // - We are awaiting user to approve or reject external AI processing data
+                formPending || (threadLoading && !dataProcessingAccepted),
+        ],
 
         submissionDisabledReason: [
             (s) => [s.formPending, s.question, s.threadLoading, s.activeStreamingThreads],

@@ -156,7 +156,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 loading={threadLoading && !dataProcessingAccepted}
                                 disabledReason={
                                     threadLoading && !dataProcessingAccepted
-                                        ? 'Pending data processing approval'
+                                        ? 'Pending approval'
                                         : submissionDisabledReason
                                 }
                                 size="small"
