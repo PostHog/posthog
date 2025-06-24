@@ -1336,7 +1336,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id)
             }
         },
-        updateDashboardItems: async ({ tiles, action, manualDashboardRefresh }) => {
+        updateDashboardItems: async ({ tiles, action, manualDashboardRefresh }, breakpoint) => {
             const dashboardId: number = props.id
             const sortedInsights = (tiles || values.insightTiles || [])
                 // sort tiles so we poll them in the exact order they are computed on the backend
@@ -1398,6 +1398,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // Execute the fetches with concurrency limit of 4
                 await runWithLimit(fetchSyncInsightFunctions, 4)
+                breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed
 
