@@ -18,7 +18,7 @@ env:
     E2E_TESTING: 1
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
-    SITE_URL: http://localhost:8080
+    SITE_URL: http://localhost:8000
     NO_RESTART_LOOP: 1
     OBJECT_STORAGE_ENABLED: 1
     OBJECT_STORAGE_ENDPOINT: http://localhost:19000
@@ -168,7 +168,7 @@ jobs:
             - name: Wait for PostHog to be ready
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
               with:
-                  resource: http://localhost:8080
+                  resource: http://localhost:8000
                   timeout: 180000
                   interval: 10000
                   verbose: true
