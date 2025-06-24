@@ -84,13 +84,7 @@ export function ResultDetails({
                 if (!('significant' in item)) {
                     return '—'
                 }
-                const label = isBayesianResult(item)
-                    ? item.significant
-                        ? 'Decisive'
-                        : 'Inconclusive'
-                    : item.significant
-                    ? 'Yes'
-                    : 'No'
+                const label = item.significant ? 'Yes' : 'No'
                 return item.significant ? <div className="text-success font-semibold">{label}</div> : label
             },
         },
