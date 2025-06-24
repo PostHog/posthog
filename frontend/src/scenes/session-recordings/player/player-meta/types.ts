@@ -11,6 +11,8 @@ export interface SessionKeyAction {
     event?: string | null
     event_type?: string | null
     event_index?: number | null
+    event_uuid?: string | null
+    session_id?: string | null
 }
 
 export interface SessionSegmentKeyActions {

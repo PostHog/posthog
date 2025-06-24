@@ -162,12 +162,12 @@ class TestStreamLlmSummaryActivity:
         mock_stream_llm: Callable,
         mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
+        mock_session_id: str,
         redis_test_setup: RedisTestContext,
     ):
-        session_id = "test_session_id"
-        llm_input_data = mock_single_session_summary_llm_inputs(session_id)
+        llm_input_data = mock_single_session_summary_llm_inputs(mock_session_id)
         compressed_llm_input_data = compress_llm_input_data(llm_input_data)
-        input_data = mock_single_session_summary_inputs(session_id)
+        input_data = mock_single_session_summary_inputs(mock_session_id)
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
@@ -238,6 +238,7 @@ class TestSummarizeSingleSessionWorkflow:
 
     def setup_workflow_test(
         self,
+        mock_session_id: str,
         mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         redis_test_setup: RedisTestContext,
@@ -245,7 +246,9 @@ class TestSummarizeSingleSessionWorkflow:
         session_id_suffix: str = "",
     ) -> tuple[str, str, SingleSessionSummaryInputs, str, str]:
         # Prepare test data
-        session_id = f"test_workflow_session_id{session_id_suffix}"
+        session_id = mock_session_id
+        if session_id_suffix:
+            session_id = f"{session_id}-{session_id_suffix}"
         compressed_llm_input_data = compress_llm_input_data(mock_single_session_summary_llm_inputs(session_id))
         redis_input_key = f"test_workflow_input_key_{uuid.uuid4()}"
         redis_output_key = f"test_workflow_output_key_{uuid.uuid4()}"
@@ -256,6 +259,8 @@ class TestSummarizeSingleSessionWorkflow:
         redis_test_setup.setup_input_data(compressed_llm_input_data, redis_input_key, redis_output_key)
         # Prepare expected final summary
         expected_final_summary = json.dumps(mock_enriched_llm_json_response)
+        if session_id != mock_session_id:
+            expected_final_summary = expected_final_summary.replace(mock_session_id, session_id)
         expected_sse_final_summary = serialize_to_sse_event(
             event_label="session-summary-stream", event_data=expected_final_summary
         )
@@ -356,6 +361,7 @@ class TestSummarizeSingleSessionWorkflow:
     async def test_summarize_session_workflow(
         self,
         mocker: MockerFixture,
+        mock_session_id: str,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
         mock_single_session_summary_llm_inputs: Callable,
@@ -374,6 +380,7 @@ class TestSummarizeSingleSessionWorkflow:
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         _, workflow_id, workflow_input, expected_final_summary, _ = self.setup_workflow_test(
+            mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
@@ -405,6 +412,7 @@ class TestSummarizeSingleSessionWorkflow:
     @pytest.mark.asyncio
     async def test_summarize_session_workflow_with_activity_retry(
         self,
+        mock_session_id: str,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
         mock_single_session_summary_llm_inputs: Callable,
@@ -418,11 +426,12 @@ class TestSummarizeSingleSessionWorkflow:
     ):
         """Test that the workflow retries when stream_llm_summary_activity fails initially, but succeeds eventually."""
         _, workflow_id, workflow_input, expected_final_summary, _ = self.setup_workflow_test(
+            mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
             mock_enriched_llm_json_response,
-            "_retry",
+            "retry",
         )
         # Track Redis get calls to simulate failure on first attempt
         redis_get_call_count = 0
@@ -462,6 +471,7 @@ class TestSummarizeSingleSessionWorkflow:
     @pytest.mark.asyncio
     async def test_summarize_session_workflow_exceeds_retries(
         self,
+        mock_session_id: str,
         mock_stream_llm: Callable,
         mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
@@ -475,11 +485,12 @@ class TestSummarizeSingleSessionWorkflow:
     ):
         """Test that the workflow retries when stream_llm_summary_activity and fails, as it exceeds the retries limit."""
         _, workflow_id, workflow_input, _, _ = self.setup_workflow_test(
+            mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
             mock_enriched_llm_json_response,
-            "_exceeds_retries",
+            "exceeds_retries",
         )
         # Track Redis get calls to simulate failure on first attempt
         redis_get_call_count = 0
@@ -526,6 +537,7 @@ class TestSummarizeSingleSessionWorkflow:
         self,
         invalid_arg: str,
         expected_error_type: str,
+        mock_session_id: str,
         mock_stream_llm: Callable,
         mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
@@ -539,11 +551,12 @@ class TestSummarizeSingleSessionWorkflow:
     ):
         """Test that the workflow properly handles incorrect argument types by failing or timing out during argument processing."""
         self.setup_workflow_test(
+            mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
             mock_enriched_llm_json_response,
-            "_incorrect_type",
+            "incorrect_type",
         )
         async with self.workflow_test_environment(
             mock_stream_llm,
