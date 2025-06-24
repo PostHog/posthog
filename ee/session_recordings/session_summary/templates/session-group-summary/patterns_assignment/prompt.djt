@@ -1,5 +1,6 @@
 <patterns_input_format>
 You'll receive a list of extracted patterns in YAML format. Each pattern includes:
+
 - pattern_id: Unique identifier for the pattern
 - pattern_name: Concise name describing the reccuring issue
 - pattern_description: Detailed explanation of the pattern and its impact
@@ -35,6 +36,7 @@ Focus on the `key_actions` field which contains sessions events with their "conf
 You are tasked with assigning specific problematic events from user session summaries to predefined patterns of user experience issues.
 
 CRITICAL: Only assign events that have at least ONE of these issue flags:
+
 - confusion: true
 - exception: "blocking" or "non-blocking" 
 - abandonment: true
@@ -70,6 +72,8 @@ For each session in the input:
   - confusion: true
   - exception: "blocking" or "non-blocking"
   - abandonment: true
+- Rage-clicks following errors might be symptoms, not separate issues
+- Multiple rapid events might represent a single user frustration moment
 - IGNORE all other events completely
 
 2.2. Analyze Event Context
@@ -112,8 +116,9 @@ Weak Match (do not assign):
 
 3.3. Make Assignment Decision
 - Only assign if match strength is Strong or clearly Moderate
-- If unsure between patterns, choose the more specific match
+- If an event strongly matches multiple patterns, assign to the most specific pattern
 - Never assign the same event to multiple patterns
+- If uncertain, prefer no assignment over incorrect assignment
 
 # Step 4: Quality Verification
 
@@ -128,10 +133,16 @@ Weak Match (do not assign):
 - Verify related events are grouped appropriately
 - Check that assignment distribution makes sense
 
-4.3. Final Review:
+4.3. Validate Event IDs:
+- Copy event_id strings EXACTLY as they appear in session data
+- Double-check no typos or modifications
+
+4.4. Final Review:
 - Would a product manager looking at these assignments understand the pattern?
 - Are the assignments actionable for fixing the issues?
 - Have you avoided over-interpreting the data?
+
+Revise your analysis if any inconsistencies are found.
 </pattern_assignment_instructions>
 
 <output_format>
