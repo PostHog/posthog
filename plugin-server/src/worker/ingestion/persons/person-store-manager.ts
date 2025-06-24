@@ -267,6 +267,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.addDistinctId(person, distinctId, version, tx)
 
+        // Cache the person for this new distinct ID in secondary store
+        this.secondaryStore.setCachedPersonForUpdate(person.team_id, distinctId, fromInternalPerson(person, distinctId))
+
         // Track that this distinct ID now points to the person
         this.updateFinalState(person.team_id, distinctId, person, false, 'addDistinctId')
 
