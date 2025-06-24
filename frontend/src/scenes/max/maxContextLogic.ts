@@ -164,7 +164,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             // Always reset context if pathname or search params changed
             if (
                 currentLocation?.pathname !== previousLocation.location?.pathname ||
-                !objectsEqual({ ...currentSearchParams }, previousLocation.searchParams || {})
+                !objectsEqual({ ...currentSearchParams }, { ...previousLocation.searchParams })
             ) {
                 shouldResetContext()
                 return
