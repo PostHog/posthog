@@ -9544,9 +9544,16 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
-            "required": ["kind", "event", "properties"],
+            "required": ["event", "kind", "properties"],
             "type": "object"
         },
         "ExperimentExposureCriteria": {
@@ -9675,11 +9682,18 @@
                 "name": {
                     "type": "string"
                 },
+                "response": {
+                    "type": "object"
+                },
                 "series": {
                     "items": {
                         "$ref": "#/definitions/ExperimentFunnelMetricStep"
                     },
                     "type": "array"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "series"],
@@ -9871,10 +9885,17 @@
                 "name": {
                     "type": "string"
                 },
+                "response": {
+                    "type": "object"
+                },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
                 "upper_bound_percentile": {
+                    "type": "number"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
@@ -9926,6 +9947,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind"],
@@ -13574,12 +13602,40 @@
                 }
             ]
         },
+        "MaxActionContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "MaxContextShape": {
             "additionalProperties": false,
             "properties": {
+                "actions": {
+                    "items": {
+                        "$ref": "#/definitions/MaxActionContext"
+                    },
+                    "type": "array"
+                },
                 "dashboards": {
                     "items": {
                         "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/MaxEventContext"
                     },
                     "type": "array"
                 },
@@ -13611,14 +13667,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/integer"
-                        }
-                    ]
+                    "type": "number"
                 },
                 "insights": {
                     "items": {
@@ -13631,6 +13680,22 @@
                 }
             },
             "required": ["id", "insights", "filters"],
+            "type": "object"
+        },
+        "MaxEventContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -13656,14 +13721,7 @@
                     "type": "string"
                 },
                 "id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/integer"
-                        }
-                    ]
+                    "$ref": "#/definitions/InsightShortId"
                 },
                 "name": {
                     "type": "string"
@@ -20701,6 +20759,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["dateRange", "kind", "properties"],

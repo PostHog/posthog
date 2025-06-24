@@ -61,6 +61,10 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
+    def __post_init__(self):
+        if self.team:
+            self.team_id = self.team.id
+
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"
         self.values[key] = value

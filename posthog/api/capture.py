@@ -30,6 +30,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -229,7 +230,7 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             # historical data topic.
             if historical:
                 return KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL
-            return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+            return KAFKA_EVENTS_PLUGIN_INGESTION
 
 
 def log_event(

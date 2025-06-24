@@ -209,7 +209,7 @@ export async function buildInParallel(configs, { onBuildStart, onBuildComplete }
                 })
             )
         )
-    } catch (e) {
+    } catch {
         if (!isDev) {
             process.exit(1)
         }
@@ -317,7 +317,7 @@ export async function buildOrWatch(config) {
                 ? 'Building failed'
                 : 'Rebuilding failed '
 
-        console.log(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
+        console.info(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }
 
     async function runBuild() {
@@ -408,7 +408,7 @@ export async function printResponse(response, { compact = true, color = true, ve
             .filter((l) => !l.match(/^ {3}[^\n]+$/g) && l.trim())
             .join('\n')
     }
-    console.log(text)
+    console.info(text)
 }
 
 let clients = new Set()
@@ -421,11 +421,11 @@ let server
 
 export function startDevServer(absWorkingDir) {
     if (isDev) {
-        console.log(`👀 Starting dev server`)
+        console.info(`👀 Starting dev server`)
         server = startServer({ absWorkingDir })
         return server
     }
-    console.log(`🛳 Starting production build`)
+    console.info(`🛳 Starting production build`)
     return null
 }
 
@@ -434,7 +434,7 @@ export function startServer(opts = {}) {
     const port = opts.port || defaultPort
     const absWorkingDir = opts.absWorkingDir || '.'
 
-    console.log(`🍱 Starting server at http://${host}:${port}`)
+    console.info(`🍱 Starting server at http://${host}:${port}`)
 
     let resolve = null
     let ifPaused = null
@@ -475,7 +475,7 @@ export function startServer(opts = {}) {
         if (req.url.startsWith('/static/')) {
             if (ifPaused) {
                 if (!ifPaused.logged) {
-                    console.log('⌛️ Waiting for build to complete...')
+                    console.info('⌛️ Waiting for build to complete...')
                     ifPaused.logged = true
                 }
                 await ifPaused

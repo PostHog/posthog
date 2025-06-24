@@ -6,6 +6,7 @@ import { QueryDatabaseTreeView } from 'scenes/data-warehouse/editor/sidebar/Quer
 import { urls } from 'scenes/urls'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 
 export function DatabaseTree(): JSX.Element {
     const isOnSqlEditor = router.values.location.pathname.endsWith(urls.sqlEditor())
@@ -29,6 +30,7 @@ export function DatabaseTree(): JSX.Element {
             }
         >
             <QueryDatabaseTreeView />
+            <ViewLinkModal />
         </PanelLayoutPanel>
     )
 }

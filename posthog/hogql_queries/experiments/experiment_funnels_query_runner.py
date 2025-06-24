@@ -57,7 +57,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         # This will be available as labels in Prometheus
         tag_queries(
             query_type="ExperimentFunnelsQuery",
-            experiment_id=str(self.experiment.id),
+            experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
         )

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { campaignsLogicType } from './campaignsLogicType'
-import type { HogFlow } from './Workflows/types'
+import type { HogFlow } from './hogflows/types'
 
 export const campaignsLogic = kea<campaignsLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignsLogic']),

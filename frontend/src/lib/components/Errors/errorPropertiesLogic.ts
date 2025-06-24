@@ -16,6 +16,7 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+import { mightHaveRecording } from '../ViewRecordingButton/ViewRecordingButton'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -59,6 +60,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
+        ],
+        mightHaveRecording: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties) => (properties ? mightHaveRecording(properties) : false),
         ],
         getExceptionFingerprint: [
             (s) => [s.fingerprintRecords],

@@ -55,6 +55,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
+        "Expired API Key provided",
     ],
     ExternalDataSource.Type.POSTGRES: [
         "NoSuchTableError",
