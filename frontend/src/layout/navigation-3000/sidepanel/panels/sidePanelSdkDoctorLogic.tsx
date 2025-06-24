@@ -221,6 +221,15 @@ export type MultipleInitDetection = {
     sessionCount: number
 }
 
+export type FeatureFlagMisconfiguration = {
+    detected: boolean
+    detectedAt: string // timestamp when first detected
+    flagsCalledBeforeLoading: string[] // list of flags called before ready
+    exampleEventId?: string // UUID of a problematic event
+    exampleEventTimestamp?: string // timestamp of the problematic event
+    sessionCount: number
+}
+
 export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
 // Add a cache utility for GitHub API responses
@@ -593,6 +602,155 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
 
+        // Feature flag misconfiguration detection
+        featureFlagMisconfiguration: [
+            {
+                detected: false,
+                detectedAt: '',
+                flagsCalledBeforeLoading: [],
+                sessionCount: 0,
+            } as FeatureFlagMisconfiguration,
+            {
+                loadRecentEventsSuccess: (state, { recentEvents }) => {
+                    // Only look at recent events to avoid cross-contamination
+                    const tenMinutesAgo = Date.now() - 10 * 60 * 1000
+                    const limitedEvents = recentEvents.slice(0, 15)
+
+                    // Filter for feature flag events from the last 10 minutes
+                    const flagEvents = limitedEvents
+                        .filter(
+                            (event) =>
+                                event.event === '$feature_flag_called' &&
+                                event.properties?.$lib === 'web' &&
+                                new Date(event.timestamp).getTime() > tenMinutesAgo
+                        )
+                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+                    // Find PostHog init events (pageviews with $lib initialization)
+                    const initEvents = limitedEvents
+                        .filter(
+                            (event) =>
+                                event.event === '$pageview' &&
+                                event.properties?.$lib === 'web' &&
+                                event.properties?.hasOwnProperty('$lib_version') &&
+                                new Date(event.timestamp).getTime() > tenMinutesAgo
+                        )
+                        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+                    // Group events by session to track timing
+                    const sessionEvents: Record<
+                        string,
+                        { flagEvents: typeof flagEvents; initEvents: typeof initEvents }
+                    > = {}
+
+                    flagEvents.forEach((event) => {
+                        const sessionId = event.properties?.$session_id
+                        if (sessionId) {
+                            if (!sessionEvents[sessionId]) {
+                                sessionEvents[sessionId] = { flagEvents: [], initEvents: [] }
+                            }
+                            sessionEvents[sessionId].flagEvents.push(event)
+                        }
+                    })
+
+                    initEvents.forEach((event) => {
+                        const sessionId = event.properties?.$session_id
+                        if (sessionId) {
+                            if (!sessionEvents[sessionId]) {
+                                sessionEvents[sessionId] = { flagEvents: [], initEvents: [] }
+                            }
+                            sessionEvents[sessionId].initEvents.push(event)
+                        }
+                    })
+
+                    // Detect flags called before PostHog init (no bootstrapping)
+                    const problematicFlags = new Set<string>()
+                    let exampleEventId: string | undefined
+                    let exampleEventTimestamp: string | undefined
+                    const uniqueSessions = new Set<string>()
+
+                    Object.entries(sessionEvents).forEach(
+                        ([sessionId, { flagEvents: sessionFlagEvents, initEvents: sessionInitEvents }]) => {
+                            uniqueSessions.add(sessionId)
+
+                            // If we have flag events but no init events in this session, or flag events before first init
+                            if (sessionFlagEvents.length > 0) {
+                                const firstInitTime =
+                                    sessionInitEvents.length > 0
+                                        ? new Date(sessionInitEvents[0].timestamp).getTime()
+                                        : Infinity
+
+                                sessionFlagEvents.forEach((flagEvent) => {
+                                    const flagTime = new Date(flagEvent.timestamp).getTime()
+
+                                    // Flag called before init or no init at all
+                                    if (flagTime < firstInitTime) {
+                                        const flagName = flagEvent.properties?.$feature_flag
+                                        if (flagName) {
+                                            problematicFlags.add(flagName)
+
+                                            // Capture first example
+                                            if (!exampleEventId && flagEvent.id) {
+                                                exampleEventId = flagEvent.id
+                                                exampleEventTimestamp = flagEvent.timestamp
+                                            }
+                                        }
+                                    }
+                                })
+                            }
+                        }
+                    )
+
+                    // If we detect new problems, update state
+                    if (problematicFlags.size > 0) {
+                        return {
+                            detected: true,
+                            detectedAt: state.detectedAt || new Date().toISOString(),
+                            flagsCalledBeforeLoading: Array.from(
+                                new Set([...state.flagsCalledBeforeLoading, ...Array.from(problematicFlags)])
+                            ),
+                            exampleEventId: exampleEventId || state.exampleEventId,
+                            exampleEventTimestamp: exampleEventTimestamp || state.exampleEventTimestamp,
+                            sessionCount: Math.max(uniqueSessions.size, state.sessionCount),
+                        }
+                    }
+
+                    // Check if issue appears resolved (recent flag events with proper timing)
+                    if (state.detected && problematicFlags.size === 0) {
+                        const recentFlagEvents = flagEvents.slice(-5) // Last 5 flag events
+
+                        if (recentFlagEvents.length >= 3) {
+                            // If recent flag events all have proper timing relative to inits, consider resolved
+                            const hasProperTiming = recentFlagEvents.every((flagEvent) => {
+                                const sessionId = flagEvent.properties?.$session_id
+                                const sessionInits = sessionEvents[sessionId]?.initEvents || []
+
+                                if (sessionInits.length === 0) {
+                                    return false
+                                } // No init events
+
+                                const flagTime = new Date(flagEvent.timestamp).getTime()
+                                const initTime = new Date(sessionInits[0].timestamp).getTime()
+
+                                return flagTime >= initTime // Flag called after init
+                            })
+
+                            if (hasProperTiming) {
+                                return {
+                                    detected: false,
+                                    detectedAt: '',
+                                    flagsCalledBeforeLoading: [],
+                                    sessionCount: 0,
+                                }
+                            }
+                        }
+                    }
+
+                    return state
+                },
+            },
+        ],
+
         sdkVersionsMap: [
             {} as Record<string, SdkVersionInfo>,
             {
@@ -905,8 +1063,16 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         ],
 
         sdkHealth: [
-            (s) => [s.outdatedSdkCount, s.multipleInitSdks],
-            (outdatedSdkCount: number, multipleInitSdks: SdkVersionInfo[]): SdkHealthStatus => {
+            (s) => [s.outdatedSdkCount, s.multipleInitSdks, s.featureFlagMisconfiguration],
+            (
+                outdatedSdkCount: number,
+                multipleInitSdks: SdkVersionInfo[],
+                featureFlagMisconfiguration: FeatureFlagMisconfiguration
+            ): SdkHealthStatus => {
+                // Feature flag misconfiguration is considered a critical issue
+                if (featureFlagMisconfiguration.detected) {
+                    return 'critical'
+                }
                 // Multiple initialization is considered a critical issue
                 if (multipleInitSdks.length > 0) {
                     return 'critical'

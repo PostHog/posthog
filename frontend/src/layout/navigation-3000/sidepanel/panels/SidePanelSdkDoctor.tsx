@@ -34,11 +34,14 @@ const numberToWord = (num: number): string => {
 }
 
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
-    const { sdkHealth, multipleInitSdks } = useValues(sidePanelSdkDoctorLogic)
+    const { sdkHealth, multipleInitSdks, featureFlagMisconfiguration } = useValues(sidePanelSdkDoctorLogic)
 
     const hasMultipleInits = multipleInitSdks.length > 0
+    const hasFlagMisconfiguration = featureFlagMisconfiguration.detected
 
-    const title = hasMultipleInits
+    const title = hasFlagMisconfiguration
+        ? 'Feature flag misconfiguration detected!'
+        : hasMultipleInits
         ? 'SDK initialization issue detected!'
         : sdkHealth !== 'healthy'
         ? 'Outdated SDKs found'
@@ -48,9 +51,9 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
         <Tooltip title={title} placement="left">
             <span {...props}>
                 <IconWithBadge
-                    content={hasMultipleInits ? '!!' : sdkHealth !== 'healthy' ? '!' : '✓'}
+                    content={hasFlagMisconfiguration || hasMultipleInits ? '!!' : sdkHealth !== 'healthy' ? '!' : '✓'}
                     status={
-                        hasMultipleInits
+                        hasFlagMisconfiguration || hasMultipleInits
                             ? 'danger'
                             : sdkHealth === 'critical'
                             ? 'danger'
@@ -147,8 +150,14 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
 }
 
 export function SidePanelSdkDoctor(): JSX.Element {
-    const { sdkVersions, sdkHealth, recentEventsLoading, outdatedSdkCount, multipleInitDetection } =
-        useValues(sidePanelSdkDoctorLogic)
+    const {
+        sdkVersions,
+        sdkHealth,
+        recentEventsLoading,
+        outdatedSdkCount,
+        multipleInitDetection,
+        featureFlagMisconfiguration,
+    } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
     // Group the versions by SDK type (each SDK type gets its own table)
@@ -313,6 +322,79 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         dataIndex: 'url',
                                         render: function RenderUrl(url) {
                                             return <code className="text-xs truncate max-w-48">{url}</code>
+                                        },
+                                    },
+                                ]}
+                                size="small"
+                                className="ph-no-capture"
+                            />
+                        </div>
+                    </Section>
+                )}
+
+                {/* Show warning for feature flag misconfigurations if detected */}
+                {featureFlagMisconfiguration.detected && (
+                    <Section title="Feature flag misconfiguration detected">
+                        <div className="p-3 bg-danger/10 rounded border border-danger/20">
+                            <div className="flex items-start">
+                                <IconWarning className="text-danger text-xl mt-0.5 mr-2 flex-shrink-0" />
+                                <div>
+                                    <p className="font-semibold">Feature flags called before PostHog initialization</p>
+                                    <p className="text-sm mt-1">
+                                        You're calling feature flags before PostHog has finished loading. This can cause
+                                        flags to return incorrect values (usually false) and lead to inconsistent user
+                                        experiences.
+                                    </p>
+                                    <p className="text-sm mt-1">
+                                        To fix this, either use bootstrapping to make flags available immediately, or
+                                        wait for PostHog to load before calling flags using the onFeatureFlags callback.
+                                    </p>
+                                    <div className="mt-2 flex gap-3">
+                                        <Link
+                                            to="https://posthog.com/docs/feature-flags/bootstrapping"
+                                            target="_blank"
+                                            targetBlankIcon
+                                        >
+                                            View bootstrapping docs
+                                        </Link>
+                                        <Link
+                                            to="https://posthog.com/docs/libraries/js/features#waiting-for-flags-to-load"
+                                            target="_blank"
+                                            targetBlankIcon
+                                        >
+                                            onFeatureFlags callback docs
+                                        </Link>
+                                        {featureFlagMisconfiguration.exampleEventId && (
+                                            <Link
+                                                to={`/project/1/events/${
+                                                    featureFlagMisconfiguration.exampleEventId
+                                                }/${encodeURIComponent(
+                                                    featureFlagMisconfiguration.exampleEventTimestamp || ''
+                                                )}`}
+                                                target="_blank"
+                                                targetBlankIcon
+                                            >
+                                                View example event
+                                            </Link>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Table showing the problematic flags */}
+                        <div className="mt-3">
+                            <h4 className="text-sm font-semibold mb-2">Flags called before loading</h4>
+                            <LemonTable
+                                dataSource={featureFlagMisconfiguration.flagsCalledBeforeLoading.map((flag) => ({
+                                    flag,
+                                }))}
+                                columns={[
+                                    {
+                                        title: 'Feature Flag',
+                                        dataIndex: 'flag',
+                                        render: function RenderFlag(flag) {
+                                            return <code className="text-xs">{flag}</code>
                                         },
                                     },
                                 ]}
