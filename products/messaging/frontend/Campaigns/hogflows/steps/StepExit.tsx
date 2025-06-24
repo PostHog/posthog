@@ -7,6 +7,7 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepExit: HogFlowStep<'exit'> = {
     type: 'exit',
+    icon: <IconLeave />,
     renderNode: (props) => <StepExitNode {...props} />,
     renderConfiguration: (node) => <StepExitConfiguration node={node} />,
     create: () => {
@@ -24,11 +25,11 @@ export const StepExit: HogFlowStep<'exit'> = {
 }
 
 function StepExitNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    // TODO: Use node data to render trigger node
-    return <StepView name={data.name} icon={<IconLeave className="text-green-400" />} selected={false} />
+    return <StepView action={data} />
 }
 
-function StepExitConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'exit' }>> }): JSX.Element {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function StepExitConfiguration(_: { node: Node<Extract<HogFlowAction, { type: 'exit' }>> }): JSX.Element {
     return (
         <>
             <div className="flex flex-col">

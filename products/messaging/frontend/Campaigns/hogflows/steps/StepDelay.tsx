@@ -1,4 +1,4 @@
-import { IconDecisionTree } from '@posthog/icons'
+import { IconClock } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
@@ -10,6 +10,7 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepDelay: HogFlowStep<'delay'> = {
     type: 'delay',
+    icon: <IconClock />,
     renderNode: (props) => <StepDelayNode {...props} />,
     renderConfiguration: (node) => <StepDelayConfiguration node={node} />,
     create: () => {
@@ -28,8 +29,7 @@ export const StepDelay: HogFlowStep<'delay'> = {
 }
 
 function StepDelayNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    // TODO: Use node data to render trigger node
-    return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
+    return <StepView action={data} />
 }
 
 function StepDelayConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'delay' }>> }): JSX.Element {

@@ -1,24 +1,40 @@
+import clsx from 'clsx'
+import { useValues } from 'kea'
+
+import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
+import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { HogFlowAction } from '../../types'
+import { getHogFlowStep } from '../HogFlowSteps'
+
 export function StepView({
+    action,
     name,
-    icon,
-    selected,
     children,
 }: {
-    name: string
-    selected: boolean
-    icon?: React.ReactNode
+    action: HogFlowAction
+    name?: string
     children?: React.ReactNode
 }): JSX.Element {
+    const { selectedNode } = useValues(hogFlowEditorLogic)
+    const isSelected = selectedNode?.id === action.id
+
+    const Step = getHogFlowStep(action.type)
+
     return (
         <div
-            // Keep in sync with NODE_WIDTH and NODE_HEIGHT (tailwind will not accept dynamic values)
-            className={`w-[100px] h-[34px] bg-surface-primary border ${
-                selected ? 'border-secondary' : 'border-primary'
-            } rounded p-2 hover:bg-surface-secondary transition-transform duration-300 cursor-pointer`}
+            className={clsx(
+                'p-2 rounded border transition-all cursor-pointer bg-surface-primary',
+                isSelected ? 'border-secondary bg-surface-secondary' : 'hover:bg-surface-secondary'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+            }}
         >
             <div className="flex gap-1 justify-center items-center">
-                {icon}
-                <div className="text-xs">{name}</div>
+                {Step?.icon}
+                <div className="text-xs">{name ?? action.name}</div>
             </div>
             {children}
         </div>

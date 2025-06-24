@@ -33,7 +33,9 @@ export function NodeDetailsPanel(): JSX.Element | null {
         <Panel position="top-right" className="bottom">
             <div className="bg-surface-primary border rounded-md shadow-lg flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-full">
                 <div className="flex justify-between items-center p-2">
-                    <h3 className="mb-0 font-semibold">Edit {selectedNode.data.name} step</h3>
+                    <h3 className="flex gap-1 items-center mb-0 font-semibold">
+                        <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
+                    </h3>
                     <div className="flex gap-1 items-center">
                         {selectedNode.deletable && (
                             <LemonButton

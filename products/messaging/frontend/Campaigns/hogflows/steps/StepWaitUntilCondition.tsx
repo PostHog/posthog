@@ -1,4 +1,4 @@
-import { IconDecisionTree } from '@posthog/icons'
+import { IconClock } from '@posthog/icons'
 import { LemonLabel } from '@posthog/lemon-ui'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
@@ -12,6 +12,7 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
     type: 'wait_until_condition',
+    icon: <IconClock />,
     renderNode: (props) => <StepWaitUntilConditionNode {...props} />,
     renderConfiguration: (node) => <StepWaitUntilConditionConfiguration node={node} />,
     create: () => {
@@ -32,8 +33,7 @@ export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
 }
 
 function StepWaitUntilConditionNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    // TODO: Use node data to render trigger node
-    return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
+    return <StepView action={data} />
 }
 
 function StepWaitUntilConditionConfiguration({

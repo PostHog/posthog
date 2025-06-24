@@ -12,6 +12,7 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
     type: 'conditional_branch',
+    icon: <IconDecisionTree />,
     renderNode: (props) => <StepConditionalBranchNode {...props} />,
     renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
     create: () => {
@@ -43,7 +44,7 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
 }
 
 function StepConditionalBranchNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
+    return <StepView action={data} />
 }
 
 function StepConditionalBranchConfiguration({

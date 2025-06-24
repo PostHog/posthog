@@ -1,4 +1,4 @@
-import { IconDecisionTree } from '@posthog/icons'
+import { IconMessage } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
@@ -8,6 +8,7 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepMessage: HogFlowStep<'message'> = {
     type: 'message',
+    icon: <IconMessage />,
     renderNode: (props) => <StepMessageNode {...props} />,
     renderConfiguration: (node) => <StepMessageConfiguration node={node} />,
     create: () => {
@@ -27,11 +28,11 @@ export const StepMessage: HogFlowStep<'message'> = {
 }
 
 function StepMessageNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    // TODO: Use node data to render trigger node
-    return <StepView name={data.name} icon={<IconDecisionTree className="text-green-400" />} selected={false} />
+    return <StepView action={data} />
 }
 
-function StepMessageConfiguration({}: { node: Node<Extract<HogFlowAction, { type: 'message' }>> }): JSX.Element {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function StepMessageConfiguration(_: { node: Node<Extract<HogFlowAction, { type: 'message' }>> }): JSX.Element {
     return (
         <>
             <p>Coming soon!</p>

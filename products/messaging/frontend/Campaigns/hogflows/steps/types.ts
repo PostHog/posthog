@@ -13,6 +13,7 @@ export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nod
 
 export type HogFlowStep<T extends HogFlowAction['type']> = {
     type: T
+    icon?: React.ReactNode
     renderNode: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
     create: () => {

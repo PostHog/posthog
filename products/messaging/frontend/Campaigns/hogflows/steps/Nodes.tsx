@@ -97,7 +97,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
                 />
             ))}
             {Step?.renderNode(props) || (
-                <StepView name={`Error: ${props.data.type} not implemented`} selected={false} />
+                <StepView action={props.data} name={`Error: ${props.data.type} not implemented`} />
             )}
         </>
     )
