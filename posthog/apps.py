@@ -11,6 +11,9 @@ from posthoganalytics.exception_capture import Integrations
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.utils import get_machine_id, initialize_self_capture_api_token, get_instance_region
 
+# TRICKY: This file requires an import from posthog.tasks.tasks to ensure that the tasks are registered
+import posthog.tasks.tasks  # noqa: F401
+
 
 logger = structlog.get_logger(__name__)
 
