@@ -296,7 +296,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} context={{ refresh: 'force_blocking' }} />
+                                <Query
+                                    query={query}
+                                    setQuery={setQuery}
+                                    context={{ refresh: 'force_blocking', fileNameForExport: cohort.name }}
+                                />
                             )}
                         </div>
                     </>
