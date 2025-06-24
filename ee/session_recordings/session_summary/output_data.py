@@ -17,9 +17,10 @@ class RawKeyActionSerializer(serializers.Serializer):
     event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
-class EnrichedKeyActionSerializer(RawKeyActionSerializer):
+class IntermediateKeyActionSerializer(RawKeyActionSerializer):
     """
-    LLM actions enriched with metadata.
+    Key actions enriched with metadata, but limited set to not feed LLM excessive info
+    when the single summary is not a final step (for example, group summaries)
     """
 
     timestamp = serializers.CharField(max_length=128, required=False, allow_null=True)
@@ -29,6 +30,13 @@ class EnrichedKeyActionSerializer(RawKeyActionSerializer):
     event = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
     event_type = serializers.CharField(max_length=128, required=False, allow_null=True)
     event_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+
+
+class EnrichedKeyActionSerializer(IntermediateKeyActionSerializer):
+    """
+    LLM actions enriched with metadata, expected to be used in the final summary.
+    """
+
     session_id = serializers.CharField(max_length=128, required=False, allow_null=True)
     event_uuid = serializers.CharField(max_length=128, required=False, allow_null=True)
 
@@ -42,12 +50,22 @@ class RawSegmentKeyActionsSerializer(serializers.Serializer):
     events = serializers.ListField(child=RawKeyActionSerializer(), required=False, allow_empty=True, allow_null=True)
 
 
-class EnrichedSegmentKeyActionsSerializer(serializers.Serializer):
+class IntermediateSegmentKeyActionsSerializer(RawSegmentKeyActionsSerializer):
     """
-    Key actions grouped by segment, enriched with metadata.
+    Key actions grouped by segment, enriched with metadata, but limited set to not feed LLM excessive info
+    when the single summary is not a final step (for example, group summaries)
     """
 
-    segment_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    events = serializers.ListField(
+        child=IntermediateKeyActionSerializer(), required=False, allow_empty=True, allow_null=True
+    )
+
+
+class EnrichedSegmentKeyActionsSerializer(IntermediateSegmentKeyActionsSerializer):
+    """
+    Key actions grouped by segment, enriched with metadata, expected to be used in the final summary.
+    """
+
     events = serializers.ListField(
         child=EnrichedKeyActionSerializer(), required=False, allow_empty=True, allow_null=True
     )
@@ -122,9 +140,10 @@ class RawSessionSummarySerializer(serializers.Serializer):
     session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
-class SessionSummarySerializer(serializers.Serializer):
+class IntermediateSessionSummarySerializer(RawSessionSummarySerializer):
     """
-    Session summary enriched with metadata.
+    Session summary enriched with metadata, but limited set to not feed LLM excessive info
+    when the single summary is not a final step (for example, group summaries)
     """
 
     segments = serializers.ListField(
@@ -133,10 +152,16 @@ class SessionSummarySerializer(serializers.Serializer):
     key_actions = serializers.ListField(
         child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
-    segment_outcomes = serializers.ListField(
-        child=SegmentOutcomeSerializer(), required=False, allow_empty=True, allow_null=True
+
+
+class SessionSummarySerializer(IntermediateSessionSummarySerializer):
+    """
+    Session summary enriched with metadata, expected to be used in the final summary.
+    """
+
+    key_actions = serializers.ListField(
+        child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
-    session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
 def load_raw_session_summary_from_llm_content(
