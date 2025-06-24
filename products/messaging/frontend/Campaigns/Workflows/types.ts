@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+const CyclotronJobInput = z.object({
+    // z.object({}) because TS any is not equivalent to z.any(), the latter is optional by default
+    value: z.object({}),
+    templating: z.enum(['hog', 'liquid']).optional(),
+    secret: z.boolean().optional(),
+})
+
 export const HogFlowSchema = z.object({
     id: z.string(),
     team_id: z.number(),
@@ -36,7 +43,6 @@ export const HogFlowSchema = z.object({
     actions: z.array(
         z.object({
             id: z.string(),
-            name: z.string(),
             description: z.string(),
             type: z.enum([
                 'trigger',
@@ -47,7 +53,9 @@ export const HogFlowSchema = z.object({
                 'hog_function',
                 'exit',
             ]),
-            config: z.any(),
+            config: z.object({
+                inputs: z.record(z.string(), CyclotronJobInput),
+            }),
             on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
             created_at: z.number(),
             updated_at: z.number(),
@@ -59,3 +67,4 @@ export const HogFlowSchema = z.object({
 export type HogFlow = z.infer<typeof HogFlowSchema>
 export type HogFlowAction = HogFlow['actions'][number]
 export type HogFlowEdge = HogFlow['edges'][number]
+export type HogFlowActionInput = z.infer<typeof CyclotronJobInput>

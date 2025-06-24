@@ -47,6 +47,9 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
 
     step_conditions_str = ", ".join(step_conditions)
 
+    # Determine funnel order type - default to "ordered" for backward compatibility
+    funnel_order_type = funnel_metric.funnel_order_type or "ordered"
+
     expression = f"""
     if(
         length(
@@ -55,7 +58,7 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
                     {num_steps},
                     {conversion_window_seconds},
                     'first_touch',
-                    'ordered',
+                    '{funnel_order_type}',
                     array(array('')),
                     arraySort(t -> t.1, groupArray(tuple(
                         toFloat({timestamp_field}),

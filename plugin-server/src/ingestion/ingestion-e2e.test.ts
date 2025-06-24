@@ -14,6 +14,17 @@ import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
+// Mock the limiter so it always returns true
+jest.mock('~/utils/token-bucket', () => ({
+    IngestionWarningLimiter: {
+        consume: jest.fn().mockReturnValue(true),
+    },
+}))
+
+const waitForKafkaMessages = async (hub: Hub) => {
+    await hub.db.kafkaProducer.flush()
+}
+
 class EventBuilder {
     private event: Partial<PipelineEvent> = {}
 
@@ -122,7 +133,7 @@ export const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (even
     return events.map(createKafkaMessage)
 }
 
-const testWithTeamIngester = (
+const testWithTeamIngesterBase = (
     name: string,
     testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>,
     pluginServerConfig: Partial<PluginsServerConfig> = {}
@@ -133,7 +144,7 @@ const testWithTeamIngester = (
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
             ...pluginServerConfig,
         })
-        const teamId = Math.floor(Math.random() * 1000000000)
+        const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         const userId = teamId
         const organizationId = new UUIDT().toString()
 
@@ -176,6 +187,30 @@ const testWithTeamIngester = (
     })
 }
 
+const testWithTeamIngester = (
+    name: string,
+    testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>,
+    pluginServerConfig: Partial<PluginsServerConfig> = {}
+) => {
+    describe(name, () => {
+        testWithTeamIngesterBase(`${name} (batch writing disabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'NONE',
+        })
+
+        testWithTeamIngesterBase(`${name} (batch writing enabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'BATCH',
+        })
+
+        testWithTeamIngesterBase(`${name} (batch writing shadow mode enabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'SHADOW',
+            PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 100,
+        })
+    })
+}
+
 describe('Event Pipeline E2E tests', () => {
     beforeAll(async () => {
         await resetTestDatabase()
@@ -198,17 +233,17 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
-            await waitForExpect(async () => {
-                const warnings = await fetchIngestionWarnings(hub, team.id)
-                expect(warnings).toEqual([
-                    expect.objectContaining({
-                        type: 'client_ingestion_warning',
-                        team_id: team.id,
-                        details: expect.objectContaining({ message: 'test message' }),
-                    }),
-                ])
-            })
+            const warnings = await fetchIngestionWarnings(hub, team.id)
+            expect(warnings).toEqual([
+                expect.objectContaining({
+                    type: 'client_ingestion_warning',
+                    team_id: team.id,
+                    details: expect.objectContaining({ message: 'test message' }),
+                }),
+            ])
         })
     })
 
@@ -217,6 +252,8 @@ describe('Event Pipeline E2E tests', () => {
         const events = [new EventBuilder(team).withEvent('test event').withToken(token).build()]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
@@ -240,6 +277,7 @@ describe('Event Pipeline E2E tests', () => {
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+            await waitForKafkaMessages(hub)
             await waitForExpect(async () => {
                 const group = await hub.db.fetchGroup(team.id, 0, groupKey)
                 expect(group).toEqual(
@@ -261,6 +299,8 @@ describe('Event Pipeline E2E tests', () => {
             ]
 
             await ingester.handleKafkaBatch(createKafkaMessages(updateEvents))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const group = await hub.db.fetchGroup(team.id, 0, groupKey)
@@ -305,6 +345,8 @@ describe('Event Pipeline E2E tests', () => {
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+            await waitForKafkaMessages(hub)
+
             await waitForExpect(async () => {
                 const group = await hub.db.fetchGroup(team.id, 0, groupKey)
                 expect(group).toEqual(
@@ -326,6 +368,8 @@ describe('Event Pipeline E2E tests', () => {
             ]
 
             await ingester.handleKafkaBatch(createKafkaMessages(updateEvents))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const group = await hub.db.fetchGroup(team.id, 0, groupKey)
@@ -375,6 +419,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(n)
@@ -405,6 +451,8 @@ describe('Event Pipeline E2E tests', () => {
             }
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
@@ -446,6 +494,8 @@ describe('Event Pipeline E2E tests', () => {
         ]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
@@ -499,6 +549,8 @@ describe('Event Pipeline E2E tests', () => {
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+            await waitForKafkaMessages(hub)
+
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
                 expect(events.length).toEqual(3)
@@ -537,6 +589,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(1)
@@ -551,6 +605,8 @@ describe('Event Pipeline E2E tests', () => {
             const events = [new EventBuilder(team).withEvent('$groupidentify').withProperties({}).build()]
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
@@ -591,6 +647,8 @@ describe('Event Pipeline E2E tests', () => {
 
             // handle 100 events in one batch
             await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
@@ -640,6 +698,8 @@ describe('Event Pipeline E2E tests', () => {
 
             // handle 100 events in one batch
             await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
@@ -1031,6 +1091,8 @@ describe('Event Pipeline E2E tests', () => {
             ])
         )
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(4)
@@ -1052,6 +1114,8 @@ describe('Event Pipeline E2E tests', () => {
                 new EventBuilder(team, thirdDistinctId).withEvent('custom event 3').withProperties({}).build(),
             ])
         )
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
@@ -1078,6 +1142,8 @@ describe('Event Pipeline E2E tests', () => {
             ])
         )
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(5)
@@ -1101,6 +1167,8 @@ describe('Event Pipeline E2E tests', () => {
                     new EventBuilder(team, forthDistinctId).withEvent('custom event 4').withProperties({}).build(),
                 ])
             )
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const persons = await fetchPersons(hub, team.id)
@@ -1126,6 +1194,8 @@ describe('Event Pipeline E2E tests', () => {
                 ])
             )
 
+            await waitForKafkaMessages(hub)
+
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
                 expect(events.length).toBe(6)
@@ -1142,6 +1212,8 @@ describe('Event Pipeline E2E tests', () => {
                         .build(),
                 ])
             )
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
@@ -1178,6 +1250,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const ingestionWarnings = await fetchIngestionWarnings(hub, team.id)
             expect(ingestionWarnings.length).toBe(1)
@@ -1194,6 +1268,9 @@ describe('Event Pipeline E2E tests', () => {
     }
 
     const fetchEvents = async (hub: Hub, teamId: number) => {
+        // Force ClickHouse to merge parts to ensure FINAL consistency
+        await hub.db.clickhouse.querying(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`)
+
         const queryResult = (await hub.db.clickhouse.querying(`
             SELECT *,
                    if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id

@@ -35,6 +35,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
+        setIsZenMode: (isZenMode: boolean) => ({ isZenMode }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -104,6 +105,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
+            },
+        ],
+        isZenMode: [
+            false,
+            { persist: true },
+            {
+                setIsZenMode: (_, { isZenMode }) => isZenMode,
             },
         ],
     })),

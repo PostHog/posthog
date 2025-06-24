@@ -262,7 +262,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     // this is a very loose check, but `http:/blaj` is not valid for PostHog
                     // but survives new URL(http:/blaj)
                     return browserUrl.includes('://')
-                } catch (e) {
+                } catch {
                     return false
                 }
             },
