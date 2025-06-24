@@ -1,29 +1,29 @@
-from typing import cast
+from typing import Any, cast
 
 import pydantic
 from uuid import uuid4
-from django.http import StreamingHttpResponse
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.permissions import IsAuthenticated
 
-from ee.hogai.assistant import Assistant
+
 from ee.hogai.utils.types import AssistantMode, AssistantState
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.renderers import SafeJSONRenderer
 
 
 class InsightsToolCallSerializer(serializers.Serializer):
     query = serializers.CharField(required=True, max_length=1000)
     insight_type = serializers.ChoiceField(choices=["trends", "funnel", "retention", "sql"])
 
-    def validate(self, data):
+    def validate(self, data: dict[str, Any]):
         try:
             tool_call_state = AssistantState(
                 root_tool_call_id=str(uuid4()),
@@ -42,12 +42,19 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = Conversation.objects.all()
 
     permission_classes = [IsAuthenticated]
-    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
+    renderer_classes = [SafeJSONRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
     authentication_classes = [PersonalAPIKeyAuthentication]
 
-    @action(detail=False, methods=["POST"], url_path="create_and_query_insight", required_scopes=["insight:read"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="create_and_query_insight",
+        required_scopes=["insight:read", "query:read"],
+    )
     def create_and_query_insight(self, request: Request, *args, **kwargs):
+        from ee.hogai.assistant import Assistant
+
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
@@ -59,4 +66,5 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             mode=AssistantMode.INSIGHTS_TOOL,
             tool_call_partial_state=serializer.validated_data["state"],
         )
-        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
+
+        return Response(assistant.generate())

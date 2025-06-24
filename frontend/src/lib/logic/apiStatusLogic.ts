@@ -52,7 +52,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                         actions.setTimeSensitiveAuthenticationRequired(true)
                     }
                 }
-            } catch (e) {
+            } catch {
                 // Pass
             }
 

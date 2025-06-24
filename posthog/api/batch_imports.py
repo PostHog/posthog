@@ -3,6 +3,8 @@ from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+import posthoganalytics
+import uuid
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -328,6 +330,27 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         migration = serializer.save()
+
+        source_type = request.data.get("source_type", "unknown")
+        content_type = request.data.get("content_type", "unknown")
+
+        distinct_id = (
+            request.user.distinct_id
+            if request.user.is_authenticated and request.user.distinct_id
+            else str(uuid.uuid4())
+        )
+
+        posthoganalytics.capture(
+            distinct_id,
+            "batch import created",
+            properties={
+                "batch_import_id": migration.id,
+                "source_type": source_type,
+                "content_type": content_type,
+                "team_id": self.team_id,
+                "$process_person_profile": False,
+            },
+        )
 
         response_serializer = BatchImportResponseSerializer(migration)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
