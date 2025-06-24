@@ -617,9 +617,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         setSelectedRecordingId: () => {
             // Close filters when selecting a recording
-            if (values.featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new') {
-                actions.setIsFiltersExpanded(false)
-            }
+            actions.setIsFiltersExpanded(false)
 
             // If we are at the end of the list then try to load more
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)

@@ -6,6 +6,7 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { JSInstallSnippet } from './js-web'
+import { SDK_DEFAULTS_DATE } from './constants'
 
 function EnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -38,6 +39,7 @@ posthog.init(
             ? `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
             : null
     }
+    defaults: '${SDK_DEFAULTS_DATE}'
   }
 )
 

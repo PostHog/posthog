@@ -361,6 +361,11 @@ def append_partition_key_to_table(
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
                     partition_array.append(date.strftime(date_format))
+                elif isinstance(date, datetime.date):
+                    partition_array.append(date.strftime(date_format))
+                elif isinstance(date, str):
+                    date = parser.parse(date)
+                    partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")
             else:
