@@ -21,6 +21,7 @@ import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { HogFlowActionNode } from './types'
+import { HogFlowEditorTestPanel } from './testing/HogFlowEditorTestPanel'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
@@ -71,6 +72,8 @@ function HogFlowEditorContent(): JSX.Element {
                 <HogFlowEditorToolbar />
 
                 <HogFlowEditorDetailsPanel />
+
+                <HogFlowEditorTestPanel />
             </ReactFlow>
         </div>
     )
