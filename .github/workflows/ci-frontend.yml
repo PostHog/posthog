@@ -99,6 +99,10 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:css
 
+            - name: Lint with Oxlint
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend lint:js -f github
+
     frontend-build-and-typegen:
         name: Frontend build and typegen
         needs: changes
@@ -161,53 +165,6 @@ jobs:
                       **/*Type.ts
                       frontend/src/products.tsx
                   retention-days: 1
-
-    frontend-lint:
-        name: Frontend linting
-        needs: [changes, frontend-build-and-typegen]
-        runs-on: depot-ubuntu-24.04-4
-        steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-
-            - name: Download frontend build artifacts
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
-              with:
-                  name: frontend-build
-
-            - name: Install pnpm
-              if: needs.changes.outputs.frontend == 'true'
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-
-            - name: Set up Node.js
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
-              with:
-                  node-version: 18.12.1
-                  cache: 'pnpm'
-
-            - name: Get pnpm cache directory path
-              if: needs.changes.outputs.frontend == 'true'
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
-              if: needs.changes.outputs.frontend == 'true'
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
-
-            - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.frontend == 'true'
-              run: |
-                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Lint with Oxlint
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend lint:js -f github
 
     frontend-toolbar-checks:
         name: Frontend toolbar checks
@@ -367,7 +324,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, frontend-lint, changes]
+        needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, changes]
         runs-on: depot-ubuntu-24.04
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
             needs.changes.outputs.frontend == 'true' && (

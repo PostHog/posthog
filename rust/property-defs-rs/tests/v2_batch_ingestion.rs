@@ -10,7 +10,7 @@ use property_defs_rs::{
     config::Config,
     types::{Event, GroupType, PropertyParentType, Update},
     update_cache::Cache,
-    v2_batch_ingestion::process_batch_v2,
+    v2_batch_ingestion::process_batch,
 };
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -21,7 +21,7 @@ async fn test_simple_batch_write(db: PgPool) {
     // should decompose into 1 event def, 100 event props, 100 prop defs (of event type)
     assert_eq!(updates.len(), 201);
 
-    process_batch_v2(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -64,7 +64,7 @@ async fn test_group_batch_write(db: PgPool) {
     assert_eq!(updates.len(), 201);
 
     // TODO(eli): quick hack - until we refacor the group type hydration on AppContext,
-    // we need to manually do this prior to passing to process_batch_v2 for the test
+    // we need to manually do this prior to passing to process_batch for the test
     // to be realistic to prod behavior.
     updates.iter_mut().for_each({
         |u: &mut Update| {
@@ -78,7 +78,7 @@ async fn test_group_batch_write(db: PgPool) {
             }
         }
     });
-    process_batch_v2(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -111,7 +111,7 @@ async fn test_person_batch_write(db: PgPool) {
     // should decompose into 1 event def, 100 event props, 100 prop defs (50 $set, 50 $set_once props)
     assert_eq!(updates.len(), 201);
 
-    process_batch_v2(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, updates).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
