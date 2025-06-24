@@ -58,6 +58,8 @@ Review all provided session summaries and identify recurring themes across multi
 - **High**: Patterns causing significant user frustration or workflow interruption
 - **Medium**: Patterns creating minor friction but not preventing goal completion
 
+Pattern severity level should be higher if it happens often (medium-level pattern that happens in >50% sessions should be high, but not critical), and lower if it happens rarely (if blocking rendering issue happened 2 times out of 100, it should be high, but not critical).
+
 2.3. Ensure actionability of each pattern, as each pattern must pass the "So what?" test:
 - Can specific UI/UX changes address this pattern?
 - Is the pattern specific enough to guide priorities?
@@ -92,13 +94,7 @@ For each identified pattern, specify:
 - Each indicator should be verifiable in session data
 - Include 2-5 indicators per pattern
 
-## Step 5: Identify Pattern Relationships
-
-- Does one pattern often lead to another?
-- Do certain patterns frequently occur together?
-- What successful workarounds do users employ?
-
-## Step 6: Quality Checks
+## Step 5: Quality Checks
 
 Before finalizing patterns, verify:
 
@@ -113,6 +109,7 @@ Before finalizing patterns, verify:
 4.3. Specificity Check:
 - Is the pattern specific enough to guide improvements?
 - Does it pass "So what?" check?
+- Could a product manager create a specific ticket from this pattern?
 
 4.4. Evidence Check:
 - Is the pattern supported by multiple sessions?
@@ -123,6 +120,8 @@ Before finalizing patterns, verify:
 - Does this pattern affect important user flows?
 - Is it worth prioritizing for improvement?
 - Does it impact conversions, engagement, or user satisfaction?
+
+Revise your analysis if any inconsistencies are found.
 </pattern_extraction_instructions>
 
 <output_format>
