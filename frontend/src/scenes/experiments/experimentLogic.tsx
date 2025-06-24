@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -1045,7 +1045,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
-            } catch (error) {
+            } catch {
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
@@ -1194,7 +1194,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     let isValid
                     try {
                         isValid = featureFlagEligibleForExperiment(matchingFlag)
-                    } catch (error) {
+                    } catch {
                         isValid = false
                     }
                     actions.setValidExistingFeatureFlag(isValid ? matchingFlag : null)

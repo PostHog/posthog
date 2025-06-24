@@ -88,7 +88,7 @@ const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query
 
         const csvData = dataTableRows.map((n) => {
             const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...(record ?? {}), person: record?.name }
+            const recordWithPerson = { ...record, person: record?.name }
 
             return filteredColumns.map((n) => recordWithPerson[n])
         })
@@ -137,7 +137,7 @@ const getJsonTableData = (
 
         return dataTableRows.map((n) => {
             const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...(record ?? {}), person: record?.name }
+            const recordWithPerson = { ...record, person: record?.name }
 
             return filteredColumns.reduce((acc, cur) => {
                 acc[cur] = recordWithPerson[cur]

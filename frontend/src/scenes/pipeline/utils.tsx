@@ -49,7 +49,7 @@ const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     'https://github.com/PostHog/timestamp-parser-plugin',
     'https://github.com/PostHog/user-agent-plugin',
 ]
-export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set([...PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR])
+export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set(PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR)
 
 const GLOBAL_EXPORT_PLUGINS = [
     // export apps

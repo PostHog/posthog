@@ -54,7 +54,7 @@ export function EventPropertyFilters<
             }
             onChange={(value: AnyPropertyFilter[]) => {
                 if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
-                    setQuery?.({ ...query, filters: { ...(query.filters ?? {}), properties: value } })
+                    setQuery?.({ ...query, filters: { ...query.filters, properties: value } })
                 } else {
                     setQuery?.({ ...query, properties: value })
                 }
