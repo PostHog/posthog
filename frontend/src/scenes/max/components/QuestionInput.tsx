@@ -33,9 +33,9 @@ export function QuestionInput(): JSX.Element {
 
     return (
         <BaseQuestionInput
-            isFloating={false}
+            isFloating={true}
             textAreaRef={textAreaRef}
-            containerClassName="px-3 w-full max-w-140 mx-auto"
+            containerClassName="px-3 w-full max-w-140 mx-auto sticky bottom-0 z-10 self-center"
         >
             <SuggestionsList />
         </BaseQuestionInput>
