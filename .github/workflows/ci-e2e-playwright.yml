@@ -18,7 +18,7 @@ env:
     E2E_TESTING: 1
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
-    SITE_URL: http://localhost:8000
+    SITE_URL: http://localhost:8080
     NO_RESTART_LOOP: 1
     OBJECT_STORAGE_ENABLED: 1
     OBJECT_STORAGE_ENDPOINT: http://localhost:19000
