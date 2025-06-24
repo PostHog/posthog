@@ -39,7 +39,6 @@ const MOCK_FLAGS: FeatureFlagType[] = [
             ...NEW_FLAG.filters,
             multivariate: { variants: [{ key: 'a', rollout_percentage: 100 }] },
         },
-        is_simple_flag: false,
         rollout_percentage: null,
     }),
 ]
