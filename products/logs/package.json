@@ -18,6 +18,7 @@
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*",
-        "ansi-colors": "*"
+        "ansi-colors": "*",
+        "@posthog/products-error-tracking": "workspace:*"
     }
 }

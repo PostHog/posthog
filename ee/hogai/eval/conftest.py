@@ -58,10 +58,12 @@ def call_root_for_insight_generation(demo_org_team_user):
 
     insights_subgraph = (
         # Insights subgraph without query execution, so we only create the queries
-        InsightsAssistantGraph(demo_org_team_user[1]).add_query_creation_flow(next_node=AssistantNodeName.END).compile()
+        InsightsAssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
+        .add_query_creation_flow(next_node=AssistantNodeName.END)
+        .compile()
     )
     graph = (
-        AssistantGraph(demo_org_team_user[1])
+        AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         .add_root(
             path_map={

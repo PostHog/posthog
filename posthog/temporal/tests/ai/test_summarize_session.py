@@ -209,7 +209,7 @@ class TestSummarizeSingleSessionWorkflow:
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=constants.MAX_AI_TASK_QUEUE,
                 workflows=WORKFLOWS,
                 activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),
