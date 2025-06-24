@@ -35,7 +35,7 @@ jobs:
 
     build-storybook:
         name: Build Storybook
-        runs-on: ${{ needs.changes.outputs.frontend == 'true' && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
+        runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: changes
         steps:
@@ -126,7 +126,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ${{ needs.changes.outputs.frontend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        runs-on: ubuntu-latest
         needs: [changes, build-storybook]
         timeout-minutes: 20
         container:
@@ -136,32 +136,53 @@ jobs:
             matrix:
                 include:
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 1
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 2
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 3
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 4
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 5
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 6
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 7
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 8
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 9
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 10
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 11
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 12
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 13
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 14
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 15
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 16
                     # WebKit is much faster, so we run with only 3 shards
                     - browser: webkit
                       shard_count: 3
@@ -232,6 +253,48 @@ jobs:
             chromium-9-total: ${{ steps.diff.outputs.chromium-9-total }}
             chromium-9-commitHash: ${{ steps.commit-hash.outputs.chromium-9-commitHash }}
             chromium-9-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-9-pathsFlapping }}
+            chromium-10-added: ${{ steps.diff.outputs.chromium-10-added }}
+            chromium-10-modified: ${{ steps.diff.outputs.chromium-10-modified }}
+            chromium-10-deleted: ${{ steps.diff.outputs.chromium-10-deleted }}
+            chromium-10-total: ${{ steps.diff.outputs.chromium-10-total }}
+            chromium-10-commitHash: ${{ steps.commit-hash.outputs.chromium-10-commitHash }}
+            chromium-10-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-10-pathsFlapping }}
+            chromium-11-added: ${{ steps.diff.outputs.chromium-11-added }}
+            chromium-11-modified: ${{ steps.diff.outputs.chromium-11-modified }}
+            chromium-11-deleted: ${{ steps.diff.outputs.chromium-11-deleted }}
+            chromium-11-total: ${{ steps.diff.outputs.chromium-11-total }}
+            chromium-11-commitHash: ${{ steps.commit-hash.outputs.chromium-11-commitHash }}
+            chromium-11-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-11-pathsFlapping }}
+            chromium-12-added: ${{ steps.diff.outputs.chromium-12-added }}
+            chromium-12-modified: ${{ steps.diff.outputs.chromium-12-modified }}
+            chromium-12-deleted: ${{ steps.diff.outputs.chromium-12-deleted }}
+            chromium-12-total: ${{ steps.diff.outputs.chromium-12-total }}
+            chromium-12-commitHash: ${{ steps.commit-hash.outputs.chromium-12-commitHash }}
+            chromium-12-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-12-pathsFlapping }}
+            chromium-13-added: ${{ steps.diff.outputs.chromium-13-added }}
+            chromium-13-modified: ${{ steps.diff.outputs.chromium-13-modified }}
+            chromium-13-deleted: ${{ steps.diff.outputs.chromium-13-deleted }}
+            chromium-13-total: ${{ steps.diff.outputs.chromium-13-total }}
+            chromium-13-commitHash: ${{ steps.commit-hash.outputs.chromium-13-commitHash }}
+            chromium-13-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-13-pathsFlapping }}
+            chromium-14-added: ${{ steps.diff.outputs.chromium-14-added }}
+            chromium-14-modified: ${{ steps.diff.outputs.chromium-14-modified }}
+            chromium-14-deleted: ${{ steps.diff.outputs.chromium-14-deleted }}
+            chromium-14-total: ${{ steps.diff.outputs.chromium-14-total }}
+            chromium-14-commitHash: ${{ steps.commit-hash.outputs.chromium-14-commitHash }}
+            chromium-14-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-14-pathsFlapping }}
+            chromium-15-added: ${{ steps.diff.outputs.chromium-15-added }}
+            chromium-15-modified: ${{ steps.diff.outputs.chromium-15-modified }}
+            chromium-15-deleted: ${{ steps.diff.outputs.chromium-15-deleted }}
+            chromium-15-total: ${{ steps.diff.outputs.chromium-15-total }}
+            chromium-15-commitHash: ${{ steps.commit-hash.outputs.chromium-15-commitHash }}
+            chromium-15-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-15-pathsFlapping }}
+            chromium-16-added: ${{ steps.diff.outputs.chromium-16-added }}
+            chromium-16-modified: ${{ steps.diff.outputs.chromium-16-modified }}
+            chromium-16-deleted: ${{ steps.diff.outputs.chromium-16-deleted }}
+            chromium-16-total: ${{ steps.diff.outputs.chromium-16-total }}
+            chromium-16-commitHash: ${{ steps.commit-hash.outputs.chromium-16-commitHash }}
+            chromium-16-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-16-pathsFlapping }}
             webkit-1-added: ${{ steps.diff.outputs.webkit-1-added }}
             webkit-1-modified: ${{ steps.diff.outputs.webkit-1-modified }}
             webkit-1-deleted: ${{ steps.diff.outputs.webkit-1-deleted }}
