@@ -1,0 +1,129 @@
+<patterns_input_format>
+You'll receive a list of extracted patterns in YAML format. Each pattern includes:
+- pattern_id: Unique identifier for the pattern
+- pattern_name: Concise name describing the reccuring issue
+- pattern_description: Detailed explanation of the pattern and its impact
+- severity: critical/high/medium indicating the pattern's impact level
+- indicators: List of observable behaviors that confirm this pattern
+
+Use this data to identify which specific events from the sessions match each pattern based on the pattern's indicators and the event's characteristics.
+</patterns_input_format>
+
+<patterns_input>
+{{ PATTERNS|safe }}
+</patterns_input>
+
+<session_summaries_input_format>
+You'll receive a list of summaries of sessions of users visiting a site or an app, using different features, navigating between pages, interacting with different elements, etc. Each session summary represents a single user journey, and is a JSON object with the following fields:
+
+- session_id: The ID of the session
+- segments: A list of segments in the session
+- key_actions: A list of key actions in the session, including regular actions, failures, confussions, and abandonments.
+- segment_outcomes: A list of outcomes for each segment
+- session_outcome: The overall outcome of the session
+
+Focus on the `key_actions` field which contains sessions events with their "confusion", "exception", "abandonment" flags. Use this data to assign events, where at least one flag is true/non-null, to a relevant pattern. You SHOULD NOT assign events that aren't confusions, exceptions, or abandonments.
+
+
+</session_summaries_input_format>
+
+<session_summaries_input>
+```
+{{ SESSION_SUMMARIES|safe }}
+```
+</session_summaries_input>
+
+<pattern_assignment_instructions>
+You are tasked with assigning specific problematic events from user session summaries to predefined patterns of user experience issues.
+
+### Step 1: Analyze Patterns 
+For each pattern:
+
+1.1. Identify the key Ccharacteristics:
+- Which features/areas are affected
+- What specific user behaviors indicate this pattern
+
+1.2. Track tndicators
+- Note all specific indicators that would confirm an event matches this pattern
+- It's allowed to add event to the pattern even if it's doesn't match indicators 1v1, but matches the general theme of the pattern
+
+### Step 2: Screen Session Summaries Events
+For each session summary:
+
+2.1. Filter events
+
+Keep ONLY events that have at least ONE of the following issue flags:
+
+- `confusion: true` - User showed signs of confusion (rageclicks, repeated attempts, etc.)
+- `exception: "blocking"` or `exception: "non-blocking"` - Technical error occurred
+- `abandonment: true` - User abandoned a flow or task
+
+2.2. Analyze events context
+
+For each filtered event, check if it could match any pattern based on:
+
+- The page/URL where it occurred
+- The action description
+- The type of issue (which flags are set)
+- The surrounding context from the segment
+
+### Step 3: Match Events with Patterns
+For each candidate event:
+
+3.1. Compare against each pattern's indicators, name, and description
+
+3.2. Look for alignment between:
+   - Event location (current_url) and pattern's affected areas
+   - Event description and pattern's described behaviors  
+   - Issue type and pattern's issue type
+
+3.3. Only assign if there's strong evidence of a match
+
+### Step 4: Verification
+Before finalizing assignments:
+
+1. Ensure each assigned event actually has an issue flag
+2. Verify the event's context supports the pattern assignment
+3. Check that similar events are consistently assigned to the same pattern
+4. Remove any assignments based on speculation rather than evidence
+
+## Common Pitfalls to Avoid
+
+✗ DO NOT assign events without issue flags, even if they seem related to a pattern
+✗ DO NOT assign based on vague similarity - require specific indicator matches
+✗ DO NOT assign the same event to multiple patterns
+✗ DO NOT infer or imagine connections not supported by the data
+✗ DO NOT assign events just because they're in the same segment as a matching event
+
+## Assignment Guidelines by Pattern Type
+
+### Technical Failure Patterns
+- Look for events with `exception: "blocking"` or `exception: "non-blocking"`
+- Match error locations and types to pattern descriptions
+- Consider the impact described in both pattern and event
+
+### Confusion/Friction Patterns  
+- Look for events with `confusion: true`
+- Match specific confusion behaviors (rageclicks, repeated attempts)
+- Verify the UI element or flow matches the pattern
+
+### Abandonment Patterns
+- Look for events with `abandonment: true`
+- Match the abandoned flow type to the pattern
+- Verify the stage of abandonment aligns with the pattern
+
+## Quality Checks
+
+For each pattern's assignments:
+1. Do all assigned events have at least one issue flag?
+2. Does each assignment have clear supporting evidence?
+3. Are assignments consistent across similar scenarios?
+4. Have you avoided over-assignment based on weak matches?
+
+## Important Notes
+
+- Some patterns may have no matching events in the provided sessions - this is normal
+- Some events may not match any pattern - they should remain unassigned
+- Focus on quality over quantity - only make high-confidence assignments
+- Event IDs must be copied exactly as they appear in the session data
+</event_assignment_instructions>
