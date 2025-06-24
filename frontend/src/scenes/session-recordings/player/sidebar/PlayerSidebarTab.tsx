@@ -16,8 +16,6 @@ export function PlayerSidebarTab(): JSX.Element | null {
             return <PlayerSidebarOverviewTab />
         case SessionRecordingSidebarTab.INSPECTOR:
             return <PlayerInspector />
-        case SessionRecordingSidebarTab.DEBUGGER:
-            return <PlayerSidebarDebuggerTab />
         case SessionRecordingSidebarTab.NETWORK_WATERFALL:
             return <NetworkView />
         case SessionRecordingSidebarTab.SESSION_SUMMARY:
