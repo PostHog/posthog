@@ -63,4 +63,4 @@ def get_earliest_timestamp_from_series(
     if result and len(result.results) > 0:
         return result.results[0][0]
 
-    raise timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+    return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
