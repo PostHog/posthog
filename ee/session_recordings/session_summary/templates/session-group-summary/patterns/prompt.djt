@@ -92,13 +92,13 @@ For each identified pattern, specify:
 - Each indicator should be verifiable in session data
 - Include 2-5 indicators per pattern
 
-## Step 4: Identify Pattern Relationships
+## Step 5: Identify Pattern Relationships
 
 - Does one pattern often lead to another?
 - Do certain patterns frequently occur together?
 - What successful workarounds do users employ?
 
-## Step 5: Quality Checks
+## Step 6: Quality Checks
 
 Before finalizing patterns, verify:
 
@@ -106,16 +106,20 @@ Before finalizing patterns, verify:
 - Are patterns distinct enough from each other?
 - Have you aggressively consolidated similar patterns?
 
-4.2. Specificity Check:
+4.2. Session Coverage Check:
+- Ensure patterns account for major issues in most sessions
+- If many sessions have issues not captured by patterns, revisit analysis
+
+4.3. Specificity Check:
 - Is the pattern specific enough to guide improvements?
 - Does it pass "So what?" check?
 
-4.3. Evidence Check:
+4.4. Evidence Check:
 - Is the pattern supported by multiple sessions?
 - Are the indicators actually present in the data?
 - Have you avoided inferring patterns not supported by evidence?
 
-4.4. Business Impact Check:
+4.5. Business Impact Check:
 - Does this pattern affect important user flows?
 - Is it worth prioritizing for improvement?
 - Does it impact conversions, engagement, or user satisfaction?
