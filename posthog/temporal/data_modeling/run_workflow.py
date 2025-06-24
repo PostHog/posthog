@@ -592,19 +592,23 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     columns_to_cast = {}
 
     for field in schema:
-        if pa.types.is_decimal(field.type):
-            decimal_type = field.type
-            if hasattr(decimal_type, "precision") and decimal_type.precision > 38:
-                columns_to_cast[field.name] = pa.float64()
+        if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
+            if field.type.precision > 38:
+                original_scale = field.type.scale
+                new_scale = min(original_scale, 38 - 1)
+                columns_to_cast[field.name] = (pa.decimal128(38, new_scale), pa.float64())
 
     if not columns_to_cast:
         return batch
 
-    for column_name, new_type in columns_to_cast.items():
+    for column_name, (decimal128_type, float64_type) in columns_to_cast.items():
         column_data = batch[column_name]
-        cast_column = pc.cast(column_data, new_type)
-        array_column = cast_column.combine_chunks()
-        batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, array_column)
+        try:
+            cast_column = pc.cast(column_data, decimal128_type)
+            batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, cast_column)
+        except Exception:
+            cast_column = pc.cast(column_data, float64_type)
+            batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, cast_column)
 
     return batch
 
