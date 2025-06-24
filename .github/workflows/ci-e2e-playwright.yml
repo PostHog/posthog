@@ -41,7 +41,7 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
-        # Set job outputs to values freom filter step
+        # Set job outputs to values from filter step
         outputs:
             shouldRun: ${{ steps.changes.outputs.shouldRun }}
         steps:
