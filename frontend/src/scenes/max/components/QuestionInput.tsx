@@ -1,116 +1,189 @@
-import './QuestionInput.scss'
-
-import { LemonButton } from '@posthog/lemon-ui'
-import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group'
-
+import { offset } from '@floating-ui/react'
+import { IconArrowRight, IconStopFilled } from '@posthog/icons'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
-import { CSSTransition } from 'react-transition-group'
+import { IconTools } from 'lib/lemon-ui/icons'
+import { ReactNode } from 'react'
+import React from 'react'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { maxLogic, SuggestionGroup } from '../maxLogic'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
+import { maxGlobalLogic } from '../maxGlobalLogic'
+import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlaceholders } from '../utils'
-import { BaseQuestionInput } from './BaseQuestionInput'
+import { ContextDisplay } from './ContextDisplay'
 
-export function QuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
-    const { focusCounter } = useValues(maxLogic)
-    const { threadLoading } = useValues(maxThreadLogic)
-
-    const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
-
-    useEffect(() => {
-        if (threadLoading) {
-            textAreaRef.current?.focus() // Focus after submit
-        }
-    }, [threadLoading])
-
-    useEffect(() => {
-        if (textAreaRef.current) {
-            textAreaRef.current.focus()
-            textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
-        }
-    }, [focusCounter]) // Update focus when focusCounter changes
-
-    return (
-        <BaseQuestionInput
-            isSticky={isSticky}
-            textAreaRef={textAreaRef}
-            containerClassName="px-3 w-full max-w-140 mx-auto self-center pb-2"
-        >
-            <SuggestionsList />
-        </BaseQuestionInput>
-    )
+interface QuestionInputProps {
+    isFloating?: boolean
+    isSticky?: boolean
+    placeholder?: string
+    children?: ReactNode
+    contextDisplaySize?: 'small' | 'default'
+    showTopActions?: boolean
+    topActions?: ReactNode
+    textAreaRef?: React.RefObject<HTMLTextAreaElement>
+    containerClassName?: string
+    wrapperClassName?: string
+    onSubmit?: () => void
 }
 
-function SuggestionsList(): JSX.Element {
-    const focusElementRef = useRef<HTMLDivElement | null>(null)
-    const previousSuggestionGroup = useRef<SuggestionGroup | null>(null)
-
-    const { setQuestion, focusInput, setActiveGroup } = useActions(maxLogic)
-    const { activeSuggestionGroup } = useValues(maxLogic)
-    const { askMax } = useActions(maxThreadLogic)
-
-    useEffect(() => {
-        if (focusElementRef.current && activeSuggestionGroup) {
-            focusElementRef.current.focus()
-        }
-        previousSuggestionGroup.current = activeSuggestionGroup
-    }, [activeSuggestionGroup])
-
-    const suggestionGroup = activeSuggestionGroup || previousSuggestionGroup.current
+export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
+    {
+        isFloating,
+        isSticky,
+        placeholder,
+        children,
+        contextDisplaySize,
+        topActions,
+        textAreaRef,
+        containerClassName,
+        wrapperClassName,
+        onSubmit,
+    },
+    ref
+) {
+    const { tools, dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { question } = useValues(maxLogic)
+    const { setQuestion } = useActions(maxLogic)
+    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
 
     return (
-        <CSSTransition
-            in={!!activeSuggestionGroup}
-            timeout={150}
-            classNames="QuestionInput__SuggestionsList"
-            mountOnEnter
-            unmountOnExit
-            nodeRef={focusElementRef}
+        <div
+            className={
+                containerClassName +
+                ' ' +
+                (!isSticky && !isFloating ? 'px-3 w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full self-center')
+            }
+            ref={ref}
         >
-            <ToggleGroup
-                ref={focusElementRef}
-                type="single"
-                className="QuestionInput__SuggestionsList absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b-lg backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
-                onValueChange={(index) => {
-                    const suggestion = activeSuggestionGroup?.suggestions[Number(index)]
-                    if (!suggestion) {
-                        return
-                    }
-
-                    if (checkSuggestionRequiresUserInput(suggestion.content)) {
-                        // Content requires to write something to continue
-                        setQuestion(stripSuggestionPlaceholders(suggestion.content))
-                        focusInput()
-                    } else {
-                        // Otherwise, just launch the generation
-                        askMax(suggestion.content)
-                    }
-
-                    // Close suggestions after asking
-                    setActiveGroup(null)
-                }}
+            <div
+                className={clsx(
+                    wrapperClassName ||
+                        clsx(
+                            'flex flex-col items-center',
+                            isSticky &&
+                                'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        )
+                )}
             >
-                {suggestionGroup?.suggestions.map((suggestion, index) => (
-                    <ToggleGroupItem
-                        key={suggestion.content}
-                        value={index.toString()}
-                        tabIndex={0}
-                        aria-label={`Select suggestion: ${suggestion.content}`}
-                        asChild
+                <div className="relative w-full flex flex-col">
+                    {children}
+                    <div
+                        className={clsx(
+                            'flex flex-col',
+                            'border border-[var(--border-primary)] rounded-[var(--radius)]',
+                            'bg-[var(--bg-fill-input)]',
+                            'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
+                            isFloating && 'border-primary',
+                            isSticky && 'm-1'
+                        )}
+                        onClick={(e) => {
+                            // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
+                            if (!(e.target as HTMLElement).closest('button')) {
+                                textAreaRef?.current?.focus()
+                            }
+                        }}
                     >
-                        <LemonButton
-                            className="QuestionInput__QuestionSuggestion text-left"
-                            style={{ '--index': index } as React.CSSProperties}
-                            size="small"
-                            type="tertiary"
-                            fullWidth
+                        {topActions ? (
+                            <div className="flex items-start justify-between">
+                                <ContextDisplay size={contextDisplaySize} />
+                                <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                            </div>
+                        ) : (
+                            <ContextDisplay size={contextDisplaySize} />
+                        )}
+                        <LemonTextArea
+                            ref={textAreaRef}
+                            value={question}
+                            onChange={(value) => setQuestion(value)}
+                            placeholder={
+                                threadLoading ? 'Thinking…' : isFloating ? placeholder || 'Ask follow-up' : 'Ask away'
+                            }
+                            onPressEnter={() => {
+                                if (question && !submissionDisabledReason && !threadLoading) {
+                                    onSubmit?.()
+                                    askMax(question)
+                                }
+                            }}
+                            disabled={inputDisabled}
+                            minRows={1}
+                            maxRows={10}
+                            className={clsx(
+                                '!border-none !bg-transparent min-h-0 py-2.5 pl-2.5',
+                                isFloating ? 'pr-20' : 'pr-12'
+                            )}
+                        />
+                    </div>
+                    <div
+                        className={clsx('absolute flex items-center', {
+                            'bottom-[11px] right-3': isSticky,
+                            'bottom-[7px] right-2': !isSticky,
+                        })}
+                    >
+                        <AIConsentPopoverWrapper
+                            placement="bottom-end"
+                            showArrow
+                            onApprove={() => askMax(question)}
+                            onDismiss={() => completeThreadGeneration()}
+                            middleware={[
+                                offset((state) => ({
+                                    mainAxis: state.placement.includes('top') ? 30 : 1,
+                                })),
+                            ]}
+                            hidden={!threadLoading}
                         >
-                            <span className="font-normal">{formatSuggestion(suggestion.content)}</span>
-                        </LemonButton>
-                    </ToggleGroupItem>
-                ))}
-            </ToggleGroup>
-        </CSSTransition>
+                            <LemonButton
+                                type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
+                                onClick={() => {
+                                    if (threadLoading) {
+                                        stopGeneration()
+                                    } else {
+                                        askMax(question)
+                                    }
+                                }}
+                                tooltip={
+                                    threadLoading ? (
+                                        "Let's bail"
+                                    ) : (
+                                        <>
+                                            Let's go! <KeyboardShortcut enter />
+                                        </>
+                                    )
+                                }
+                                loading={threadLoading && !dataProcessingAccepted}
+                                disabledReason={
+                                    threadLoading && !dataProcessingAccepted
+                                        ? 'Pending data processing approval'
+                                        : submissionDisabledReason
+                                }
+                                size="small"
+                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
+                            />
+                        </AIConsentPopoverWrapper>
+                    </div>
+                </div>
+                {tools.length > 0 && (
+                    <div
+                        className={clsx(
+                            'flex gap-1 text-xs font-medium cursor-default px-1.5',
+                            !isFloating
+                                ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                                : 'w-full pb-1'
+                        )}
+                    >
+                        <span>Tools in context:</span>
+                        {tools.map((tool) => (
+                            <i key={tool.name} className="flex items-center gap-1">
+                                <IconTools />
+                                {tool.displayName}
+                            </i>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
     )
-}
+})

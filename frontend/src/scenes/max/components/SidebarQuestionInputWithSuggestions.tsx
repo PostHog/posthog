@@ -6,10 +6,10 @@ import { useActions, useValues } from 'kea'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from '../maxLogic'
-import { QuestionInput } from './QuestionInput'
-import { SuggestionsDisplay } from './SuggestionsDisplay'
+import { SidebarQuestionInput } from './SidebarQuestionInput'
+import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
 
-export function QuestionInputWithSuggestions(): JSX.Element {
+export function SidebarQuestionInputWithSuggestions(): JSX.Element {
     const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
@@ -23,10 +23,10 @@ export function QuestionInputWithSuggestions(): JSX.Element {
                 }
             }}
         >
-            <QuestionInput />
+            <SidebarQuestionInput />
             <div className="flex flex-col items-center justify-center gap-y-2">
                 <h3 className="text-center text-xs font-medium mb-0 text-secondary">Ask Max about…</h3>
-                <SuggestionsDisplay
+                <FloatingSuggestionsDisplay
                     type="secondary"
                     showSuggestions
                     dataProcessingAccepted={dataProcessingAccepted}

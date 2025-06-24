@@ -1,11 +1,12 @@
 import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { useEffect, useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { useDragAndSnap } from '../hooks/useDragAndSnap'
+import { maxGlobalLogic } from '../maxGlobalLogic'
 
 interface HedgehogAvatarProps {
     onExpand: () => void
@@ -13,7 +14,6 @@ interface HedgehogAvatarProps {
     isExpanded: boolean
     fixedDirection?: 'left' | 'right'
     onPositionChange?: (position: { x: number; y: number; side: 'left' | 'right' }) => void
-    onDragStateChange?: (isDragging: boolean, isAnimating: boolean) => void
 }
 
 export function HedgehogAvatar({
@@ -22,11 +22,11 @@ export function HedgehogAvatar({
     isExpanded,
     fixedDirection,
     onPositionChange,
-    onDragStateChange,
 }: HedgehogAvatarProps): JSX.Element {
     const { user } = useValues(userLogic)
     const hedgehogActorRef = useRef<HedgehogActor | null>(null)
     const avatarRef = useRef<HTMLDivElement>(null)
+    const { setFloatingMaxDragState } = useActions(maxGlobalLogic)
 
     // Use the drag and snap hook
     const { isDragging, isAnimating, hasDragged, containerStyle, handleMouseDown, avatarButtonRef } = useDragAndSnap({
@@ -36,10 +36,8 @@ export function HedgehogAvatar({
 
     // Notify parent of drag state changes
     useEffect(() => {
-        if (onDragStateChange) {
-            onDragStateChange(isDragging, isAnimating)
-        }
-    }, [isDragging, isAnimating, onDragStateChange])
+        setFloatingMaxDragState({ isDragging, isAnimating })
+    }, [isDragging, isAnimating, setFloatingMaxDragState])
 
     // Trigger wave animation periodically when collapsed
     useEffect(() => {

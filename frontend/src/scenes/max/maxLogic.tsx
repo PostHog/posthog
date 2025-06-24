@@ -83,8 +83,6 @@ export const maxLogic = kea<maxLogicType>([
         setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
         setActiveStreamingThreads: (inc: 1 | -1) => ({ inc }),
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
-        setShowSuggestions: (showSuggestions: boolean) => ({ showSuggestions }),
-
         /**
          * Save the logic ID for a conversation ID in a cache.
          */
@@ -101,7 +99,6 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     reducers({
-        showSuggestions: [false, { setShowSuggestions: (_, { showSuggestions }) => showSuggestions }],
         activeStreamingThreads: [
             0,
             {

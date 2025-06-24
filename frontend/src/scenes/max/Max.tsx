@@ -28,8 +28,8 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 
 import { AnimatedBackButton } from './components/AnimatedBackButton'
-import { QuestionInput } from './components/QuestionInput'
-import { QuestionInputWithSuggestions } from './components/QuestionInputWithSuggestions'
+import { SidebarQuestionInput } from './components/SidebarQuestionInput'
+import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
@@ -239,7 +239,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         )}
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
-                            <QuestionInputWithSuggestions />
+                            <SidebarQuestionInputWithSuggestions />
                         </div>
                         <HistoryPreview sidePanel={sidePanel} />
                     </div>
@@ -247,7 +247,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     /** Must be the last child and be a direct descendant of the scrollable element */
                     <ThreadAutoScroller>
                         <Thread className="p-3" />
-                        <QuestionInput isSticky />
+                        <SidebarQuestionInput isSticky />
                     </ThreadAutoScroller>
                 )}
             </BindLogic>

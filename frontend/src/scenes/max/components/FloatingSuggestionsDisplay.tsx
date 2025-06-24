@@ -1,5 +1,5 @@
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -49,7 +49,7 @@ function useSuggestionHandling(): {
     }
 }
 
-interface SuggestionsDisplayProps {
+interface FloatingSuggestionsDisplayProps {
     compact?: boolean
     showSuggestions: boolean
     dataProcessingAccepted: boolean
@@ -57,13 +57,13 @@ interface SuggestionsDisplayProps {
     additionalSuggestions?: React.ReactNode[]
 }
 
-export function SuggestionsDisplay({
+export function FloatingSuggestionsDisplay({
     compact = false,
     type = 'secondary',
     showSuggestions,
     dataProcessingAccepted,
     additionalSuggestions,
-}: SuggestionsDisplayProps): JSX.Element | null {
+}: FloatingSuggestionsDisplayProps): JSX.Element | null {
     const { activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
     const { handleSuggestionGroupClick, handleSuggestionClick } = useSuggestionHandling()
@@ -73,46 +73,46 @@ export function SuggestionsDisplay({
     }
 
     return (
-        <>
+        <div className="mb-1">
             {/* Main suggestion groups */}
             {(!activeSuggestionGroup || !compact) && (
                 <>
-                    <ul
-                        className={
-                            compact
-                                ? 'flex flex-wrap gap-1 px-1 pt-1'
-                                : 'flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5'
-                        }
-                    >
-                        {QUESTION_SUGGESTIONS_DATA.map((group) => (
-                            <li key={group.label}>
-                                <LemonButton
-                                    key={group.label}
-                                    onClick={() => handleSuggestionGroupClick(group)}
-                                    size={compact ? 'xxsmall' : 'xsmall'}
-                                    type={type}
-                                    icon={group.icon}
-                                    center={compact}
-                                    fullWidth={!compact}
-                                    disabledReason={
-                                        !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
-                                    }
-                                    tooltip={group.tooltip}
-                                >
-                                    {group.label}
-                                </LemonButton>
-                            </li>
-                        ))}
-                        {additionalSuggestions?.map((suggestion, index) => (
-                            <li key={index}>{suggestion}</li>
-                        ))}
-                    </ul>
+                    <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
+                        <ul
+                            className={
+                                compact
+                                    ? 'flex flex-wrap gap-1'
+                                    : 'flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5'
+                            }
+                        >
+                            {QUESTION_SUGGESTIONS_DATA.map((group) => (
+                                <li key={group.label}>
+                                    <LemonButton
+                                        key={group.label}
+                                        onClick={() => handleSuggestionGroupClick(group)}
+                                        size={compact ? 'xxsmall' : 'xsmall'}
+                                        type={type}
+                                        icon={group.icon}
+                                        center={compact}
+                                        fullWidth={!compact}
+                                        tooltip={!dataProcessingAccepted ? undefined : group.tooltip}
+                                        disabled={!dataProcessingAccepted}
+                                    >
+                                        {group.label}
+                                    </LemonButton>
+                                </li>
+                            ))}
+                            {additionalSuggestions?.map((suggestion, index) => (
+                                <li key={index}>{suggestion}</li>
+                            ))}
+                        </ul>
+                    </Tooltip>
                 </>
             )}
 
             {/* Detailed suggestions when a group is active */}
             {activeSuggestionGroup && compact && (
-                <div className="px-1 pt-1">
+                <>
                     <div className="flex items-center gap-1 mb-1">
                         <LemonButton
                             size="xxsmall"
@@ -126,24 +126,24 @@ export function SuggestionsDisplay({
                             <span className="text-xxs font-medium">{activeSuggestionGroup.label}</span>
                         </div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                        {activeSuggestionGroup.suggestions.map((suggestion, index) => (
-                            <LemonButton
-                                key={index}
-                                onClick={() => handleSuggestionClick(suggestion)}
-                                size="xxsmall"
-                                type="tertiary"
-                                fullWidth
-                                disabledReason={
-                                    !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
-                                }
-                            >
-                                {suggestion.content.replace(/\{[^}]*\}/g, '...')}
-                            </LemonButton>
-                        ))}
-                    </div>
-                </div>
+                    <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
+                        <div className="flex flex-col gap-1">
+                            {activeSuggestionGroup.suggestions.map((suggestion, index) => (
+                                <LemonButton
+                                    key={index}
+                                    onClick={() => handleSuggestionClick(suggestion)}
+                                    size="xxsmall"
+                                    type="tertiary"
+                                    fullWidth
+                                    disabled={!dataProcessingAccepted}
+                                >
+                                    {suggestion.content.replace(/\{[^}]*\}/g, '...')}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </Tooltip>
+                </>
             )}
-        </>
+        </div>
     )
 }

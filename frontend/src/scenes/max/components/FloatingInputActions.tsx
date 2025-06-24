@@ -1,6 +1,6 @@
 import { IconChevronDown, IconLightBulb, IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
@@ -9,28 +9,28 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 
 interface FloatingInputActionsProps {
-    showSuggestions: boolean
     onCollapse: () => void
     isThreadVisible: boolean
 }
 
-export function FloatingInputActions({
-    showSuggestions,
-    onCollapse,
-    isThreadVisible,
-}: FloatingInputActionsProps): JSX.Element {
-    const { setShowSuggestions, setActiveGroup, startNewConversation } = useActions(maxLogic)
+export function FloatingInputActions({ onCollapse, isThreadVisible }: FloatingInputActionsProps): JSX.Element {
+    const { setActiveGroup, startNewConversation } = useActions(maxLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
+    const { showFloatingMaxSuggestions } = useValues(maxGlobalLogic)
 
     return (
         <>
             {!isThreadVisible && (
-                <Tooltip title={showSuggestions ? 'Hide suggestions' : 'Show suggestions'} placement="top" delayMs={0}>
+                <Tooltip
+                    title={showFloatingMaxSuggestions ? 'Hide suggestions' : 'Show suggestions'}
+                    placement="top"
+                    delayMs={0}
+                >
                     <LemonButton
                         size="xxsmall"
                         icon={
-                            showSuggestions ? (
+                            showFloatingMaxSuggestions ? (
                                 <IconChevronDown className="size-3" />
                             ) : (
                                 <IconLightBulb className="size-3" />
@@ -38,7 +38,7 @@ export function FloatingInputActions({
                         }
                         type="tertiary"
                         onClick={() => {
-                            setShowSuggestions(!showSuggestions)
+                            setShowFloatingMaxSuggestions(!showFloatingMaxSuggestions)
                             setActiveGroup(null)
                         }}
                     />
@@ -64,7 +64,7 @@ export function FloatingInputActions({
                     }}
                 />
             </Tooltip>
-            <Tooltip title="Minimize" placement="top" delayMs={0}>
+            <Tooltip title="Close" placement="top" delayMs={0}>
                 <LemonButton size="xxsmall" icon={<IconX className="size-3" />} type="tertiary" onClick={onCollapse} />
             </Tooltip>
         </>

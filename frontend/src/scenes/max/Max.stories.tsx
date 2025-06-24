@@ -531,12 +531,11 @@ export const ExpandedFloatingInput: StoryFn = () => {
 }
 
 export const ExpandedFloatingInputWithSuggestions: StoryFn = () => {
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-    const { setShowSuggestions } = useActions(maxLogic)
+    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
     useEffect(() => {
         setIsFloatingMaxExpanded(true)
-        setShowSuggestions(true)
-    }, [setIsFloatingMaxExpanded, setShowSuggestions])
+        setShowFloatingMaxSuggestions(true)
+    }, [setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions])
 
     return <MaxFloatingInput />
 }

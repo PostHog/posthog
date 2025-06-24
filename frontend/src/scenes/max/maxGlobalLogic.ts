@@ -41,6 +41,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deregisterTool: (key: string) => ({ key }),
         setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
         setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
+        setShowFloatingMaxSuggestions: (value: boolean) => ({ value }),
+        setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
     }),
     reducers({
         toolMap: [
@@ -73,6 +75,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
             {
                 setFloatingMaxPosition: (_, { position }) => position,
+            },
+        ],
+        showFloatingMaxSuggestions: [
+            false,
+            {
+                setShowFloatingMaxSuggestions: (_, { value }) => value,
+            },
+        ],
+        floatingMaxDragState: [
+            { isDragging: false, isAnimating: false },
+            {
+                setFloatingMaxDragState: (_, { dragState }) => dragState,
             },
         ],
     }),

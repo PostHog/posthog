@@ -6,10 +6,10 @@ import React from 'react'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
-import { BaseQuestionInput } from './components/BaseQuestionInput'
+import { QuestionInput } from './components/QuestionInput'
 import { FloatingInputActions } from './components/FloatingInputActions'
 import { HedgehogAvatar } from './components/HedgehogAvatar'
-import { SuggestionsDisplay } from './components/SuggestionsDisplay'
+import { FloatingSuggestionsDisplay } from './components/FloatingSuggestionsDisplay'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -29,13 +29,11 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
     ref
 ) {
     const { focusCounter } = useValues(maxLogic)
-    const { showSuggestions } = useValues(maxLogic)
-    const { setShowSuggestions } = useActions(maxLogic)
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
     const handleCollapse = (): void => {
-        setShowSuggestions(false)
+        setShowFloatingMaxSuggestions(false)
         setIsFloatingMaxExpanded(false)
     }
 
@@ -47,7 +45,7 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
     }, [focusCounter])
 
     return (
-        <BaseQuestionInput
+        <QuestionInput
             ref={ref}
             isFloating
             placeholder={placeholder}
@@ -56,29 +54,25 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
             textAreaRef={textAreaRef}
             topActions={
                 !hideTopActions ? (
-                    <FloatingInputActions
-                        showSuggestions={showSuggestions}
-                        onCollapse={handleCollapse}
-                        isThreadVisible={false}
-                    />
+                    <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={false} />
                 ) : undefined
             }
             containerClassName="w-full max-w-[45rem] self-center p-0"
+            onSubmit={() => {
+                setShowFloatingMaxSuggestions(false)
+            }}
         >
             {suggestions}
-        </BaseQuestionInput>
+        </QuestionInput>
     )
 })
 
-function MaxFloatingInputContent({
-    setDragState,
-}: {
-    setDragState: React.Dispatch<React.SetStateAction<{ isDragging: boolean; isAnimating: boolean }>>
-}): JSX.Element {
-    const { dataProcessingAccepted, showSuggestions, threadVisible } = useValues(maxLogic)
-    const { setShowSuggestions, setActiveGroup } = useActions(maxLogic)
-    const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
-    const { setIsFloatingMaxExpanded, setFloatingMaxPosition } = useActions(maxGlobalLogic)
+function MaxFloatingInputContent(): JSX.Element {
+    const { dataProcessingAccepted, threadVisible } = useValues(maxLogic)
+    const { setActiveGroup } = useActions(maxLogic)
+    const { isFloatingMaxExpanded, floatingMaxPosition, showFloatingMaxSuggestions } = useValues(maxGlobalLogic)
+    const { setIsFloatingMaxExpanded, setFloatingMaxPosition, setShowFloatingMaxSuggestions } =
+        useActions(maxGlobalLogic)
     const { startNewConversation } = useActions(maxLogic)
     const { conversation } = useValues(maxThreadLogic)
 
@@ -88,12 +82,12 @@ function MaxFloatingInputContent({
 
     const handleDismiss = (): void => {
         setActiveGroup(null)
-        setShowSuggestions(false)
+        setShowFloatingMaxSuggestions(false)
     }
 
     const handleCollapse = (): void => {
         setActiveGroup(null)
-        setShowSuggestions(false)
+        setShowFloatingMaxSuggestions(false)
         setIsFloatingMaxExpanded(false)
         startNewConversation()
     }
@@ -105,9 +99,6 @@ function MaxFloatingInputContent({
                 isExpanded={isFloatingMaxExpanded}
                 onPositionChange={setFloatingMaxPosition}
                 fixedDirection={floatingMaxPosition?.side === 'left' ? 'left' : 'right'}
-                onDragStateChange={(isDragging, isAnimating) => {
-                    setDragState({ isDragging, isAnimating })
-                }}
             />
         )
     }
@@ -126,10 +117,10 @@ function MaxFloatingInputContent({
                 placeholder="Ask Max AI"
                 hideTopActions={threadVisible}
                 suggestions={
-                    showSuggestions ? (
-                        <SuggestionsDisplay
+                    showFloatingMaxSuggestions ? (
+                        <FloatingSuggestionsDisplay
                             compact
-                            showSuggestions={showSuggestions}
+                            showSuggestions={showFloatingMaxSuggestions}
                             dataProcessingAccepted={dataProcessingAccepted}
                             type="tertiary"
                         />
@@ -138,11 +129,7 @@ function MaxFloatingInputContent({
                             <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                                 <div className="text-xs font-medium text-muted">{conversation?.title}</div>
                                 <div className="flex items-center gap-1">
-                                    <FloatingInputActions
-                                        showSuggestions={showSuggestions}
-                                        onCollapse={handleCollapse}
-                                        isThreadVisible={true}
-                                    />
+                                    <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={true} />
                                 </div>
                             </div>
                             <div className="max-h-96 overflow-y-auto">
@@ -161,10 +148,8 @@ function MaxFloatingInputContent({
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen } = useValues(sidePanelLogic)
-    const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
-
+    const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { threadLogicKey, conversation } = useValues(maxLogic)
-    const [dragState, setDragState] = React.useState({ isDragging: false, isAnimating: false })
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
@@ -225,7 +210,7 @@ export function MaxFloatingInput(): JSX.Element | null {
     return (
         <div
             className={
-                dragState.isDragging || dragState.isAnimating
+                floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating
                     ? ''
                     : clsx(
                           getPositionClasses(),
@@ -233,10 +218,10 @@ export function MaxFloatingInput(): JSX.Element | null {
                           isFloatingMaxExpanded ? 'rounded-[var(--radius)] w-80' : 'rounded-full mr-4'
                       )
             }
-            style={dragState.isDragging || dragState.isAnimating ? {} : getAnimationStyle()}
+            style={floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating ? {} : getAnimationStyle()}
         >
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <MaxFloatingInputContent setDragState={setDragState} />
+                <MaxFloatingInputContent />
             </BindLogic>
         </div>
     )
