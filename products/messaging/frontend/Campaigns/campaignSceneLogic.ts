@@ -37,7 +37,7 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
                     {
                         key: Scene.Messaging,
                         name: 'Messaging',
-                        path: urls.messaging(),
+                        path: urls.messaging('campaigns'),
                     },
                     {
                         key: [Scene.Messaging, 'campaigns'],

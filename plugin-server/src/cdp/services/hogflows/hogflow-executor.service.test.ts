@@ -31,6 +31,7 @@ describe('Hogflow Executor', () => {
                         trigger: {
                             type: 'trigger',
                             config: {
+                                type: 'event',
                                 filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
                             },
                         },

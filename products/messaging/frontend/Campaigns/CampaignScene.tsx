@@ -21,8 +21,8 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)
-    const { campaignChanged, originalCampaign, isCampaignSubmitting } = useValues(logic)
-    const { submitCampaign, resetCampaign } = useActions(logic)
+    const { campaignChanged, isCampaignSubmitting } = useValues(logic)
+    const { submitCampaign, discardChanges } = useActions(logic)
 
     const tabs = [
         {
@@ -46,7 +46,7 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
                             <LemonButton
                                 data-attr="discard-campaign-changes"
                                 type="secondary"
-                                onClick={() => resetCampaign(originalCampaign)}
+                                onClick={() => discardChanges()}
                             >
                                 Discard changes
                             </LemonButton>
