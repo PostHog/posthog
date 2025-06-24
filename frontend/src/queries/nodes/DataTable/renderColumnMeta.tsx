@@ -49,6 +49,24 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
         title = 'Event'
     } else if (key === 'person') {
         title = 'Person'
+    } else if (key === 'campaign_name') {
+        title = 'Campaign'
+    } else if (key === 'source_name') {
+        title = 'Source'
+    } else if (key === 'medium') {
+        title = 'Medium'
+    } else if (key === 'impressions') {
+        title = 'Impressions'
+    } else if (key === 'clicks') {
+        title = 'Clicks'
+    } else if (key === 'cost') {
+        title = 'Cost'
+    } else if (key === 'ctr') {
+        title = 'CTR (%)'
+    } else if (key === 'cpc') {
+        title = 'CPC'
+    } else if (key === 'date') {
+        title = 'Date'
     } else if (key.startsWith('properties.')) {
         title = (
             <PropertyKeyInfo

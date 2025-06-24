@@ -18,6 +18,7 @@ import {
     EventType,
     ExperimentHoldoutType,
     ExperimentMetricMathType,
+    ExternalDataSource,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -121,6 +122,9 @@ export enum NodeKind {
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
+    // Marketing analytics queries
+    MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
+
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
@@ -160,6 +164,7 @@ export type AnyDataNode =
     | RevenueAnalyticsInsightsQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
+    | MarketingAnalyticsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -224,6 +229,9 @@ export type QuerySchema =
     | RevenueAnalyticsInsightsQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
+
+    // Marketing analytics
+    | MarketingAnalyticsTableQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -739,6 +747,7 @@ export interface DataTableNode
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
+                    | MarketingAnalyticsTableQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -769,6 +778,7 @@ export interface DataTableNode
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
+        | MarketingAnalyticsTableQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -3176,6 +3186,32 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
+
+export interface MarketingAnalyticsTableQuery extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
+    kind: NodeKind.MarketingAnalyticsTableQuery
+    /** Return a limited set of data. Will use default columns if empty. */
+    select: HogQLExpression[]
+    /** Columns to order by - similar to EventsQuery format */
+    orderBy?: string[]
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+}
+
+export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string

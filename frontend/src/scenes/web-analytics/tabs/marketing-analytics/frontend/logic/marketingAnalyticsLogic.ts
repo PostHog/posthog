@@ -1,4 +1,4 @@
-import { connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,8 +52,23 @@ export type NativeSource = {
     tables: DatabaseSchemaDataWarehouseTable[]
 }
 
+export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC'] | null
+
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
+    actions({
+        setMarketingAnalyticsOrderBy: (orderBy: string, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
+        clearMarketingAnalyticsOrderBy: () => true,
+    }),
+    reducers({
+        marketingAnalyticsOrderBy: [
+            null as MarketingAnalyticsOrderBy,
+            {
+                setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                clearMarketingAnalyticsOrderBy: () => null,
+            },
+        ],
+    }),
     connect(() => ({
         values: [
             teamLogic,
@@ -218,10 +233,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     return null
                 }
 
-                // TODO: support actions as conversion goals
-                const filteredConversionGoal = conversionGoals.filter(
-                    (conversionGoal) => conversionGoal.kind !== NodeKind.ActionsNode
-                )
+                // Actions are now supported as conversion goals
+                const filteredConversionGoal = conversionGoals
 
                 const conversionGoalCTEs = generateGoalConversionCTEs(filteredConversionGoal)
                 const withClause = generateWithClause(unionQueries, conversionGoalCTEs)

@@ -16,6 +16,18 @@ export const defaultDataTablePersonColumns: HogQLExpression[] = [PERSON_DISPLAY_
 
 export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'key', 'created_at']
 
+export const defaultDataTableMarketingAnalyticsColumns: HogQLExpression[] = [
+    'campaign_name',
+    'source_name',
+    'medium',
+    'impressions',
+    'clicks',
+    'cost',
+    'ctr',
+    'cpc',
+    'date',
+]
+
 export function defaultDataTableColumns(kind: NodeKind): HogQLExpression[] {
     return kind === NodeKind.PersonsNode || kind === NodeKind.ActorsQuery
         ? defaultDataTablePersonColumns
@@ -25,6 +37,8 @@ export function defaultDataTableColumns(kind: NodeKind): HogQLExpression[] {
         ? defaultDataTableEventColumns.filter((c) => c !== '*')
         : kind === NodeKind.GroupsQuery
         ? defaultDataTableGroupColumns
+        : kind === NodeKind.MarketingAnalyticsTableQuery
+        ? defaultDataTableMarketingAnalyticsColumns
         : []
 }
 

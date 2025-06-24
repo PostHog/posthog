@@ -118,14 +118,33 @@ export function generateGoalConversionCTEs(conversionGoals: ConversionGoalFilter
     const conversionGoalCTEs = conversionGoals
         .map((conversionGoal, index) => {
             const table = getConversionGoalTable(conversionGoal)
-            // add dw distinct_id field to the select field
-            const selectField =
-                conversionGoal.math === BaseMathType.UniqueUsers && conversionGoal.kind === NodeKind.EventsNode
-                    ? `count(distinct distinct_id)`
-                    : 'count(*)'
-            const propertyName = conversionGoal.kind === NodeKind.EventsNode ? 'properties.' : ''
+            
+            // Handle distinct_id field for DataWarehouse tables with unique users math
+            const selectField = (() => {
+                if (conversionGoal.math === BaseMathType.UniqueUsers) {
+                    if (conversionGoal.kind === NodeKind.EventsNode) {
+                        return 'count(distinct distinct_id)'
+                    } else if (conversionGoal.kind === NodeKind.DataWarehouseNode) {
+                        // Use the specified distinct_id_field for DataWarehouse
+                        const distinctIdField = conversionGoal.schema?.distinct_id_field || 'distinct_id'
+                        return `count(distinct ${distinctIdField})`
+                    }
+                }
+                return 'count(*)'
+            })()
+            
+            const propertyName = (conversionGoal.kind === NodeKind.EventsNode || conversionGoal.kind === NodeKind.ActionsNode) ? 'properties.' : ''
             // Sanitize the CTE name to be a valid SQL identifier
             const cteName = getConversionGoalCTEName(index, conversionGoal)
+            
+            // Generate WHERE clause based on conversion goal type
+            let whereClause = '1=1'
+            if (conversionGoal.kind === NodeKind.EventsNode && conversionGoal.event) {
+                whereClause = `event = '${conversionGoal.event}'`
+            } else if (conversionGoal.kind === NodeKind.ActionsNode) {
+                whereClause = '1=1'  // Actions will be handled by backend action_to_expr logic
+            }
+            
             return `
 ${cteName} AS (
 SELECT 
@@ -133,11 +152,7 @@ SELECT
     ${propertyName}${conversionGoal.schema.utm_source_name} as ${tableColumns.source_name},
     ${selectField} as conversion_${index}
 FROM ${table} 
-WHERE ${
-                conversionGoal.kind === NodeKind.EventsNode && conversionGoal.event
-                    ? `event = '${conversionGoal.event}'`
-                    : '1=1'
-            }
+WHERE ${whereClause}
     AND ${tableColumns.campaign_name} IS NOT NULL
     AND ${tableColumns.campaign_name} != ''
     AND ${tableColumns.source_name} IS NOT NULL
@@ -215,12 +230,13 @@ function getConversionGoalTable(conversionGoal: ConversionGoalFilter): string {
     if (!conversionGoal.name) {
         return 'events'
     }
-    switch (conversionGoal.kind) {
-        case NodeKind.EventsNode:
-            return 'events'
-        case NodeKind.DataWarehouseNode:
-            return conversionGoal.table_name
-        default:
-            throw new Error(`Unsupported conversion goal type: ${conversionGoal.kind}`)
+    if (conversionGoal.kind === NodeKind.EventsNode) {
+        return 'events'
+    } else if (conversionGoal.kind === NodeKind.ActionsNode) {
+        return 'events'  // Actions are based on events
+    } else if (conversionGoal.kind === NodeKind.DataWarehouseNode) {
+        return conversionGoal.table_name
+    } else {
+        throw new Error(`Unsupported conversion goal type: ${(conversionGoal as any).kind}`)
     }
 }

@@ -382,6 +382,29 @@ export function OutputPane(): JSX.Element {
 
     const hasColumns = columns.length > 1
 
+    const copyResultsAsCSV = useCallback(() => {
+        if (!response?.columns || !response?.results) {
+            return
+        }
+        
+        // Create CSV header
+        const csvHeader = response.columns.join(',')
+        
+        // Create CSV rows
+        const csvRows = response.results.map((row: any[]) => 
+            row.map(cell => {
+                if (cell === null) return ''
+                if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
+                    return `"${cell.replace(/"/g, '""')}"`
+                }
+                return String(cell)
+            }).join(',')
+        )
+        
+        const csvContent = [csvHeader, ...csvRows].join('\n')
+        copyToClipboard(csvContent, 'CSV data')
+    }, [response])
+
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
             <div className="flex flex-row justify-between align-center w-full h-[50px] overflow-y-auto">
@@ -492,6 +515,17 @@ export function OutputPane(): JSX.Element {
                         >
                             {editingInsight ? 'View insight' : 'Create insight'}
                         </LemonButton>
+                    )}
+                    {activeTab === OutputTab.Results && (
+                        <Tooltip title="Copy results as CSV">
+                            <LemonButton
+                                id="sql-editor-copy-csv"
+                                disabledReason={!hasColumns ? 'No results to copy' : undefined}
+                                type="secondary"
+                                icon={<IconCopy />}
+                                onClick={copyResultsAsCSV}
+                            />
+                        </Tooltip>
                     )}
                     {activeTab === OutputTab.Results && exportContext && (
                         <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>

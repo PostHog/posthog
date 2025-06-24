@@ -46,6 +46,7 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebVitalsMetric,
+    MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { hogql } from '~/queries/utils'
@@ -73,6 +74,7 @@ import {
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
@@ -425,7 +427,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes', 'createDynamicCampaignQuery'],
+            ['loading', 'createMarketingDataWarehouseNodes', 'createDynamicCampaignQuery', 'validExternalTables', 'validNativeSources'],
         ],
     })),
     actions({
@@ -2418,18 +2420,41 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.createDynamicCampaignQuery],
-            (loading: boolean, createDynamicCampaignQuery: string | null): DataTableNode | null => {
-                if (!createDynamicCampaignQuery || loading) {
+            (s) => [s.loading, s.dateFilter, s.webAnalyticsFilters, s.shouldFilterTestAccounts, s.validExternalTables, s.validNativeSources, s.conversion_goals],
+            (loading: boolean, dateFilter: any, webAnalyticsFilters: any, filterTestAccounts: boolean, validExternalTables: any, validNativeSources: any, conversion_goals: any): DataTableNode | null => {
+                // For now, let's always show the MarketingAnalyticsTableQuery for testing
+                // TODO: Add back the createDynamicCampaignQuery dependency when we want conditional logic
+                if (loading) {
                     return null
                 }
 
+                // JFBW: Simple check of data being sent to backend
+                console.log('JFBW: Marketing analytics query', {
+                    externalTables: validExternalTables?.length || 0,
+                    nativeSources: validNativeSources?.length || 0,
+                    conversionGoals: conversion_goals?.length || 0
+                })
+                
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
-                        kind: NodeKind.HogQLQuery,
-                        query: createDynamicCampaignQuery,
-                    },
+                        kind: NodeKind.MarketingAnalyticsTableQuery,
+                        select: [],  // Use default columns
+                        dateRange: {
+                            date_from: dateFilter.dateFrom,
+                            date_to: dateFilter.dateTo,
+                        },
+                        properties: webAnalyticsFilters || [],
+                        filterTestAccounts: filterTestAccounts,
+                        limit: 200,  // Changed from 100 to 20 for easier pagination testing
+                    } as MarketingAnalyticsTableQuery,
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    // Hide specific controls
+                    showPropertyFilter: false,
+                    showColumnConfigurator: false,
+                    showOpenEditorButton: false,
                 }
             },
         ],

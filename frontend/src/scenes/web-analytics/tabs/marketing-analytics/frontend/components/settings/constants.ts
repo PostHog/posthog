@@ -11,5 +11,7 @@ export const defaultConversionGoalFilter: ConversionGoalFilter = {
     schema: {
         utm_campaign_name: 'utm_campaign',
         utm_source_name: 'utm_source',
+        timestamp_field: 'timestamp',
+        distinct_id_field: 'distinct_id',
     },
 }

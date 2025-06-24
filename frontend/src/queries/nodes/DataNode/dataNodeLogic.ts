@@ -51,6 +51,8 @@ import {
     RefreshType,
     TracesQuery,
     TracesQueryResponse,
+    MarketingAnalyticsTableQuery,
+    MarketingAnalyticsTableQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
@@ -62,6 +64,7 @@ import {
     isInsightQueryNode,
     isPersonsNode,
     isTracesQuery,
+    isMarketingAnalyticsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -359,7 +362,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
                         isErrorTrackingQuery(props.query) ||
-                        isTracesQuery(props.query)
+                        isTracesQuery(props.query) ||
+                        isMarketingAnalyticsTableQuery(props.query)
                     ) {
                         const newResponse =
                             (await performQuery(
@@ -374,6 +378,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | GroupsQueryResponse
                             | ErrorTrackingQueryResponse
                             | TracesQueryResponse
+                            | MarketingAnalyticsTableQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -617,7 +622,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isActorsQuery(query) ||
                         isGroupsQuery(query) ||
                         isErrorTrackingQuery(query) ||
-                        isTracesQuery(query)) &&
+                        isTracesQuery(query) ||
+                        isMarketingAnalyticsTableQuery(query)) &&
                     !responseError &&
                     !dataLoading
                 ) {
@@ -629,6 +635,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | GroupsQueryResponse
                                 | ErrorTrackingQueryResponse
                                 | TracesQueryResponse
+                                | MarketingAnalyticsTableQueryResponse
                         )?.hasMore
                     ) {
                         const sortKey = isTracesQuery(query) ? null : query.orderBy?.[0] ?? 'timestamp DESC'
@@ -659,12 +666,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | GroupsQueryResponse
                                     | ErrorTrackingQueryResponse
                                     | TracesQueryResponse
+                                    | MarketingAnalyticsTableQueryResponse
                             )?.results
                             return {
                                 ...query,
-                                offset: typedResults?.length || 0,
+                                offset: (query.offset || 0) + (typedResults?.length || 0),
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery | TracesQuery
+                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery | TracesQuery | MarketingAnalyticsTableQuery
                         }
                     }
                 }
