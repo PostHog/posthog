@@ -4,7 +4,7 @@ from rest_framework import serializers
 import yaml
 import structlog
 from ee.session_recordings.session_summary import SummaryValidationError
-from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime
+from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime, unpack_full_event_id
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +29,8 @@ class EnrichedKeyActionSerializer(RawKeyActionSerializer):
     event = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
     event_type = serializers.CharField(max_length=128, required=False, allow_null=True)
     event_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    session_id = serializers.CharField(max_length=128, required=False, allow_null=True)
+    event_uuid = serializers.CharField(max_length=128, required=False, allow_null=True)
 
 
 class RawSegmentKeyActionsSerializer(serializers.Serializer):
@@ -444,6 +446,7 @@ def _calculate_segment_meta(
 def enrich_raw_session_summary_with_meta(
     raw_session_summary: RawSessionSummarySerializer,
     simplified_events_mapping: dict[str, list[Any]],
+    event_ids_mapping: dict[str, str],
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
@@ -538,6 +541,10 @@ def enrich_raw_session_summary_with_meta(
                 enriched_event["event_type"] = event_type
             # Add event index to better link summary event with an actual event
             enriched_event["event_index"] = event_mapping_data[event_index_index]
+            # Add session/event UUIDs to better track events across sessions
+            enriched_event["session_id"], enriched_event["event_uuid"] = unpack_full_event_id(
+                full_event_id=event_ids_mapping.get(event_id), session_id=session_id
+            )
             enriched_events.append(enriched_event)
         # Ensure chronological order of the events
         enriched_events.sort(key=lambda x: x.get("milliseconds_since_start", 0))

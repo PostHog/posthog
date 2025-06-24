@@ -4,7 +4,7 @@ from datetime import datetime
 import hashlib
 from typing import Any
 
-from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime
+from ee.session_recordings.session_summary.utils import generate_full_event_id, get_column_index, prepare_datetime
 
 
 @dataclasses.dataclass(frozen=True)
@@ -94,7 +94,7 @@ class SessionSummaryPromptData:
                 else:
                     simplified_event[current_url_index] = self._simplify_url(event_current_url)
             # Generate full event ID from session and event UUIDs to be able to track them across sessions
-            full_event_id = self._generate_event_id(session_id=session_id, event_uuid=event_uuid)
+            full_event_id = generate_full_event_id(session_id=session_id, event_uuid=event_uuid)
             # Generate a hex for each event to make sure we can identify repeated events, and identify the event
             event_id = self._get_deterministic_hex(simplified_event)
             if event_id in simplified_events_mapping:
@@ -191,9 +191,3 @@ class SessionSummaryPromptData:
         # so we can get the same string using the same combination of values only.
         event_string = "\0".join(format_value(x) for x in event)
         return hashlib.sha256(event_string.encode()).hexdigest()[:length]
-
-    def _generate_event_id(self, session_id: str, event_uuid: str) -> str:
-        if not event_uuid:
-            raise ValueError(f"UUID is not present when generating event_id for session_id {session_id}")
-        event_id = f"{session_id}_{event_uuid}"
-        return event_id

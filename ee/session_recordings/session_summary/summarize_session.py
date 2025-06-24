@@ -63,6 +63,7 @@ class SingleSessionSummaryLlmInputs:
     summary_prompt: str
     system_prompt: str
     simplified_events_mapping: dict[str, list[str | int | None | list[str]]]
+    event_ids_mapping: dict[str, str]
     simplified_events_columns: list[str]
     url_mapping_reversed: dict[str, str]
     window_mapping_reversed: dict[str, str]
@@ -248,6 +249,7 @@ def prepare_single_session_summary_input(
         summary_prompt=summary_data.prompt.summary_prompt,
         system_prompt=summary_data.prompt.system_prompt,
         simplified_events_mapping=summary_data.prompt_data.simplified_events_mapping,
+        event_ids_mapping=summary_data.prompt_data.event_ids_mapping,
         simplified_events_columns=summary_data.prompt_data.prompt_data.columns,
         url_mapping_reversed=summary_data.prompt_data.url_mapping_reversed,
         window_mapping_reversed=summary_data.prompt_data.window_mapping_reversed,
