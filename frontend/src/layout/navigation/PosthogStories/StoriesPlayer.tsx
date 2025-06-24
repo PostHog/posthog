@@ -2,11 +2,17 @@ import { IconArrowRight, IconChevronLeft, IconChevronRight, IconPauseFilled, Ico
 import { useCallback, useEffect, useRef, useState } from 'react'
 import React from 'react'
 
+import { ArrowIcon, StoryType } from './storiesMap'
 import type { SeeMoreOptions } from './storiesMap'
+
+enum HoverZone {
+    Left = 'left',
+    Right = 'right',
+}
 
 export interface Story {
     url: string
-    type: 'image' | 'video' | 'overlay'
+    type: StoryType
     duration?: number // Duration in milliseconds
     header?: {
         heading: string
@@ -59,8 +65,8 @@ const ProgressBar = ({
     const progressRef = useRef<HTMLDivElement>(null)
 
     // Calculate duration for this story
-    const getDuration = (): number => {
-        if (story.type === 'video' && isCurrentStory && videoDuration) {
+    const getDuration = useCallback((): number => {
+        if (story.type === StoryType.Video && isCurrentStory && videoDuration) {
             return videoDuration
         }
         // Component and image stories: prioritize durationMs, fallback to default interval
@@ -68,13 +74,13 @@ const ProgressBar = ({
             return story.duration
         }
         return defaultInterval
-    }
+    }, [story.type, story.duration, isCurrentStory, videoDuration, defaultInterval])
 
     // Get current duration for this story
     const currentDuration = getDuration()
 
     // Determine progress bar state classes
-    const getProgressBarClasses = (): string => {
+    const getProgressBarClasses = useCallback((): string => {
         const baseClasses = 'h-full bg-white rounded-full'
 
         if (isCurrentStory) {
@@ -83,7 +89,7 @@ const ProgressBar = ({
             return `${baseClasses} w-full`
         }
         return `${baseClasses} w-0`
-    }
+    }, [isCurrentStory, isPaused, isCompletedStory])
 
     return (
         <div className="flex-1 h-0.75 bg-white/[0.45] rounded-full overflow-hidden">
@@ -113,7 +119,7 @@ export const StoriesPlayer = ({
     width,
     height,
 }: StoriesPlayerProps): JSX.Element => {
-    const [hoveredZone, setHoveredZone] = useState<'left' | 'right' | null>(null)
+    const [hoveredZone, setHoveredZone] = useState<HoverZone | null>(null)
     const [videoDuration, setVideoDuration] = useState<number | null>(null)
     const [animationKey, setAnimationKey] = useState(0) // Force re-render when story changes
     const [muted, setMuted] = useState(false)
@@ -131,14 +137,14 @@ export const StoriesPlayer = ({
 
     // Handle video metadata loaded (duration info)
     const handleVideoLoadedMetadata = useCallback(() => {
-        if (videoRef.current && currentStory?.type === 'video') {
+        if (videoRef.current && currentStory?.type === StoryType.Video) {
             setVideoDuration(videoRef.current.duration * 1000) // Convert to milliseconds
         }
     }, [currentStory])
 
     // Handle video data loaded (ready to play)
     const handleVideoLoadedData = useCallback(() => {
-        if (videoRef.current && currentStory?.type === 'video') {
+        if (videoRef.current && currentStory?.type === StoryType.Video) {
             // Try to play the video, fallback to muted if autoplay blocked
             if (!isPaused) {
                 videoRef.current.play().catch(() => {
@@ -152,7 +158,7 @@ export const StoriesPlayer = ({
 
     // Handle animation end for image stories
     const handleAnimationEnd = useCallback(() => {
-        if (currentStory?.type === 'image') {
+        if (currentStory?.type === StoryType.Image) {
             onStoryEnd()
             if (currentIndex < stories.length - 1) {
                 onNext()
@@ -164,7 +170,7 @@ export const StoriesPlayer = ({
 
     // Handle video pause/play
     useEffect(() => {
-        if (currentStory?.type === 'video' && videoRef.current) {
+        if (currentStory?.type === StoryType.Video && videoRef.current) {
             if (isPaused) {
                 videoRef.current.pause()
             } else {
@@ -265,7 +271,7 @@ export const StoriesPlayer = ({
 
             {/* Media content */}
             <div className="w-full h-full flex items-center justify-center">
-                {currentStory.type === 'overlay' ? null : currentStory.type === 'video' ? (
+                {currentStory.type === StoryType.Overlay ? null : currentStory.type === StoryType.Video ? (
                     <video
                         ref={videoRef}
                         src={currentStory.url}
@@ -315,7 +321,7 @@ export const StoriesPlayer = ({
                         aria-label="See more about this story - swipe up for more"
                     >
                         <span>{currentStory.seeMoreOptions?.text || currentStory.seeMoreText || 'See more'}</span>
-                        {currentStory.seeMoreOptions?.arrowIcon === 'up' ? (
+                        {currentStory.seeMoreOptions?.arrowIcon === ArrowIcon.Up ? (
                             <IconChevronRight className="w-3 h-3 transform -rotate-90" />
                         ) : (
                             <IconArrowRight className="w-3 h-3" />
@@ -332,7 +338,7 @@ export const StoriesPlayer = ({
                     className={`w-1/5 h-full relative flex items-center justify-start pl-4 ${
                         currentIndex > 0 ? 'cursor-pointer' : ''
                     }`}
-                    onMouseEnter={() => setHoveredZone('left')}
+                    onMouseEnter={() => setHoveredZone(HoverZone.Left)}
                     onMouseLeave={() => setHoveredZone(null)}
                     onClick={(e) => {
                         e.stopPropagation()
@@ -372,7 +378,7 @@ export const StoriesPlayer = ({
                     className={`w-1/5 h-full relative flex items-center justify-end pr-4 ${
                         currentIndex < stories.length - 1 ? 'cursor-pointer' : ''
                     }`}
-                    onMouseEnter={() => setHoveredZone('right')}
+                    onMouseEnter={() => setHoveredZone(HoverZone.Right)}
                     onMouseLeave={() => setHoveredZone(null)}
                     onClick={(e) => {
                         e.stopPropagation()

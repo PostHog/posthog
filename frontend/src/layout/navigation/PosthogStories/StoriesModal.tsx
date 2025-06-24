@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { storiesLogic } from './storiesLogic'
+import { CloseOverlayAction, StoryType } from './storiesMap'
 import type { story } from './storiesMap'
 import { StoriesPlayer, Story } from './StoriesPlayer'
 
@@ -16,13 +17,16 @@ const MIN_WIDTH = 320 // Minimum width in pixels
 const MAX_WIDTH = 854 // Maximum width in pixels
 const ASPECT_RATIO = 16 / 9 // 16:9 aspect ratio
 const DEFAULT_WIDTH = 988
+const OVERLAY_ANIMATION_DURATION = 300 // Match CSS transition duration (0.3s)
+const OVERLAY_TRIGGER_DELAY = 100 // Small delay to ensure story is rendered first
+const OVERLAY_ANIMATION_TRIGGER_DELAY = 10 // Trigger slide-up animation after DOM update
 
 interface StoryEndEventProps extends StoryEndEventPropsExtraProps {
     reason: string
     story_id: string
     story_title: string
     story_thumbnail_url: string
-    story_type: 'image' | 'video' | 'overlay'
+    story_type: StoryType
     time_spent_ms: number
     time_spent_seconds: number
     story_group_id: string
@@ -114,7 +118,7 @@ export const StoriesModal = (): JSX.Element | null => {
                     activeStory?.durationMs && activeStory?.durationMs > 0
                         ? Math.round((timeSpentMs / activeStory.durationMs) * 100)
                         : undefined,
-                ...(extraProps || {}),
+                ...extraProps,
             }
             posthog.capture('posthog_story_ended', props)
         },
@@ -125,7 +129,6 @@ export const StoriesModal = (): JSX.Element | null => {
         (forceClose: boolean) => {
             const timeSpentMs = Date.now() - storyStartTimeRef.current
 
-            // Send story end event
             sendStoryEndEvent(forceClose ? 'force_close' : 'natural_close')
 
             posthog.capture('posthog_story_closed', {
@@ -175,30 +178,28 @@ export const StoriesModal = (): JSX.Element | null => {
 
             // Auto-trigger overlay for 'overlay' type stories
             const story = activeGroup?.stories[index]
-            if (story?.type === 'overlay' && story.seeMoreOverlay) {
+            if (story?.type === StoryType.Overlay && story.seeMoreOverlay) {
                 setTimeout(() => {
-                    const closeHandler = (action?: 'overlay' | 'modal' | 'next' | 'previous'): void => {
+                    const closeHandler = (action?: CloseOverlayAction): void => {
                         setShowOverlay(false)
                         setOverlayComponent(null)
                         setIsPaused(false)
-                        if (action === 'modal') {
+                        if (action === CloseOverlayAction.Modal) {
                             setOpenStoriesModal(false)
-                        } else if (action === 'next') {
+                        } else if (action === CloseOverlayAction.Next) {
                             // Go to next story
                             if (activeGroup && index < activeGroup.stories.length - 1) {
                                 setActiveStoryIndex(index + 1)
-                            } else {
-                                // Last story in group - close the modal
-                                setOpenStoriesModal(false)
+                                return
                             }
-                        } else if (action === 'previous') {
+                            // Last story in group - close the modal
+                            setOpenStoriesModal(false)
+                        } else if (action === CloseOverlayAction.Previous) {
                             // Go to previous story
                             if (index > 0) {
                                 setActiveStoryIndex(index - 1)
-                            } else {
-                                // First story in group - just close overlay and continue current story
-                                // Default behavior (overlay closes, story continues)
                             }
+                            // First story in group
                         }
                     }
                     setOverlayComponent(() => () => story.seeMoreOverlay!(closeHandler))
@@ -206,8 +207,8 @@ export const StoriesModal = (): JSX.Element | null => {
                     setOverlayAnimating(true) // Start off-screen
                     setIsPaused(true)
                     // Trigger slide-up animation
-                    setTimeout(() => setOverlayAnimating(false), 10)
-                }, 100) // Small delay to ensure story is rendered first
+                    setTimeout(() => setOverlayAnimating(false), OVERLAY_ANIMATION_TRIGGER_DELAY)
+                }, OVERLAY_TRIGGER_DELAY)
             }
         },
         [setActiveStoryIndex, activeGroup, setOverlayComponent, setShowOverlay, setIsPaused, setOpenStoriesModal]
@@ -238,7 +239,7 @@ export const StoriesModal = (): JSX.Element | null => {
 
     // Handle overlay close
     const handleOverlayClose = useCallback(
-        (action?: 'overlay' | 'modal' | 'next' | 'previous') => {
+        (action?: CloseOverlayAction) => {
             setOverlayAnimating(true)
 
             // Wait for slide-down animation to complete
@@ -248,29 +249,27 @@ export const StoriesModal = (): JSX.Element | null => {
                 setOverlayAnimating(false)
                 setIsPaused(false)
 
-                if (action === 'modal') {
+                if (action === CloseOverlayAction.Modal) {
                     sendStoryEndEvent('overlay_close_modal')
                     setOpenStoriesModal(false)
-                } else if (action === 'next') {
+                } else if (action === CloseOverlayAction.Next) {
                     sendStoryEndEvent('overlay_next')
                     // Go to next story
                     if (activeStoryIndex < maxStoryIndex - 1) {
                         setActiveStoryIndex(activeStoryIndex + 1)
-                    } else {
-                        // Last story in group - close the modal
-                        setOpenStoriesModal(false)
+                        return
                     }
-                } else if (action === 'previous') {
+                    // Last story in group - close the modal
+                    setOpenStoriesModal(false)
+                } else if (action === CloseOverlayAction.Previous) {
                     sendStoryEndEvent('overlay_previous')
                     // Go to previous story
                     if (activeStoryIndex > 0) {
                         setActiveStoryIndex(activeStoryIndex - 1)
-                    } else {
-                        // First story in group - just close overlay and continue current story
-                        // Default behavior (overlay closes, story continues)
                     }
+                    // First story in group
                 }
-            }, 300) // Match animation duration
+            }, OVERLAY_ANIMATION_DURATION) // Match CSS transition duration
             // Default action 'overlay' or undefined just closes the overlay and continues current story
         },
         [setOpenStoriesModal, activeStoryIndex, maxStoryIndex, setActiveStoryIndex, sendStoryEndEvent]
@@ -300,7 +299,7 @@ export const StoriesModal = (): JSX.Element | null => {
                               setOverlayAnimating(true) // Start off-screen
                               setIsPaused(true)
                               // Trigger slide-up animation
-                              setTimeout(() => setOverlayAnimating(false), 10)
+                              setTimeout(() => setOverlayAnimating(false), OVERLAY_ANIMATION_TRIGGER_DELAY)
                           } else if (story.seeMoreLink) {
                               window.open(story.seeMoreLink, '_blank')
                               setIsPaused(true)

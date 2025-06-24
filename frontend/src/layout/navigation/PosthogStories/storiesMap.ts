@@ -1,8 +1,26 @@
 // This should eventually be moved to a DB.
 import { createExampleOverlay } from './createExampleOverlay'
 
+export enum StoryType {
+    Image = 'image',
+    Video = 'video',
+    Overlay = 'overlay',
+}
+
+export enum CloseOverlayAction {
+    Overlay = 'overlay',
+    Modal = 'modal',
+    Next = 'next',
+    Previous = 'previous',
+}
+
+export enum ArrowIcon {
+    Right = 'right',
+    Up = 'up',
+}
+
 export interface SeeMoreOptions {
-    arrowIcon?: 'right' | 'up'
+    arrowIcon?: ArrowIcon
     backgroundColor?: 'black' | 'white'
     hideDefaultClose?: boolean
     text?: string
@@ -15,10 +33,10 @@ export interface story {
     thumbnailUrl: string
     description?: string
     mediaUrl?: string
-    type: 'image' | 'video' | 'overlay'
+    type: StoryType
     durationMs?: number
     seeMoreLink?: string
-    seeMoreOverlay?: (closeOverlay: (action?: 'overlay' | 'modal' | 'next' | 'previous') => void) => JSX.Element
+    seeMoreOverlay?: (closeOverlay: (action?: CloseOverlayAction) => void) => JSX.Element
     seeMoreOptions?: SeeMoreOptions
 }
 
@@ -43,7 +61,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_save_filters_replay_wide_684b8b7844_82b2ffd07c.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
             {
                 id: 'changelog_linear_share_1',
@@ -52,7 +70,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_linear_share_wide_0d3520bba5_64049c56b6.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
             {
                 id: 'overlay_example',
@@ -60,7 +78,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'New feature showcase with component overlay',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/changelog_cta_f8c6037283.png',
-                type: 'image',
+                type: StoryType.Image,
                 durationMs: 6000,
                 seeMoreOverlay: createExampleOverlay('🚀 Feature Showcase', "See what's new in PostHog", [
                     'Advanced analytics',
@@ -71,7 +89,7 @@ export const storiesMap: storyGroup[] = [
                     text: 'Explore Feature',
                     textColor: 'black',
                     backgroundColor: 'black',
-                    arrowIcon: 'up',
+                    arrowIcon: ArrowIcon.Up,
                 },
             },
             {
@@ -80,7 +98,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Read our changelog!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
-                type: 'video',
+                type: StoryType.Video,
                 seeMoreLink: 'https://posthog.com/changelog',
                 seeMoreOptions: {
                     backgroundColor: 'black',
@@ -98,7 +116,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Overview of the toolbar',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_wide_5df781bfb4_e455df0d27.mp4',
-                type: 'video',
+                type: StoryType.Video,
                 durationMs: 41000,
             },
             {
@@ -108,7 +126,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_actions_wide_fbe2f78e7e_e60dd23156.mp4',
-                type: 'video',
+                type: StoryType.Video,
                 durationMs: 45000,
             },
             {
@@ -117,7 +135,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Inspect elements',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_inspect_a284324d14_24631f27fd.png',
-                type: 'image',
+                type: StoryType.Image,
             },
             {
                 id: 'toolbar_heatmap_1',
@@ -125,7 +143,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'View heatmaps',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_heatmap_460f46f86b_04862b4e0a.png',
-                type: 'image',
+                type: StoryType.Image,
             },
             {
                 id: 'toolbar_feature_flags_1',
@@ -134,7 +152,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_feature_flags_31802301a3_41dacb9996.png',
-                type: 'image',
+                type: StoryType.Image,
             },
             {
                 id: 'toolbar_events_1',
@@ -143,7 +161,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_debug_events_90dcef3c7b_b7564ce9af.png',
-                type: 'image',
+                type: StoryType.Image,
             },
             {
                 id: 'toolbar_web_vitals_1',
@@ -152,7 +170,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_web_vitals_0150d8d8ca_6b9a790fb1.png',
-                type: 'image',
+                type: StoryType.Image,
             },
             {
                 id: 'toolbar_experiments_1',
@@ -161,7 +179,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_experiments_6745bae143_b82232edde.png',
-                type: 'image',
+                type: StoryType.Image,
             },
             {
                 id: 'cool_features_1',
@@ -170,7 +188,7 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_cool_features_357aa7fc36_dc294f7fca.png',
-                type: 'image',
+                type: StoryType.Image,
             },
         ],
     },
@@ -184,7 +202,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/Desk_Hog_ab9bb61eba.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
             {
                 id: 'deskhog-overview',
@@ -192,7 +210,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_overview_3f90b6e703.png',
-                type: 'image',
+                type: StoryType.Image,
                 durationMs: 5000,
             },
             {
@@ -201,7 +219,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_kit_657f1da249.png',
-                type: 'image',
+                type: StoryType.Image,
                 durationMs: 5000,
             },
             {
@@ -210,7 +228,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_colors_84c91ae075.png',
-                type: 'image',
+                type: StoryType.Image,
                 durationMs: 5000,
             },
             {
@@ -219,7 +237,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/Desk_Hog_production_4cb8c4b0df.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
             {
                 id: 'deskhog-cta',
@@ -227,7 +245,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_cta_513a9e19f4.png',
-                type: 'image',
+                type: StoryType.Image,
                 durationMs: 5500,
             },
         ],
@@ -242,7 +260,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Say hi to Max!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
         ],
     },
@@ -256,7 +274,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/product_analytics_icon_eb743fa24b.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_2_6da6e7d3d0.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
         ],
     },
@@ -270,7 +288,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/web_analytics_700d89898c.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_3_d7e99120b4.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
         ],
     },
@@ -284,7 +302,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/session_replay_5cd544fd6e.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/placeholder_screen_4_ceb3e8b201.png',
-                type: 'image',
+                type: StoryType.Image,
                 durationMs: 6000,
             },
         ],
@@ -299,7 +317,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_65f86819c0.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/screensaver_bouncing_logo_f91aed8237.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
         ],
     },
@@ -313,7 +331,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_473107c5b2.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_743c5dde0e.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
         ],
     },
@@ -327,7 +345,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_ba81894d25.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_2_6da6e7d3d0.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
         ],
     },
@@ -341,7 +359,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/data_pipelines_cfed9a24c9.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/placeholder_hogtok_3_d7e99120b4.mp4',
-                type: 'video',
+                type: StoryType.Video,
                 durationMs: 6000,
             },
         ],
@@ -356,7 +374,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/data_warehouse_edc03a4e0b.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/placeholder_screen_4_ceb3e8b201.png',
-                type: 'image',
+                type: StoryType.Image,
             },
         ],
     },
@@ -370,7 +388,7 @@ export const storiesMap: storyGroup[] = [
                 description: 'Give Andy, Javier, and Edwin feedback!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/llm_observability_d5b8320de9.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/screensaver_bouncing_logo_f91aed8237.mp4',
-                type: 'video',
+                type: StoryType.Video,
             },
         ],
     },

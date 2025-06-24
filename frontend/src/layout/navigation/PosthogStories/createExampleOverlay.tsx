@@ -1,12 +1,12 @@
+import { CloseOverlayAction } from './storiesMap'
+
 // Simple example overlay helper
 export const createExampleOverlay = (
     title: string,
     description: string,
     features?: string[]
-): ((closeOverlay: (action?: 'overlay' | 'modal' | 'next' | 'previous') => void) => JSX.Element) => {
-    const ExampleOverlay = (
-        closeOverlay: (action?: 'overlay' | 'modal' | 'next' | 'previous') => void
-    ): JSX.Element => (
+): ((closeOverlay: (action?: CloseOverlayAction) => void) => JSX.Element) => {
+    const ExampleOverlay = (closeOverlay: (action?: CloseOverlayAction) => void): JSX.Element => (
         <div className="p-6 max-w-lg mx-auto text-center">
             <h2 className="text-2xl font-bold mb-2">{title}</h2>
             <p className="text-gray-600 mb-4">{description}</p>
@@ -29,19 +29,19 @@ export const createExampleOverlay = (
                 </button>
                 <button
                     className="px-4 py-2 bg-red-600 text-white rounded cursor-pointer"
-                    onClick={() => closeOverlay('next')}
+                    onClick={() => closeOverlay(CloseOverlayAction.Next)}
                 >
                     Next story
                 </button>
                 <button
                     className="px-4 py-2 bg-red-600 text-white rounded cursor-pointer"
-                    onClick={() => closeOverlay('previous')}
+                    onClick={() => closeOverlay(CloseOverlayAction.Previous)}
                 >
                     Previous story
                 </button>
                 <button
                     className="px-4 py-2 bg-red-600 text-white rounded cursor-pointer"
-                    onClick={() => closeOverlay('modal')}
+                    onClick={() => closeOverlay(CloseOverlayAction.Modal)}
                 >
                     Close modal
                 </button>
