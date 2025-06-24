@@ -90,9 +90,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
             (s) => [s.fieldOptionGroups, s.value],
             (fieldOptionGroups, value) =>
                 value && typeof value === 'string'
-                    ? fieldOptionGroups.reduce((accumulator, group) => ({ ...accumulator, ...group.values }), {})?.[
-                          value
-                      ]
+                    ? fieldOptionGroups.reduce((accumulator, group) => {
+                          Object.assign(accumulator, group.values)
+                          return accumulator
+                      }, {} as Record<string, any>)?.[value]
                     : null,
         ],
         calculatedValueLoading: [

@@ -80,7 +80,7 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
         handleCopyToClipboard: async () => {
             try {
                 await copyToClipboard(values.generatedRegex, 'Regex copied to clipboard')
-            } catch (error) {
+            } catch {
                 lemonToast.error('Failed to copy regex to clipboard')
             }
         },

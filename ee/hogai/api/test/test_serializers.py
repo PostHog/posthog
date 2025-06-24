@@ -46,7 +46,7 @@ class TestConversationSerializers(APIBaseTest):
             mock_get_state.return_value = MockSnapshot()
 
             data = ConversationSerializer(
-                conversation, context={"assistant_graph": AssistantGraph(self.team).compile_full_graph()}
+                conversation, context={"assistant_graph": AssistantGraph(self.team, self.user).compile_full_graph()}
             ).data
 
             # Check that only the expected messages are included

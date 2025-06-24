@@ -1,4 +1,4 @@
-import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX, IconEye, IconHide } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
@@ -37,8 +37,48 @@ import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPla
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
-import { HideRecordingsMenu } from './RecordingsUniversalFilters'
 import { SavedFilters } from './SavedFilters'
+
+function HideRecordingsMenu(): JSX.Element {
+    const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
+    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const items = [
+        {
+            label: hideRecordingsMenuLabelFor(false),
+            onClick: () => setHideViewedRecordings(false),
+            active: !hideViewedRecordings,
+            'data-attr': 'hide-viewed-recordings-show-all',
+        },
+        {
+            label: hideRecordingsMenuLabelFor('current-user'),
+            onClick: () => setHideViewedRecordings('current-user'),
+            active: hideViewedRecordings === 'current-user',
+            'data-attr': 'hide-viewed-recordings-hide-current-user',
+        },
+    ]
+
+    // If the person wished to be excluded from the hide recordings menu, we don't show the option to hide recordings that other people have watched
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]) {
+        items.push({
+            label: hideRecordingsMenuLabelFor('any-user'),
+            onClick: () => setHideViewedRecordings('any-user'),
+            active: hideViewedRecordings === 'any-user',
+            'data-attr': 'hide-viewed-recordings-hide-any-user',
+        })
+    }
+
+    return (
+        <SettingsMenu
+            highlightWhenActive={false}
+            items={items}
+            icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
+            rounded={true}
+            label={hideRecordingsMenuLabelFor(hideViewedRecordings)}
+        />
+    )
+}
 
 export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
@@ -459,10 +499,7 @@ export const RecordingsUniversalFiltersEmbed = ({
             content: <SavedFilters setFilters={setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
-    ]
-
-    if (featureFlags[FEATURE_FLAGS.REPLAY_ACTIVE_HOURS_HEATMAP] === 'templates') {
-        tabs.push({
+        {
             key: 'explore',
             label: <div className="px-2">Explore</div>,
             content: (
@@ -475,8 +512,8 @@ export const RecordingsUniversalFiltersEmbed = ({
                 </div>
             ),
             'data-attr': 'session-recordings-explore-tab',
-        })
-    }
+        },
+    ]
 
     return (
         <div className="relative">

@@ -25,12 +25,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [
-            FEATURE_FLAGS.REVENUE_ANALYTICS,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_FILTERS,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_PRODUCT_GROUPING,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_COHORT_GROUPING,
-        ],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
