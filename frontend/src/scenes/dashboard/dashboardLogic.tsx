@@ -1332,7 +1332,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
-            } catch (e: any) {
+            } catch {
                 actions.setRefreshError(insight.short_id)
             }
         },

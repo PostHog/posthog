@@ -24,7 +24,7 @@ import {
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/Workflows/types'
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
@@ -3064,6 +3064,7 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    is_publicly_shareable?: boolean | null
     _create_in_folder?: string | null
 }
 
@@ -4603,7 +4604,12 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
-export type SchemaIncrementalFieldsResponse = IncrementalField[]
+export type SchemaIncrementalFieldsResponse = {
+    incremental_fields: IncrementalField[]
+    incremental_available: boolean
+    append_available: boolean
+    full_refresh_available: boolean
+}
 
 export interface IncrementalField {
     label: string
@@ -4622,6 +4628,7 @@ export interface ExternalDataSourceSyncSchema {
     sync_type: 'full_refresh' | 'incremental' | 'append' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
+    append_available: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {

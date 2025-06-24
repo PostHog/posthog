@@ -145,19 +145,6 @@ pub enum Update {
     EventProperty(EventProperty),
 }
 
-impl Update {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        match self {
-            Update::Event(e) => e.issue(executor).await,
-            Update::Property(p) => p.issue(executor).await,
-            Update::EventProperty(ep) => ep.issue(executor).await,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
@@ -495,79 +482,6 @@ impl EventDefinition {
         ).execute(executor).await.map(|_| ());
 
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
-
-        res
-    }
-}
-
-impl PropertyDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let group_type_index = match &self.group_type_index {
-            Some(GroupType::Resolved(_, i)) => Some(*i as i16),
-            Some(GroupType::Unresolved(group_name)) => {
-                warn!(
-                    "Group type {} not resolved for property definition {} for team {}, skipping update",
-                    group_name, self.name, self.team_id
-                );
-                None
-            }
-            _ => {
-                // We don't have a group type, so we don't have a group type index
-                None
-            }
-        };
-
-        if group_type_index.is_none() && matches!(self.event_type, PropertyParentType::Group) {
-            // Some teams/users wildly misuse group-types, and if we fail to issue an update
-            // during the transaction (which we do if we don't have a group-type index for a
-            // group property), the entire transaction is aborted, so instead we just warn
-            // loudly about this (above, and at resolve time), and drop the update.
-            return Ok(());
-        }
-
-        let res = sqlx::query!(
-            r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
-            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
-            ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
-            DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
-        "#,
-            Uuid::now_v7(),
-            self.name,
-            self.event_type as i16,
-            group_type_index,
-            self.is_numerical,
-            self.team_id,
-            self.project_id,
-            self.property_type.as_ref().map(|t| t.to_string())
-        ).execute(executor).await.map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "property_definition")]).increment(1);
-
-        res
-    }
-}
-
-impl EventProperty {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let res = sqlx::query!(
-            r#"INSERT INTO posthog_eventproperty (event, property, team_id, project_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#,
-            self.event,
-            self.property,
-            self.team_id,
-            self.project_id
-        )
-        .execute(executor)
-        .await
-        .map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "event_property")]).increment(1);
 
         res
     }
