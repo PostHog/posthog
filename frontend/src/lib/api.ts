@@ -39,7 +39,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -263,7 +263,7 @@ export function getCookie(name: string): string | null {
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch (e) {
+    } catch {
         return null
     }
 }
@@ -2667,7 +2667,7 @@ const api = {
                 if (textLines) {
                     return textLines.split('\n')
                 }
-            } catch (e) {
+            } catch {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
             return []
@@ -2880,13 +2880,13 @@ const api = {
             return await new ApiRequest()
                 .batchExport(id)
                 .withAction('run_test_step')
-                .create({ data: { ...{ step: step }, ...data } })
+                .create({ data: { step: step, ...data } })
         },
         async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
             return await new ApiRequest()
                 .batchExports()
                 .withAction('run_test_step_new')
-                .create({ data: { ...{ step: step }, ...data } })
+                .create({ data: { step: step, ...data } })
         },
     },
 
@@ -3514,11 +3514,11 @@ const api = {
             queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
         }
     ): Promise<HogQLQueryResponse<T>> {
-        const hogQLQuery: HogQLQuery = {
+        const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
-        }
+        })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
             data: {

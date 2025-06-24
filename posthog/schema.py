@@ -3032,6 +3032,8 @@ class ExperimentMetricBaseProperties(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
+    response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentStatsBase(BaseModel):
@@ -6622,6 +6624,8 @@ class ExperimentEventExposureConfig(BaseModel):
             RevenueAnalyticsPropertyFilter,
         ]
     ]
+    response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentExposureCriteria(BaseModel):
@@ -8597,6 +8601,7 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebAnalyticsExternalSummaryQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebExternalClicksTableQuery(BaseModel):
@@ -9808,7 +9813,9 @@ class ExperimentFunnelMetric(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
+    response: Optional[dict[str, Any]] = None
     series: list[Union[EventsNode, ActionsNode]]
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentMeanMetric(BaseModel):
@@ -9821,8 +9828,10 @@ class ExperimentMeanMetric(BaseModel):
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
+    response: Optional[dict[str, Any]] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentMeanMetricTypeProps(BaseModel):

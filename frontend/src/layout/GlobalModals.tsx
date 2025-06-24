@@ -18,6 +18,7 @@ import { environmentRollbackModalLogic } from 'scenes/settings/environment/envir
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
+import { useEffect } from 'react'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
 
@@ -59,11 +60,37 @@ export const globalModalsLogic = kea<globalModalsLogicType>([
 export function GlobalModals(): JSX.Element {
     const { isCreateOrganizationModalShown, isCreateProjectModalShown, isCreateEnvironmentModalShown } =
         useValues(globalModalsLogic)
-    const { hideCreateOrganizationModal, hideCreateProjectModal, hideCreateEnvironmentModal } =
-        useActions(globalModalsLogic)
+    const {
+        hideCreateOrganizationModal,
+        hideCreateProjectModal,
+        hideCreateEnvironmentModal,
+        showCreateEnvironmentModal,
+    } = useActions(globalModalsLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
+
+    // Expose modal actions to window for debugging purposes
+    useEffect(() => {
+        const isDebugEnabled = typeof window !== 'undefined' && window.localStorage?.getItem('ph-debug') === 'true'
+
+        if (typeof window !== 'undefined' && isDebugEnabled) {
+            // @ts-expect-error-next-line
+            window.posthogDebug = window.posthogDebug || {}
+            // @ts-expect-error-next-line
+            window.posthogDebug.showCreateEnvironmentModal = showCreateEnvironmentModal
+        }
+
+        return () => {
+            if (typeof window !== 'undefined') {
+                // @ts-expect-error-next-line
+                if (window.posthogDebug) {
+                    // @ts-expect-error-next-line
+                    delete window.posthogDebug.showCreateEnvironmentModal
+                }
+            }
+        }
+    }, [showCreateEnvironmentModal])
 
     return (
         <>

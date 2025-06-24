@@ -82,7 +82,14 @@ class TestExternalDataSchema(APIBaseTest):
         )
         payload = response.json()
 
-        assert payload == [{"label": "created_at", "type": "datetime", "field": "created", "field_type": "integer"}]
+        assert payload == {
+            "incremental_fields": [
+                {"label": "created_at", "type": "datetime", "field": "created", "field_type": "integer"}
+            ],
+            "incremental_available": False,
+            "append_available": True,
+            "full_refresh_available": True,
+        }
 
     def test_incremental_fields_missing_source_type(self):
         source = ExternalDataSource.objects.create(
@@ -124,7 +131,12 @@ class TestExternalDataSchema(APIBaseTest):
 
         # should respond but with empty list. Example: Hubspot has not incremental fields but the response should be an empty list so that full refresh is selectable
         assert response.status_code == 200
-        assert response.json() == []
+        assert response.json() == {
+            "incremental_fields": [],
+            "incremental_available": False,
+            "append_available": False,
+            "full_refresh_available": True,
+        }
 
     @pytest.mark.asyncio
     async def test_incremental_fields_postgres(self):
@@ -172,7 +184,12 @@ class TestExternalDataSchema(APIBaseTest):
         )
         payload = response.json()
 
-        assert payload == [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}]
+        assert payload == {
+            "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+            "incremental_available": True,
+            "append_available": True,
+            "full_refresh_available": True,
+        }
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
