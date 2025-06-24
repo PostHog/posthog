@@ -954,7 +954,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         lifecycle: 'create',
                     })
                 }
-            } catch (e) {
+            } catch {
                 lemonToast.error('Failed to save view')
             }
         },
