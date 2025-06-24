@@ -20,6 +20,7 @@ Each session represents a single user journey. Use the summaries to identify pai
 You are analyzing multiple user session summaries to identify recurring patterns of user behavior, particularly focusing on pain points, failures, and friction in the user experience.
 
 ## Step 1: Analyze Session Summaries for Common Issues
+
 Review all provided session summaries and identify recurring themes across multiple sessions:
 
 1.1. Technical Failures:
@@ -40,7 +41,6 @@ Review all provided session summaries and identify recurring themes across multi
 ## Step 2: Extract Patterns
 
 2.1. Find coherent patterns from analyzing similar issues across all provided sessions:
-
 ✓ Each pattern must be supported by evidence from at least 2 sessions
 ✓ Ensure patterns are specific enough to be actionable
 ✓ Use examples from the actual session data with clear, observable indicators
@@ -58,45 +58,68 @@ Review all provided session summaries and identify recurring themes across multi
 - **High**: Patterns causing significant user frustration or workflow interruption
 - **Medium**: Patterns creating minor friction but not preventing goal completion
 
-## Step 3: Define Pattern Characteristics
+2.3. Ensure actionability of each pattern, as each pattern must pass the "So what?" test:
+- Can specific UI/UX changes address this pattern?
+- Is the pattern specific enough to guide priorities?
+- Does it point to a clear problem owner (frontend, backend, UX, etc.)?
+- Can success be measured after implementing fixes?
+
+# Step 3: Consolidate Patterns
+
+AGGRESSIVELY consolidate similar patterns.
+
+## Step 4: Define Pattern Characteristics
+
 For each identified pattern, specify:
 
-3.1. Pattern Name:
+3.1. Pick a proper name:
 - Concise, descriptive title (3-6 words)
 - Should immediately convey the issue type
 - Examples: "Post Creation Friction", "Search Result Confusion", "Checkout Abandonment"
 
-3.2. Pattern Description:
+3.2. Write pattern description:
 - Clear explanation of what the pattern represents
 - Include the user context and impact
 - Mention specific areas/features affected
 - 1-2 sentences, focusing on the problem and its consequences
 
-3.3. Indicators:
+3.3. Attach generalized indicators relevant to this pattern:
 - List observable behaviors that confirm this pattern
-- Include generalized event types, not actual events from the sessions
+- Include event types with contextual details, not specific events:
+  - Where in the user flow this typically occurs
+  - Common preceding actions or triggers
+  - Typical user state when pattern emerges
 - Each indicator should be verifiable in session data
 - Include 2-5 indicators per pattern
 
-## Step 4: Quality Checks
+## Step 4: Identify Pattern Relationships
 
-Before finalizing patterns:
+- Does one pattern often lead to another?
+- Do certain patterns frequently occur together?
+- What successful workarounds do users employ?
 
-4.1. Specificity Check:
+## Step 5: Quality Checks
+
+Before finalizing patterns, verify:
+
+4.1. Pattern Overlap Check:
+- Are patterns distinct enough from each other?
+- Have you aggressively consolidated similar patterns?
+
+4.2. Specificity Check:
 - Is the pattern specific enough to guide improvements?
-- Are the indicators concrete and measurable?
+- Does it pass "So what?" check?
 
-4.2. Evidence Check:
+4.3. Evidence Check:
 - Is the pattern supported by multiple sessions?
 - Are the indicators actually present in the data?
 - Have you avoided inferring patterns not supported by evidence?
 
-4.3. Business Impact Check:
+4.4. Business Impact Check:
 - Does this pattern affect important user flows?
 - Is it worth prioritizing for improvement?
 - Does it impact conversions, engagement, or user satisfaction?
 </pattern_extraction_instructions>
-
 
 <output_format>
 Provide your pattern analysis in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
