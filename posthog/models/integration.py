@@ -3,15 +3,17 @@ import hashlib
 import hmac
 import time
 import jwt
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
 from prometheus_client import Counter
 import requests
+from requests import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -99,6 +101,8 @@ class Integration(models.Model):
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
+        if self.kind == "github":
+            return dot_get(self.config, oauth_config.account_name, self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -932,33 +936,46 @@ class GitHubIntegration:
     integration: Integration
 
     @classmethod
-    def generate_jwt(cls) -> str:
-        payload = {"iat": int(time.time()), "exp": int(time.time()) + 600, "iss": settings.GITHUB_APP_CLIENT_ID}
-        return jwt.encode(payload, settings.GITHUB_APP_PRIVATE_KEY, algorithm="RS256")
+    def client_request(cls, endpoint: str, method: str = "GET") -> Response:
+        jwt_token = jwt.encode(
+            {
+                "iat": int(time.time()),
+                "exp": int(time.time()) + 600,  # 10 minutes
+                "iss": settings.GITHUB_APP_CLIENT_ID,
+            },
+            settings.GITHUB_APP_PRIVATE_KEY,
+            algorithm="RS256",
+        )
 
-    @classmethod
-    def integration_from_installation(
-        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
-    ) -> Integration:
-        jwt_token = cls.generate_jwt()
-
-        response = requests.post(
-            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+        return requests.request(
+            method,
+            f"https://api.github.com/app/{endpoint}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {jwt_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
-        ).json()
+        )
+
+    @classmethod
+    def integration_from_installation_id(
+        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        response = cls.client_request(f"installations/{installation_id}")
+        print(response)
+        installation_info = response.json()
+        access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
 
         config = {
             "installation_id": installation_id,
+            "expires_in": datetime.fromisoformat(access_token["expires_at"]).timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
-            "expires_in": response["expires_at"].timestamp() - int(time.time()),
-            "repositories": response["repository_selection"],
+            "repository_selection": access_token["repository_selection"],
+            "account_type": dot_get(installation_info, "account.type", None),
+            "account_name": dot_get(installation_info, "account.login", installation_id),
         }
 
-        sensitive_config = {"access_token": response["token"]}
+        sensitive_config = {"access_token": access_token["token"]}
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -981,3 +998,35 @@ class GitHubIntegration:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+
+    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be really safe we refresh if its half way through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self):
+        """
+        Refresh the access token for the integration if necessary
+        """
+        response = self.send_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
+        config = response.json()
+
+        if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
+            logger.warning(f"Failed to refresh token for {self}", response=response.text)
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        else:
+            logger.info(f"Refreshed access token for {self}")
+            self.integration.sensitive_config["access_token"] = config["token"]
+            expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
+            self.integration.config["expires_in"] = expires_in
+            self.integration.config["refreshed_at"] = int(time.time())
+            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        self.integration.save()

@@ -106,9 +106,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
             const { state, installation_id } = searchParams
 
             try {
-                // if (state !== getCookie('ph_github_state')) {
-                //     throw new Error('Invalid state token')
-                // }
+                if (state !== getCookie('ph_github_state')) {
+                    throw new Error('Invalid state token')
+                }
 
                 await api.integrations.create({
                     kind: 'github',
@@ -120,7 +120,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             } catch (e) {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
-                // router.actions.replace(urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }))
+                router.actions.replace(urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }))
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {

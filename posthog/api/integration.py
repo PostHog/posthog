@@ -93,7 +93,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
             if not installation_id:
                 raise ValidationError("An installation_id must be provided")
 
-            instance = GitHubIntegration.integration_from_installation(installation_id, team_id, request.user)
+            instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
