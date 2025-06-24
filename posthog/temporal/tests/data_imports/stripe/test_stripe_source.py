@@ -2,7 +2,6 @@ import uuid
 from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
-from django.test import override_settings
 import pytest
 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -96,54 +95,54 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
     Then, after resetting the 'max_created' value, we expect the incremental sync to return the most recent 2 balance
     transactions when it is called again.
     """
-    with override_settings(STRIPE_V2_TEAM_IDS=[str(team.id)]):
-        table_name = "stripe_balancetransaction"
 
-        # mock the API so it doesn't return all data on initial sync
-        third_item_created = BALANCE_TRANSACTIONS[2]["created"]
-        mock_stripe_api.set_max_created(third_item_created)
-        expected_rows_synced = 3
-        expected_total_rows = 3
+    table_name = "stripe_balancetransaction"
 
-        await run_external_data_job_workflow(
-            team=team,
-            external_data_source=external_data_source,
-            external_data_schema=external_data_schema_incremental,
-            table_name=table_name,
-            expected_rows_synced=expected_rows_synced,
-            expected_total_rows=expected_total_rows,
-        )
+    # mock the API so it doesn't return all data on initial sync
+    third_item_created = BALANCE_TRANSACTIONS[2]["created"]
+    mock_stripe_api.set_max_created(third_item_created)
+    expected_rows_synced = 3
+    expected_total_rows = 3
 
-        # Check that the API was called as expected
-        api_calls_made = mock_stripe_api.get_all_api_calls()
-        assert len(api_calls_made) == 1
-        assert parse_qs(urlparse(api_calls_made[0].url).query) == {
-            "limit": ["100"],
-        }
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_incremental,
+        table_name=table_name,
+        expected_rows_synced=expected_rows_synced,
+        expected_total_rows=expected_total_rows,
+    )
 
-        mock_stripe_api.reset_max_created()
-        # run the incremental sync
-        # we expect this to bring in 2 more rows
-        expected_rows_synced = 2
-        expected_total_rows = len(BALANCE_TRANSACTIONS)
+    # Check that the API was called as expected
+    api_calls_made = mock_stripe_api.get_all_api_calls()
+    assert len(api_calls_made) == 1
+    assert parse_qs(urlparse(api_calls_made[0].url).query) == {
+        "limit": ["100"],
+    }
 
-        await run_external_data_job_workflow(
-            team=team,
-            external_data_source=external_data_source,
-            external_data_schema=external_data_schema_incremental,
-            table_name=table_name,
-            expected_rows_synced=expected_rows_synced,
-            expected_total_rows=expected_total_rows,
-        )
+    mock_stripe_api.reset_max_created()
+    # run the incremental sync
+    # we expect this to bring in 2 more rows
+    expected_rows_synced = 2
+    expected_total_rows = len(BALANCE_TRANSACTIONS)
 
-        api_calls_made = mock_stripe_api.get_all_api_calls()
-        # Check that the API was called once more
-        assert len(api_calls_made) == 3
-        assert parse_qs(urlparse(api_calls_made[1].url).query) == {
-            "created[lt]": [str(BALANCE_TRANSACTIONS[4]["created"])],
-            "limit": ["100"],
-        }
-        assert parse_qs(urlparse(api_calls_made[2].url).query) == {
-            "created[gt]": [f"{third_item_created}"],
-            "limit": ["100"],
-        }
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_incremental,
+        table_name=table_name,
+        expected_rows_synced=expected_rows_synced,
+        expected_total_rows=expected_total_rows,
+    )
+
+    api_calls_made = mock_stripe_api.get_all_api_calls()
+    # Check that the API was called once more
+    assert len(api_calls_made) == 3
+    assert parse_qs(urlparse(api_calls_made[1].url).query) == {
+        "created[lt]": [str(BALANCE_TRANSACTIONS[4]["created"])],
+        "limit": ["100"],
+    }
+    assert parse_qs(urlparse(api_calls_made[2].url).query) == {
+        "created[gt]": [f"{third_item_created}"],
+        "limit": ["100"],
+    }

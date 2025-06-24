@@ -24,6 +24,7 @@ import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
+import { match, P } from 'ts-pattern'
 
 export interface StacktraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
     issue?: ErrorTrackingRelationalIssue
@@ -39,7 +40,7 @@ export function StacktraceTab({
     ...props
 }: StacktraceTabProps): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList, sessionId } = useValues(errorPropertiesLogic)
+    const { exceptionAttributes, exceptionList, sessionId, mightHaveRecording } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
     return (
@@ -50,18 +51,23 @@ export function StacktraceTab({
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     <ViewRecordingTrigger sessionId={sessionId} inModal={true} timestamp={timestamp}>
-                        {(onClick, _, disabledReason, maybeSpinner) => (
-                            <ButtonPrimitive
-                                disabled={disabledReason != null}
-                                onClick={onClick}
-                                className="px-2 h-[1.4rem]"
-                                tooltip={disabledReason ? disabledReason : 'View recording'}
-                            >
-                                <IconPlayCircle />
-                                View Recording
-                                {maybeSpinner}
-                            </ButtonPrimitive>
-                        )}
+                        {(onClick, _, disabledReason, maybeSpinner) => {
+                            return (
+                                <ButtonPrimitive
+                                    disabled={disabledReason != null || !mightHaveRecording}
+                                    onClick={onClick}
+                                    className="px-2 h-[1.4rem]"
+                                    tooltip={match([disabledReason != null, mightHaveRecording])
+                                        .with([true, P.any], () => 'No recording available')
+                                        .with([false, false], () => 'Recording not ready')
+                                        .otherwise(() => 'View Recording')}
+                                >
+                                    <IconPlayCircle />
+                                    View Recording
+                                    {maybeSpinner}
+                                </ButtonPrimitive>
+                            )
+                        }}
                     </ViewRecordingTrigger>
                     {showFixButton && (
                         <ButtonPrimitive

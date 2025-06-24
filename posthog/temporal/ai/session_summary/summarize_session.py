@@ -119,7 +119,7 @@ async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) 
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+        task_queue=constants.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
     return handle

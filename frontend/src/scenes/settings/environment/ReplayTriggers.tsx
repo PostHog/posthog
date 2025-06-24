@@ -191,7 +191,7 @@ function UrlConfigForm({
                                     } else {
                                         addUrlBlocklist(payload)
                                     }
-                                } catch (error) {
+                                } catch {
                                     lemonToast.error('Failed to apply regex')
                                 }
                             }}
