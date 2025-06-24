@@ -17,6 +17,7 @@ import { ContextDisplay } from './ContextDisplay'
 
 interface BaseQuestionInputProps {
     isFloating?: boolean
+    isSticky?: boolean
     placeholder?: string
     children?: ReactNode
     contextDisplaySize?: 'small' | 'default'
@@ -30,6 +31,7 @@ interface BaseQuestionInputProps {
 export const BaseQuestionInput = React.forwardRef<HTMLDivElement, BaseQuestionInputProps>(function BaseQuestionInput(
     {
         isFloating,
+        isSticky,
         placeholder,
         children,
         contextDisplaySize,
@@ -49,12 +51,11 @@ export const BaseQuestionInput = React.forwardRef<HTMLDivElement, BaseQuestionIn
 
     return (
         <div
-            className={clsx(
-                containerClassName ||
-                    (!isFloating
-                        ? 'px-3 w-[min(44rem,100%)]'
-                        : 'px-1 sticky bottom-0 z-10 w-full max-w-[45rem] self-center')
-            )}
+            className={
+                containerClassName +
+                ' ' +
+                (!isSticky && !isFloating ? 'px-3 w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full self-center')
+            }
             ref={ref}
         >
             <div
@@ -62,7 +63,7 @@ export const BaseQuestionInput = React.forwardRef<HTMLDivElement, BaseQuestionIn
                     wrapperClassName ||
                         clsx(
                             'flex flex-col items-center',
-                            isFloating &&
+                            isSticky &&
                                 'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                         )
                 )}
@@ -75,7 +76,8 @@ export const BaseQuestionInput = React.forwardRef<HTMLDivElement, BaseQuestionIn
                             'border border-[var(--border-primary)] rounded-[var(--radius)]',
                             'bg-[var(--bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isFloating && 'border-primary m-1'
+                            isFloating && 'border-primary',
+                            isSticky && 'm-1'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -116,8 +118,8 @@ export const BaseQuestionInput = React.forwardRef<HTMLDivElement, BaseQuestionIn
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isFloating,
-                            'bottom-[7px] right-2': !isFloating,
+                            'bottom-[11px] right-3': isSticky,
+                            'bottom-[7px] right-2': !isSticky,
                         })}
                     >
                         <AIConsentPopoverWrapper

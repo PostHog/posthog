@@ -13,6 +13,7 @@ interface HedgehogAvatarProps {
     isExpanded: boolean
     fixedDirection?: 'left' | 'right'
     onPositionChange?: (position: { x: number; y: number; side: 'left' | 'right' }) => void
+    onDragStateChange?: (isDragging: boolean, isAnimating: boolean) => void
 }
 
 export function HedgehogAvatar({
@@ -21,6 +22,7 @@ export function HedgehogAvatar({
     isExpanded,
     fixedDirection,
     onPositionChange,
+    onDragStateChange,
 }: HedgehogAvatarProps): JSX.Element {
     const { user } = useValues(userLogic)
     const hedgehogActorRef = useRef<HedgehogActor | null>(null)
@@ -31,6 +33,13 @@ export function HedgehogAvatar({
         onPositionChange,
         disabled: false,
     })
+
+    // Notify parent of drag state changes
+    useEffect(() => {
+        if (onDragStateChange) {
+            onDragStateChange(isDragging, isAnimating)
+        }
+    }, [isDragging, isAnimating, onDragStateChange])
 
     // Trigger wave animation periodically when collapsed
     useEffect(() => {
@@ -52,7 +61,7 @@ export function HedgehogAvatar({
     return (
         <div
             ref={avatarRef}
-            className={isDragging || isAnimating ? '' : 'relative flex items-center justify-end mb-2 mr-4'}
+            className={isDragging || isAnimating ? '' : 'relative flex items-center justify-end'}
             style={containerStyle}
         >
             <Tooltip

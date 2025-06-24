@@ -16,6 +16,7 @@ import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
 import './MaxFloatingInput.scss'
+import clsx from 'clsx'
 
 interface MaxQuestionInputProps {
     placeholder?: string
@@ -48,7 +49,7 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
     return (
         <BaseQuestionInput
             ref={ref}
-            isFloating={true}
+            isFloating
             placeholder={placeholder}
             contextDisplaySize="small"
             showTopActions={!hideTopActions}
@@ -62,14 +63,18 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
                     />
                 ) : undefined
             }
-            containerClassName="sticky bottom-0 z-10 w-full max-w-[45rem] self-center"
+            containerClassName="w-full max-w-[45rem] self-center p-0"
         >
             {suggestions}
         </BaseQuestionInput>
     )
 })
 
-function MaxFloatingInputContent(): JSX.Element {
+function MaxFloatingInputContent({
+    setDragState,
+}: {
+    setDragState: React.Dispatch<React.SetStateAction<{ isDragging: boolean; isAnimating: boolean }>>
+}): JSX.Element {
     const { dataProcessingAccepted, showSuggestions, threadVisible } = useValues(maxLogic)
     const { setShowSuggestions, setActiveGroup } = useActions(maxLogic)
     const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
@@ -100,6 +105,9 @@ function MaxFloatingInputContent(): JSX.Element {
                 isExpanded={isFloatingMaxExpanded}
                 onPositionChange={setFloatingMaxPosition}
                 fixedDirection={floatingMaxPosition?.side === 'left' ? 'left' : 'right'}
+                onDragStateChange={(isDragging, isAnimating) => {
+                    setDragState({ isDragging, isAnimating })
+                }}
             />
         )
     }
@@ -156,6 +164,7 @@ export function MaxFloatingInput(): JSX.Element | null {
     const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
 
     const { threadLogicKey, conversation } = useValues(maxLogic)
+    const [dragState, setDragState] = React.useState({ isDragging: false, isAnimating: false })
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
@@ -172,12 +181,12 @@ export function MaxFloatingInput(): JSX.Element | null {
 
     const getPositionClasses = (): string => {
         const side = floatingMaxPosition?.side || 'right'
-        const baseClasses = 'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm w-80'
+        const baseClasses = 'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm'
 
         if (!isFloatingMaxExpanded) {
             // When collapsed, avatar position matches the side
             if (side === 'left') {
-                return `${baseClasses} left-[calc(1rem-1px)] md:left-[calc(0.5rem-1px)]`
+                return `${baseClasses} left-[calc(1rem-1px)] md:left-[calc(17rem-1px)]`
             }
             return `${baseClasses} right-[calc(1rem-1px)] md:right-[calc(3rem-1px)]`
         }
@@ -214,9 +223,20 @@ export function MaxFloatingInput(): JSX.Element | null {
     }
 
     return (
-        <div className={getPositionClasses()} style={getAnimationStyle()}>
+        <div
+            className={
+                dragState.isDragging || dragState.isAnimating
+                    ? ''
+                    : clsx(
+                          getPositionClasses(),
+                          'border border-[var(--border-primary)] backdrop-blur-sm bg-[var(--glass-bg-3000)] p-1 mb-2',
+                          isFloatingMaxExpanded ? 'rounded-[var(--radius)] w-80' : 'rounded-full mr-4'
+                      )
+            }
+            style={dragState.isDragging || dragState.isAnimating ? {} : getAnimationStyle()}
+        >
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <MaxFloatingInputContent />
+                <MaxFloatingInputContent setDragState={setDragState} />
             </BindLogic>
         </div>
     )

@@ -12,7 +12,7 @@ import { maxThreadLogic } from '../maxThreadLogic'
 import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlaceholders } from '../utils'
 import { BaseQuestionInput } from './BaseQuestionInput'
 
-export function QuestionInput(): JSX.Element {
+export function QuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
     const { focusCounter } = useValues(maxLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
@@ -33,9 +33,9 @@ export function QuestionInput(): JSX.Element {
 
     return (
         <BaseQuestionInput
-            isFloating={true}
+            isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName="px-3 w-full max-w-140 mx-auto sticky bottom-0 z-10 self-center"
+            containerClassName="px-3 w-full max-w-140 mx-auto self-center pb-2"
         >
             <SuggestionsList />
         </BaseQuestionInput>
