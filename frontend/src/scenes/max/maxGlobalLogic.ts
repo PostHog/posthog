@@ -84,7 +84,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
         ],
         floatingMaxDragState: [
-            { isDragging: false, isAnimating: false },
+            { isDragging: false, isAnimating: false } as { isDragging: boolean; isAnimating: boolean },
             {
                 setFloatingMaxDragState: (_, { dragState }) => dragState,
             },
