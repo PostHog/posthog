@@ -39,8 +39,8 @@ DLT_TO_PA_TYPE_MAP = {
     "decimal": pa.float64(),
 }
 
-DEFAULT_NUMERIC_PRECISION = 76
-DEFAULT_NUMERIC_SCALE = 32
+DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
+DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
@@ -360,6 +360,11 @@ def append_partition_key_to_table(
                     date = datetime.datetime.fromtimestamp(date)
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
+                    partition_array.append(date.strftime(date_format))
+                elif isinstance(date, datetime.date):
+                    partition_array.append(date.strftime(date_format))
+                elif isinstance(date, str):
+                    date = parser.parse(date)
                     partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")
