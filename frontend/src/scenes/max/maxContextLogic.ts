@@ -138,57 +138,55 @@ export const maxContextLogic = kea<maxContextLogicType>([
         ],
     }),
     listeners(({ actions, cache }) => ({
-        locationChanged: [
-            () => {
-                // Don't reset context if the only change is the side panel opening/closing
-                const currentLocation = router.values.location
-                const currentHashParams = router.values.hashParams || {}
-                const currentSearchParams = router.values.searchParams || {}
-                const previousLocation = cache.previousLocation
+        locationChanged: () => {
+            // Don't reset context if the only change is the side panel opening/closing
+            const currentLocation = router.values.location
+            const currentHashParams = router.values.hashParams || {}
+            const currentSearchParams = router.values.searchParams || {}
+            const previousLocation = cache.previousLocation
 
-                cache.previousLocation = {
-                    location: currentLocation,
-                    hashParams: currentHashParams,
-                    searchParams: currentSearchParams,
-                }
+            cache.previousLocation = {
+                location: currentLocation,
+                hashParams: currentHashParams,
+                searchParams: currentSearchParams,
+            }
 
-                if (!previousLocation) {
-                    return
-                }
+            if (!previousLocation) {
+                return
+            }
 
-                const shouldResetContext = (): void => {
-                    actions.resetContext()
-                    actions.clearActiveInsights()
-                    actions.clearActiveDashboard()
-                }
+            const shouldResetContext = (): void => {
+                actions.resetContext()
+                actions.clearActiveInsights()
+                actions.clearActiveDashboard()
+            }
 
-                // Always reset context if pathname or search params changed
-                if (
-                    currentLocation?.pathname !== previousLocation.location?.pathname ||
-                    !objectsEqual({ ...currentSearchParams }, { ...(previousLocation.searchParams || {}) })
-                ) {
-                    shouldResetContext()
-                    return
-                }
+            // Always reset context if pathname or search params changed
+            if (
+                currentLocation?.pathname !== previousLocation.location?.pathname ||
+                !objectsEqual({ ...currentSearchParams }, { ...previousLocation.searchParams })
+            ) {
+                shouldResetContext()
+                return
+            }
 
-                // Check if only panel parameter changed in hash params
-                const currentNonPanelKeys = Object.keys(currentHashParams).filter((k) => k !== 'panel')
-                const previousNonPanelKeys = Object.keys(previousLocation.hashParams || {}).filter((k) => k !== 'panel')
+            // Check if only panel parameter changed in hash params
+            const currentNonPanelKeys = Object.keys(currentHashParams).filter((k) => k !== 'panel')
+            const previousNonPanelKeys = Object.keys(previousLocation.hashParams || {}).filter((k) => k !== 'panel')
 
-                // Check if non-panel keys are the same
-                const sameKeys =
-                    currentNonPanelKeys.length === previousNonPanelKeys.length &&
-                    currentNonPanelKeys.every(
-                        (key) =>
-                            previousNonPanelKeys.includes(key) &&
-                            currentHashParams[key] === (previousLocation.hashParams || {})[key]
-                    )
+            // Check if non-panel keys are the same
+            const sameKeys =
+                currentNonPanelKeys.length === previousNonPanelKeys.length &&
+                currentNonPanelKeys.every(
+                    (key) =>
+                        previousNonPanelKeys.includes(key) &&
+                        currentHashParams[key] === (previousLocation.hashParams || {})[key]
+                )
 
-                if (!sameKeys) {
-                    shouldResetContext()
-                }
-            },
-        ],
+            if (!sameKeys) {
+                shouldResetContext()
+            }
+        },
         handleTaxonomicFilterChange: async (
             {
                 value,
