@@ -1,6 +1,6 @@
 import { IconCalendar, IconChevronDown } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import userEvent from '@testing-library/user-event'
+import { userEvent } from '@storybook/testing-library'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 
