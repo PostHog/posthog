@@ -277,33 +277,37 @@ describe.each([
                             timestamp: expect.any(String),
                         },
                     },
-                    {
-                        key: globals.event.uuid,
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'cdp_destinations',
-                            app_source_id: globals.event.uuid,
-                            count: 1,
-                            metric_kind: 'success',
-                            metric_name: 'event_triggered_destination',
-                            team_id: 2,
-                            timestamp: expect.any(String),
-                        },
-                    },
-                    {
-                        key: 'custom',
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'cdp-destination',
-                            app_source_id: 'custom',
-                            count: 1,
-                            metric_kind: 'success',
-                            metric_name: 'destination_invoked',
-                            instance_id: invocations[0].id,
-                            team_id: 2,
-                            timestamp: expect.any(String),
-                        },
-                    },
+                    ...(hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: globals.event.uuid,
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destinations',
+                                      app_source_id: globals.event.uuid,
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'event_triggered_destination',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: 'custom',
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp-destination',
+                                      app_source_id: 'custom',
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'destination_invoked',
+                                      instance_id: invocations[0].id,
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]),
                 ])
             })
 
