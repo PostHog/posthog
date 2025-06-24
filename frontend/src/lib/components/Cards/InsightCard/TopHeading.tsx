@@ -1,6 +1,6 @@
-import { TZLabel } from 'lib/components/TZLabel'
 import { dateFilterToText } from 'lib/utils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { InsightFreshness } from './InsightFreshness'
 
 import { Node, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -49,15 +49,7 @@ export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRef
                     • <span className="whitespace-nowrap">{dateText}</span>
                 </>
             ) : null}
-            {lastRefresh ? (
-                <>
-                    {' '}
-                    •{' '}
-                    <div className="flex items-center gap-1 text-muted">
-                        <span>Computed</span> <TZLabel time={lastRefresh} />
-                    </div>
-                </>
-            ) : null}
+            {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
         </div>
     )
 }
