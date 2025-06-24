@@ -56,7 +56,7 @@ jobs:
 
             - name: Build Storybook
               env:
-                  NODE_OPTIONS: --max-old-space-size=16384
+                  NODE_OPTIONS: --max-old-space-size=32768
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
@@ -256,6 +256,19 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
