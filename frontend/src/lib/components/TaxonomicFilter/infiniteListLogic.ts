@@ -14,8 +14,6 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmail, isURL } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 
@@ -81,8 +79,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
             teamLogic,
             ['currentTeamId'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             taxonomicFilterLogic(props),
@@ -353,37 +349,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s, p) => [s.remoteItems, s.localItems, s.featureFlags, p.showNumericalPropsOnly ?? (() => false)],
-            (remoteItems, localItems, featureFlags, showNumericalPropsOnly) => {
-                // NOTE: We're filtering on the backend to improve loading performance which implies we dont need to filter here
-                // That said, there might be some edge cases where the backend is NOT filtering on the same way
-                // as we are here in the frontend, so let's add a short-circuit FF here in case we need to go back to the previous implementation
-                const results = featureFlags[FEATURE_FLAGS.SIMPLE_INFINITE_LIST_NUMERICAL_FILTER]
-                    ? [...localItems.results, ...remoteItems.results]
-                    : [...localItems.results, ...remoteItems.results].filter((result) => {
-                          if (!showNumericalPropsOnly) {
-                              return true
-                          }
-
-                          // It's still loading, just display it while we figure it out
-                          if (!result) {
-                              return true
-                          }
-
-                          if ('is_numerical' in result) {
-                              return !!result.is_numerical
-                          }
-
-                          if ('property_type' in result) {
-                              const property_type = result.property_type as string // Data warehouse props dont conform to PropertyType for some reason
-                              return property_type === 'Integer' || property_type === 'Float'
-                          }
-
-                          return true
-                      })
-
+            (s) => [s.remoteItems, s.localItems],
+            (remoteItems, localItems) => {
                 return {
-                    results,
+                    results: [...localItems.results, ...remoteItems.results],
                     count: localItems.count + remoteItems.count,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
                     originalQuery: remoteItems.originalQuery || localItems.originalQuery,

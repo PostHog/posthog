@@ -35,7 +35,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict", side_effect=process_query_dict)
     def test_node_runs(self, mock_process_query_dict):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
         new_state = node.run(
             AssistantState(
                 messages=[
@@ -83,7 +83,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         side_effect=ValueError("You have not glibbled the glorp before running this."),
     )
     def test_node_handles_internal_error(self, mock_process_query_dict):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
         new_state = node.run(
             AssistantState(
                 messages=[
@@ -116,7 +116,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         ),
     )
     def test_node_handles_exposed_error(self, mock_process_query_dict):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
         new_state = node.run(
             AssistantState(
                 messages=[
@@ -146,7 +146,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertIsNotNone(msg.id)
 
     def test_node_requires_a_viz_message_in_state(self):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
 
         with self.assertRaisesMessage(
             ValueError, "Expected a visualization message, found <class 'posthog.schema.HumanMessage'>"
@@ -166,7 +166,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             )
 
     def test_fallback_to_json(self):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
         with patch("ee.hogai.graph.query_executor.query_executor.process_query_dict") as mock_process_query_dict:
             mock_process_query_dict.return_value = QueryStatus(
                 id="test", team_id=self.team.pk, query_async=True, complete=True, results=[{"test": "test"}]
@@ -200,7 +200,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             self.assertIsNotNone(msg.id)
 
     def test_get_example_prompt(self):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
 
         # Test Trends Query
         trends_message = VisualizationMessage(

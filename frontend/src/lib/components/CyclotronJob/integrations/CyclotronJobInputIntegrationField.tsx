@@ -32,8 +32,8 @@ export function CyclotronJobInputIntegrationField({
     parentConfiguration,
 }: CyclotronJobInputIntegrationFieldProps): JSX.Element {
     const combinedInputs = {
-        ...(configuration?.inputs ?? {}),
-        ...(parentConfiguration?.inputs ?? {}),
+        ...configuration?.inputs,
+        ...parentConfiguration?.inputs,
     }
 
     const combinedInputsSchema = [
