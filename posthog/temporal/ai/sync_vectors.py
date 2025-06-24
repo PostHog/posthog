@@ -383,7 +383,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                 )
             )
 
-            # Maximum allowed parallel request count to LLMs is 128 (32 * 4).
+            # Maximum allowed parallel request count to LLMs is 128 (32 * 4)
             if len(tasks) == inputs.max_parallel_requests:
                 await self._process_summaries_batch(tasks, inputs.delay_between_batches, throttle_enabled=True)
                 tasks = []
@@ -419,7 +419,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
         end = temporalio.workflow.time()
         execution_time = end - start
 
-        # Throttle the rate of requests to LLMs.
+        # Throttle the rate of requests to LLMs
         if throttle_enabled and delay_between_batches > execution_time:
             delay = delay_between_batches - execution_time
             logger.info("Throttling requests to LLMs", delay=delay)

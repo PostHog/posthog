@@ -1,7 +1,7 @@
 use health::{HealthHandle, HealthRegistry};
 use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 use time::Duration;
 use tracing::{error, warn};
 
@@ -23,17 +23,17 @@ const PG_CONSTRAINT_CODES: [&str; 7] = [
 ];
 
 pub struct AppContext {
-    // this points to the (original, shared) CLOUD PG instance
-    // in both property-defs-rs and property-defs-rs-v2 deployments.
-    // the v2 deployment will use this pool to access tables that
-    // aren't slated to migrate to the isolated PROPDEFS DB in production
+    // this points to the original (shared) CLOUD DB instance in prod deployments
     pub pool: PgPool,
 
-    // this is only used by the property-defs-rs-v2 deployments, and
-    // only when the enabled_v2 config is set. This maps to the new
-    // PROPDEFS isolated PG instances in production, and the local
-    // Docker Compose DB in dev/test/CI. This will be *UNSET* in
-    // "v1" (property-defs-rs) deployments
+    // if populated, this pool will be used to read from the new, isolated
+    // persons DB instance in production. call sites will fall back to the
+    // std (shared) pool above if this is unset
+    pub persons_pool: Option<PgPool>,
+
+    // if populated, this pool can be used to write to the new, isolated
+    // propdefs DB instance in production. call sites will fall back to the
+    // std (shared) pool above if this is unset
     pub propdefs_pool: Option<PgPool>,
 
     pub query_manager: Manager,
@@ -57,13 +57,32 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let orig_pool = options.connect(&config.database_url).await?;
 
-        let v2_pool = match config.enable_mirror {
-            true => {
-                let v2_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-                Some(v2_options.connect(&config.database_propdefs_url).await?)
-            }
-            _ => None,
+        // only to be populated and used if DATABASE_PERSONS_URL is set in the deploy env
+        // indicating we should read posthog_grouptypemappings from the new persons DB
+        let persons_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        let persons_pool: Option<PgPool> = if config.database_persons_url.is_some() {
+            Some(
+                persons_options
+                    .connect(config.database_persons_url.as_ref().unwrap())
+                    .await?,
+            )
+        } else {
+            None
         };
+
+        // only to be populated and used if config.enable_mirror is set, which
+        // assumes this is the new property-defs-rs-v2 deployment and always writes
+        // to the new isolated propdefs DB in production
+        let propdefs_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        let propdefs_pool: Option<PgPool> =
+            match config.enable_mirror && config.database_propdefs_url.is_some() {
+                true => Some(
+                    propdefs_options
+                        .connect(config.database_propdefs_url.as_ref().unwrap())
+                        .await?,
+                ),
+                _ => None,
+            };
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
@@ -74,7 +93,8 @@ impl AppContext {
 
         Ok(Self {
             pool: orig_pool,
-            propdefs_pool: v2_pool,
+            persons_pool,
+            propdefs_pool,
             query_manager: qmgr,
             liveness,
             worker_liveness,
@@ -93,18 +113,17 @@ impl AppContext {
 
         let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
         if !self.skip_writes && !self.skip_reads {
-            // if enable_mirror is TRUE and we are in the mirror deploy: use propdefs write DB.
-            let mut write_pool = &self.pool;
-            if self.enable_mirror {
-                if let Some(resolved) = &self.propdefs_pool {
-                    metrics::counter!(
-                        V2_ISOLATED_DB_SELECTED,
-                        &[(String::from("processor"), String::from("v1"))]
-                    )
-                    .increment(1);
-                    write_pool = resolved;
-                }
-            }
+            // if this is mirror deploy, use isolated propdefs write DB
+            let write_pool = if self.propdefs_pool.is_some() {
+                metrics::counter!(
+                    V2_ISOLATED_DB_SELECTED,
+                    &[(String::from("processor"), String::from("v1"))]
+                )
+                .increment(1);
+                self.propdefs_pool.as_ref().unwrap()
+            } else {
+                &self.pool
+            };
 
             let mut tx = write_pool.begin().await?;
 
@@ -126,9 +145,7 @@ impl AppContext {
                         // be helped by additional retries. an hour w/o write attempts is a good thing for these
                     }
                     Err(e) => {
-                        // TODO(eli): move retry behavior (and cache removal) here and out of parent batch?
-                        // depends on what kind of errors we see landing here now that it's instrumented,
-                        // and we're (hopefully) catching the frequent constraint errors above
+                        // track when a batch write fails with an unexpected (unhandled) error type
                         metrics::counter!(UPDATES_SKIPPED, &[("reason", "unhandled_fail")])
                             .increment(1);
                         error!(
@@ -164,51 +181,86 @@ impl AppContext {
             return Ok(());
         }
 
-        for update in updates {
-            // Only property definitions have group types
+        // Collect all unresolved group types that need database lookup
+        let mut to_resolve: Vec<(usize, String, i32)> = Vec::new();
+
+        // First pass: check cache and collect uncached items
+        for (idx, update) in updates.iter_mut().enumerate() {
             let Update::Property(update) = update else {
                 continue;
             };
-            // If we didn't find a group type, we have nothing to resolve.
             let Some(GroupType::Unresolved(group_name)) = &update.group_type_index else {
                 continue;
             };
 
             let cache_key = format!("{}:{}", update.team_id, group_name);
 
-            let cached = self.group_type_cache.get(&cache_key);
-            if let Some(index) = cached {
+            if let Some(index) = self.group_type_cache.get(&cache_key) {
                 metrics::counter!(GROUP_TYPE_CACHE, &[("action", "hit")]).increment(1);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
-                continue;
-            }
-
-            metrics::counter!(GROUP_TYPE_READS).increment(1);
-
-            let found = sqlx::query_scalar!(
-                    "SELECT group_type_index FROM posthog_grouptypemapping WHERE group_type = $1 AND team_id = $2",
-                    group_name,
-                    update.team_id
-                )
-                .fetch_optional(&self.pool)
-                .await?;
-
-            if let Some(index) = found {
-                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "miss")]).increment(1);
-                self.group_type_cache.insert(cache_key, index);
-                update.group_type_index =
-                    update.group_type_index.take().map(|gti| gti.resolve(index));
             } else {
-                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
-                warn!(
-                    "Failed to resolve group type index for group name: {} and team id: {}",
-                    group_name, update.team_id
-                );
-                // If we fail to resolve a group type, we just don't write it
-                update.group_type_index = None;
+                to_resolve.push((idx, group_name.clone(), update.team_id));
             }
         }
+
+        // Batch resolve all uncached group types
+        if !to_resolve.is_empty() {
+            metrics::counter!(GROUP_TYPE_READS).increment(to_resolve.len() as u64);
+
+            let (group_names, team_ids): (Vec<String>, Vec<i32>) = to_resolve
+                .iter()
+                .map(|(_, name, team_id)| (name.clone(), team_id))
+                .unzip();
+
+            let resolved_pool = if self.persons_pool.is_some() {
+                self.persons_pool.as_ref().unwrap()
+            } else {
+                &self.pool
+            };
+
+            let results = sqlx::query!(
+                "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping
+                 WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
+                &group_names,
+                &team_ids
+            )
+            .fetch_all(resolved_pool)
+            .await?;
+
+            // Create a lookup map for resolved group types
+            let mut resolved_map: HashMap<(String, i32), i32> =
+                HashMap::with_capacity(results.len());
+            for result in results {
+                resolved_map.insert((result.group_type, result.team_id), result.group_type_index);
+            }
+
+            // Second pass: apply resolved group types to updates
+            for (idx, group_name, team_id) in to_resolve {
+                let cache_key = format!("{}:{}", team_id, group_name);
+
+                if let Some(&index) = resolved_map.get(&(group_name.clone(), team_id)) {
+                    metrics::counter!(GROUP_TYPE_CACHE, &[("action", "miss")]).increment(1);
+                    self.group_type_cache.insert(cache_key, index);
+
+                    if let Update::Property(update) = &mut updates[idx] {
+                        update.group_type_index =
+                            update.group_type_index.take().map(|gti| gti.resolve(index));
+                    }
+                } else {
+                    metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
+                    warn!(
+                        "Failed to resolve group type index for group name: {} and team id: {}",
+                        group_name, team_id
+                    );
+
+                    if let Update::Property(update) = &mut updates[idx] {
+                        update.group_type_index = None;
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 }

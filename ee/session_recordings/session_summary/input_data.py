@@ -32,12 +32,16 @@ COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT = [
 ]
 
 
-def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = False) -> RecordingMetadata:
+def get_team(team_id: int) -> Team:
+    return Team.objects.get(id=team_id)
+
+
+def get_session_metadata(session_id: str, team_id: int, local_reads_prod: bool = False) -> RecordingMetadata:
     events_obj = SessionReplayEvents()
     if not local_reads_prod:
-        session_metadata = events_obj.get_metadata(session_id=str(session_id), team=team)
+        session_metadata = events_obj.get_metadata(session_id=str(session_id), team_id=team_id)
     else:
-        session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team)
+        session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team_id)
     if not session_metadata:
         raise ValueError(f"No session metadata found for session_id {session_id}")
     return session_metadata
@@ -46,7 +50,7 @@ def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = F
 def get_session_events(
     session_id: str,
     session_metadata: RecordingMetadata,
-    team: Team,
+    team_id: int,
     local_reads_prod: bool = False,
     # The estimation that we can cover 2 hours/3000 events per page within 200 000 token window,
     # but as GPT-4.1 allows up to 1kk tokens, we can allow up to 4 hours sessions to be covered
@@ -67,6 +71,7 @@ def get_session_events(
     events_obj = SessionReplayEvents()
     for page in range(max_pages):
         if not local_reads_prod:
+            team = get_team(team_id=team_id)
             page_columns, page_events = events_obj.get_events(
                 session_id=str(session_id),
                 team=team,

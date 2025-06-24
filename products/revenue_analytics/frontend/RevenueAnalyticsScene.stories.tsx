@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+import { RevenueAnalyticsInsightsQueryGroupBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
@@ -24,12 +25,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [
-            FEATURE_FLAGS.REVENUE_ANALYTICS,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_FILTERS,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_PRODUCT_GROUPING,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_COHORT_GROUPING,
-        ],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -78,8 +74,8 @@ const PRODUCT_A_PROPERTY_FILTER: RevenueAnalyticsPropertyFilter = {
     type: PropertyFilterType.RevenueAnalytics,
 }
 
-export function RevenueAnalyticsDashboardTableView(): JSX.Element {
-    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters } =
+export function RevenueAnalyticsDashboard(): JSX.Element {
+    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode, setGroupBy, setRevenueAnalyticsFilters } =
         useActions(revenueAnalyticsLogic)
 
     useEffect(() => {
@@ -89,7 +85,8 @@ export function RevenueAnalyticsDashboardTableView(): JSX.Element {
         setGrowthRateDisplayMode('table')
         setTopCustomersDisplayMode('table')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters])
+        setGroupBy([RevenueAnalyticsInsightsQueryGroupBy.PRODUCT])
+    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
 
     useEffect(() => {
         // Open the revenue analytics dashboard page
@@ -99,24 +96,8 @@ export function RevenueAnalyticsDashboardTableView(): JSX.Element {
     return <App />
 }
 
-export function RevenueAnalyticsDashboardLineView(): JSX.Element {
-    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters } =
-        useActions(revenueAnalyticsLogic)
-
-    useEffect(() => {
-        // Open the revenue analytics dashboard page
-        router.actions.push(urls.revenueAnalytics())
-
-        setGrowthRateDisplayMode('line')
-        setTopCustomersDisplayMode('line')
-        setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters])
-
-    return <App />
-}
-
 export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
-    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters } =
+    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode, setGroupBy, setRevenueAnalyticsFilters } =
         useActions(revenueAnalyticsLogic)
 
     useStorybookMocks({
@@ -140,7 +121,8 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
         setGrowthRateDisplayMode('line')
         setTopCustomersDisplayMode('line')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters])
+        setGroupBy([RevenueAnalyticsInsightsQueryGroupBy.PRODUCT])
+    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
 
     return <App />
 }

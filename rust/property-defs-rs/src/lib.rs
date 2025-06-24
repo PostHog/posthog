@@ -16,14 +16,18 @@ use v2_batch_ingestion::process_batch_v2;
 use ahash::AHashSet;
 use update_cache::Cache;
 
-use tokio::sync::mpsc::{self, error::TrySendError};
+use tokio::sync::mpsc::error::TrySendError;
 use tracing::{error, warn};
 
-use crate::metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT;
+use crate::{
+    measuring_channel::{MeasuringReceiver, MeasuringSender},
+    metrics_consts::CHANNEL_MESSAGES_IN_FLIGHT,
+};
 
 pub mod api;
 pub mod app_context;
 pub mod config;
+pub mod measuring_channel;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
@@ -36,7 +40,7 @@ pub async fn update_consumer_loop(
     config: Config,
     cache: Arc<Cache>,
     context: Arc<AppContext>,
-    mut channel: mpsc::Receiver<Update>,
+    mut channel: MeasuringReceiver<Update>,
 ) {
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
@@ -46,7 +50,8 @@ pub async fn update_consumer_loop(
         while batch.len() < config.update_batch_size {
             context.worker_liveness.report_healthy().await;
 
-            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT).set(channel.len() as f64);
+            metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT)
+                .set(channel.get_inflight_messages_count() as f64);
 
             let remaining_capacity = config.update_batch_size - batch.len();
             // We race these two, so we can escape this loop and do a small batch if we've been waiting too long
@@ -91,21 +96,16 @@ pub async fn update_consumer_loop(
         // the new mirror deployment should point all Postgres writes
         // at the new isolated "propdefs" DB instance in all envs.
         // THE ORIGINAL property-defs-rs deployment should NEVER DO THIS
-        let mut resolved_pool = &context.pool;
-        if config.enable_mirror {
-            // for safely, the original propdefs deploy will not set the
-            // DATABASE_PROPDEFS_URL and local defaults set it the same
-            // as DATABASE_URL (the std posthog Cloud DB) so only if
-            // this context var != None will it be enabled
-            if let Some(resolved) = &context.propdefs_pool {
-                metrics::counter!(
-                    V2_ISOLATED_DB_SELECTED,
-                    &[(String::from("processor"), String::from("v2"))]
-                )
-                .increment(1);
-                resolved_pool = resolved;
-            }
-        }
+        let resolved_pool = if context.propdefs_pool.is_some() {
+            metrics::counter!(
+                V2_ISOLATED_DB_SELECTED,
+                &[(String::from("processor"), String::from("v2"))]
+            )
+            .increment(1);
+            context.propdefs_pool.as_ref().unwrap()
+        } else {
+            &context.pool
+        };
 
         // conditionally enable new v2 batch write path. While the new write
         // path is being tested and not the default, THIS IS INDEPENDENT of
@@ -126,6 +126,7 @@ pub async fn update_consumer_loop(
 
             process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
         } else {
+            // TODO: eliminate this codepath now that v2 is live in production
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }
     }
@@ -195,8 +196,8 @@ async fn process_batch_v1(
 pub async fn update_producer_loop(
     config: Config,
     consumer: SingleTopicConsumer,
-    channel: mpsc::Sender<Update>,
     shared_cache: Arc<Cache>,
+    channel: MeasuringSender<Update>,
 ) {
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();

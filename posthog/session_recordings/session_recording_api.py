@@ -34,10 +34,9 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
-
+from ee.session_recordings.session_summary.stream import stream_recording_summary
 import posthog.session_recordings.queries.session_recording_list_from_query
 import posthog.session_recordings.queries.sub_queries.events_subquery
-from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -760,7 +759,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "session_id": str(recording.session_id) if recording else None,
                 },
             )
-            breakpoint()
             return Response(
                 {"error": "An unexpected error has occurred. Please try again later."},
                 status=500,
@@ -935,9 +933,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
         session_id = recording.session_id
-        replay_summarizer = ReplaySummarizer(user=user, team=self.team, session_id=session_id, local_reads_prod=False)
         return StreamingHttpResponse(
-            replay_summarizer.stream_recording_summary(), content_type=ServerSentEventRenderer.media_type
+            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            content_type=ServerSentEventRenderer.media_type,
         )
 
         # TODO: Calculate timings for stream, and track summarization events (follow-up)

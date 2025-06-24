@@ -9,12 +9,11 @@ from posthog.schema import (
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
 )
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
-from products.experiments.stats.frequentist.statistics import (
+from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.shared.enums import DifferenceType
+from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     ProportionStatistic,
-    TestType,
-    DifferenceType,
 )
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 

@@ -1,9 +1,9 @@
-import openai
+from openai import AsyncOpenAI, AsyncStream
 import structlog
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL, SESSION_SUMMARIES_TEMPERATURE
 from posthog.utils import get_instance_region
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
-from collections.abc import Generator
 
 logger = structlog.get_logger(__name__)
 
@@ -23,8 +23,6 @@ def _prepare_messages(
         )
     if assistant_start_text:
         # Force LLM to start with the assistant text
-        # TODO Check why the pre-defining the response with assistant text doesn't work properly
-        # (for example, LLM still starts with ```yaml, while it should continue the assistant text)
         messages.append({"role": "assistant", "content": assistant_start_text})
     if not messages:
         raise ValueError(f"No messages to send to LLM for session_id {session_id}")
@@ -37,52 +35,49 @@ def _prepare_user_param(user_key: int) -> str:
     return user_param
 
 
-def stream_llm(
+async def stream_llm(
     input_prompt: str,
     user_key: int,
     session_id: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    # TODO Make model/reasoning_effort/temperature/top_p/max_tokens configurable through input instead of hardcoding
-    model: str = "gpt-4.1-2025-04-14",
-) -> Generator[ChatCompletionChunk, None, None]:
+    model: str = SESSION_SUMMARIES_MODEL,
+) -> AsyncStream[ChatCompletionChunk]:
     """
     LLM streaming call.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
-
-    # TODO: Spend more time on testing reasoning vs regular modelds, start with regular because of faster streaming
-    # model: str = "o4-mini-2025-04-16",
-    # reasoning_effort="medium",
-
-    # TODO: Add LLM observability tracking her
-    stream = openai.chat.completions.create(
+    # TODO: Add LLM observability tracking here
+    client = AsyncOpenAI()
+    stream = await client.chat.completions.create(
         model=model,
-        temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
+        temperature=SESSION_SUMMARIES_TEMPERATURE,
         messages=messages,
         user=user_param,
         stream=True,
     )
-    yield from stream
+    return stream
 
 
-def call_llm(
+async def call_llm(
     input_prompt: str,
     user_key: int,
     session_id: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    model: str = "gpt-4.1-2025-04-14",
+    model: str = SESSION_SUMMARIES_MODEL,
 ) -> ChatCompletion:
     """
-    LLM sync call.
+    LLM non-streaming call.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
-    result = openai.chat.completions.create(
+    # TODO: Add LLM observability tracking here
+    client = AsyncOpenAI()
+    result = await client.chat.completions.create(
         model=model,
-        temperature=0.1,
+        temperature=SESSION_SUMMARIES_TEMPERATURE,
         messages=messages,
         user=user_param,
     )

@@ -62,6 +62,8 @@ frontend/pnpm-error.log
 frontend/public/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
+frontend/src/products.tsx
+.typegen
 # ANTLR-generated temp files when "npm run grammar:build" crashes
 gen/
 max-test-venv/

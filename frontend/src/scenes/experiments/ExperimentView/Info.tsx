@@ -19,27 +19,23 @@ import { getExperimentStatus } from '../experimentsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
+import { modalsLogic } from '../modalsLogic'
 
 export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
-        legacyMetricResults,
-        metricResultsLoading,
-        secondaryMetricResultsLoading,
-        isDescriptionModalOpen,
+        legacyPrimaryMetricsResults,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
+        isExperimentDraft,
     } = useValues(experimentLogic)
-    const {
-        updateExperiment,
-        setExperimentStatsVersion,
-        refreshExperimentResults,
-        openDescriptionModal,
-        closeDescriptionModal,
-        openEditConclusionModal,
-        openStatsEngineModal,
-    } = useActions(experimentLogic)
+    const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
+        useActions(modalsLogic)
+    const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
@@ -53,9 +49,7 @@ export function Info(): JSX.Element {
         return <></>
     }
 
-    const currentStatsVersion = experiment.stats_config?.version || 1
-
-    const lastRefresh = legacyMetricResults?.[0]?.last_refresh
+    const lastRefresh = legacyPrimaryMetricsResults?.[0]?.last_refresh
 
     return (
         <div>
@@ -105,44 +99,24 @@ export function Info(): JSX.Element {
                         </div>
                         <div className="inline-flex deprecated-space-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
-                            {usesNewQueryRunner && featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREQUENTIST] && (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => {
-                                            openStatsEngineModal()
-                                        }}
-                                        icon={<IconGear />}
-                                        tooltip="Change stats engine"
-                                    />
-                                    <StatsMethodModal />
-                                </>
-                            )}
+                            {usesNewQueryRunner &&
+                                (isExperimentDraft ||
+                                    featureFlags[FEATURE_FLAGS.EXPERIMENTS_DEV_STATS_METHOD_TOGGLE]) && (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            onClick={() => {
+                                                openStatsEngineModal()
+                                            }}
+                                            icon={<IconGear />}
+                                            tooltip="Change stats engine"
+                                        />
+                                        <StatsMethodModal />
+                                    </>
+                                )}
                         </div>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">
-                                <span>Stats Version</span>
-                            </div>
-                            <div className="flex gap-1">
-                                {[1, 2].map((version) => (
-                                    <LemonButton
-                                        key={version}
-                                        size="xsmall"
-                                        type="tertiary"
-                                        active={currentStatsVersion === version}
-                                        onClick={() => {
-                                            setExperimentStatsVersion(version)
-                                        }}
-                                    >
-                                        v{version}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 <div className="flex flex-col">
@@ -162,7 +136,7 @@ export function Info(): JSX.Element {
                                                 : ''
                                         }`}
                                     >
-                                        {metricResultsLoading || secondaryMetricResultsLoading
+                                        {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
                                             ? dayjs(lastRefresh).fromNow()

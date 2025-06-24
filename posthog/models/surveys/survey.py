@@ -222,6 +222,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+    is_publicly_shareable = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Allow this survey to be accessed via public URL (https://app.posthog.com/surveys/[survey_id]) without authentication",
+    )
 
     actions = models.ManyToManyField(Action)
 
@@ -232,7 +237,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Surveys",
+            base_folder=self._get_assigned_folder("Unfiled/Surveys"),
             type="survey",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",

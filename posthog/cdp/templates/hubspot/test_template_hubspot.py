@@ -127,7 +127,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         self.mock_fetch_response = lambda *args: EVENT_DEFINITION_RESPONSE  # type: ignore
 
         self.run_function(
-            inputs=self._inputs(include_all_properties=False, event="purchase"),
+            inputs=self._inputs(include_all_properties=False, event="purchase subscription"),
             globals={
                 "event": {"properties": {"product": "CDP"}},
             },
@@ -138,7 +138,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         self.run_function(
             inputs=self._inputs(include_all_properties=True),
             globals={
-                "event": {"event": "purchase", "properties": {"product": "CDP"}},
+                "event": {"event": "purchase subscription", "properties": {"product": "CDP"}},
             },
         )
 
@@ -370,17 +370,17 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         )
 
     def test_allowed_event_names(self):
-        for event_name, allowed in [
-            ("$identify", False),
-            ("$pageview", False),
-            ("sign up", False),
-            ("purchase", True),
-            ("6month_subscribed", False),
-            ("event-name", True),
-            ("subscribed_6-months", True),
-            ("custom", True),
+        for event_name, formatted_name in [
+            ("$identify", "identify"),
+            ("$pageview", "pageview"),
+            ("sign up", "sign_up"),
+            ("purchase", "purchase"),
+            ("6month_subscribed", None),
+            ("event-name", "event-name"),
+            ("subscribed_6-months", "subscribed_6-months"),
+            ("custom", "custom"),
         ]:
-            if allowed:
+            if formatted_name:
                 self.run_function(
                     inputs=self._inputs(eventName=event_name),
                     globals={
@@ -391,7 +391,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                 )
                 assert (
                     self.get_mock_fetch_calls()[0][0]
-                    == f"https://api.hubapi.com/events/v3/event-definitions/{event_name}/?includeProperties=true"
+                    == f"https://api.hubapi.com/events/v3/event-definitions/{formatted_name}/?includeProperties=true"
                 )
             else:
                 with pytest.raises(UncaughtHogVMException) as e:
@@ -404,10 +404,10 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                             },
                         },
                     )
-                    assert (
-                        e.value.message
-                        == f"Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event: {event_name}"
-                    )
+                assert (
+                    e.value.message
+                    == f"Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event..."
+                )
 
 
 class TestTemplateMigration(BaseTest):

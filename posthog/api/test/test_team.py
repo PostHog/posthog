@@ -347,7 +347,7 @@ def team_api_test_factory():
             assert deleted_team_activity_response.status_code == status.HTTP_404_NOT_FOUND
 
             # we can't query by API but can prove the log was recorded
-            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).all()]
+            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).order_by("scope").all()]
             expected_activity = [
                 {
                     "_state": ANY,

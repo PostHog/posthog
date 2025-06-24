@@ -55,6 +55,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
+        "Expired API Key provided",
     ],
     ExternalDataSource.Type.POSTGRES: [
         "NoSuchTableError",
@@ -74,6 +75,9 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "timestamp too small",
         "QueryTimeoutException",
         "TemporaryFileSizeExceedsLimitException",
+        "Name or service not known",
+        "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
+        "InsufficientPrivilege",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: [
@@ -94,6 +98,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ],
     ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
+    ExternalDataSource.Type.GOOGLEADS: ["PERMISSION_DENIED"],
 }
 
 

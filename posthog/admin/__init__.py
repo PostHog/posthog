@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from posthog.admin.admins import (
     OrganizationAdmin,
+    OrganizationDomainAdmin,
     UserAdmin,
     TeamAdmin,
     DashboardAdmin,
@@ -30,6 +31,7 @@ from posthog.admin.admins import (
 )
 from posthog.models import (
     Organization,
+    OrganizationDomain,
     User,
     Team,
     Dashboard,
@@ -58,6 +60,7 @@ from posthog.models import (
 )
 
 admin.site.register(Organization, OrganizationAdmin)
+admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(Team, TeamAdmin)
 admin.site.register(User, UserAdmin)

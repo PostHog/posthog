@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 
-import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'

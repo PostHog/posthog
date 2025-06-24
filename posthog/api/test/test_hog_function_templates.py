@@ -30,7 +30,6 @@ EXPECTED_FIRST_RESULT = {
     "mappings": template.mappings,
     "mapping_templates": template.mapping_templates,
     "icon_url": template.icon_url,
-    "kind": template.kind,
 }
 
 
@@ -79,13 +78,13 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
 
-    def test_alpha_templates_are_hidden(self):
+    def test_hidden_templates_are_hidden(self):
         self.client.logout()
         response = self.client.get("/api/public_hog_function_templates/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         for template_item in response.json()["results"]:
-            assert template_item["status"] != "alpha", f"Alpha template {template_item['id']} should not be returned"
+            assert template_item["status"] != "hidden", f"Hidden template {template_item['id']} should not be returned"
 
     def test_templates_are_sorted_by_usage(self):
         HogFunction.objects.create(
@@ -192,11 +191,24 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Verify it has the expected name
         assert response.json()["name"] == template.name
 
+    def test_get_specific_missing_template_from_db(self):
+        """Test retrieving a specific template from the database via API"""
         # Verify non-existent template returns 404
         response_missing = self.client.get(
             "/api/projects/@current/hog_function_templates/non-existent-template?db_templates=true"
         )
         assert response_missing.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_specific_deprecated_template_from_db(self):
+        """Test retrieving a specific template from the database via API"""
+        # Test getting a specific template via API endpoint
+        response = self.client.get(
+            f"/api/projects/@current/hog_function_templates/template-deprecated?db_templates=true"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # Verify it has the expected name
+        assert response.json()["name"] == self.deprecated_template.name
 
     def test_template_updates_are_reflected(self):
         """Test that template updates are reflected in API responses"""

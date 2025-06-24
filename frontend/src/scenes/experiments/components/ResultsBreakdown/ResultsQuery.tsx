@@ -10,7 +10,9 @@ import type { ResultBreakdownRenderProps } from './types'
  * make the props non-nullable
  */
 type SafeResultBreakdownRenderProps = {
-    [K in keyof ResultBreakdownRenderProps]: NonNullable<ResultBreakdownRenderProps[K]>
+    [K in keyof Omit<ResultBreakdownRenderProps, 'breakdownResultsLoading' | 'exposureDifference'>]: NonNullable<
+        ResultBreakdownRenderProps[K]
+    >
 }
 
 /**
