@@ -35,7 +35,7 @@ jobs:
 
     build-storybook:
         name: Build Storybook
-        runs-on: depot-ubuntu-24.04-16 # We're only doing this once, so we can afford to use a larger instance
+        runs-on: depot-ubuntu-24.04-8
         timeout-minutes: 15
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
@@ -55,6 +55,8 @@ jobs:
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Build Storybook
+              env:
+                  NODE_OPTIONS: --max-old-space-size=16384
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
@@ -265,7 +267,7 @@ jobs:
 
             - name: Download Storybook build artifact
               if: needs.changes.outputs.frontend == 'true'
-              uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3
+              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
               with:
                   name: storybook-build
                   path: common/storybook/dist
