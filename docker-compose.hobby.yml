@@ -288,6 +288,11 @@ services:
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+
 volumes:
     zookeeper-data:
     zookeeper-datalog:
