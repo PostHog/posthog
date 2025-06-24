@@ -124,7 +124,6 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={
             "invite": invite,
-            "expiry_days": INVITE_DAYS_VALIDITY,
             "expiry_datetime": (timezone.now() + timezone.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
                 "%B %d, %Y at %H:%M %Z"
             ),
