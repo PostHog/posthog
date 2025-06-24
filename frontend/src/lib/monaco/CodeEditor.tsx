@@ -238,6 +238,86 @@ export function CodeEditor({
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+
+        // Override Monaco's suggestion widget styling to prevent truncation
+        const overrideSuggestionWidgetStyling = (): void => {
+            const style = document.createElement('style')
+            style.textContent = `
+                .monaco-editor .suggest-widget {
+                    max-width: none !important;
+                    min-width: 600px !important;
+                    width: auto !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list {
+                    max-width: none !important;
+                    width: auto !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row {
+                    max-width: none !important;
+                    width: auto !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row .contents {
+                    max-width: none !important;
+                    width: auto !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row .contents .main {
+                    max-width: none !important;
+                    width: auto !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row .contents .main .left {
+                    max-width: none !important;
+                    min-width: 500px !important;
+                    width: auto !important;
+                    overflow: visible !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row .label-name {
+                    max-width: none !important;
+                    min-width: 500px !important;
+                    width: auto !important;
+                    overflow: visible !important;
+                    text-overflow: unset !important;
+                    white-space: nowrap !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row .monaco-icon-label {
+                    max-width: none !important;
+                    min-width: 500px !important;
+                    width: auto !important;
+                    overflow: visible !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row .monaco-icon-label .monaco-icon-label-description-container {
+                    max-width: none !important;
+                    width: auto !important;
+                    overflow: visible !important;
+                }
+                .monaco-editor .suggest-widget .monaco-list-row .monaco-icon-label .monaco-icon-label-description-container .label-name {
+                    max-width: none !important;
+                    min-width: 500px !important;
+                    width: auto !important;
+                    overflow: visible !important;
+                    text-overflow: unset !important;
+                    white-space: nowrap !important;
+                }
+            `
+            document.head.appendChild(style)
+        }
+
+        // Apply styling immediately and also when suggestion widget appears
+        overrideSuggestionWidgetStyling()
+
+        // Monitor for suggestion widget creation and apply styling
+        const observer = new MutationObserver(() => {
+            const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
+            if (suggestWidget) {
+                overrideSuggestionWidgetStyling()
+            }
+        })
+        observer.observe(document.body, { childList: true, subtree: true })
+
+        // Clean up observer
+        monacoDisposables.current.push({
+            dispose: () => observer.disconnect(),
+        })
+
         if (onPressCmdEnter) {
             monacoDisposables.current.push(
                 editor.addAction({
