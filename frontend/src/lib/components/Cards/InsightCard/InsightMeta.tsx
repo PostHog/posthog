@@ -112,7 +112,9 @@ export function InsightMeta({
                     tags={insight.tags}
                 />
             }
-            metaDetails={<InsightDetails query={insight.query} footerInfo={insight} />}
+            metaDetails={
+                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+            }
             samplingFactor={samplingFactor}
             moreButtons={
                 <>
