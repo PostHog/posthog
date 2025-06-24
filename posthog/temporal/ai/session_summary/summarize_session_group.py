@@ -86,6 +86,38 @@ async def get_llm_single_session_summary_activity(inputs: SingleSessionSummaryIn
     return session_summary_str
 
 
+async def _generate_patterns_assignments(
+    patterns: SessionGroupSummaryPatternsList,
+    session_summaries_chunks: list[list[str]],
+    user_id: int,
+    session_ids: list[str],
+    extra_summary_context: ExtraSummaryContext | None,
+) -> list[SessionGroupSummaryPatternsList]:
+    patterns_assignments_list_of_lists = []
+    async with asyncio.TaskGroup() as tg:
+        tasks = {}
+        for chunk_index, summaries_chunk in enumerate(session_summaries_chunks):
+            patterns_assignment_prompt = generate_session_group_patterns_assignment_prompt(
+                patterns=patterns,
+                session_summaries=summaries_chunk,
+                extra_summary_context=extra_summary_context,
+            )
+            tasks[chunk_index] = tg.create_task(
+                get_llm_session_group_patterns_assignment(
+                    prompt=patterns_assignment_prompt, user_id=user_id, session_ids=session_ids
+                )
+            )
+        for chunk_index, task in tasks.items():
+            res = task.result()
+            patterns_assignments_list_of_lists.append(res)
+
+            # TODO: Remove after testing
+            with open(f"patterns_assignments_chunk_{chunk_index}.yaml", "w") as f:
+                f.write(res.model_dump_json(exclude_none=True))
+
+    return patterns_assignments_list_of_lists
+
+
 @temporalio.activity.defn
 async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
     """Summarize a group of sessions in one call"""
@@ -107,10 +139,13 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     # Split sessions summaries into chunks of 10 sessions each
     # TODO: Define in constants after testing optimal chunk size quality-wise
     session_summaries_chunks = [session_summaries[i : i + 10] for i in range(0, len(session_summaries), 10)]
-
-    # TODO: Remove after testing
-    with open("patterns_extraction.yaml", "w") as f:
-        f.write(patterns_extraction)
+    patterns_assignments_list_of_lists = await _generate_patterns_assignments(
+        patterns=patterns_extraction,
+        session_summaries_chunks=session_summaries_chunks,
+        user_id=inputs.user_id,
+        session_ids=inputs.session_ids,
+        extra_summary_context=inputs.extra_summary_context,
+    )
 
     # TODO: Enable after testing
     # summary_prompt = generate_session_group_summary_prompt(
