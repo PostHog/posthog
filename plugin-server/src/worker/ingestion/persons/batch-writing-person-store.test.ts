@@ -216,7 +216,7 @@ describe('BatchWritingPersonStore', () => {
             const updateCache = personStoreForBatch.getUpdateCache()
             const cachedPersonUpdate = updateCache.get(`${teamId}:${person.uuid}`)
             expect(cachedPersonUpdate).toBeDefined()
-            expect(cachedPersonUpdate.distinct_id).toBe('test-distinct2')
+            expect(cachedPersonUpdate!.distinct_id).toBe('test-distinct2')
         })
 
         it('should handle cache hits for both checking and updating', async () => {
