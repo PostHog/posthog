@@ -13,7 +13,7 @@ import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlac
 import { QuestionInput } from './QuestionInput'
 
 export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
-    const { focusCounter } = useValues(maxLogic)
+    const { focusCounter, threadVisible } = useValues(maxLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -35,7 +35,8 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
         <QuestionInput
             isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName="px-3 w-full mx-auto self-center pb-2 max-w-[45rem]"
+            containerClassName="px-3 mx-auto self-center pb-1"
+            isThreadVisible={threadVisible}
         >
             <SuggestionsList />
         </QuestionInput>

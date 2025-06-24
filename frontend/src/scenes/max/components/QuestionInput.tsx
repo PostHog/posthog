@@ -21,11 +21,10 @@ interface QuestionInputProps {
     placeholder?: string
     children?: ReactNode
     contextDisplaySize?: 'small' | 'default'
-    showTopActions?: boolean
+    isThreadVisible?: boolean
     topActions?: ReactNode
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
-    wrapperClassName?: string
     onSubmit?: () => void
 }
 
@@ -36,10 +35,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         placeholder,
         children,
         contextDisplaySize,
+        isThreadVisible,
         topActions,
         textAreaRef,
         containerClassName,
-        wrapperClassName,
         onSubmit,
     },
     ref
@@ -52,21 +51,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     return (
         <div
-            className={
-                containerClassName +
-                ' ' +
-                (!isSticky && !isFloating ? 'px-3 w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full self-center')
-            }
+            className={clsx(
+                containerClassName,
+                !isSticky && !isFloating ? 'px-3 w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full self-center'
+            )}
             ref={ref}
         >
             <div
                 className={clsx(
-                    wrapperClassName ||
-                        clsx(
-                            'flex flex-col items-center',
-                            isSticky &&
-                                'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                        )
+                    'flex flex-col items-center',
+                    isSticky &&
+                        'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <div className="relative w-full flex flex-col">
@@ -78,7 +73,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'bg-[var(--bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
                             isFloating && 'border-primary',
-                            isSticky && 'm-1'
+                            isThreadVisible && 'm-1'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -87,7 +82,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        {topActions ? (
+                        {!isThreadVisible ? (
                             <div className="flex items-start justify-between">
                                 <ContextDisplay size={contextDisplaySize} />
                                 <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
@@ -119,8 +114,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isSticky,
-                            'bottom-[7px] right-2': !isSticky,
+                            'bottom-[11px] right-3': isThreadVisible,
+                            'bottom-[7px] right-2': !isThreadVisible,
                         })}
                     >
                         <AIConsentPopoverWrapper

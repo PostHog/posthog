@@ -21,14 +21,13 @@ import clsx from 'clsx'
 interface MaxQuestionInputProps {
     placeholder?: string
     suggestions?: React.ReactNode
-    hideTopActions?: boolean
 }
 
 const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>(function MaxQuestionInput(
-    { placeholder, suggestions, hideTopActions = false }: MaxQuestionInputProps,
+    { placeholder, suggestions }: MaxQuestionInputProps,
     ref
 ) {
-    const { focusCounter } = useValues(maxLogic)
+    const { focusCounter, threadVisible } = useValues(maxLogic)
     const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -50,10 +49,10 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
             isFloating
             placeholder={placeholder}
             contextDisplaySize="small"
-            showTopActions={!hideTopActions}
+            isThreadVisible={threadVisible}
             textAreaRef={textAreaRef}
             topActions={
-                !hideTopActions ? (
+                !threadVisible ? (
                     <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={false} />
                 ) : undefined
             }
@@ -115,7 +114,6 @@ function MaxFloatingInputContent(): JSX.Element {
         >
             <MaxQuestionInput
                 placeholder="Ask Max AI"
-                hideTopActions={threadVisible}
                 suggestions={
                     showFloatingMaxSuggestions ? (
                         <FloatingSuggestionsDisplay
@@ -126,7 +124,7 @@ function MaxFloatingInputContent(): JSX.Element {
                         />
                     ) : threadVisible ? (
                         <>
-                            <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                            <div className="flex items-center justify-between pl-2 pr-1 py-1 border-b border-border">
                                 <div className="text-xs font-medium text-muted">{conversation?.title}</div>
                                 <div className="flex items-center gap-1">
                                     <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={true} />
@@ -149,7 +147,7 @@ export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen } = useValues(sidePanelLogic)
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
-    const { threadLogicKey, conversation } = useValues(maxLogic)
+    const { threadLogicKey, conversation, threadVisible } = useValues(maxLogic)
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
@@ -214,8 +212,9 @@ export function MaxFloatingInput(): JSX.Element | null {
                     ? ''
                     : clsx(
                           getPositionClasses(),
-                          'border border-[var(--border-primary)] backdrop-blur-sm bg-[var(--glass-bg-3000)] p-1 mb-2',
-                          isFloatingMaxExpanded ? 'rounded-[var(--radius)] w-80' : 'rounded-full mr-4'
+                          'border border-[var(--border-primary)] backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2',
+                          isFloatingMaxExpanded ? 'rounded-[var(--radius)] w-80' : 'rounded-full mr-4',
+                          !threadVisible ? 'p-1' : ''
                       )
             }
             style={floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating ? {} : getAnimationStyle()}
