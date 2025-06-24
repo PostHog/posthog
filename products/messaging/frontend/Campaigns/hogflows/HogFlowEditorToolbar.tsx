@@ -31,7 +31,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
     return (
         <div draggable onDragStart={onDragStart}>
-            <LemonButton size="small" icon={step.icon} sideIcon={<IconDrag />} fullWidth>
+            <LemonButton icon={step.icon} sideIcon={<IconDrag />} fullWidth>
                 {step.name}
             </LemonButton>
         </div>
@@ -40,11 +40,11 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
 export function HogFlowEditorToolbar(): JSX.Element {
     return (
-        <Panel position="top-left">
-            <div className="flex z-10 flex-col gap-2 rounded-md border shadow-lg bg-surface-primary">
+        <Panel position="top-left" className="bottom">
+            <div className="z-10 rounded-md border shadow-lg bg-surface-primary">
                 <h3 className="px-3 my-2 font-semibold">Workflow steps</h3>
                 <LemonDivider className="my-0" />
-                <div className="flex overflow-y-auto flex-col gap-2 p-1">
+                <div className="flex overflow-y-auto flex-col gap-px p-1">
                     {TOOLBAR_NODES_TO_SHOW.map((type) => (
                         <HogFlowEditorToolbarNode key={type} type={type} />
                     ))}
