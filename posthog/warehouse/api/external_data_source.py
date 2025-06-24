@@ -1141,20 +1141,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             google_ads_schemas = get_google_ads_schemas(
                 google_ads_config,
             )
-            incremental_fields = get_google_ads_incremental_fields()
+
+            ads_incremental_fields = get_google_ads_incremental_fields()
 
             result_mapped_to_options = [
                 {
                     "table": name,
                     "should_sync": False,
                     "incremental_fields": [
-                        {"label": column_name, "type": column_name, "field": column_name, "field_type": column_type}
-                        for column_name, column_type in incremental_fields.get(name, [])
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in ads_incremental_fields.get(name, [])
                     ],
                     "incremental_available": True,
                     "append_available": True,
-                    "incremental_field": incremental_fields[name][0]
-                    if len(incremental_fields.get(name, [])) > 0
+                    "incremental_field": ads_incremental_fields[name][0][0]
+                    if len(ads_incremental_fields.get(name, [])) > 0
                     else None,
                     "sync_type": None,
                 }

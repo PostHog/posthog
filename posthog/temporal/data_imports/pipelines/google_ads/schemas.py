@@ -86,7 +86,16 @@ RESOURCE_SCHEMAS = {
     },
     "ad_stats": {
         "resource_name": "ad_group_ad",
-        "primary_key": ["ad_group_ad.ad.id", "ad_group.id", "campaign.id", "customer.id"],
+        "primary_key": [
+            "ad_group_ad.ad.id",
+            "ad_group.id",
+            "campaign.id",
+            "customer.id",
+            "segments.ad_network_type",
+            "segments.click_type",
+            "segments.date",
+            "segments.device",
+        ],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
         "field_names": [
             "ad_group_ad.ad.id",
@@ -165,7 +174,15 @@ RESOURCE_SCHEMAS = {
     "ad_group_stats": {
         "resource_name": "ad_group",
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
-        "primary_key": ["ad_group.id", "campaign.id", "customer.id"],
+        "primary_key": [
+            "ad_group.id",
+            "campaign.id",
+            "customer.id",
+            "segments.ad_network_type",
+            "segments.click_type",
+            "segments.date",
+            "segments.device",
+        ],
         "field_names": [
             "ad_group.id",
             "campaign.id",
@@ -244,7 +261,14 @@ RESOURCE_SCHEMAS = {
     },
     "campaign_stats": {
         "resource_name": "campaign",
-        "primary_key": ["campaign.id", "customer.id"],
+        "primary_key": [
+            "campaign.id",
+            "customer.id",
+            "segments.ad_network_type",
+            "segments.click_type",
+            "segments.date",
+            "segments.device",
+        ],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
         "field_names": [
             "campaign.id",
@@ -329,7 +353,16 @@ RESOURCE_SCHEMAS = {
     "keyword_stats": {
         "resource_name": "keyword_view",
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
-        "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
+        "primary_key": [
+            "ad_group_criterion.criterion_id",
+            "ad_group.id",
+            "campaign.id",
+            "customer.id",
+            "segments.ad_network_type",
+            "segments.click_type",
+            "segments.date",
+            "segments.device",
+        ],
         "field_names": [
             "ad_group_criterion.criterion_id",
             "ad_group.id",
@@ -393,7 +426,17 @@ RESOURCE_SCHEMAS = {
     "video_stats": {
         "resource_name": "video",
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
-        "primary_key": ["video.id", "ad_group.id", "campaign.id", "customer.id"],
+        "primary_key": [
+            "ad_group_ad.ad.id",
+            "video.id",
+            "ad_group.id",
+            "campaign.id",
+            "customer.id",
+            "segments.ad_network_type",
+            "segments.click_type",
+            "segments.date",
+            "segments.device",
+        ],
         "field_names": [
             "ad_group_ad.ad.id",
             "ad_group.id",
