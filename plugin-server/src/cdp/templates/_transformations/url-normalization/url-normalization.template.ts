@@ -199,9 +199,9 @@ return normalizedEvent
             label: 'Regex',
             type: 'string',
             description:
-                'The regex to use to match the dynamic path segment. The default value will match UUIDs, numbers and a mix of capital letters and numbers.',
+                'The regex to use to match the dynamic path segment. The default value will match UUIDs and strings of 3 or more capital letters or numbers.',
             templating: false,
-            default: '^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9]+|[A-Z0-9]+)$',
+            default: '^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Z0-9]{3,})$',
         },
     ],
 }
