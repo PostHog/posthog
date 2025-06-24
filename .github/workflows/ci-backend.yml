@@ -593,6 +593,7 @@ jobs:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
+                  set +e
                   pytest ${{
                       matrix.person-on-events
                       && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
@@ -606,6 +607,14 @@ jobs:
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
@@ -635,11 +644,20 @@ jobs:
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
               run: |
+                  set +e
                   pytest posthog/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
 
             # Post tests
             - name: Show docker compose logs on failure
