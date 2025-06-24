@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 from ee.session_recordings.session_summary.output_data import IntermediateSessionSummarySerializer
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, PatternsExtractionPrompt, SessionSummaryPrompt
+from ee.session_recordings.session_summary.patterns.output_data import SessionGroupSummaryPatternsList
+from ee.session_recordings.session_summary.summarize_session import (
+    ExtraSummaryContext,
+    PatternsPrompt,
+    SessionSummaryPrompt,
+)
 from ee.session_recordings.session_summary.utils import load_custom_template
 
 
@@ -54,7 +59,7 @@ def generate_session_group_patterns_extraction_prompt(
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
     combined_session_summaries = "\n\n".join(session_summaries)
-    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns"
+    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_extraction"
     system_prompt = load_custom_template(template_dir, "system-prompt.djt")
     patterns_example = load_custom_template(template_dir, f"example.yml")
     patterns_prompt = load_custom_template(
@@ -62,11 +67,35 @@ def generate_session_group_patterns_extraction_prompt(
         f"prompt.djt",
         {
             "SESSION_SUMMARIES": combined_session_summaries,
-            "PATTERNS_EXAMPLE": patterns_example,
+            "PATTERNS_EXTRACTION_EXAMPLE": patterns_example,
             # TODO: Add focus area to the prompt
         },
     )
-    return PatternsExtractionPrompt(
+    return PatternsPrompt(
+        patterns_prompt=patterns_prompt,
+        system_prompt=system_prompt,
+    )
+
+
+def generate_session_group_patterns_assignment_prompt(
+    patterns: SessionGroupSummaryPatternsList,
+    session_summaries_chunk: list[str],
+) -> SessionSummaryPrompt:
+    combined_session_summaries = "\n\n".join(session_summaries_chunk)
+    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_assignment"
+    system_prompt = load_custom_template(template_dir, "system-prompt.djt")
+    patterns_example = load_custom_template(template_dir, f"example.yml")
+    patterns_prompt = load_custom_template(
+        template_dir,
+        f"prompt.djt",
+        {
+            "PATTERNS": patterns.model_dump_json(exclude_none=True),
+            "SESSION_SUMMARIES": combined_session_summaries,
+            "PATTERNS_ASSIGNMENT_EXAMPLE": patterns_example,
+            # TODO: Add focus area to the prompt
+        },
+    )
+    return PatternsPrompt(
         patterns_prompt=patterns_prompt,
         system_prompt=system_prompt,
     )

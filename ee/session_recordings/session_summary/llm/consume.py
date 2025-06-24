@@ -20,7 +20,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     SessionGroupSummaryPatternsList,
     load_patterns_from_llm_content,
 )
-from ee.session_recordings.session_summary.summarize_session import PatternsExtractionPrompt, SessionSummaryPrompt
+from ee.session_recordings.session_summary.summarize_session import PatternsPrompt, SessionSummaryPrompt
 
 logger = structlog.get_logger(__name__)
 
@@ -106,7 +106,7 @@ def _convert_llm_content_to_session_summary_json_str(
 
 
 async def get_llm_session_group_patterns_extraction(
-    prompt: PatternsExtractionPrompt, user_id: int, session_ids: list[str]
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str]
 ) -> SessionGroupSummaryPatternsList:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(

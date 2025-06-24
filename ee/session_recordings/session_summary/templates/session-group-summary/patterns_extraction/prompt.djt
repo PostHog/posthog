@@ -130,6 +130,6 @@ Provide your pattern analysis in YAML format using the provided example. Don't r
 
 <output_example>
 ```
-{{ PATTERNS_EXAMPLE|safe }}
+{{ PATTERNS_EXTRACTION_EXAMPLE|safe }}
 ```
 </output_example>
