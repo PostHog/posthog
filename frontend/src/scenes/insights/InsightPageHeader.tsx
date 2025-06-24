@@ -95,7 +95,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
         insightDataLogic(insightProps)
     )
-    const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
+    // const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
 
     // other logics
@@ -183,6 +183,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 // handlePageTitleSubmit={(title) => {
                 //     console.log('saved title', title)
                 // }}
+                breadcrumbs={[
+                    {
+                        name: 'Product analytics',
+                        to: urls.insights(),
+                        id: 'product-analytics',
+                        icon: <IconGraph />,
+                        iconColor: '#2F80FA',
+                    },
+                    {
+                        name: 'Insights',
+                        to: urls.insights(),
+                        id: 'insights',
+                    },
+                ]}
                 navItems={[
                     {
                         title: 'File',

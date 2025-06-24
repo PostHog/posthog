@@ -185,7 +185,7 @@ export function ProjectNotice(): JSX.Element | null {
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}
+            className={clsx(requiresHorizontalMargin && 'mx-4')}
             action={relevantNotice.action}
             onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >

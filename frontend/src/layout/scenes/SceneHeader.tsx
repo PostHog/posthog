@@ -1,5 +1,5 @@
 import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -13,10 +13,11 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useRef, useState } from 'react'
+import { CSSProperties, ReactNode, useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SceneHeaderChildItemProps, SceneHeaderItemProps, sceneHeaderLogic } from './sceneHeaderLogic'
+import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
 
 function renderChildItem(item: SceneHeaderChildItemProps): JSX.Element {
     if (item.type === 'link') {
@@ -60,14 +61,22 @@ function renderChildItem(item: SceneHeaderChildItemProps): JSX.Element {
     )
 }
 
+interface Breadcrumb {
+    name: ReactNode
+    to: string
+    id: string
+    icon?: ReactNode
+    iconColor?: string
+}
 interface SceneHeaderProps {
     pageTitle: string
-    pageIcon?: React.ReactNode
+    pageIcon?: ReactNode
     navItems: SceneHeaderItemProps[]
-    children?: React.ReactNode
+    children?: ReactNode
     pageTitleEditable?: boolean
     onPageTitleSubmit?: (title: string) => void
     handlePageTitleSubmit?: (title: string) => void
+    breadcrumbs: Breadcrumb[]
 }
 export function SceneHeader({
     pageTitle,
@@ -77,6 +86,7 @@ export function SceneHeader({
     onPageTitleSubmit,
     pageTitleEditable = false,
     handlePageTitleSubmit,
+    breadcrumbs,
 }: SceneHeaderProps): JSX.Element {
     // const { loadedSceneSettingsSectionId } = useValues(topBarSettingsButtonLogic)
     // const { openSettingsPanel, closeSettingsPanel } = useActions(sidePanelSettingsLogic)
@@ -91,6 +101,11 @@ export function SceneHeader({
     const pageTitleEditableButtonRef = useRef<HTMLButtonElement>(null)
     const canSubmitPageTitleForm = pageTitleValue !== pageTitle
     const fontSizeClass = isSticky ? 'text-[16px]' : 'text-[18px]'
+    // const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
+
+    console.log('isSticky', isSticky)
+    console.log('breadcrumbs', breadcrumbs)
+
 
     useEffect(() => {
         const mainContent = document.getElementById('main-content')
@@ -105,7 +120,8 @@ export function SceneHeader({
             },
             {
                 root: mainContent,
-                threshold: 1.0,
+                threshold: 0,
+                rootMargin: '-5px 0px 0px 0px',
             }
         )
         observer.observe(sentinel)
@@ -140,13 +156,14 @@ export function SceneHeader({
     }
 
     function Title(): JSX.Element {
-        return <h1 className={cn('font-semibold m-0 whitespace-nowrap', fontSizeClass)}>{pageTitle}</h1>
+        console.log('pageTitle', pageTitle)
+        return <h1 className={cn('font-semibold m-0 truncate max-w-[300px]', fontSizeClass)}>{pageTitle}</h1>
     }
 
-    function RenderPageTitle({ isSticky }: { isSticky: boolean }): JSX.Element {
+    function RenderPageTitle(): JSX.Element {
         if (pageTitleEditable && isPageTitleClicked) {
             return (
-                <form className="absolute z-1 flex gap-1 w-full" onSubmit={handleSubmit}>
+                <form className="flex gap-1 w-full" onSubmit={handleSubmit}>
                     <TextInputPrimitive
                         name="page-title"
                         defaultValue={pageTitleValue}
@@ -191,36 +208,54 @@ export function SceneHeader({
 
     return (
         <>
-            <div ref={sentinelRef} />
+            <div ref={sentinelRef} className="h-px" />
             <header
-                className={cn('sticky top-0 z-50 py-2 bg-surface-secondary border-b border-primary px-4 -mx-4')}
+                className={cn('sticky top-0 z-50 py-2 bg-surface-secondary border-b border-primary px-4 -mx-4 mb-4', {
+                    'h-[54px]': isSticky,
+                    'h-[69px]': !isSticky,
+                })}
                 ref={headerRef}
+                style={{
+                    '--product-color': breadcrumbs && breadcrumbs.length ? breadcrumbs[0].iconColor : 'var(--bg-fill-button-tertiary-active)', 
+                } as CSSProperties}
             >
                 <div className="flex justify-center">
                     <div className="flex gap-[6px] flex-1 items-center">
-                        <Link
-                            to={urls.activity()}
-                            buttonProps={{
-                                size: 'base',
-                                className: cn(
-                                    'size-[52px] bg-[#2F80FA] hover:bg-[#498df4] rounded flex justify-center items-center',
-                                    isSticky && 'size-[30px]'
-                                ),
-                            }}
-                        >
-                            <span
-                                className={cn(
-                                    '[&_svg]:fill-white [&_svg]:size-[30px]',
-                                    isSticky && '[&_svg]:size-[20px]'
-                                )}
+                            <Link
+                                to={breadcrumbs[0].to}
+                                buttonProps={{
+                                    size: 'base',
+                                    className: cn(
+                                        'size-[52px] bg-[var(--product-color)] hover:bg-[var(--product-color)] rounded flex justify-center items-center',
+                                        isSticky && 'size-[30px]'
+                                    ),
+                                }}
                             >
-                                {pageIcon}
-                            </span>
-                        </Link>
-                        <div className={cn('relative flex flex-col gap-px items-center')}>
-                            <RenderPageTitle isSticky={isSticky} />
+                                <span
+                                    className={cn(
+                                        '[&_svg]:fill-white [&_svg]:size-[30px]',
+                                        isSticky && '[&_svg]:size-[20px]'
+                                    )}
+                                >
+                                    {pageIcon}
+                                    </span>
+                            </Link>
+                        <div className={cn('relative flex-col gap-px items-center')}>
+                            {!isSticky && (
+                                <div className="flex items-center gap-1">
+                                    {breadcrumbs.map((breadcrumb, index) => (
+                                        <>
+                                            {index > 0 && <IconChevronRight className="size-3 text-tertiary" />}
+                                            <Link key={breadcrumb.id} to={breadcrumb.to} className="text-sm px-2 text-secondary hover:underline">
+                                                {breadcrumb.name}
+                                            </Link>
+                                        </>
+                                    ))}
+                                </div>
+                            )}
+                            <RenderPageTitle />
 
-                            <ul className={cn('list flex gap-1 w-full flex-row')}>
+                            {/* <ul className={cn('list flex gap-1 w-full flex-row')}>
                                 {navItems.map((item) => (
                                     <li key={item.id}>
                                         {navItems.length > 0 && (
@@ -241,10 +276,12 @@ export function SceneHeader({
                                         )}
                                     </li>
                                 ))}
-                            </ul>
+                            </ul> */}
                         </div>
                     </div>
-                    <div className="flex-1 flex justify-end items-center">{children}</div>
+                    <div className="flex-1 flex justify-end items-center">
+                        {children}
+                    </div>
                 </div>
             </header>
         </>

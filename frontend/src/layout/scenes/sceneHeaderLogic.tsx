@@ -3,6 +3,7 @@ import { AccessControlProps } from 'lib/components/AccessControlledLemonButton'
 import { ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 
 import type { sceneHeaderLogicType } from './sceneHeaderLogicType'
+import { ReactNode } from 'react'
 
 export type SceneHeaderItemType = 'checkbox' | 'radio' | 'toggle' | 'separator' | 'link' | 'submenu'
 export type SceneHeaderItemProps = {
@@ -18,17 +19,38 @@ export type SceneHeaderItemProps = {
 
 export type SceneHeaderChildItemProps = SceneHeaderItemProps & { icon: React.ReactNode }
 
+interface Breadcrumb {
+    name: ReactNode
+    to: string
+    id: string
+    icon?: ReactNode
+    iconColor?: string
+}
+
 export const sceneHeaderLogic = kea<sceneHeaderLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
     actions({
-        setFileNewProps: (items: SceneHeaderItemProps[]) => ({ items }),
-        setFileNewContainer: (container: HTMLElement | null) => ({ container }),
+        setPageTitle: (title: string) => ({ title }),
+        setPageTitleEditable: (editable: boolean) => ({ editable }),
+        setPageBreadcrumbs: (breadcrumbs: Breadcrumb[]) => ({ breadcrumbs }),
     }),
     reducers({
-        fileNewProps: [
-            [] as SceneHeaderItemProps[],
+        pageTitle: [
+            '' as string,
             {
-                setFileNewProps: (_, { items }) => items,
+                setPageTitle: (_, { title }) => title,
+            },
+        ],
+        pageTitleEditable: [
+            false as boolean,
+            {
+                setPageTitleEditable: (_, { editable }) => editable,
+            },
+        ],
+        pageBreadcrumbs: [
+            [] as Breadcrumb[],
+            {
+                setPageBreadcrumbs: (_, { breadcrumbs }) => breadcrumbs,
             },
         ],
     }),

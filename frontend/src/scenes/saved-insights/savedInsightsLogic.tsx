@@ -20,7 +20,12 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import {
+    InsightModel,
+    LayoutView,
+    QueryBasedInsightModel,
+    SavedInsightsTabs
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'

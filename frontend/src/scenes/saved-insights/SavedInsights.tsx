@@ -757,6 +757,15 @@ export function SavedInsights(): JSX.Element {
                 // handlePageTitleSubmit={(title) => {
                 //     console.log('saved title', title)
                 // }}
+                breadcrumbs={[
+                    {
+                        name: 'Product analytics',
+                        to: urls.insights(),
+                        id: 'product-analytics',
+                        icon: <IconGraph />,
+                        iconColor: '#2F80FA',
+                    },
+                ]}
                 navItems={[
                     {
                         title: 'File',
