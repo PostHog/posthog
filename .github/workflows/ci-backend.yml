@@ -438,10 +438,9 @@ jobs:
         needs: [django, async-migrations]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            needs.changes.outputs.backend == 'true' &&
-            (
-            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository
-            ) == 'PostHog/posthog'
+            needs.changes.outputs.backend == 'true' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Calculate running time
               run: |
