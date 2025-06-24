@@ -96,8 +96,10 @@ class TestSummarizeSession:
             with pytest.raises(ValueError, match=f"No columns found for session_id {mock_session_id}"):
                 with patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team):
                     get_session_events(
-                        session_id=mock_session_id, session_metadata=mock_raw_metadata, team_id=mock_team.id
-                    )  # type: ignore[arg-type]
+                        session_id=mock_session_id,
+                        session_metadata=mock_raw_metadata,  # type: ignore[arg-type]
+                        team_id=mock_team.id,
+                    )
                     mock_instance.get_events.assert_called_once_with(
                         session_id=mock_session_id,
                         team_id=mock_team.id,

@@ -67,6 +67,7 @@ async def get_llm_single_session_summary_activity(inputs: SingleSessionSummaryIn
         # Mappings to enrich events
         allowed_event_ids=list(llm_input.simplified_events_mapping.keys()),
         simplified_events_mapping=llm_input.simplified_events_mapping,
+        event_ids_mapping=llm_input.event_ids_mapping,
         simplified_events_columns=llm_input.simplified_events_columns,
         url_mapping_reversed=llm_input.url_mapping_reversed,
         window_mapping_reversed=llm_input.window_mapping_reversed,

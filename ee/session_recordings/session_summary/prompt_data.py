@@ -2,7 +2,7 @@ import dataclasses
 from datetime import datetime
 
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 from ee.session_recordings.session_summary.utils import generate_full_event_id, get_column_index, prepare_datetime
 
@@ -64,7 +64,7 @@ class SessionSummaryPromptData:
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for i, event in enumerate(raw_session_events):
             # Copy the event to avoid mutating the original, add new columns for event_id and event_index
-            event_uuid = event[-1]  # UUID should come last as we use it to generate event_id, but not after
+            event_uuid = cast(str, event[-1])  # UUID should come last as we use it to generate event_id, but not after
             simplified_event: list[str | datetime | list[str] | int | None] = [None, None, *list(event[:-1])]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
@@ -159,22 +159,6 @@ class SessionSummaryPromptData:
         if url not in self.url_mapping:
             self.url_mapping[url] = f"url_{len(self.url_mapping) + 1}"
         return self.url_mapping[url]
-
-    @staticmethod
-    def _get_deterministic_hex(event: list[Any], length: int = 8) -> str:
-        """
-        Generate a hex for each event to make sure we can identify repeated events.
-        """
-
-        def format_value(val: Any) -> str:
-            if isinstance(val, datetime):
-                return val.isoformat()
-            return str(val)
-
-        # Join with a null byte as delimiter since it won't appear in normal strings,
-        # so we can get the same string using the same combination of values only.
-        event_string = "\0".join(format_value(x) for x in event)
-        return hashlib.sha256(event_string.encode()).hexdigest()[:length]
 
     @staticmethod
     def _get_deterministic_hex(event: list[Any], length: int = 8) -> str:
