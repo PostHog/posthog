@@ -40,12 +40,12 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
+from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.timestamp_utils import get_earliest_timestamp_from_series
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
