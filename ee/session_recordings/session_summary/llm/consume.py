@@ -254,6 +254,7 @@ async def stream_llm_single_session_summary(
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
             simplified_events_mapping=simplified_events_mapping,
+            event_ids_mapping=event_ids_mapping,
             simplified_events_columns=simplified_events_columns,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,
