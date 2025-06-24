@@ -79,6 +79,7 @@ export function SavedFilters({
                                 void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
                             }}
                             title="Copy link to saved filter"
+                            tooltip="Copy link to saved filter"
                             icon={<IconCopy />}
                         />
                         <LemonButton
@@ -90,6 +91,7 @@ export function SavedFilters({
                                 }
                             }}
                             title="Delete saved filter"
+                            tooltip="Delete saved filter"
                             icon={<IconTrash />}
                         />
                     </div>

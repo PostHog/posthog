@@ -93,8 +93,6 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = 2
-
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
@@ -109,15 +107,12 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Determine which statistical method to use
         if self.experiment.stats_config is None:
-            self.stats_version = 2
             # Default to "bayesian" if not specified
             self.stats_method = "bayesian"
-
         else:
             self.stats_method = self.experiment.stats_config.get("method", "bayesian")
             if self.stats_method not in ["bayesian", "frequentist"]:
                 self.stats_method = "bayesian"
-            self.stats_version = self.experiment.stats_config.get("version", 1)
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -625,7 +620,7 @@ class ExperimentQueryRunner(QueryRunner):
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
-            experiment_id=str(self.experiment.id),
+            experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
@@ -744,7 +739,7 @@ class ExperimentQueryRunner(QueryRunner):
             probability=probability,
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
-            stats_version=self.stats_version,
+            stats_version=2,
             p_value=p_value,
             credible_intervals=credible_intervals,
         )

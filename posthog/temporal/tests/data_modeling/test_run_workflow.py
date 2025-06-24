@@ -353,6 +353,8 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
         )
 
     s3_objects = await minio_client.list_objects_v2(
@@ -417,6 +419,8 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
         )
 
     s3_objects = await minio_client.list_objects_v2(
@@ -916,6 +920,8 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
         )
 
     # Check that the column names maintain their original casing
