@@ -88,6 +88,9 @@ describe('PersonStoreManager', () => {
             moveDistinctIds: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
+            addDistinctId: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
         } as unknown as DB
 
         hub = {
@@ -224,6 +227,9 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 return Promise.resolve([])
             }),
             moveDistinctIds: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
+            addDistinctId: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
         } as unknown as DB
@@ -726,6 +732,58 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     ]),
                 })
             )
+        })
+
+        it('should handle addDistinctId ', async () => {
+            const teamId = 126617
+            const personUuid = '483a46b9-aea8-5205-828e-85a6f77ad6b0'
+            const distinctId = '0197a209-f567-7daa-8810-900f7c7f7b5d'
+
+            const existingPerson: InternalPerson = {
+                id: '11212424398',
+                uuid: personUuid,
+                created_at: DateTime.fromISO('2025-04-11T00:22:49.998Z'),
+                team_id: teamId,
+                properties: {
+                    $os: 'Android',
+                    $app_name: 'Skorlife',
+                    $creator_event_uuid: '0196223a-5299-72a2-b7cd-3c9cc03d6869',
+                },
+                properties_last_updated_at: {
+                    $os: '2025-04-11T00:22:49.998Z',
+                    $app_name: '2025-04-11T00:22:49.998Z',
+                },
+                properties_last_operation: {},
+                is_user_id: null,
+                is_identified: true,
+                version: 1,
+            }
+
+            // Step 1: Add a distinct ID to an existing person
+            // This simulates the production scenario where we're adding a new distinct ID
+            await shadowManager.addDistinctId(existingPerson, distinctId, 0)
+
+            // Step 2: Flush to trigger comparison
+            await shadowManager.flush()
+
+            const metrics = shadowManager.getShadowMetrics()
+            const finalStates = shadowManager.getFinalStates()
+            const finalState = finalStates.get(`${teamId}:${distinctId}`)
+
+            // Verify the final state is tracked correctly
+            expect(finalState?.person).toEqual(existingPerson)
+            expect(finalState?.operations).toEqual([
+                {
+                    type: 'addDistinctId',
+                    timestamp: expect.any(Number),
+                    distinctId: distinctId,
+                },
+            ])
+
+            expect(metrics.totalComparisons).toBe(1)
+            expect(metrics.sameOutcomeSameBatch).toBe(1)
+            expect(metrics.differentOutcomeSameBatch).toBe(0)
+            expect(metrics.logicErrors).toHaveLength(0)
         })
 
         it('should handle createPerson followed by moveDistinctIds', async () => {
