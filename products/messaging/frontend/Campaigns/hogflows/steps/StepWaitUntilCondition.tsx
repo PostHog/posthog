@@ -12,6 +12,8 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
     type: 'wait_until_condition',
+    name: 'Wait until...',
+    description: 'Wait until a condition is met or a duration has passed.',
     icon: <IconClock />,
     renderNode: (props) => <StepWaitUntilConditionNode {...props} />,
     renderConfiguration: (node) => <StepWaitUntilConditionConfiguration node={node} />,

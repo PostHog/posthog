@@ -8,6 +8,8 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepMessage: HogFlowStep<'message'> = {
     type: 'message',
+    name: 'Message',
+    description: 'Send a message to the user.',
     icon: <IconMessage />,
     renderNode: (props) => <StepMessageNode {...props} />,
     renderConfiguration: (node) => <StepMessageConfiguration node={node} />,

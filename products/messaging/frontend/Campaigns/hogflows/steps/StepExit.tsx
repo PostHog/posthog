@@ -7,6 +7,8 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepExit: HogFlowStep<'exit'> = {
     type: 'exit',
+    name: 'Exit',
+    description: 'Exit the campaign.',
     icon: <IconLeave />,
     renderNode: (props) => <StepExitNode {...props} />,
     renderConfiguration: (node) => <StepExitConfiguration node={node} />,

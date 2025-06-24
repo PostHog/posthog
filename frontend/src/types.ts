@@ -24,7 +24,7 @@ import {
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/HogFlows/types'
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'

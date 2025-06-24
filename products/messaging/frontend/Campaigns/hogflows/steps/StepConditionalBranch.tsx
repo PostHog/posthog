@@ -13,6 +13,8 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
     type: 'conditional_branch',
+    name: 'Conditional branch',
+    description: 'Branch based on a condition such as the event trigger or a person property.',
     icon: <IconDecisionTree />,
     renderNode: (props) => <StepConditionalBranchNode {...props} />,
     renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
@@ -73,7 +75,7 @@ function StepConditionalBranchConfiguration({
             }
         })
 
-        return [branchEdges.sort((a, b) => a.index - b.index), nonBranchEdges]
+        return [branchEdges.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)), nonBranchEdges]
     }, [nodeEdges, action.id])
 
     const setConditions = (

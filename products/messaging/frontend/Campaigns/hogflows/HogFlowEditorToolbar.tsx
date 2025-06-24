@@ -1,37 +1,39 @@
-import { IconClock, IconDecisionTree, IconDrag, IconHourglass, IconSend } from '@posthog/icons'
+import { IconDrag } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Panel } from '@xyflow/react'
 import { useActions } from 'kea'
 
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { getHogFlowStep } from './steps/HogFlowSteps'
+import { HogFlowAction } from './types'
 
-const TOOLBAR_NODES = [
-    { type: 'message', name: 'Message', icon: <IconSend /> },
-    { type: 'conditional_branch', name: 'Conditional', icon: <IconDecisionTree /> },
-    { type: 'delay', name: 'Wait', icon: <IconClock /> },
-    { type: 'wait_until_condition', name: 'Wait until...', icon: <IconHourglass /> },
-] as const
-export type ToolbarNode = (typeof TOOLBAR_NODES)[number]
+export const TOOLBAR_NODES_TO_SHOW: HogFlowAction['type'][] = [
+    'message',
+    'conditional_branch',
+    'delay',
+    'wait_until_condition',
+]
 
-function ToolbarNode({ node }: { node: ToolbarNode }): JSX.Element {
+function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JSX.Element | null {
     const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
-        setNewDraggingNode(node)
-        event.dataTransfer.setData('application/reactflow', node.type)
+        setNewDraggingNode(type)
+        event.dataTransfer.setData('application/reactflow', type)
         event.dataTransfer.effectAllowed = 'move'
     }
 
+    const step = getHogFlowStep(type)
+
+    if (!step) {
+        return null
+    }
+
     return (
-        <div
-            className="flex justify-between items-center p-2 rounded border bg-surface-primary cursor-grab hover:bg-surface-secondary"
-            draggable
-            onDragStart={onDragStart}
-        >
-            <div className="flex gap-1 items-center">
-                {node.icon}
-                {node.name}
-            </div>
-            <IconDrag className="text-lg text-muted" />
+        <div draggable onDragStart={onDragStart}>
+            <LemonButton size="small" icon={step.icon} sideIcon={<IconDrag />} fullWidth>
+                {step.name}
+            </LemonButton>
         </div>
     )
 }
@@ -39,11 +41,12 @@ function ToolbarNode({ node }: { node: ToolbarNode }): JSX.Element {
 export function HogFlowEditorToolbar(): JSX.Element {
     return (
         <Panel position="top-left">
-            <div className="bg-surface-primary rounded-md shadow-md flex flex-col gap-2 p-4 z-10 w-[200px]">
-                <h3 className="font-semibold nodrag">Workflow steps</h3>
-                <div className="flex flex-col gap-2">
-                    {TOOLBAR_NODES.map((node) => (
-                        <ToolbarNode key={node.type} node={node} />
+            <div className="flex z-10 flex-col gap-2 rounded-md border shadow-lg bg-surface-primary">
+                <h3 className="px-3 my-2 font-semibold">Workflow steps</h3>
+                <LemonDivider className="my-0" />
+                <div className="flex overflow-y-auto flex-col gap-2 p-1">
+                    {TOOLBAR_NODES_TO_SHOW.map((type) => (
+                        <HogFlowEditorToolbarNode key={type} type={type} />
                     ))}
                 </div>
             </div>

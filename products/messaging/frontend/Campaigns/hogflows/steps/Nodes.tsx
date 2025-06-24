@@ -51,7 +51,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
                 height: DROPZONE_NODE_HEIGHT,
             }}
         >
-            <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full bg-surface-primary">
+            <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
                 <IconPlus className="text-sm text-primary" />
             </div>
         </div>

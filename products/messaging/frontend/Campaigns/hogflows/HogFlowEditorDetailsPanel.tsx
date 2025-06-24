@@ -4,11 +4,11 @@ import { getOutgoers, Panel, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
-import { HogFlowFilters } from '../filters/HogFlowFilters'
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from './HogFlowSteps'
+import { HogFlowFilters } from './filters/HogFlowFilters'
+import { hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { getHogFlowStep } from './steps/HogFlowSteps'
 
-export function NodeDetailsPanel(): JSX.Element | null {
+export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const { selectedNode, nodes, edges } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, setCampaignAction } = useActions(hogFlowEditorLogic)
 

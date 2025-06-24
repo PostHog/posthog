@@ -10,6 +10,8 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepTrigger: HogFlowStep<'trigger'> = {
     type: 'trigger',
+    name: 'Trigger',
+    description: 'Trigger the campaign.',
     icon: <IconBolt />,
     renderNode: (props) => <StepTriggerNode {...props} />,
     renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,

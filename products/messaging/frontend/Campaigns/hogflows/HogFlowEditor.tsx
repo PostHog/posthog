@@ -16,9 +16,9 @@ import { useEffect, useRef } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { campaignLogic } from '../campaignLogic'
+import { HogFlowEditorDetailsPanel } from './HogFlowEditorDetailsPanel'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
-import { NodeDetailsPanel } from './steps/NodeDetailsPanel'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { HogFlowActionNode } from './types'
 
@@ -70,7 +70,7 @@ function HogFlowEditorContent(): JSX.Element {
 
                 <HogFlowEditorToolbar />
 
-                <NodeDetailsPanel />
+                <HogFlowEditorDetailsPanel />
             </ReactFlow>
         </div>
     )

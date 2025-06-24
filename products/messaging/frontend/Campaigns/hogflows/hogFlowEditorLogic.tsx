@@ -19,7 +19,6 @@ import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
-import { ToolbarNode } from './HogFlowEditorToolbar'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
@@ -53,7 +52,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDragStart: true,
         onDragOver: (event: React.DragEvent) => ({ event }),
         onDrop: (event: React.DragEvent) => ({ event }),
-        setNewDraggingNode: (newDraggingNode: ToolbarNode | null) => ({ newDraggingNode }),
+        setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
     }),
     reducers(() => ({
@@ -89,7 +88,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
 
         newDraggingNode: [
-            null as ToolbarNode | null,
+            null as HogFlowAction['type'] | null,
             {
                 setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
             },
@@ -106,7 +105,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     selectors({
         nodesById: [
             (s) => [s.nodes],
-            (nodes) => {
+            (nodes): Record<string, HogFlowActionNode> => {
                 return nodes.reduce((acc, node) => {
                     acc[node.id] = node
                     return acc
@@ -297,10 +296,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             if (values.newDraggingNode && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const step = getHogFlowStep(values.newDraggingNode.type)
+                const step = getHogFlowStep(values.newDraggingNode)
 
                 if (!step) {
-                    throw new Error(`Step not found for action type: ${values.newDraggingNode.type}`)
+                    throw new Error(`Step not found for action type: ${values.newDraggingNode}`)
                 }
 
                 const { action: partialNewAction, branchEdges = 0 } = step.create()
