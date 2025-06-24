@@ -20,6 +20,8 @@ from .utils import (
     get_marketing_config_value, ConversionGoalProcessor, add_conversion_goal_property_filters,
     get_global_property_conditions
 )
+from .adapters.factory import MarketingSourceFactory
+from .adapters.base import QueryContext
 
 logger = structlog.get_logger(__name__)
 
@@ -48,38 +50,38 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Get the raw select input, using defaults if none specified"""
         return DEFAULT_MARKETING_ANALYTICS_COLUMNS if len(self.query.select) == 0 else self.query.select
 
-    def _get_data_warehouse_sources(self):
-        """Get data warehouse sources with validation"""
+    def _get_marketing_source_adapters(self):
+        """Get marketing source adapters using the new adapter architecture"""
         try:
-            # Get warehouse table names and objects
-            warehouse_table_names = self._get_warehouse_table_names()
-            datawarehouse_tables = self._get_filtered_warehouse_tables(warehouse_table_names)
+            factory = MarketingSourceFactory(team=self.team)
+            adapters = factory.create_adapters()
+            valid_adapters = factory.get_valid_adapters(adapters)
             
-            # Get team's source mappings
-            sources_map = self._get_team_sources_map()
-            
-            # Process tables and sources
-            valid_external_tables = self._process_external_tables(datawarehouse_tables, sources_map)
-            valid_native_sources = self._process_native_sources(datawarehouse_tables)
-            
-            return valid_external_tables, valid_native_sources
+            logger.info(f"Found {len(valid_adapters)} valid marketing source adapters")
+            return valid_adapters
             
         except Exception as e:
-            logger.error("Error getting data warehouse sources", error=str(e))
-            return [], []
+            logger.error("Error getting marketing source adapters", error=str(e))
+            return []
 
     def to_query(self) -> ast.SelectQuery:
-        """Generate the HogQL query"""
+        """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_table_query"):
             
-            valid_external_tables, valid_native_sources = self._get_data_warehouse_sources()
+            # Get marketing source adapters
+            adapters = self._get_marketing_source_adapters()
             
-            # Build the union query string
-            union_query_string = self._build_union_queries_string(valid_native_sources, valid_external_tables)
+            # Create query context for all adapters
+            context = QueryContext(
+                date_range=self.query_date_range,
+                team=self.team,
+                global_filters=self._get_global_property_conditions(),
+                base_currency=getattr(self.team, 'primary_currency', DEFAULT_CURRENCY)
+            )
             
-            if not union_query_string:
-                logger.warning("No valid data warehouse sources found")
-                union_query_string = "SELECT 'No Campaign' as campaign_name, 'No Source' as source_name, 0.0 as impressions, 0.0 as clicks, 0.0 as cost WHERE 1=0"
+            # Build the union query string using the factory
+            factory = MarketingSourceFactory(team=self.team)
+            union_query_string = factory.build_union_query(adapters, context)
             
             # Build the final query with ordering and pagination
             final_query_string = self._build_final_query_string(union_query_string)
@@ -128,219 +130,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             offset=self.query.offset or 0,
         )
 
-    def _build_union_queries_string(self, valid_native_sources, valid_external_tables) -> str:
-        """Build the union queries string"""
-        native_queries = self._union_native_queries(valid_native_sources)
-        non_native_queries = self._union_non_native_queries(valid_external_tables)
-        all_queries = [q for q in native_queries + non_native_queries if q]
-        
-        if not all_queries:
-            return ""
-            
-        return '\nUNION ALL\n'.join(all_queries)
 
-    def _union_native_queries(self, valid_native_sources) -> list[str]:
-        """Build native source queries (e.g., Google Ads) as HogQL strings"""
-        queries = []
-        
-        for native_source in valid_native_sources:
-            # if not self._validate_native_source(native_source):
-            #     continue
-                
-            source = getattr(native_source, 'source', None)
-            source_type = getattr(source, 'source_type', None) if source else None
-            
-            if source_type == 'GoogleAds':
-                tables = getattr(native_source, 'tables', [])
-                
-                # Find campaign and stats tables
-                campaign_table = None
-                campaign_stats_table = None
-                
-                for table in tables:
-                    table_name_parts = getattr(table, 'name', '').split('.')
-                    table_suffix = table_name_parts[-1] if table_name_parts else ''
-                    
-                    if 'campaign' in table_suffix.lower() and 'stats' not in table_suffix.lower():
-                        campaign_table = table
-                    elif 'campaign_stats' in table_suffix.lower():
-                        campaign_stats_table = table
-                
-                if campaign_table and campaign_stats_table:
-                    google_ads_query = self._build_google_ads_query_with_tables(campaign_table, campaign_stats_table)
-                    if google_ads_query:
-                        queries.append(google_ads_query)
-            
-        return queries
 
-    def _build_google_ads_query_with_tables(self, campaign_table, campaign_stats_table) -> str:
-        """Build Google Ads query with actual table objects"""
-        campaign_table_name = getattr(campaign_table, 'name', '')
-        campaign_stats_table_name = getattr(campaign_stats_table, 'name', '')
-        
-        # Build WHERE conditions using helper
-        where_conditions = self._build_where_conditions(
-            date_field='cs.segments_date',
-            include_date_range=True,
-            include_global_filters=True
-        )
-        
-        query = f"""
-SELECT
-    toString(c.campaign_name) as {TABLE_COLUMNS['campaign_name']},
-    toString('google') as {TABLE_COLUMNS['source_name']},
-    toFloat(SUM(cs.metrics_impressions)) AS {TABLE_COLUMNS['impressions']},
-    toFloat(SUM(cs.metrics_clicks)) AS {TABLE_COLUMNS['clicks']},
-    toFloat(SUM(cs.metrics_cost_micros) / 1000000) AS {TABLE_COLUMNS['cost']}
-FROM
-    {campaign_table_name} c
-LEFT JOIN
-    {campaign_stats_table_name} cs ON cs.campaign_id = c.campaign_id
-WHERE
-    {' AND '.join(where_conditions)}
-GROUP BY
-    c.campaign_name
-        """.strip()
-        
-        return query
 
-    def _validate_external_table_schema(self, table) -> bool:
-        """Validate that external table follows required schema"""
-        try:
-            table_name = getattr(table, 'name', None)
-            source_map = getattr(table, 'source_map', None)
-            
-            if not table_name or not source_map:
-                return False
-            
-            # Check required fields
-            missing_required_fields = []
-            for field_name, field_config in MARKETING_ANALYTICS_SCHEMA.items():
-                if field_config['required']:
-                    field_value = self._get_source_map_field(source_map, field_name)
-                    if not field_value or (isinstance(field_value, str) and field_value.strip() == ''):
-                        missing_required_fields.append(field_name)
-            
-            if missing_required_fields:
-                return False
-            
-            # Must have either campaign_name or utm_campaign_name
-            campaign_field = self._get_source_map_field(source_map, 'utm_campaign_name') or self._get_source_map_field(source_map, 'campaign_name')
-            if not campaign_field:
-                return False
-            
-            return True
-            
-        except Exception as e:
-            logger.error("Error validating external table schema", table_name=getattr(table, 'name', 'unknown'), error=str(e))
-            return False
 
-    def _validate_native_source(self, native_source) -> bool:
-        """Validate that native source has correct type and required tables"""
-        try:
-            source = getattr(native_source, 'source', None)
-            if not source:
-                return False
-                
-            source_type = getattr(source, 'source_type', None)
-            if not source_type or source_type not in VALID_NATIVE_MARKETING_SOURCES:
-                return False
-            
-            # Check required tables
-            required_tables = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS.get(source_type, [])
-            if not required_tables:
-                return True
-            
-            tables = getattr(native_source, 'tables', [])
-            available_table_names = []
-            
-            for table in tables:
-                table_name = getattr(table, 'name', '')
-                table_name_parts = table_name.split('.')
-                table_suffix = table_name_parts[-1] if table_name_parts else ''
-                available_table_names.append(table_suffix)
-            
-            # Check if all required tables are available
-            for required_table in required_tables:
-                if required_table not in available_table_names:
-                    return False
-            
-            return True
-            
-        except Exception as e:
-            logger.error("Error validating native source", error=str(e))
-            return False
 
-    def _union_non_native_queries(self, valid_external_tables) -> list[str]:
-        """Build external table queries"""
-        queries = []
-        base_currency = getattr(self.team, 'primary_currency', DEFAULT_CURRENCY)
-        
-        for table in valid_external_tables:
-            if not self._validate_external_table_schema(table):
-                continue
-                
-            table_name = getattr(table, 'name', '')
-            schema_name = getattr(table, 'schema_name', '')
-            source_map = getattr(table, 'source_map', {})
-            
-            if not source_map:
-                continue
-            
-            # Get source name from schema mapping or fallback
-            source_name_field = (
-                self._get_source_map_field(source_map, 'utm_source_name') or 
-                self._get_source_map_field(source_map, 'source_name') or 
-                f"'{schema_name}'"
-            )
-            
-            campaign_name_field = (
-                self._get_source_map_field(source_map, 'utm_campaign_name') or 
-                self._get_source_map_field(source_map, 'campaign_name')
-            )
-            
-            if not campaign_name_field:
-                continue
-            
-            # Handle currency conversion
-            total_cost_field = self._get_source_map_field(source_map, 'total_cost')
-            currency_field = self._get_source_map_field(source_map, 'currency')
-            
-            if currency_field and total_cost_field:
-                cost_select = f"toFloat(convertCurrency('{currency_field}', '{base_currency}', toFloat(coalesce({total_cost_field}, 0))))"
-            elif total_cost_field:
-                cost_select = f"toFloat(coalesce({total_cost_field}, 0))"
-            else:
-                cost_select = "0"
-            
-            impressions_field = self._get_source_map_field(source_map, 'impressions', '0')
-            clicks_field = self._get_source_map_field(source_map, 'clicks', '0')
-            date_field = self._get_source_map_field(source_map, 'date')
-            
-            if not date_field:
-                continue
-            
-            # Build WHERE conditions using helper
-            where_conditions = self._build_where_conditions(
-                date_field=date_field,
-                include_date_range=True,
-                include_global_filters=True
-            )
-            
-            query = f"""
-SELECT 
-    toString({campaign_name_field}) as {TABLE_COLUMNS['campaign_name']},
-    toString({source_name_field}) as {TABLE_COLUMNS['source_name']},
-    toFloat(coalesce({impressions_field}, 0)) as {TABLE_COLUMNS['impressions']},
-    toFloat(coalesce({clicks_field}, 0)) as {TABLE_COLUMNS['clicks']},
-    {cost_select} as {TABLE_COLUMNS['cost']}
-FROM {table_name}
-WHERE {' AND '.join(where_conditions)}
-            """.strip()
-            
-            queries.append(query)
-        
-        return queries
 
     def _build_final_query_string(self, union_query_string: str) -> str:
         """Build the final query with the same structure as frontend"""
@@ -625,131 +419,6 @@ LEFT JOIN {cte_name} cg_{index} ON cc.campaign_name = cg_{index}.campaign_name
         """Add conversion goal specific property filters to conditions"""
         return add_conversion_goal_property_filters(conditions, conversion_goal, self.team)
 
-    def _get_warehouse_table_names(self):
-        """Get warehouse table names from HogQL database"""
-        from posthog.hogql.database.database import create_hogql_database
-        database = create_hogql_database(team=self.team)
-        return database.get_warehouse_tables()
 
-    def _get_filtered_warehouse_tables(self, warehouse_table_names):
-        """Get filtered DataWarehouseTable objects"""
-        from posthog.warehouse.models import DataWarehouseTable
-        return DataWarehouseTable.objects.filter(
-            team_id=self.team.pk,
-            deleted=False,
-            name__in=warehouse_table_names
-        )
-
-    def _get_team_sources_map(self):
-        """Get sources map from team marketing analytics config"""
-        from posthog.models import Team
-        team = Team.objects.get(pk=self.team.pk)
-        marketing_config = getattr(team, 'marketing_analytics_config', None)
-        return self._get_marketing_config_value(marketing_config, 'sources_map', {})
-
-    def _get_schema_id_for_table(self, table):
-        """Get schema ID for a warehouse table"""
-        try:
-            from posthog.warehouse.models import ExternalDataSchema
-            schema = ExternalDataSchema.objects.filter(table_id=table.id).first()
-            return str(schema.id) if schema else None
-        except Exception:
-            return None
-
-    def _find_source_map_for_managed_table(self, table, sources_map, schema_id, source_id, table_id):
-        """Find appropriate source map for managed external table"""
-        if schema_id and schema_id in sources_map:
-            return sources_map[schema_id]
-        elif table_id in sources_map:
-            return sources_map[table_id]
-        elif source_id in sources_map:
-            return sources_map[source_id]
-        return None
-
-    def _create_external_table_object(self, table, source_type, source_map_id, source_map):
-        """Create external table object with consistent structure"""
-        return type('ExternalTable', (), {
-            'name': table.name,
-            'source_type': source_type,
-            'source_map_id': source_map_id,
-            'schema_name': table.name,
-            'source_map': source_map
-        })()
-
-    def _process_managed_external_table(self, table, sources_map):
-        """Process a managed external data table"""
-        external_source = table.external_data_source
-        table_id = str(table.id)
-        source_id = str(external_source.id)
-        schema_id = self._get_schema_id_for_table(table)
-        
-        # Frontend logic: table.schema?.id || table.source?.id || table.id
-        frontend_source_map_id = schema_id or source_id or table_id
-        
-        # Find appropriate source map
-        source_map = self._find_source_map_for_managed_table(
-            table, sources_map, schema_id, source_id, table_id
-        )
-        
-        if not source_map:
-            return None
-        
-        return self._create_external_table_object(
-            table, external_source.source_type, frontend_source_map_id, source_map
-        )
-
-    def _process_self_managed_table(self, table, sources_map):
-        """Process a self-managed data warehouse table"""
-        table_id = str(table.id)
-        
-        source_map = sources_map.get(table_id, None)
-        
-        if not source_map:
-            return None
-        
-        return self._create_external_table_object(
-            table, 'self_managed', table_id, source_map
-        )
-
-    def _process_external_tables(self, datawarehouse_tables, sources_map):
-        """Process warehouse tables and convert to external table format"""
-        valid_external_tables = []
-        
-        for table in datawarehouse_tables:
-            external_table = None
-            
-            if table.external_data_source:
-                external_table = self._process_managed_external_table(table, sources_map)
-            else:
-                external_table = self._process_self_managed_table(table, sources_map)
-            
-            if external_table:
-                valid_external_tables.append(external_table)
-        
-        return valid_external_tables
-
-    def _process_native_sources(self, datawarehouse_tables):
-        """Process external data sources and convert to native source format"""
-        from posthog.warehouse.models import ExternalDataSource
-        
-        valid_native_sources = []
-        external_data_sources = ExternalDataSource.objects.filter(team_id=self.team.pk)
-        
-        for source in external_data_sources:
-            if source.source_type in VALID_NATIVE_MARKETING_SOURCES:
-                associated_tables = datawarehouse_tables.filter(external_data_source=source)
-                
-                if associated_tables.exists():
-                    native_source = type('NativeSource', (), {
-                        'source': type('Source', (), {
-                            'source_type': source.source_type,
-                            'id': source.id
-                        })(),
-                        'tables': list(associated_tables)
-                    })()
-                    
-                    valid_native_sources.append(native_source)
-        
-        return valid_native_sources
 
 
