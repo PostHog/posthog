@@ -9,7 +9,7 @@ import api from 'lib/api'
 import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     BaseMathType,
     ChartDisplayType,
@@ -224,14 +224,14 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
                 })
-                return query
+                return setLatestVersionsOnQuery(query)
             },
             { resultEqualityCheck: equal },
         ],
         totalEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.dateRange],
             (configuration, matchingFilters, dateRange): TrendsQuery | null => {
-                return {
+                return setLatestVersionsOnQuery({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     series: [
@@ -253,7 +253,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     modifiers: {
                         personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
-                }
+                })
             },
             { resultEqualityCheck: equal },
         ],
