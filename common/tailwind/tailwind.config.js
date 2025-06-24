@@ -5,14 +5,12 @@ const commonColors = {
     'inherit': 'inherit',
     'current': 'currentColor',
     'transparent': 'transparent',
-    'accent-primary': 'var(--accent-primary)',
-    'accent-primary-hover': 'var(--accent-primary-hover)',
-    'accent-primary-active': 'var(--accent-primary-active)',
-    'accent-primary-highlight': 'var(--accent-primary-highlight)',
-    'accent-secondary': 'var(--accent-secondary)',
-    'accent-secondary-hover': 'var(--accent-secondary-hover)',
-    'accent-secondary-active': 'var(--accent-secondary-active)',
-    'accent-secondary-highlight': 'var(--accent-secondary-highlight)',
+    'accent': 'var(--accent)',
+    'accent-inverted': 'var(--accent-inverted)',
+    'accent-hover': 'var(--accent-hover)',
+    'accent-active': 'var(--accent-active)',
+    'accent-highlight-primary': 'var(--accent-highlight-primary)',
+    'accent-highlight-secondary': 'var(--accent-highlight-secondary)',
 }
 
 const deprecatedColors = {
@@ -273,10 +271,10 @@ const deprecatedColors = {
     'text-secondary-3000': 'var(--text-secondary-3000)',
     'muted-3000': 'var(--muted-3000)',
     'trace-3000': 'var(--trace-3000)',
-    'primary-3000': 'var(--accent-primary)',
+    'primary-3000': 'var(--accent)',
 
-    'primary-3000-hover': 'var(--accent-primary-hover)',
-    'primary-3000-active': 'var(--accent-primary-active)',
+    'primary-3000-hover': 'var(--accent-hover)',
+    'primary-3000-active': 'var(--accent-active)',
     'secondary-3000': 'var(--secondary-3000)',
     'secondary-3000-hover': 'var(--secondary-3000-hover)',
     'accent-3000': 'var(--bg-surface-primary)',
@@ -313,8 +311,6 @@ const config = {
         '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
-        '../../common/**/src/**/*.{ts,tsx}',
-        '../../common/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
@@ -635,6 +631,8 @@ const config = {
                 'fill-primary': 'var(--bg-fill-primary)',
                 'fill-secondary': 'var(--bg-fill-secondary)',
                 'fill-tertiary': 'var(--bg-fill-tertiary)',
+                'fill-highlight-50': 'var(--bg-fill-highlight-50)',
+                'fill-highlight-inverse-50': 'var(--bg-fill-highlight-inverse-50)',
                 'fill-highlight-100': 'var(--bg-fill-highlight-100)',
                 'fill-highlight-inverse-100': 'var(--bg-fill-highlight-inverse-100)',
                 'fill-highlight-150': 'var(--bg-fill-highlight-150)',
@@ -654,9 +652,17 @@ const config = {
                 'fill-success-secondary': 'var(--bg-fill-success-secondary)',
                 'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
                 'fill-success-highlight': 'var(--bg-fill-success-highlight)',
+                'fill-button-group-tertiary-hover': 'var(--bg-fill-button-group-tertiary-hover)',
+                'fill-button-tertiary-hover': 'var(--bg-fill-button-tertiary-hover)',
+                'fill-button-tertiary-hover-inverse': 'var(--bg-fill-button-tertiary-hover-inverse)',
+                'fill-button-tertiary-active': 'var(--bg-fill-button-tertiary-active)',
+                'fill-button-tertiary-active-inverse': 'var(--bg-fill-button-tertiary-active-inverse)',
                 'fill-input': 'var(--bg-fill-input)',
                 'fill-switch': 'var(--bg-fill-switch)',
                 'fill-slider-rail': 'var(--bg-fill-slider-rail)',
+                'fill-scroll-thumb': 'var(--bg-fill-scroll-thumb)',
+                'border-primary': 'var(--bg-border-primary)',
+                'border-secondary': 'var(--bg-border-secondary)',
             },
             textColor: {
                 ...commonColors,
@@ -664,6 +670,7 @@ const config = {
                 'primary': 'var(--text-primary)',
                 'primary-inverse': 'var(--text-primary-inverse)',
                 'secondary': 'var(--text-secondary)',
+                'quaternary': 'var(--text-quaternary)',
                 'tertiary': 'var(--text-tertiary)',
                 'success': 'var(--text-success)',
                 'warning': 'var(--text-warning)',
@@ -677,6 +684,7 @@ const config = {
                 ...commonColors,
 
                 'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
                 'info': 'var(--border-info)',
                 'warning': 'var(--border-warning)',
                 'error': 'var(--border-error)',
@@ -684,9 +692,17 @@ const config = {
             },
             ringColor: {
                 ...commonColors,
+
+                'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
+                'info': 'var(--border-info)',
+                'warning': 'var(--border-warning)',
+                'error': 'var(--border-error)',
+                'success': 'var(--border-success)',
             },
             fontFamily: {
                 sans: [
+                    'Emoji Flags Polyfill',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',
@@ -701,6 +717,7 @@ const config = {
                     'Segoe UI Symbol',
                 ],
                 title: [
+                    'Emoji Flags Polyfill',
                     'MatterSQ',
                     '-apple-system',
                     'BlinkMacSystemFont',
@@ -715,7 +732,16 @@ const config = {
                     'Segoe UI Emoji',
                     'Segoe UI Symbol',
                 ],
-                mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
+                mono: [
+                    'Emoji Flags Polyfill',
+                    'ui-monospace',
+                    'SFMono-Regular',
+                    'SF Mono',
+                    'Menlo',
+                    'Consolas',
+                    'Liberation Mono',
+                    'monospace',
+                ],
             },
             screens: {
                 // Sync with vars.scss
@@ -781,7 +807,6 @@ const config = {
         plugin(({ addUtilities, theme }) => {
             const spacing = theme("spacing");
             const newUtilities = {};
-            
 
             // Standard spacing utilities for backwards compatibility
             for (const [key, value] of Object.entries(spacing)) {

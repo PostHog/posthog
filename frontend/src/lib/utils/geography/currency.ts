@@ -319,3 +319,48 @@ export const DISABLED_CURRENCIES: { [key in CurrencyCode]?: string } = {
     [CurrencyCode.LVL]: 'Replaced by the Euro on Jan 1st 2014',
     [CurrencyCode.MTL]: 'Replaced by the Euro on Jan 1st 2008',
 }
+
+/** Get the currency symbol and whether it's a prefix or suffix.
+ *
+ * @param currency - The currency to get the symbol for.
+ * @returns The currency symbol and whether it's a prefix or suffix.
+ *
+ * Example:
+ * getCurrencySymbol('USD') // { symbol: '$', isPrefix: true }
+ * getCurrencySymbol('GBP') // { symbol: '£', isPrefix: true }
+ */
+export const getCurrencySymbol = (currency: string): { symbol: string; isPrefix: boolean } => {
+    const formatter = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency,
+    })
+    const parts = formatter.formatToParts(0)
+    const symbol = parts.find((part) => part.type === 'currency')?.value
+
+    const isPrefix = symbol ? parts[0].type === 'currency' : true
+
+    return { symbol: symbol ?? currency, isPrefix }
+}
+
+export const DEFAULT_CURRENCY = CurrencyCode.USD
+
+// These are the currencies that are most important to show first because they're used by the most customers.
+// Check our web analytics dashboard for the most popular countries from our visitors.
+export const IMPORTANT_CURRENCIES: CurrencyCode[] = [
+    CurrencyCode.USD,
+    CurrencyCode.EUR,
+    CurrencyCode.GBP,
+    CurrencyCode.CAD,
+    CurrencyCode.INR,
+    CurrencyCode.CNY,
+    CurrencyCode.BRL,
+]
+
+// All the other currencies, sorted by their "long name" in alphabetical order.
+export const OTHER_CURRENCIES: CurrencyCode[] = (
+    Object.keys(CurrencyCode).filter(
+        (currency) => !IMPORTANT_CURRENCIES.includes(currency as CurrencyCode)
+    ) as CurrencyCode[]
+).sort((a, b) => {
+    return CURRENCY_SYMBOL_TO_NAME_MAP[a].localeCompare(CURRENCY_SYMBOL_TO_NAME_MAP[b])
+})

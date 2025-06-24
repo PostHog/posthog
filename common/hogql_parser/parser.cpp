@@ -2528,12 +2528,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(TableIdentifier) {
-    string text = visitAsString(ctx->identifier());
+    auto nested_identifier_ctx = ctx->nestedIdentifier();
+    vector<string> nested =
+        nested_identifier_ctx ? any_cast<vector<string>>(visit(nested_identifier_ctx)) : vector<string>();
+
     auto database_identifier_ctx = ctx->databaseIdentifier();
     if (database_identifier_ctx) {
-      return vector<string>{visitAsString(database_identifier_ctx), text};
+      vector<string> database_plus_nested = vector<string>{visitAsString(database_identifier_ctx)};
+      database_plus_nested.insert(database_plus_nested.end(), nested.begin(), nested.end());
+      return database_plus_nested;
     }
-    return vector<string>{text};
+    return nested;
   }
 
   VISIT(TableArgList) { return visitPyListOfObjects(ctx->columnExpr()); }

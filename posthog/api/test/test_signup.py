@@ -1,13 +1,13 @@
-import datetime
 import uuid
+from datetime import datetime, timedelta
 from typing import Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
-from datetime import timedelta
 
 import pytest
 from django.core import mail
+from django.core.cache import cache
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -15,6 +15,7 @@ from rest_framework import status
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
+from posthog.email import is_email_available
 from posthog.models import Dashboard, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
@@ -272,7 +273,7 @@ class TestSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
             Organization.objects.create(name="name")
@@ -524,7 +525,7 @@ class TestSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
             with self.settings(
@@ -560,7 +561,7 @@ class TestSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
             with self.settings(
@@ -939,6 +940,90 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
+    def test_api_sign_up_preserves_next_param(self):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
+                "next_url": "/next_path",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        response_data = response.json()
+
+        if not user.is_email_verified and is_email_available():
+            self.assertEqual(
+                response_data["redirect_url"],
+                f"/verify_email/{user.uuid}?next=/next_path",
+            )
+        else:
+            self.assertEqual(response_data["redirect_url"], "/next_path")
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_rate_limit_by_ip(self):
+        """Test that signup is rate limited by IP address to 5 signups per day"""
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        # Clear any existing rate limit cache
+        cache.clear()
+
+        for i in range(6):
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": f"User{i}",
+                    "email": f"user{i}@example.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": f"Org{i}",
+                },
+                HTTP_X_FORWARDED_FOR="192.168.1.100",
+            )
+
+            if i < 5:
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i+1} should succeed")
+                # Clean up the created org and user to allow next signup
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{i}@example.com").delete()
+            else:
+                self.assertEqual(
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
+                )
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_rate_limit_different_ips(self):
+        """Test that different IPs can signup independently"""
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        # Clear any existing rate limit cache
+        cache.clear()
+
+        # Test that different IPs can each make 5 signups
+        for ip_suffix in range(2):
+            ip = f"192.168.1.{100 + ip_suffix}"
+            for i in range(5):
+                response = self.client.post(
+                    "/api/signup/",
+                    {
+                        "first_name": f"User{ip_suffix}_{i}",
+                        "email": f"user{ip_suffix}_{i}@example.com",
+                        "password": VALID_TEST_PASSWORD,
+                        "organization_name": f"Org{ip_suffix}_{i}",
+                    },
+                    HTTP_X_FORWARDED_FOR=ip,
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed")
+                # Clean up the created org and user to allow next signup
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
+
 
 class TestInviteSignupAPI(APIBaseTest):
     """
@@ -1042,7 +1127,7 @@ class TestInviteSignupAPI(APIBaseTest):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+59@posthog.com", organization=self.organization
         )
-        invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=ZoneInfo("UTC"))
+        invite.created_at = datetime(2020, 12, 1, tzinfo=ZoneInfo("UTC"))
         invite.save()
 
         response = self.client.get(f"/api/signup/{invite.id}/")
@@ -1344,7 +1429,7 @@ class TestInviteSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
         with self.is_cloud(True):
@@ -1556,7 +1641,7 @@ class TestInviteSignupAPI(APIBaseTest):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+799@posthog.com", organization=self.organization
         )
-        invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=ZoneInfo("UTC"))
+        invite.created_at = datetime(2020, 3, 3, tzinfo=ZoneInfo("UTC"))
         invite.save()
 
         response = self.client.post(

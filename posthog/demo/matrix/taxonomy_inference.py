@@ -1,8 +1,7 @@
 import json
 from typing import Optional
 
-from django.utils import timezone
-
+import datetime
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
@@ -57,7 +56,7 @@ def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
     return len(event_definitions), len(property_definitions), len(event_properties)
 
 
-def _get_events_last_seen_at(team_id: int) -> dict[str, timezone.datetime]:
+def _get_events_last_seen_at(team_id: int) -> dict[str, datetime.datetime]:
     from posthog.clickhouse.client import sync_execute
 
     return dict(sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id}))

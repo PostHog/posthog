@@ -5,6 +5,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.models import Action
 from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -474,3 +475,38 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].property, "prop")
         self.assertEqual(response.results[0].sample_count, 2)
+
+    @snapshot_clickhouse_queries
+    def test_retrieves_action_properties(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[{"event": "$pageview"}],
+        )
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            properties={"ai": "true"},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            properties={"dashboard": "true"},
+            team=self.team,
+        )
+        _create_event(
+            event="event",
+            distinct_id="person1",
+            properties={"prop": "3", "$feature/dashboard": "0"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(actionId=action.id)).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertListEqual([item.property for item in response.results], ["ai", "dashboard"])

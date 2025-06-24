@@ -2,16 +2,35 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
+import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentStatsMethod } from '~/types'
+
+import {
+    ExploreAsInsightButton,
+    ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
+    ResultsQuery,
+} from '../components/ResultsBreakdown'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
-import { MetricsView } from '../MetricsView/MetricsView'
-import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
+import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
+import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
+import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
+import { isLegacyExperimentQuery } from '../utils'
+import {
+    EditConclusionModal,
+    LegacyExploreButton,
+    LegacyResultsQuery,
+    LoadingState,
+    PageHeaderCustom,
+    StopExperimentModal,
+} from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -24,19 +43,26 @@ import { SummaryTable } from './SummaryTable'
 const ResultsTab = (): JSX.Element => {
     const {
         experiment,
-        metricResults,
+        legacyPrimaryMetricsResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
-        metricResultsLoading,
+        primaryMetricsResultsLoading,
         hasMinimumExposureForResults,
+        statsMethod,
     } = useValues(experimentLogic)
-    const hasSomeResults = metricResults?.some((result) => result?.insight)
+    /**
+     * we still use the legacy metric results here. Results on the new format are loaded
+     * in the primaryMetricsResults state key. We'll eventually move into using the new state.
+     */
+    const hasSomeResults = legacyPrimaryMetricsResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
+    const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
+
     return (
         <>
-            {!hasSomeResults && !metricResultsLoading && (
+            {!experiment.start_date && !primaryMetricsResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
@@ -51,29 +77,82 @@ const ResultsTab = (): JSX.Element => {
                     <Overview />
                 </div>
             )}
-            <MetricsView isSecondary={false} />
-            {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
-                <div>
-                    <div className="pb-4">
-                        <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
-                    </div>
-                    {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                    {metricResults?.[0] &&
-                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                            <>
-                                <div className="flex justify-end">
-                                    <ExploreButton result={metricResults[0]} size="xsmall" />
-                                </div>
+            {/**
+             * we only show bayesian results for now
+             */}
+            {statsMethod === ExperimentStatsMethod.Bayesian ? (
+                <>
+                    <MetricsViewLegacy isSecondary={false} />
+                    {/**
+                     * Show a detailed results if:
+                     * - there's a single primary metric
+                     * - if the metric has insight results
+                     * - if we have the minimum number of exposures
+                     * - if it's the first primary metric (?)
+                     */}
+                    {hasSomeResults &&
+                        hasMinimumExposureForResults &&
+                        hasSinglePrimaryMetric &&
+                        firstPrimaryMetric &&
+                        firstPrimaryMetricResult && (
+                            <div>
                                 <div className="pb-4">
-                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                                    <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                                 </div>
-                            </>
+                                {isLegacyExperimentQuery(firstPrimaryMetricResult) ? (
+                                    <>
+                                        <div className="flex justify-end">
+                                            <LegacyExploreButton result={firstPrimaryMetricResult} size="xsmall" />
+                                        </div>
+                                        <div className="pb-4">
+                                            <LegacyResultsQuery
+                                                result={firstPrimaryMetricResult || null}
+                                                showTable={true}
+                                            />
+                                        </div>
+                                    </>
+                                ) : (
+                                    /**
+                                     * altough we don't have a great typeguard here, we know that the result is a CachedExperimentQueryResponse
+                                     * because we're only showing results for experiment queries (legacy check)
+                                     */
+                                    <ResultsBreakdown
+                                        result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
+                                        experiment={experiment}
+                                    >
+                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                                            <div>
+                                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
+                                                {query && breakdownResults && (
+                                                    <div>
+                                                        <div className="flex justify-end">
+                                                            <ExploreAsInsightButton query={query} />
+                                                        </div>
+                                                        <ResultsInsightInfoBanner
+                                                            exposureDifference={exposureDifference}
+                                                        />
+                                                        <div className="pb-4">
+                                                            <ResultsQuery
+                                                                query={query}
+                                                                breakdownResults={breakdownResults}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </ResultsBreakdown>
+                                )}
+                            </div>
                         )}
-                </div>
+                    <MetricsViewLegacy isSecondary={true} />
+                </>
+            ) : (
+                <>
+                    <Metrics isSecondary={false} />
+                    <Metrics isSecondary={true} />
+                </>
             )}
-            <MetricsView isSecondary={true} />
         </>
     )
 }
@@ -88,7 +167,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, usesNewQueryRunner } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -101,7 +180,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
                             onChange={(key) => setTabKey(key)}
@@ -122,7 +201,7 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        {shouldUseExperimentMetrics ? (
+                        {usesNewQueryRunner ? (
                             <>
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
@@ -141,6 +220,9 @@ export function ExperimentView(): JSX.Element {
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <StopExperimentModal experimentId={experimentId} />
+                        <EditConclusionModal experimentId={experimentId} />
 
                         <VariantDeltaTimeseries />
                     </>

@@ -1,4 +1,4 @@
-import { NotebookType } from '~/types'
+import { AccessControlLevel, NotebookType } from '~/types'
 
 import mockNotebook from '../__mocks__/notebook-12345.json'
 import { JSONContent } from '../utils'
@@ -934,12 +934,12 @@ describe('migrate()', () => {
     it.each(contentToExpected)('migrates %s', (_name, prevContent, nextContent) => {
         const prevNotebook: NotebookType = {
             ...mockNotebook,
-            user_access_level: 'editor' as const,
+            user_access_level: AccessControlLevel.Editor,
             content: { type: 'doc', content: prevContent },
         }
         const nextNotebook: NotebookType = {
             ...mockNotebook,
-            user_access_level: 'editor' as const,
+            user_access_level: AccessControlLevel.Editor,
             content: { type: 'doc', content: nextContent },
         }
 

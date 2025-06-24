@@ -21,10 +21,10 @@ export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'fl
 
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
         actions: [supportLogic, ['submitZendeskTicket']],
-    }),
+    })),
     actions({
         updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean) => ({ flagKey, enabled }),
         beginEarlyAccessFeatureFeedback: (flagKey: string) => ({ flagKey }),

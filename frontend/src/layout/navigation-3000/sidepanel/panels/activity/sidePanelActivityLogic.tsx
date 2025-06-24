@@ -1,5 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { PaginatedResponse } from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
@@ -28,6 +28,10 @@ export type ActivityFilters = {
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
+    // Images can be embedded directly in the markdown using ![alt text](url) syntax.
+    // LemonMarkdown will render them.
+    // For optimal display, ensure images are reasonably sized (e.g., width < 800px)
+    // and optimized for web (e.g., < 500KB).
 }
 
 export interface ChangesResponse {
@@ -45,10 +49,10 @@ export enum SidePanelActivityTab {
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
-    }),
+    })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,
@@ -91,37 +95,10 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values, cache }) => ({
+    lazyLoaders(({ actions, values, cache }) => ({
         importantChanges: [
             null as ChangesResponse | null,
             {
-                markAllAsRead: async () => {
-                    const current = values.importantChanges
-                    if (!current) {
-                        return null
-                    }
-
-                    const latestNotification = values.notifications.reduce((a, b) =>
-                        a.created_at.isAfter(b.created_at) ? a : b
-                    )
-
-                    if (!latestNotification.unread) {
-                        return current
-                    }
-
-                    await api.create(
-                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
-                        {
-                            bookmark: latestNotification.created_at.toISOString(),
-                        }
-                    )
-
-                    return {
-                        last_read: latestNotification.created_at.toISOString(),
-                        next: current.next,
-                        results: current.results.map((ic) => ({ ...ic, unread: false })),
-                    }
-                },
                 loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
                     await breakpoint(1)
 
@@ -136,7 +113,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
-                    } catch (e) {
+                    } catch {
                         // swallow errors as this isn't user initiated
                         // increment a counter to backoff calling the API while errors persist
                         actions.incrementErrorCount()
@@ -145,7 +122,37 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         const pollTimeoutMilliseconds = values.errorCounter
                             ? POLL_TIMEOUT * values.errorCounter
                             : POLL_TIMEOUT
+
                         cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                    }
+                },
+                markAllAsRead: async () => {
+                    const current = values.importantChanges
+                    if (!current) {
+                        return null
+                    }
+
+                    const latestNotification = values.notifications.reduce((a, b) =>
+                        a.created_at.isAfter(b.created_at) ? a : b
+                    )
+
+                    const hasUnread = values.notifications.some((ic) => ic.unread)
+
+                    if (!hasUnread) {
+                        return current
+                    }
+
+                    await api.create(
+                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
+                        {
+                            bookmark: latestNotification.created_at.toISOString(),
+                        }
+                    )
+
+                    return {
+                        last_read: latestNotification.created_at.toISOString(),
+                        next: current.next,
+                        results: current.results.map((ic) => ({ ...ic, unread: false })),
                     }
                 },
             },
@@ -222,6 +229,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         changelogNotification = {
                             markdown: flagPayload['markdown'],
                             notificationDate: dayjs(flagPayload['notificationDate']),
+                            // The separate image field is no longer used.
+                            // Images should be embedded in the markdown string.
                         } as ChangelogFlagPayload
                     }
 
@@ -253,7 +262,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                     }
 
                     return humanize(importantChanges?.results || [], describerFor, true)
-                } catch (e) {
+                } catch {
                     // swallow errors as this isn't user initiated
                     return []
                 }
@@ -289,8 +298,6 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadImportantChanges()
-
         const activityFilters = values.sceneSidePanelContext
         actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
     }),

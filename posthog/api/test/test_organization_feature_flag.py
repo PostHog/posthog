@@ -133,7 +133,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
-            "version": 0,
+            "version": 1,
             "last_modified_by": ANY,
         }
 
@@ -215,7 +215,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
-            "version": 1,
+            "version": 2,
             "last_modified_by": ANY,
         }
 
@@ -341,7 +341,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
-            "version": 0,
+            "version": 1,
             "last_modified_by": ANY,
         }
         flag_response = response.json()["success"][0]
@@ -446,7 +446,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         def create_cohort(name, children):
             creation_order.append(name)
-            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]
+            properties = [{"key": "$some_prop", "value": "nomatchihope", "type": "person", "operator": "exact"}]
             if children:
                 properties = [{"key": "id", "type": "cohort", "value": child.pk} for child in children]
 
@@ -519,7 +519,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                     "properties": {
                         "type": "AND",
                         "values": [
-                            {"key": "name", "value": "test", "type": "person"},
+                            {"key": "name", "value": "test", "type": "person", "operator": "exact"},
                         ],
                     }
                 },

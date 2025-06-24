@@ -155,10 +155,14 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    use_virtual_style_addressing: bool = False
 
     def __post_init__(self):
         if self.max_file_size_mb:
             self.max_file_size_mb = int(self.max_file_size_mb)
+
+        if self.use_virtual_style_addressing and isinstance(self.use_virtual_style_addressing, str):
+            self.use_virtual_style_addressing = self.use_virtual_style_addressing.lower() == "true"  # type: ignore
 
 
 @dataclass(kw_only=True)
@@ -657,7 +661,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(batch_export.team.id, context.modifiers)
+    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -695,7 +699,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=batch_export.jitter,
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,
@@ -916,6 +920,9 @@ class BatchExportInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
+    # TODO - pass these in to all inherited classes
+    batch_export_id: str | None = None
+    destination_default_fields: list[BatchExportField] | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -932,3 +939,22 @@ class BatchExportInsertInputs:
         if self.backfill_details is not None:
             return True
         return self.is_backfill
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        """Return a dictionary of properties that we want to log if an error is raised.
+
+        We list these explicitly rather than setting all fields as safe to log, so that the default is opt-out (just in
+        case new fields get added which are sensitive).
+        """
+        return {
+            "team_id": self.team_id,
+            "data_interval_start": self.data_interval_start,
+            "data_interval_end": self.data_interval_end,
+            "exclude_events": self.exclude_events,
+            "include_events": self.include_events,
+            "run_id": self.run_id,
+            "backfill_details": self.backfill_details,
+            "batch_export_model": self.batch_export_model,
+            "batch_export_schema": self.batch_export_schema,
+        }

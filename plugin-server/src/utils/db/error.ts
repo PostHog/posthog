@@ -53,7 +53,7 @@ export async function processError(
 
     if (error instanceof DependencyUnavailableError) {
         // For errors relating to PostHog dependencies that are unavailable,
-        // e.g. Postgres, Kafka, Redis, we don't want to log the error to Sentry
+        // e.g. Postgres, Kafka, Redis, we don't want to log the error to error tracking
         // but rather bubble this up the stack for someone else to decide on
         // what to do with it.
         throw error

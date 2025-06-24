@@ -1,12 +1,13 @@
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
-import { ClickHouseTimestamp, LogLevel } from '../../../../types'
-import { status } from '../../../../utils/status'
+import { ClickHouseTimestamp } from '../../../../types'
+import { logger } from '../../../../utils/logger'
+import { ConsoleLogLevel } from '../rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    level: LogLevel
+    level: ConsoleLogLevel
     log_source: 'session_replay'
     log_source_id: string
     instance_id: string | null
@@ -15,10 +16,19 @@ export type ConsoleLogEntry = {
 }
 
 export class SessionConsoleLogStore {
-    constructor(private readonly producer: KafkaProducerWrapper, private readonly topic: string) {
-        status.debug('🔍', 'session_console_log_store_created')
+    private consoleLogsCount = 0
+    private pendingMessages: ConsoleLogEntry[] = []
+    private readonly messageLimit: number
+
+    constructor(
+        private readonly producer: KafkaProducerWrapper,
+        private readonly topic: string,
+        options: { messageLimit: number }
+    ) {
+        this.messageLimit = options.messageLimit
+        logger.debug('session_console_log_store_created')
         if (!this.topic) {
-            status.warn('⚠️', 'session_console_log_store_no_topic_configured')
+            logger.warn('session_console_log_store_no_topic_configured')
         }
     }
 
@@ -27,18 +37,41 @@ export class SessionConsoleLogStore {
             return
         }
 
-        await this.producer.queueMessages({
-            topic: this.topic,
-            messages: logs.map((log) => ({
-                value: JSON.stringify(log),
-                key: log.log_source_id, // Using session_id as the key for partitioning
-            })),
-        })
+        this.pendingMessages.push(...logs)
+        this.consoleLogsCount += logs.length
 
+        logger.debug(`stored ${logs.length} console logs for session ${logs[0].log_source_id}`)
         SessionBatchMetrics.incrementConsoleLogsStored(logs.length)
+
+        if (this.pendingMessages.length < this.messageLimit) {
+            return
+        }
+        return this.sync()
     }
 
     public async flush(): Promise<void> {
+        logger.info(`flushing ${this.consoleLogsCount} console logs`)
+        await this.sync()
         await this.producer.flush()
+        this.consoleLogsCount = 0
+    }
+
+    private async sync(): Promise<void> {
+        if (this.pendingMessages.length === 0) {
+            return
+        }
+
+        logger.debug(`syncing ${this.pendingMessages.length} console log messages`)
+
+        const messages = this.pendingMessages.map((log) => ({
+            value: JSON.stringify(log),
+            key: log.log_source_id,
+        }))
+        this.pendingMessages = []
+
+        await this.producer.queueMessages({
+            topic: this.topic,
+            messages,
+        })
     }
 }

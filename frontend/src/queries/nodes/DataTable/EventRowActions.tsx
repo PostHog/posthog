@@ -1,5 +1,5 @@
 import { IconWarning } from '@posthog/icons'
-import { router } from 'kea-router'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -28,12 +28,18 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     {getCurrentTeamId() && (
                         <LemonButton
                             onClick={() =>
-                                void createActionFromEvent(
-                                    getCurrentTeamId(),
-                                    event,
-                                    0,
-                                    teamLogic.findMounted()?.values.currentTeam?.data_attributes || []
-                                )
+                                openSaveToModal({
+                                    callback: (folder) => {
+                                        void createActionFromEvent(
+                                            getCurrentTeamId(),
+                                            event,
+                                            0,
+                                            teamLogic.findMounted()?.values.currentTeam?.data_attributes || [],
+                                            folder
+                                        )
+                                    },
+                                    defaultFolder: 'Unfiled/Actions',
+                                })
                             }
                             fullWidth
                             data-attr="events-table-create-action"
@@ -58,15 +64,11 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         <LemonButton
                             fullWidth
                             sideIcon={<IconWarning />}
-                            data-attr="events-table-exception-link"
-                            onClick={() =>
-                                router.actions.push(
-                                    urls.errorTrackingIssue(
-                                        event.properties.$exception_issue_id,
-                                        event.properties.$exception_fingerprint
-                                    )
-                                )
-                            }
+                            data-attr="events-table-issue-link"
+                            to={urls.errorTrackingIssue(
+                                event.properties.$exception_issue_id,
+                                event.properties.$exception_fingerprint
+                            )}
                         >
                             Visit issue
                         </LemonButton>

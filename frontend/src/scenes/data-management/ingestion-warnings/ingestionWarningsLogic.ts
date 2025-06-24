@@ -31,9 +31,9 @@ export interface IngestionWarning {
 export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
     path(['scenes', 'data-management', 'ingestion-warnings', 'ingestionWarningsLogic']),
 
-    connect({
+    connect(() => ({
         values: [teamLogic, ['timezone'], projectLogic, ['currentProjectId']],
-    }),
+    })),
 
     actions({
         setSearchQuery: (search: string) => ({ search }),

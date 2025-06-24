@@ -14,10 +14,12 @@ import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepa
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
+    externalDataSources,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
     manualLinkSources,
     ManualLinkSourceType,
+    PipelineStage,
     PipelineTab,
     ProductKey,
     SourceConfig,
@@ -28,28 +30,45 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
-const Caption = (): JSX.Element => (
+const StripeCaption = (): JSX.Element => (
     <>
         Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
         <br />
         You can find your account ID{' '}
-        <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
+        <Link to="https://dashboard.stripe.com/settings/account" target="_blank">
             in your Stripe dashboard
         </Link>
         , and create a secret key{' '}
-        <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
+        <Link to="https://dashboard.stripe.com/apikeys/create" target="_blank">
             here
         </Link>
         .
+        <br />
+        <br />
+        Currently, <strong>read permissions are required</strong> for the following resources:
+        <ul className="list-disc list-inside">
+            <li>
+                Under the <b>Core</b> resource type, select <i>read</i> for <b>Balance transaction sources</b>,{' '}
+                <b>Charges</b>, <b>Customer</b>, and <b>Product</b>
+            </li>
+            <li>
+                Under the <b>Billing</b> resource type, select <i>read</i> for <b>Invoice</b>, <b>Price</b>, and{' '}
+                <b>Subscription</b>
+            </li>
+            <li>
+                Under the <b>Connected</b> resource type, select <i>read</i> for the <b>entire resource</b>
+            </li>
+        </ul>
     </>
 )
 
-export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
+export const getHubspotRedirectUri = (): string =>
+    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { source: 'Hubspot' })}`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
-        caption: <Caption />,
+        caption: <StripeCaption />,
         fields: [
             {
                 name: 'stripe_account_id',
@@ -264,7 +283,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
             {
                 type: 'select',
-                name: 'use_ssl',
+                name: 'using_ssl',
                 label: 'Use SSL?',
                 defaultValue: '1',
                 required: true,
@@ -361,11 +380,11 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     },
     MSSQL: {
         name: 'MSSQL',
-        label: 'Azure SQL Server',
+        label: 'Microsoft SQL Server',
         caption: (
             <>
-                Enter your MS SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the
-                PostHog Data warehouse.
+                Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into
+                the PostHog Data warehouse.
             </>
         ),
         fields: [
@@ -710,6 +729,23 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                     },
                 ],
             },
+            {
+                type: 'switch-group',
+                name: 'dataset_project',
+                label: 'Use a different project for the dataset than your service account project?',
+                caption:
+                    "If the dataset you're wanting to sync exists in a different project than that of your service account, use this to provide the project ID of the BigQuery dataset.",
+                default: false,
+                fields: [
+                    {
+                        type: 'text',
+                        name: 'dataset_project_id',
+                        label: 'Project ID for dataset',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+            },
         ],
         caption: '',
     },
@@ -732,6 +768,155 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
         caption: '',
+    },
+    TemporalIO: {
+        name: 'TemporalIO',
+        label: 'Temporal.io',
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'namespace',
+                label: 'Namespace',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'encryption_key',
+                label: 'Encryption key',
+                type: 'text',
+                required: false,
+                placeholder: '',
+            },
+            {
+                name: 'server_client_root_ca',
+                label: 'Server client root CA',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_certificate',
+                label: 'Client certificate',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'client_private_key',
+                label: 'Client private key',
+                type: 'textarea',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        caption: '',
+    },
+    GoogleAds: {
+        name: 'GoogleAds',
+        label: 'Google Ads',
+        betaSource: true,
+        caption: (
+            <>
+                Ensure you have granted PostHog access to your Google Ads account as instructed in the
+                <Link to="https://posthog.com/docs/cdp/sources/google-ads" target="_blank">
+                    documentation
+                </Link>
+                .
+            </>
+        ),
+        fields: [
+            {
+                name: 'customer_id',
+                label: 'Customer ID',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+    },
+    DoIt: {
+        name: 'DoIt',
+        label: 'DoIt',
+        caption: '',
+        fields: [
+            {
+                name: 'api_key',
+                label: 'API key',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+    },
+    MetaAds: {
+        name: 'MetaAds',
+        label: 'Meta Ads',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    GoogleSheets: {
+        name: 'GoogleSheets',
+        label: 'Google Sheets',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mongodb: {
+        name: 'Mongodb',
+        label: 'MongoDB',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Klaviyo: {
+        name: 'Klaviyo',
+        label: 'Klaviyo',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mailchimp: {
+        name: 'Mailchimp',
+        label: 'Mailchimp',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Braze: {
+        name: 'Braze',
+        label: 'Braze',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mailjet: {
+        name: 'Mailjet',
+        label: 'Mailjet',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Redshift: {
+        name: 'Redshift',
+        label: 'Redshift',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
     },
 }
 
@@ -791,7 +976,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
         onBack: true,
         onNext: true,
@@ -827,7 +1012,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
-    connect({
+    connect(() => ({
         values: [
             dataWarehouseTableLogic,
             ['tableLoading'],
@@ -844,7 +1029,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-    }),
+    })),
     reducers({
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
@@ -910,8 +1095,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         payload: {
-                            ...(state.payload ?? {}),
-                            ...(source.payload ?? {}),
+                            ...state.payload,
+                            ...source.payload,
                         },
                     }
                 },
@@ -959,6 +1144,32 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
+            (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.Pipeline,
+                        name: 'Data pipelines',
+                        path: urls.pipeline(PipelineTab.Overview),
+                    },
+                    {
+                        key: [Scene.Pipeline, 'sources'],
+                        name: `Sources`,
+                        path: urls.pipeline(PipelineTab.Sources),
+                    },
+                    {
+                        key: Scene.DataWarehouseSource,
+                        name:
+                            selectedConnector?.label ??
+                            (manualLinkingProvider
+                                ? manualConnectors.find((c) => c.type === manualLinkingProvider)?.name
+                                : 'New'),
+                    },
+                ]
+            },
+        ],
+
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
@@ -1011,17 +1222,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return 'Next'
             },
         ],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.DataWarehouse,
-                    name: 'Data Warehouse',
-                    path: urls.dataWarehouse(),
-                },
-                { key: [Scene.DataWarehouse, 'New'], name: 'New' },
-            ],
-        ],
         showFooter: [
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
@@ -1044,7 +1244,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         manualConnectors: [
             () => [],
-            () =>
+            (): { name: string; type: ManualLinkSourceType }[] =>
                 manualLinkSources.map((source) => ({
                     name: manualLinkSourceMap[source],
                     type: source,
@@ -1208,26 +1408,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setIsLoading(false)
             }
         },
-        handleRedirect: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'hubspot': {
+        handleRedirect: async ({ source, searchParams }) => {
+            switch (source) {
+                case 'Hubspot': {
                     actions.updateSource({
-                        source_type: 'Hubspot',
+                        source_type: source,
                         payload: {
-                            code: searchParams.code,
+                            code: searchParams?.code,
                             redirect_uri: getHubspotRedirectUri(),
                         },
                     })
                     return
                 }
-                case 'salesforce': {
-                    actions.updateSource({
-                        source_type: 'Salesforce',
-                    })
-                    break
-                }
+
                 default:
-                    lemonToast.error(`Something went wrong.`)
+                    // By default, we assume the source is a valid external data source
+                    if (externalDataSources.includes(source)) {
+                        actions.updateSource({
+                            source_type: source,
+                        })
+                    } else {
+                        lemonToast.error(`Something went wrong.`)
+                    }
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
@@ -1267,32 +1469,49 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             })
         },
     })),
-    urlToAction(({ actions }) => ({
-        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
-            if (kind === 'hubspot') {
-                router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
+    urlToAction(({ actions, values }) => {
+        const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
+            const kind = searchParams.kind?.toLowerCase()
+            const source = values.connectors.find((s) => s.name.toLowerCase() === kind)
+            const manualSource = values.manualConnectors.find((s) => s.type.toLowerCase() === kind)
+
+            if (manualSource) {
+                actions.toggleManualLinkFormVisible(true)
+                actions.setManualLinkingProvider(manualSource.type)
+                return
             }
-            if (kind === 'salesforce') {
-                router.actions.push(urls.dataWarehouseTable(), {
-                    kind,
-                })
+
+            if (source?.name === 'Hubspot') {
+                if (searchParams.code) {
+                    actions.selectConnector(source)
+                    actions.handleRedirect(source.name, {
+                        code: searchParams.code,
+                    })
+                    actions.setStep(2)
+                    return
+                }
+
+                window.open(values.addToHubspotButtonUrl() as string, '_self')
+                return
             }
-        },
-        '/data-warehouse/new': (_, searchParams) => {
-            if (searchParams.kind == 'hubspot' && searchParams.code) {
-                actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                actions.handleRedirect(searchParams.kind, {
-                    code: searchParams.code,
-                })
+
+            if (source) {
+                actions.selectConnector(source)
+                actions.handleRedirect(source.name)
                 actions.setStep(2)
+                return
             }
-            if (searchParams.kind == 'salesforce') {
-                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind, {})
-                actions.setStep(2)
-            }
-        },
-    })),
+
+            actions.selectConnector(null)
+            actions.setStep(1)
+        }
+
+        return {
+            [urls.dataWarehouseSourceNew()]: handleUrlChange,
+            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
+        }
+    }),
+
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
@@ -1338,7 +1557,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
-                                } catch (e) {
+                                } catch {
                                     return lemonToast.error('File is not valid')
                                 }
                             } else {
@@ -1390,7 +1609,8 @@ export const getErrorsForFields = (
         errorsObj: Record<string, any>
     ): void => {
         if (field.type === 'switch-group') {
-            if (valueObj[field.name]?.['enabled']) {
+            // handle string value coming down from the backend for an update
+            if (valueObj[field.name]?.['enabled'] && valueObj[field.name]?.['enabled'] !== 'False') {
                 errorsObj[field.name] = {}
                 field.fields.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
             }

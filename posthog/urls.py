@@ -20,7 +20,6 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -56,9 +55,10 @@ from .views import (
     robots_txt,
     security_txt,
     stats,
+    preferences_page,
+    update_preferences,
 )
-from .year_in_posthog import year_in_posthog
-from posthog.api.query import query_awaited
+from posthog.api.query import progress
 
 from posthog.api.slack import slack_interactivity_callback
 
@@ -85,7 +85,7 @@ def handler500(request):
     Context: None
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"sentry_event_id": last_event_id()}))
+    return HttpResponseServerError(template.render())
 
 
 @ensure_csrf_cookie
@@ -174,7 +174,9 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
-    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
+    path("api/environments/<int:team_id>/progress/", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
@@ -222,12 +224,7 @@ urlpatterns = [
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
-    opt_slash_path("e", capture.get_event),
-    opt_slash_path("engage", capture.get_event),
-    opt_slash_path("track", capture.get_event),
-    opt_slash_path("capture", capture.get_event),
-    opt_slash_path("batch", capture.get_event),
-    opt_slash_path("s", capture.get_event),  # session recordings
+    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
@@ -237,13 +234,10 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
-    path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
-    path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
-    path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
-    path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
-    path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
-    path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+    # Message preferences
+    path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
+    opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
 
 if settings.DEBUG:

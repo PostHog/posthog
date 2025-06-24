@@ -34,7 +34,7 @@ jobs:
             - id: automergeStep
               name: Automerge
               if: env.IS_POSTHOG_BOT_AVAILABLE == 'true'
-              uses: pascalgn/automerge-action@v0.16.3
+              uses: pascalgn/automerge-action@d1203c0bf94a827b991e5de69d662e9163304fa0 # v0.16.3
               env:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 

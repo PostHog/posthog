@@ -6,10 +6,12 @@ import datetime as dt
 import functools
 import io
 import json
+import logging
 import typing
 
 import pyarrow as pa
 import snowflake.connector
+import structlog
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from django.conf import settings
@@ -55,7 +57,12 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import configure_temporal_worker_logger
+
+LOGGER = structlog.get_logger(__name__)
+
+# One batch export allowed to connect at a time (in theory) per worker.
+CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
 NON_RETRYABLE_ERROR_TYPES = [
     # Raised when we cannot connect to Snowflake.
@@ -205,6 +212,7 @@ class SnowflakeClient:
         role: str | None = None,
         password: str | None = None,
         private_key: bytes | None = None,
+        base_logger: structlog.typing.FilteringBoundLogger | None = None,
     ):
         if password is None and private_key is None:
             raise SnowflakeAuthenticationError("Either password or private key must be provided")
@@ -219,8 +227,19 @@ class SnowflakeClient:
         self.schema = schema
         self._connection: SnowflakeConnection | None = None
 
+        if base_logger:
+            self._logger = base_logger
+        else:
+            self._logger = LOGGER
+
+    @property
+    def logger(self) -> structlog.typing.FilteringBoundLogger:
+        return self._logger.bind(user=self.user, account=self.account, warehouse=self.warehouse, database=self.database)
+
     @classmethod
-    def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
+    def from_inputs(
+        cls, inputs: SnowflakeInsertInputs, base_logger: structlog.typing.FilteringBoundLogger | None = None
+    ) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
 
         # User could have specified both password and private key in their batch export config.
@@ -250,6 +269,7 @@ class SnowflakeClient:
             role=inputs.role,
             password=password,
             private_key=private_key,
+            base_logger=base_logger,
         )
 
     @property
@@ -265,18 +285,25 @@ class SnowflakeClient:
 
         Methods that require a connection should be ran within this block.
         """
+        await self.logger.ainfo("Initializing Snowflake connection")
+        # TODO: Revert this back to 'INFO'
+        self.ensure_snowflake_logger_level("DEBUG")
+
         try:
-            connection = await asyncio.to_thread(
-                snowflake.connector.connect,
-                user=self.user,
-                password=self.password,
-                account=self.account,
-                warehouse=self.warehouse,
-                database=self.database,
-                schema=self.schema,
-                role=self.role,
-                private_key=self.private_key,
-            )
+            async with CONNECTION_SEMAPHORE:
+                connection = await asyncio.to_thread(
+                    snowflake.connector.connect,
+                    user=self.user,
+                    password=self.password,
+                    account=self.account,
+                    warehouse=self.warehouse,
+                    database=self.database,
+                    schema=self.schema,
+                    role=self.role,
+                    private_key=self.private_key,
+                    login_timeout=5,
+                )
+            connection.telemetry_enabled = False
 
         except OperationalError as err:
             if err.errno == 251012:
@@ -290,10 +317,15 @@ class SnowflakeClient:
         except InterfaceError as err:
             raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
 
+        await self.logger.ainfo("Connected to Snowflake")
+
         self._connection = connection
 
+        # Call this again in case level was reset.
+        self.ensure_snowflake_logger_level("DEBUG")
+
         await self.use_namespace()
-        await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE")
+        await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE", fetch_results=False)
 
         try:
             yield self
@@ -302,13 +334,18 @@ class SnowflakeClient:
             self._connection = None
             await asyncio.to_thread(connection.close)
 
+    def ensure_snowflake_logger_level(self, level: str):
+        """Ensure the log level for logger used by inner `SnowflakeConnection`."""
+        logger = logging.getLogger("snowflake.connector")
+        logger.setLevel(level)
+
     async def use_namespace(self) -> None:
         """Switch to a namespace given by database and schema.
 
         This allows all queries that follow to ignore database and schema.
         """
-        await self.execute_async_query(f'USE DATABASE "{self.database}"')
-        await self.execute_async_query(f'USE SCHEMA "{self.schema}"')
+        await self.execute_async_query(f'USE DATABASE "{self.database}"', fetch_results=False)
+        await self.execute_async_query(f'USE SCHEMA "{self.schema}"', fetch_results=False)
 
     async def execute_async_query(
         self,
@@ -316,7 +353,8 @@ class SnowflakeClient:
         parameters: dict | None = None,
         file_stream=None,
         poll_interval: float = 1.0,
-    ) -> tuple[list[tuple] | list[dict], list[ResultMetadata]]:
+        fetch_results: bool = True,
+    ) -> tuple[list[tuple] | list[dict], list[ResultMetadata]] | None:
         """Wrap Snowflake connector's polling API in a coroutine.
 
         This enables asynchronous execution of queries to release the event loop to execute other tasks
@@ -327,28 +365,42 @@ class SnowflakeClient:
             query: A query string to run asynchronously.
             parameters: An optional dictionary of parameters to bind to the query.
             poll_interval: Specify how long to wait in between polls.
+            fetch_results: Whether any result should be fetched from the query.
 
         Returns:
-            A tuple containing:
+            If `fetch_results` is `True`, a tuple containing:
             - The query results as a list of tuples or dicts
             - The cursor description (containing list of fields in result)
+            Else when `fetch_results` is `False` we return `None`.
         """
+        await self.logger.ainfo("Executing async query %s", query)
+
         with self.connection.cursor() as cursor:
             # Snowflake docs incorrectly state that the 'params' argument is named 'parameters'.
-            result = cursor.execute_async(query, params=parameters, file_stream=file_stream)
+            result = await asyncio.to_thread(cursor.execute_async, query, params=parameters, file_stream=file_stream)
             query_id = cursor.sfqid or result["queryId"]
 
-            # Snowflake does a blocking HTTP request, so we send it to a thread.
-            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        # Snowflake does a blocking HTTP request, so we send it to a thread.
+        query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
 
         while self.connection.is_still_running(query_status):
             query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
             await asyncio.sleep(poll_interval)
 
+        await self.logger.ainfo("Async query finished with status %s", query_status)
+
+        if fetch_results is False:
+            return None
+
+        await self.logger.ainfo("Fetching query results for %s", query)
+
         with self.connection.cursor() as cursor:
-            cursor.get_results_from_sfqid(query_id)
-            results = cursor.fetchall()
+            await asyncio.to_thread(cursor.get_results_from_sfqid, query_id)
+            results = await asyncio.to_thread(cursor.fetchall)
             description = cursor.description
+
+        await self.logger.ainfo("Finished fetching query results for %s", query)
+
         return results, description
 
     async def aremove_internal_stage_files(self, table_name: str, table_stage_prefix: str) -> None:
@@ -358,7 +410,7 @@ class SnowflakeClient:
             table_name: The name of the table whose internal stage to clear.
             table_stage_prefix: Prefix to path of internal stage files.
         """
-        await self.execute_async_query(f"""REMOVE '@%"{table_name}"/{table_stage_prefix}'""")
+        await self.execute_async_query(f"""REMOVE '@%"{table_name}"/{table_stage_prefix}'""", fetch_results=False)
 
     async def acreate_table(self, table_name: str, fields: list[SnowflakeField]) -> None:
         """Asynchronously create the table if it doesn't exist.
@@ -376,6 +428,7 @@ class SnowflakeClient:
             )
             COMMENT = 'PostHog generated table'
             """,
+            fetch_results=False,
         )
 
     async def adelete_table(
@@ -389,8 +442,7 @@ class SnowflakeClient:
         else:
             query = f'DROP TABLE "{table_name}"'
 
-        await self.execute_async_query(query)
-        return None
+        await self.execute_async_query(query, fetch_results=False)
 
     async def aget_table_columns(self, table_name: str) -> list[str]:
         """Get the column names for a given table.
@@ -402,9 +454,11 @@ class SnowflakeClient:
             A list of column names.
         """
         try:
-            _, metadata = await self.execute_async_query(f"""
+            result = await self.execute_async_query(f"""
                 SELECT * FROM "{table_name}" LIMIT 0
             """)
+            assert result is not None
+            _, metadata = result
         except snowflake.connector.errors.ProgrammingError as e:
             if "does not exist" in str(e):
                 raise SnowflakeTableNotFoundError(table_name)
@@ -475,7 +529,7 @@ class SnowflakeClient:
             await loop.run_in_executor(None, func=execute_put)
             reader.detach()  # BufferedReader closes the file otherwise.
 
-            result = cursor.fetchone()
+            result = await asyncio.to_thread(cursor.fetchone)
 
             if not isinstance(result, tuple):
                 # Mostly to appease mypy, as this query should always return a tuple.
@@ -505,7 +559,9 @@ class SnowflakeClient:
         MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
         PURGE = TRUE
         """
-        results, _ = await self.execute_async_query(query)
+        result = await self.execute_async_query(query)
+        assert result is not None
+        results, _ = result
 
         for query_result in results:
             if not isinstance(query_result, tuple):
@@ -587,7 +643,7 @@ class SnowflakeClient:
             VALUES ({values});
         """
 
-        await self.execute_async_query(merge_query)
+        await self.execute_async_query(merge_query, fetch_results=False)
 
 
 def snowflake_default_fields() -> list[BatchExportField]:
@@ -734,7 +790,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Snowflake")
+    logger = await configure_temporal_worker_logger(logger=LOGGER, team_id=inputs.team_id, destination="Snowflake")
     await logger.ainfo(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
         inputs.data_interval_start or "START",
@@ -749,13 +805,13 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
         _, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails)
-        if details is None:
+        if details is None or str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
             details = SnowflakeHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
 
         model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
 
         data_interval_start = (
@@ -844,7 +900,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             else inputs.table_name
         )
 
-        async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
+        async with SnowflakeClient.from_inputs(inputs, base_logger=logger).connect() as snow_client:
             async with (
                 snow_client.managed_table(
                     inputs.table_name, data_interval_end_str, table_fields, delete=False

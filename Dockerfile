@@ -32,7 +32,6 @@ COPY bin/ bin/
 COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
-COPY common/eslint_rules/ common/eslint_rules/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
@@ -42,6 +41,9 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
+# KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
+# KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails 🤷
+RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ || true
 
 #
 # ---------------------------------------------------------
@@ -75,9 +77,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/plugin-transpiler build
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
 #
@@ -87,17 +89,17 @@ COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
 
 # Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/cyclotron build
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
 # Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/plugin-server build
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=6144" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    NODE_OPTIONS="--max-old-space-size=6144" bin/turbo --filter=@posthog/plugin-server prepare
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
 
 #
 # ---------------------------------------------------------
@@ -109,7 +111,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Compile and install Python dependencies.
 # We install those dependencies on a custom folder that we will
 # then copy to the last image.
-COPY requirements.txt ./
+COPY pyproject.toml uv.lock ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
@@ -122,7 +124,8 @@ RUN apt-get update && \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    PIP_NO_BINARY=lxml,xmlsec pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+    pip install uv~=0.7.0 --no-cache-dir && \
+    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
@@ -162,7 +165,7 @@ RUN apt-get update && \
 # ---------------------------------------------------------
 #
 # NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.11 
+FROM unit:1.33.0-python3.11
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1

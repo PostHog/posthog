@@ -1,15 +1,14 @@
 import { Histogram } from 'prom-client'
-import { RustyHook } from 'worker/rusty-hook'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload } from '../../utils/event'
-import { trackedFetch } from '../../utils/fetch'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { status } from '../../utils/status'
+import { legacyFetch } from '../../utils/request'
+import { TeamManager } from '../../utils/team-manager'
+import { RustyHook } from '../../worker/rusty-hook'
 import { AppMetric, AppMetrics } from './app-metrics'
-import { OrganizationManager } from './organization-manager'
-import { TeamManager } from './team-manager'
 import { WebhookFormatter } from './webhook-formatter'
 
 export const webhookProcessStepDuration = new Histogram({
@@ -32,7 +31,6 @@ export async function instrumentWebhookStep<T>(tag: string, run: () => Promise<T
 export class HookCommander {
     postgres: PostgresRouter
     teamManager: TeamManager
-    organizationManager: OrganizationManager
     rustyHook: RustyHook
     appMetrics: AppMetrics
     siteUrl: string
@@ -42,18 +40,16 @@ export class HookCommander {
     constructor(
         postgres: PostgresRouter,
         teamManager: TeamManager,
-        organizationManager: OrganizationManager,
         rustyHook: RustyHook,
         appMetrics: AppMetrics,
         timeout: number
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
-        this.organizationManager = organizationManager
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
-            status.warn('⚠️', 'SITE_URL env is not set for webhooks')
+            logger.warn('⚠️', 'SITE_URL env is not set for webhooks')
             this.siteUrl = ''
         }
         this.rustyHook = rustyHook
@@ -62,14 +58,14 @@ export class HookCommander {
     }
 
     public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
-        status.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
+        logger.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
         if (!actionMatches.length) {
-            status.debug('🔍', `No hooks to fire for event "${event.event}"`)
+            logger.debug('🔍', `No hooks to fire for event "${event.event}"`)
             return
         }
-        status.debug('🔍', `Found ${actionMatches.length} matching actions`)
+        logger.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
-        const team = await this.teamManager.fetchTeam(event.teamId)
+        const team = await this.teamManager.getTeam(event.teamId)
 
         if (!team) {
             return
@@ -88,7 +84,7 @@ export class HookCommander {
             })
         }
 
-        if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
+        if (await this.teamManager.hasAvailableFeature(team.id, 'zapier')) {
             await instrumentWebhookStep('postRestHook', async () => {
                 const restHooks = actionMatches.flatMap((action) => action.hooks.map((hook) => ({ hook, action })))
 
@@ -179,7 +175,7 @@ export class HookCommander {
 
         const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
         const timeout = setTimeout(() => {
-            status.warn(
+            logger.warn(
                 '⌛',
                 `Posting Webhook slow. Timeout warning after ${slowWarningTimeout / 1000} sec! url=${url} team_id=${
                     team.id
@@ -187,15 +183,14 @@ export class HookCommander {
             )
         }, slowWarningTimeout)
 
-        status.debug('⚠️', `Firing webhook ${url} for team ${team.id}`)
+        logger.debug('⚠️', `Firing webhook ${url} for team ${team.id}`)
 
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await trackedFetch(url, {
+                const request = await legacyFetch(url, {
                     method: 'POST',
                     body: JSON.stringify(body, null, 4),
                     headers: { 'Content-Type': 'application/json' },
-                    timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })
                 // special handling for hooks
                 if (hook && request.status === 410) {
@@ -203,7 +198,7 @@ export class HookCommander {
                     await this.deleteRestHook(hook.id)
                 }
                 if (!request.ok) {
-                    status.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
+                    logger.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
                     await this.appMetrics.queueError(
                         {
                             ...partialMetric,

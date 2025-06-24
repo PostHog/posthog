@@ -1,6 +1,6 @@
-import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import api from 'lib/api'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,9 +17,9 @@ export interface LiveEventsTableProps {
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
     props({} as LiveEventsTableProps),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions(() => ({
         addEvents: (events) => ({ events }),
         clearEvents: true,
@@ -141,12 +141,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             cache.batch = []
             cache.eventSourceController = new AbortController()
 
-            await fetchEventSource(url.toString(), {
+            await api.stream(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                 },
                 signal: cache.eventSourceController.signal,
-                onmessage: (event) => {
+                onMessage: (event) => {
                     lemonToast.dismiss(ERROR_TOAST_ID)
                     const eventData = JSON.parse(event.data)
                     cache.batch.push(eventData)
@@ -156,7 +156,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                         cache.batch.length = 0
                     }
                 },
-                onerror: (error) => {
+                onError: (error) => {
                     if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
                         console.error('Failed to poll events. You likely have no events coming in.', error)
                         lemonToast.error(`No live events found. Continuing to retry in the background…`, {

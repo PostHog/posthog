@@ -22,7 +22,7 @@ export const scene: SceneExport = {
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
     if (loading) {
-        return <Spinner textColored className="text-accent-primary" />
+        return <Spinner textColored className="text-accent" />
     }
     if (status === 'validated') {
         return <IconCheckCircle />

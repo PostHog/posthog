@@ -1,30 +1,34 @@
-from asgiref.sync import sync_to_async
-from dataclasses import dataclass
 import datetime as dt
+import ipaddress
+import json
+import typing as t
+import uuid
+from dataclasses import dataclass
+
 import dns.resolver
 import grpc.aio
-import json
-import uuid
-import ipaddress
 import requests
-from django.db import connection
-
-from temporalio import activity, workflow
 import temporalio.common
+from asgiref.sync import sync_to_async
+from django.db import connection
+from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
-
 from posthog.temporal.proxy_service.common import (
-    get_grpc_client,
     NonRetriableException,
     RecordDeletedException,
-    update_proxy_record,
     UpdateProxyRecordInputs,
+    get_grpc_client,
+    update_proxy_record,
 )
-from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest, CertificateState_READY
+from posthog.temporal.proxy_service.proto import (
+    CertificateState_READY,
+    CreateRequest,
+    StatusRequest,
+)
 
 
 @dataclass
@@ -36,6 +40,15 @@ class CreateManagedProxyInputs:
     domain: str
     target_cname: str
 
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+            "target_cname": self.target_cname,
+        }
+
 
 @dataclass
 class WaitForDNSRecordsInputs:
@@ -44,12 +57,29 @@ class WaitForDNSRecordsInputs:
     domain: str
     target_cname: str
 
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+            "target_cname": self.target_cname,
+        }
+
 
 @dataclass
 class WaitForCertificateInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
     domain: str
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+        }
 
 
 @activity.defn
@@ -332,7 +362,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 type(e),
             )
 
-            if hasattr(e, "cause") and e.cause.type == "RecordDeletedException":
+            if hasattr(e, "cause") and hasattr(e.cause, "type") and e.cause.type == "RecordDeletedException":
                 logger.info(
                     "Record was deleted before completing provisioning for id %s (%s)",
                     inputs.proxy_record_id,

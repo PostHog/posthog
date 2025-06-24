@@ -65,7 +65,7 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-plugin-replicator', plugin: [Object] } 1`] = `
 [
-  "Skipping 1 event, rejected by test: 200 undefined",
+  "Flushed 1 event to test",
   "Function completed in REPLACED-TIME-ms.",
 ]
 `;
@@ -105,7 +105,7 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 } 1`] = `
 [
   "(Event: $pageview) URL: https://posthog.com, Referrer: undefined, Referring domain: undefined",
-  "Plugin execution failed: Cannot read properties of undefined (reading 'indexOf')",
+  "(SNOWPLOW) Medium: unknown, Source: unknown, Term: undefined",
 ]
 `;
 

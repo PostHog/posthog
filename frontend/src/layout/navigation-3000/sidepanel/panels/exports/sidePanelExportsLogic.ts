@@ -7,10 +7,10 @@ import type { sidePanelExportsLogicType } from './sidePanelExportsLogicType'
 
 export const sidePanelExportsLogic = kea<sidePanelExportsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelExportsLogic']),
-    connect({
+    connect(() => ({
         values: [exportsLogic, ['exports', 'freshUndownloadedExports']],
         actions: [sidePanelStateLogic, ['openSidePanel'], exportsLogic, ['loadExports', 'removeFresh']],
-    }),
+    })),
     afterMount(({ actions }) => {
         actions.loadExports()
     }),

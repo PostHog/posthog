@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -18,9 +19,11 @@ from posthog.models.integration import (
     Integration,
     OauthIntegration,
     SlackIntegration,
+    LinearIntegration,
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
+    EmailIntegration,
 )
 
 
@@ -45,6 +48,29 @@ class IntegrationSerializer(serializers.ModelSerializer):
             key_info = json.loads(key_file.read().decode("utf-8"))
             instance = GoogleCloudIntegration.integration_from_key(
                 validated_data["kind"], key_info, team_id, request.user
+            )
+            return instance
+
+        elif validated_data["kind"] == "email":
+            config = validated_data.get("config", {})
+
+            if config.get("api_key") is not None:
+                if not (config.get("api_key") and config.get("secret_key")):
+                    raise ValidationError("Both api_key and secret_key are required for Mail integration")
+                instance = EmailIntegration.integration_from_keys(
+                    config["api_key"],
+                    config["secret_key"],
+                    team_id,
+                    request.user,
+                )
+                return instance
+
+            if not (config.get("domain")):
+                raise ValidationError("Domain is required for email integration")
+            instance = EmailIntegration.integration_from_domain(
+                config["domain"],
+                team_id,
+                request.user,
             )
             return instance
 
@@ -94,28 +120,56 @@ class IntegrationViewSet(
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         slack = SlackIntegration(instance)
-        authed_user = instance.config["authed_user"]["id"]
+        should_include_private_channels: bool = instance.created_by_id == request.user.id
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
+        authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
+        if not authed_user:
+            raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
         channel_id = request.query_params.get("channel_id")
         if channel_id:
-            channel = slack.get_channel_by_id(channel_id)
+            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             if channel:
-                return Response({"channels": [channel]})
+                return Response(
+                    {
+                        "channels": [
+                            {
+                                "id": channel["id"],
+                                "name": channel["name"],
+                                "is_private": channel["is_private"],
+                                "is_member": channel.get("is_member", True),
+                                "is_ext_shared": channel["is_ext_shared"],
+                                "is_private_without_access": channel["is_private_without_access"],
+                            }
+                        ]
+                    }
+                )
             else:
                 return Response({"channels": []})
 
-        channels = [
-            {
-                "id": channel["id"],
-                "name": channel["name"],
-                "is_private": channel["is_private"],
-                "is_member": channel.get("is_member", True),
-                "is_ext_shared": channel["is_ext_shared"],
-            }
-            for channel in slack.list_channels(authed_user)
-        ]
+        key = f"slack/{instance.integration_id}/{should_include_private_channels}/channels"
+        data = cache.get(key)
 
-        return Response({"channels": channels})
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        response = {
+            "channels": [
+                {
+                    "id": channel["id"],
+                    "name": channel["name"],
+                    "is_private": channel["is_private"],
+                    "is_member": channel.get("is_member", True),
+                    "is_ext_shared": channel["is_ext_shared"],
+                    "is_private_without_access": channel.get("is_private_without_access", False),
+                }
+                for channel in slack.list_channels(should_include_private_channels, authed_user)
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
+
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
 
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -187,3 +241,14 @@ class IntegrationViewSet(
         ]
 
         return Response({"adAccounts": accounts})
+
+    @action(methods=["GET"], detail=True, url_path="linear_teams")
+    def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        linear = LinearIntegration(self.get_object())
+        return Response({"teams": linear.list_teams()})
+
+    @action(methods=["POST"], detail=True, url_path="email/verify")
+    def email_verify(self, request, **kwargs):
+        email = EmailIntegration(self.get_object())
+        verification_result = email.verify()
+        return Response(verification_result)

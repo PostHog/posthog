@@ -3,6 +3,8 @@ import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
 import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -177,7 +179,11 @@ export const convertTableValue = (
     return value
 }
 
-const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
+    if (!type) {
+        return 'UNKNOWN'
+    }
+
     if (type.indexOf('Array') !== -1) {
         return 'ARRAY'
     }
@@ -235,6 +241,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
             ['isDarkModeOn'],
+            sceneLogic,
+            ['activeScene'],
         ],
         actions: [
             dataNodeLogic({
@@ -302,7 +310,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         visualizationType: [
-            ChartDisplayType.ActionsTable as ChartDisplayType,
+            props.query.display ?? ChartDisplayType.ActionsTable,
             {
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
@@ -595,10 +603,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         presetChartHeight: [
-            (state, props) => [props.key, state.dashboardId],
-            (key, dashboardId) => {
+            (state, props) => [props.key, state.dashboardId, state.activeScene],
+            (key, dashboardId, activeScene) => {
                 // Key for SQL editor based visiaulizations
-                return !key.includes('new-SQL') && !dashboardId
+                const sqlEditorScene = activeScene === Scene.SQLEditor
+
+                if (activeScene === Scene.Insight) {
+                    return true
+                }
+
+                return !key.includes('new-SQL') && !dashboardId && !sqlEditorScene
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
@@ -799,7 +813,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: ({ settings }) => {
             actions.setQuery({
                 ...props.query,
-                chartSettings: { ...(props.query.chartSettings ?? {}), ...settings },
+                chartSettings: { ...props.query.chartSettings, ...settings },
             })
         },
         setQuery: ({ node }) => {
@@ -851,7 +865,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     subscriptions(({ props, actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {
             // If response is cleared, then don't update any internal values
-            if (!values.response || (!values.response.results && !values.response.result)) {
+            if (!values.response || (!(values.response as any).results && !(values.response as any).result)) {
                 return
             }
 
@@ -912,7 +926,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 chartSettings: {
-                    ...(props.query.chartSettings ?? {}),
+                    ...props.query.chartSettings,
                     yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                     xAxis: xColumn,
                 },
@@ -930,7 +944,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 chartSettings: {
-                    ...(props.query.chartSettings ?? {}),
+                    ...props.query.chartSettings,
                     yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                     xAxis: xColumn,
                 },
@@ -946,7 +960,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 tableSettings: {
-                    ...(props.query.tableSettings ?? {}),
+                    ...props.query.tableSettings,
                     columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
                 },
             })
@@ -957,7 +971,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 tableSettings: {
-                    ...(props.query.tableSettings ?? {}),
+                    ...props.query.tableSettings,
                     conditionalFormatting: saveableRules,
                 },
             })

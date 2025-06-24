@@ -1,3 +1,4 @@
+import { IconDashboard } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -18,4 +19,20 @@ export const manifest: ProductManifest = {
 
         sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     },
+    fileSystemTypes: {
+        dashboard: {
+            name: 'Dashboard',
+            icon: <IconDashboard />,
+            href: (ref: string) => urls.dashboard(ref),
+            iconColor: ['var(--product-dashboards-light)'],
+            filterKey: 'dashboard',
+        },
+    },
+    treeItemsNew: [
+        {
+            path: `Dashboard`,
+            type: 'dashboard',
+            href: urls.dashboards() + '#newDashboard=modal',
+        },
+    ],
 }

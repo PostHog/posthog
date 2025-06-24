@@ -2,6 +2,7 @@ import { LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { useState } from 'react'
@@ -13,8 +14,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Body, PerformanceEvent } from '~/types'
-
-import { SimpleKeyValueList } from '../../player/inspector/components/SimpleKeyValueList'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -187,7 +186,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
         <div data-attr="item-performance-event" className="font-light w-full">
             <div className="flex-1 overflow-hidden">
                 <div
-                    className="absolute bg-accent-primary rounded-xs opacity-75 h-1 bottom-0.5"
+                    className="absolute bg-accent rounded-xs opacity-75 h-1 bottom-0.5"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         left: `${(startTime / contextLengthMs) * 100}%`,
@@ -273,10 +272,8 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             return acc
         }
 
-        return {
-            ...acc,
-            [key]: typeof value === 'number' ? Math.round(value) : value,
-        }
+        acc[key] = typeof value === 'number' ? Math.round(value) : value
+        return acc
     }, {} as Record<string, any>)
 
     return (

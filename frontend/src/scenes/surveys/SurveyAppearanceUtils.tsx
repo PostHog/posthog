@@ -19,7 +19,7 @@ export function PresentationTypeCard({
 }: {
     title: string
     description?: string
-    children: React.ReactNode
+    children?: React.ReactNode
     onClick: () => void
     value: any
     active: boolean
@@ -28,7 +28,7 @@ export function PresentationTypeCard({
         <div
             className={clsx(
                 'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-[200px]',
-                active ? 'border-accent-primary' : 'border-primary'
+                active ? 'border-accent' : 'border-primary'
             )}
         >
             <p className="font-semibold m-0">{title}</p>

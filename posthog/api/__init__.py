@@ -1,24 +1,37 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
-from posthog.api import data_color_theme, metalytics, project, wizard
+from products.user_interviews.backend.api import UserInterviewViewSet
+from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet
+import products.logs.backend.api as logs
+from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
+from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
+from posthog.api.batch_imports import BatchImportViewSet
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
+    data_modeling_job,
     external_data_schema,
     external_data_source,
     modeling,
+    query_tab_state,
     saved_query,
     table,
     view_link,
-    query_tab_state,
 )
+import products.revenue_analytics.backend.api as revenue_analytics
+from posthog.warehouse.api.lineage import LineageViewSet
+import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
-from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
+from ..session_recordings.session_recording_playlist_api import (
+    SessionRecordingPlaylistViewSet,
+)
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
@@ -34,7 +47,6 @@ from . import (
     event_definition,
     exports,
     feature_flag,
-    file_system,
     hog,
     hog_function,
     hog_function_template,
@@ -63,8 +75,10 @@ from . import (
     uploaded_media,
     user,
     user_group,
+    external_web_analytics,
     web_vitals,
 )
+from .file_system import file_system, file_system_shortcut, persisted_folder
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -87,6 +101,7 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
+router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -175,7 +190,6 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
-
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -213,7 +227,23 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
+register_grandfathered_environment_nested_viewset(
+    r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"file_system_shortcut",
+    file_system_shortcut.FileSystemShortcutViewSet,
+    "environment_file_system_shortcut",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"persisted_folder",
+    persisted_folder.PersistedFolderViewSet,
+    "environment_persisted_folder",
+    ["team_id"],
+)
 
 environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
     r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
@@ -290,6 +320,12 @@ projects_router.register(
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
+projects_router.register(
+    r"external_web_analytics",
+    external_web_analytics.ExternalWebAnalyticsViewSet,
+    "project_external_web_analytics",
+    ["project_id"],
+)
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
@@ -322,6 +358,12 @@ register_grandfathered_environment_nested_viewset(
     r"external_data_schemas",
     external_data_schema.ExternalDataSchemaViewset,
     "environment_external_data_schemas",
+    ["team_id"],
+)
+environments_router.register(
+    r"fix_hogql",
+    fix_hogql.FixHogQLViewSet,
+    "project_fix_hogql",
     ["team_id"],
 )
 
@@ -421,12 +463,14 @@ register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "envi
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
+
 register_grandfathered_environment_nested_viewset(
     r"elements",
     ElementViewSet,
     "environment_elements",
     ["team_id"],  # TODO: Can be removed?
 )
+
 environment_sessions_recordings_router, legacy_project_session_recordings_router = (
     register_grandfathered_environment_nested_viewset(
         r"session_recordings",
@@ -543,25 +587,53 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
+environments_router.register(
+    r"error_tracking/releases",
+    error_tracking.ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/symbol_sets",
     error_tracking.ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
     ["team_id"],
 )
 
-projects_router.register(
-    r"error_tracking/issue",
+environments_router.register(
+    r"error_tracking/assignment_rules",
+    error_tracking.ErrorTrackingAssignmentRuleViewSet,
+    "project_error_tracking_assignment_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/grouping_rules",
+    error_tracking.ErrorTrackingGroupingRuleViewSet,
+    "project_error_tracking_grouping_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/suppression_rules",
+    error_tracking.ErrorTrackingSuppressionRuleViewSet,
+    "project_error_tracking_suppression_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/issues",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
     ["team_id"],
 )
 
-projects_router.register(
+environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
-    ["project_id"],
+    ["team_id"],
 )
 
 projects_router.register(
@@ -585,10 +657,26 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+register_grandfathered_environment_nested_viewset(
+    r"hog_flows",
+    hog_flow.HogFlowViewSet,
+    "environment_hog_flows",
+    ["team_id"],
+)
+
+projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
+
 projects_router.register(
     r"hog_function_templates",
     hog_function_template.PublicHogFunctionTemplateViewSet,
     "project_hog_function_templates",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"managed_migrations",
+    BatchImportViewSet,
+    "project_managed_migrations",
     ["project_id"],
 )
 
@@ -606,10 +694,10 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"insight_variables",
     insight_variable.InsightVariableViewSet,
-    "insight_variables",
+    "environment_insight_variables",
     ["team_id"],
 )
 
@@ -634,3 +722,45 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
+
+register_grandfathered_environment_nested_viewset(
+    r"data_modeling_jobs",
+    data_modeling_job.DataModelingJobViewSet,
+    "environment_data_modeling_jobs",
+    ["team_id"],
+)
+
+environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
+
+environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
+
+environments_router.register(
+    r"messaging_templates",
+    MessageTemplatesViewSet,
+    "environment_messaging_templates",
+    ["team_id"],
+)
+
+# Logs endpoints
+register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+
+environments_router.register(
+    r"user_interviews",
+    UserInterviewViewSet,
+    "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"csp-reporting",
+    CSPReportingViewSet,
+    "environment_csp_reporting",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"revenue_analytics/taxonomy",
+    revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
+    "environment_revenue_analytics_taxonomy",
+    ["team_id"],
+)

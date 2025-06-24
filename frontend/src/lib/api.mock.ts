@@ -1,10 +1,13 @@
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -44,6 +47,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
+    secret_api_token: 'phs_default-team-secret-api-token',
+    secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
@@ -89,8 +94,34 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
-    user_access_level: 'admin',
+    user_access_level: AccessControlLevel.Admin,
     access_control: true,
+    group_types: [
+        {
+            group_type: 'organization',
+            group_type_index: 0,
+            name_singular: null,
+            name_plural: 'organizations',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'instance',
+            group_type_index: 1,
+            name_singular: null,
+            name_plural: 'instances',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'project',
+            group_type_index: 2,
+            name_singular: null,
+            name_plural: 'projects',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+    ],
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
@@ -98,17 +129,36 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
-    revenue_tracking_config: {
+    revenue_analytics_config: {
         events: [
             {
                 eventName: 'purchase',
                 revenueProperty: 'value',
-                revenueCurrencyProperty: undefined,
+                revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                currencyAwareDecimal: false,
+            },
+            {
+                eventName: 'subscription_created',
+                revenueProperty: 'subscription_value',
+                revenueCurrencyProperty: { property: 'currency' },
+                currencyAwareDecimal: true,
+            },
+        ],
+        filter_test_accounts: false,
+        goals: [
+            {
+                due_date: '2020-12-31',
+                name: '2020 Q4',
+                goal: 1_000_000,
+            },
+            {
+                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                name: '2035 Q4',
+                goal: 1_500_000,
             },
         ],
     },
     flags_persistence_default: false,
-    access_control_version: 'v1',
     has_completed_onboarding_for: {
         product_analytics: true,
     },
@@ -116,6 +166,10 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ingest_first_event: ActivationTaskStatus.COMPLETED,
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
+    marketing_analytics_config: {
+        sources_map: {},
+    },
+    base_currency: CurrencyCode.USD,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -142,6 +196,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     available_product_features: [],
     member_count: 2,
     logo_media_id: null,
+    default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -326,5 +381,11 @@ export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
             '#30d5c8',
         ],
         is_global: true,
+    },
+    {
+        id: 2,
+        name: 'Custom Theme',
+        colors: ['#00ffff', '#ff00ff', '#ffff00'],
+        is_global: false,
     },
 ]

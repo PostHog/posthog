@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { ActionFilter, EntityFilter } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'

@@ -1,3 +1,4 @@
+from typing import Literal
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -13,7 +14,7 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 class TestS3Table(BaseTest):
     def _init_database(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(team=self.team)
         self.database.add_warehouse_tables(
             aapl_stock=create_aapl_stock_s3_table(), aapl_stock_2=create_aapl_stock_s3_table(name="aapl_stock_2")
         )
@@ -24,7 +25,7 @@ class TestS3Table(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _select(self, query: str, dialect: str = "clickhouse") -> str:
+    def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
         return print_ast(parse_select(query), self.context, dialect=dialect)
 
     def test_s3_table_select(self):
@@ -144,6 +145,26 @@ class TestS3Table(BaseTest):
         self.assertEqual(
             clickhouse,
             f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+        )
+
+        clickhouse = self._select(
+            query="SELECT aapl_stock.High, aapl_stock.Low FROM events LEFT JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
+            dialect="clickhouse",
+        )
+
+        self.assertEqual(
+            clickhouse,
+            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL LEFT JOIN (SELECT * FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_3)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+        )
+
+        clickhouse = self._select(
+            query="SELECT aapl_stock.High, aapl_stock.Low FROM events RIGHT JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
+            dialect="clickhouse",
+        )
+
+        self.assertEqual(
+            clickhouse,
+            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL RIGHT JOIN (SELECT * FROM s3(%(hogql_val_4_sensitive)s, %(hogql_val_5)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_s3_table_select_alias_escaped(self):

@@ -50,6 +50,9 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
+from posthog.schema import PropertyOperator
+from posthog.types import ErrorTrackingIssueFilter
+from django.db.models import QuerySet
 
 StringMatching = Literal["selector", "tag_name", "href", "text"]
 
@@ -920,6 +923,61 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
             prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
 
     return prop
+
+
+def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
+    operator = property.operator
+    value = property.value
+    field = property.key
+
+    if property.type == "error_tracking_issue" and property.key == "issue_description":
+        field = "description"
+
+    array_based = (
+        operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_NOT or operator == PropertyOperator.NOT_IN
+    )
+    negated = (
+        True
+        if operator
+        in [
+            PropertyOperator.IS_NOT,
+            PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_REGEX,
+            PropertyOperator.IS_SET,
+            PropertyOperator.NOT_IN,
+        ]
+        else False
+    )
+    query = f"{field}"
+
+    if array_based and not value:
+        return queryset
+
+    if array_based:
+        query += "__in"
+    elif operator == PropertyOperator.IS_SET or operator == PropertyOperator.IS_NOT_SET:
+        query += "__isnull"
+        value = True
+    elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
+        query += "__icontains"
+    elif operator == PropertyOperator.REGEX:
+        query += "__regex"
+    elif operator == PropertyOperator.IS_DATE_EXACT:
+        query += "__date"
+    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
+        query += "__gt"
+    elif operator == PropertyOperator.GTE:
+        query += "__gte"
+    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
+        query += "__lt"
+    elif operator == PropertyOperator.LTE:
+        query += "__lte"
+    else:
+        raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+    filter = {f"{query}": value}
+
+    return queryset.exclude(**filter) if negated else queryset.filter(**filter)
 
 
 class S3TableVisitor(TraversingVisitor):

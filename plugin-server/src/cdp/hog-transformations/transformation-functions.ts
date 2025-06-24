@@ -9,7 +9,7 @@ function cleanNullValuesInternal(value: unknown, depth: number): unknown {
         return null
     }
 
-    // Handle arrays
+    // Handles arrays
     if (Array.isArray(value)) {
         return value.map((item) => cleanNullValuesInternal(item, depth + 1)).filter((item) => item !== null)
     }

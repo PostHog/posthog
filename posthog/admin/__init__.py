@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from posthog.admin.admins import (
     OrganizationAdmin,
+    OrganizationDomainAdmin,
     UserAdmin,
     TeamAdmin,
     DashboardAdmin,
@@ -9,6 +10,7 @@ from posthog.admin.admins import (
     DataColorThemeAdmin,
     InsightAdmin,
     ExperimentAdmin,
+    ExperimentSavedMetricAdmin,
     FeatureFlagAdmin,
     AsyncDeletionAdmin,
     InstanceSettingAdmin,
@@ -23,15 +25,20 @@ from posthog.admin.admins import (
     ProjectAdmin,
     HogFunctionAdmin,
     GroupTypeMappingAdmin,
+    EventIngestionRestrictionConfigAdmin,
+    LinkAdmin,
+    BatchImportAdmin,
 )
 from posthog.models import (
     Organization,
+    OrganizationDomain,
     User,
     Team,
     Dashboard,
     DashboardTemplate,
     Insight,
     Experiment,
+    ExperimentSavedMetric,
     DataColorTheme,
     FeatureFlag,
     AsyncDeletion,
@@ -47,9 +54,13 @@ from posthog.models import (
     DataWarehouseTable,
     HogFunction,
     GroupTypeMapping,
+    EventIngestionRestrictionConfig,
+    Link,
+    BatchImport,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
+admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(Team, TeamAdmin)
 admin.site.register(User, UserAdmin)
@@ -61,6 +72,7 @@ admin.site.register(GroupTypeMapping, GroupTypeMappingAdmin)
 admin.site.register(DataColorTheme, DataColorThemeAdmin)
 
 admin.site.register(Experiment, ExperimentAdmin)
+admin.site.register(ExperimentSavedMetric, ExperimentSavedMetricAdmin)
 admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
 admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
@@ -77,3 +89,6 @@ admin.site.register(Survey, SurveyAdmin)
 
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
 admin.site.register(HogFunction, HogFunctionAdmin)
+admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
+admin.site.register(Link, LinkAdmin)
+admin.site.register(BatchImport, BatchImportAdmin)

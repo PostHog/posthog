@@ -9,7 +9,7 @@
         },
         {
             "key": "events",
-            "name": "List of events to track first time occurences on:",
+            "name": "List of events to track first time occurrences on:",
             "type": "string",
             "default": "",
             "hint": "Separate events with commas, without using spaces, like so: `event1,event2,event3`",

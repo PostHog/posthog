@@ -11,11 +11,10 @@ import {
     ISOTimestamp,
     Plugin,
     PluginConfigId,
-    PluginsServerConfig,
     TimestampFormat,
 } from '../types'
+import { logger } from './logger'
 import { captureException } from './posthog'
-import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
@@ -23,10 +22,10 @@ const GRACEFUL_EXIT_PERIOD_SECONDS = 5
 export class NoRowsUpdatedError extends Error {}
 
 export function killGracefully(): void {
-    status.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
+    logger.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
     process.kill(process.pid, 'SIGTERM')
     setTimeout(() => {
-        status.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
+        logger.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
         process.exit(1)
     }, GRACEFUL_EXIT_PERIOD_SECONDS * 1000)
 }
@@ -441,7 +440,7 @@ export function createPostgresPool(
         onError ||
         ((error) => {
             captureException(error)
-            status.error('🔴', 'PostgreSQL error encountered!\n', error)
+            logger.error('🔴', 'PostgreSQL error encountered!\n', error)
         })
 
     pgPool.on('error', handleError)
@@ -468,16 +467,6 @@ export function pluginConfigIdFromStack(
         if (secretId === parseInt(id)) {
             return secretId
         }
-    }
-}
-
-export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    captureException(error)
-    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        status.error('🔴', message)
-        throw error
-    } else {
-        status.info('🟡', message)
     }
 }
 
@@ -708,4 +697,16 @@ export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean =>
         }
     }
     return true
+}
+
+export function promisifyCallback<TResult>(fn: (cb: (err: any, result?: TResult) => void) => void): Promise<TResult> {
+    return new Promise<TResult>((resolve, reject) => {
+        fn((err, result) => {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(result as TResult)
+            }
+        })
+    })
 }

@@ -4,6 +4,7 @@ from inline_snapshot import snapshot
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -221,8 +222,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 ],
             }
         ]
-        # 1 update action, 1 load action, 1 load hog functions, 1 load all related actions, 1 bulk update hog functions
-        with self.assertNumQueries(5):
+        # 1 update action, 1 load action, 1 load hog functions, 1 load all related actions, 1 bulk update hog functions, 4 filesystem
+        with self.assertNumQueries(8):
             self.action.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
@@ -236,6 +237,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
 
     def test_hog_functions_reload_on_team_saved(self):
         self.team.test_account_filters = []
+        self.team.surveys_opt_in = True
         self.team.save()
         hog_function_1 = HogFunction.objects.create(
             name="func 1",
@@ -311,3 +313,26 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
         transformations = HogFunction.objects.filter(team=team, type="transformation")
         assert transformations.count() == 0
+
+    def test_hog_function_file_system(self):
+        hog_function_3 = HogFunction.objects.create(
+            name="func 3",
+            type="destination",
+            team=self.team,
+            filters={
+                "filter_test_accounts": False,
+            },
+        )
+        file = FileSystem.objects.filter(
+            team=self.team, type="hog_function/destination", ref=str(hog_function_3.id)
+        ).first()
+        assert file is not None
+        assert file.path == "Unfiled/Destinations/func 3"
+
+        hog_function_3.deleted = True
+        hog_function_3.save()
+
+        file = FileSystem.objects.filter(
+            team=self.team, type="hog_function/destination", ref=str(hog_function_3.id)
+        ).first()
+        assert file is None

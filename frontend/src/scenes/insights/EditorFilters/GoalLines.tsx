@@ -57,12 +57,7 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
                 </div>
             ))}
 
-            <LemonButton
-                type="secondary"
-                onClick={addGoalLine}
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
-                sideIcon={null}
-            >
+            <LemonButton type="secondary" onClick={addGoalLine} icon={<IconPlusSmall />} sideIcon={null}>
                 Add goal line
             </LemonButton>
         </div>

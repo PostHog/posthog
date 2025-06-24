@@ -9,12 +9,20 @@ describe('createActionFromEvent()', () => {
     given(
         'subject',
         () => () =>
-            createActionFromEvent(given.teamId, given.event, given.increment, given.dataAttributes, given.recurse)
+            createActionFromEvent(
+                given.teamId,
+                given.event,
+                given.increment,
+                given.dataAttributes,
+                given.createInFolder,
+                given.recurse
+            )
     )
 
     given('teamId', () => 44)
     given('increment', () => 0)
     given('dataAttributes', () => [])
+    given('createInFolder', () => null)
     given('recurse', () => jest.fn())
 
     given('event', () => ({
@@ -196,7 +204,7 @@ describe('createActionFromEvent()', () => {
     describe('action already exists', () => {
         beforeEach(() => {
             api.actions.create.mockImplementation(() => {
-                throw { type: 'validation_error', code: 'unique' }
+                throw { data: { type: 'validation_error', code: 'unique' } }
             })
         })
 
@@ -208,6 +216,7 @@ describe('createActionFromEvent()', () => {
                 given.event,
                 1,
                 given.dataAttributes,
+                given.createInFolder,
                 given.recurse
             )
         })

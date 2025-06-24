@@ -1,6 +1,5 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
-import { captureException } from '@sentry/react'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -16,6 +15,7 @@ import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/componen
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
+import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -232,6 +232,7 @@ const insightActionsMapping: Record<
     dashboard_tiles: () => null,
     query_status: () => null,
     user_access_level: () => null,
+    _create_in_folder: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
@@ -346,7 +347,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             }
         } catch (e) {
             console.error('Error while summarizing insight update', e)
-            captureException(e)
+            posthog.captureException(e)
         }
 
         if (changes.length) {

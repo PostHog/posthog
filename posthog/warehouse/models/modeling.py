@@ -9,6 +9,7 @@ from django.db import connection, models, transaction
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
@@ -19,6 +20,7 @@ from posthog.models.utils import (
     UUIDModel,
     uuid7,
 )
+from posthog.warehouse.models import S3Table
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
 
@@ -125,16 +127,18 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
         if join is None:
             continue
 
-        if isinstance(join.table, ast.SelectQuery):
-            if join.table.view_name is not None:
-                parents.add(join.table.view_name)
-                continue
-
-            queries.append(join.table)
-        elif isinstance(join.table, ast.SelectSetQuery):
-            queries.extend(list(extract_select_queries(join.table)))
-
         while join is not None:
+            if isinstance(join.table, ast.SelectQuery):
+                if join.table.view_name is not None:
+                    parents.add(join.table.view_name)
+                    break
+
+                queries.append(join.table)
+                break
+            elif isinstance(join.table, ast.SelectSetQuery):
+                queries.extend(list(extract_select_queries(join.table)))
+                break
+
             parent_name = join.table.chain[0]  # type: ignore
 
             if parent_name not in ctes and isinstance(parent_name, str):
@@ -312,15 +316,16 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         Returns:
             A tuple with the model path and a `bool` indicating whether it was created or not.
         """
-        posthog_tables = self.get_hogql_database(team).get_posthog_tables()
-        if posthog_source_name not in posthog_tables:
+        try:
+            self.get_hogql_database(team).get_table(posthog_source_name)
+        except QueryError:
             raise ValueError(f"Provided source {posthog_source_name} is not a PostHog table")
 
         return self.get_or_create(path=[posthog_source_name], team=team, defaults={"saved_query": None})
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
-        return create_hogql_database(team_id=team.pk, team_arg=team)
+        return create_hogql_database(team=team)
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable
@@ -354,14 +359,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         parent_paths = []
         for parent in get_parents_from_model_query(query):
             try:
-                parent_path, _ = self.get_or_create_root_path_for_posthog_source(parent, team)
-            except ValueError:
-                pass
-            else:
-                parent_paths.append(parent_path)
-                continue
-
-            try:
                 parent_query = (
                     DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=parent).get()
                 )
@@ -376,11 +373,23 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 continue
 
             try:
-                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=parent).get()
-            except ObjectDoesNotExist:
+                table = self.get_hogql_database(team).get_table(parent)
+                if not isinstance(table, S3Table):
+                    raise ObjectDoesNotExist()
+
+                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+            except (ObjectDoesNotExist, QueryError):
                 pass
             else:
                 parent_path, _ = self.get_or_create_root_path_for_data_warehouse_table(parent_table)
+                parent_paths.append(parent_path)
+                continue
+
+            try:
+                parent_path, _ = self.get_or_create_root_path_for_posthog_source(parent, team)
+            except ValueError:
+                pass
+            else:
                 parent_paths.append(parent_path)
                 continue
 

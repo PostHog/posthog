@@ -1,15 +1,84 @@
-from typing import Any, Optional
+import collections
+import os
+import tempfile
+import typing
 from collections.abc import Iterator
+from typing import Any, Optional
 
-from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.warehouse.types import IncrementalFieldType
+import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-import snowflake.connector
 from snowflake.connector.cursor import SnowflakeCursor
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.source import config
+from posthog.warehouse.types import IncrementalFieldType
+
+
+@config.config
+class SnowflakeSourceConfig(config.Config):
+    account_id: str
+    warehouse: str
+    database: str
+    schema: str
+    auth_type: typing.Literal["password", "keypair"] = "password"
+    user: str | None = None
+    password: str | None = None
+    passphrase: str | None = None
+    private_key: str | None = None
+    role: str | None = None
+
+
+def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]]]:
+    auth_connect_args: dict[str, str | None] = {}
+    file_name: str | None = None
+
+    if config.auth_type == "keypair" and config.private_key is not None:
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(config.private_key.encode("utf-8"))
+            file_name = tf.name
+
+        auth_connect_args = {
+            "user": config.user,
+            "private_key_file": file_name,
+            "private_key_file_pwd": config.passphrase,
+        }
+    else:
+        auth_connect_args = {
+            "password": config.password,
+            "user": config.user,
+        }
+
+    with snowflake.connector.connect(
+        account=config.account_id,
+        warehouse=config.warehouse,
+        database=config.database,
+        schema="information_schema",
+        role=config.role,
+        **auth_connect_args,
+    ) as connection:
+        with connection.cursor() as cursor:
+            if cursor is None:
+                raise Exception("Can't create cursor to Snowflake")
+
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": config.schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = collections.defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+    if file_name is not None:
+        os.unlink(file_name)
+
+    return schema_list
 
 
 def _get_connection(
@@ -65,12 +134,12 @@ def _build_query(
     database: str,
     schema: str,
     table_name: str,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
 ) -> tuple[str, tuple[Any, ...]]:
-    if not is_incremental:
+    if not should_use_incremental_field:
         return "SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
 
     if incremental_field is None or incremental_field_type is None:
@@ -85,6 +154,32 @@ def _build_query(
         db_incremental_field_last_value,
         incremental_field,
     )
+
+
+def _get_rows_to_sync(
+    cursor: SnowflakeCursor, inner_query: str, inner_query_args: tuple[Any, ...], logger: FilteringBoundLogger
+) -> int:
+    try:
+        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+        cursor.execute(query, inner_query_args)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+            return 0
+
+        rows_to_sync = row[0] or 0
+        rows_to_sync_int = int(rows_to_sync)
+
+        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+
+        return int(rows_to_sync)
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
 
 
 def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table_name: str) -> list[str] | None:
@@ -111,7 +206,7 @@ def snowflake_source(
     warehouse: str,
     schema: str,
     table_names: list[str],
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     role: Optional[str] = None,
@@ -126,7 +221,17 @@ def snowflake_source(
         account_id, user, password, passphrase, private_key, auth_type, database, warehouse, schema, role
     ) as connection:
         with connection.cursor() as cursor:
+            inner_query, inner_query_params = _build_query(
+                database,
+                schema,
+                table_name,
+                should_use_incremental_field,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
             primary_keys = _get_primary_keys(cursor, database, schema, table_name)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
 
     def get_rows() -> Iterator[Any]:
         with _get_connection(
@@ -137,7 +242,7 @@ def snowflake_source(
                     database,
                     schema,
                     table_name,
-                    is_incremental,
+                    should_use_incremental_field,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
@@ -151,4 +256,4 @@ def snowflake_source(
 
     name = NamingConvention().normalize_identifier(table_name)
 
-    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys)
+    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys, rows_to_sync=rows_to_sync)

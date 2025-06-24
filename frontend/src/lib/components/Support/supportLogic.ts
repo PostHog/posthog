@@ -1,18 +1,26 @@
-import { captureException } from '@sentry/react'
-import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationBasicType, Region, SidePanelTab, TeamPublicType, UserType } from '~/types'
+import {
+    AvailableFeature,
+    BillingPlan,
+    OrganizationBasicType,
+    Region,
+    SidePanelTab,
+    TeamPublicType,
+    UserType,
+} from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -29,8 +37,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})` +
-        getSentryLink(cloudRegion, currentTeam)
+        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -89,13 +96,6 @@ function getBillingAdminLink(currentOrganization: OrganizationBasicType | null):
     return `\nBilling admin: http://go/billing/${currentOrganization.id}`
 }
 
-function getSentryLink(cloudRegion: Region | null | undefined, currentTeam: TeamPublicType | null): string {
-    if (!cloudRegion || !currentTeam) {
-        return ''
-    }
-    return `\nSentry: http://go/sentry${cloudRegion}/${currentTeam.id}`
-}
-
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     support: 'Contact support',
     feedback: 'Give feedback',
@@ -107,9 +107,24 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
-                value: 'apps',
-                'data-attr': `support-form-target-area-apps`,
-                label: 'Data pipelines',
+                value: 'billing',
+                'data-attr': `support-form-target-area-billing`,
+                label: 'Billing',
+            },
+            {
+                value: 'cohorts',
+                'data-attr': `support-form-target-area-cohorts`,
+                label: 'Cohorts',
+            },
+            {
+                value: 'data_ingestion',
+                'data-attr': `support-form-target-area-data_ingestion`,
+                label: 'Data ingestion',
+            },
+            {
+                value: 'data_management',
+                'data-attr': `support-form-target-area-data_management`,
+                label: 'Data management (incl. events, actions, properties)',
             },
             {
                 value: 'login',
@@ -117,9 +132,14 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Authentication (incl. login, sign-up, invites)',
             },
             {
-                value: 'billing',
-                'data-attr': `support-form-target-area-billing`,
-                label: 'Billing',
+                value: 'mobile',
+                'data-attr': `support-form-target-area-mobile`,
+                label: 'Mobile',
+            },
+            {
+                value: 'notebooks',
+                'data-attr': `support-form-target-area-notebooks`,
+                label: 'Notebooks',
             },
             {
                 value: 'onboarding',
@@ -131,75 +151,30 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
             },
-            {
-                value: 'cohorts',
-                'data-attr': `support-form-target-area-cohorts`,
-                label: 'Cohorts',
-            },
-            {
-                value: 'data_management',
-                'data-attr': `support-form-target-area-data_management`,
-                label: 'Data management (incl. events, actions, properties)',
-            },
-            {
-                value: 'notebooks',
-                'data-attr': `support-form-target-area-notebooks`,
-                label: 'Notebooks',
-            },
-            {
-                value: 'mobile',
-                'data-attr': `support-form-target-area-mobile`,
-                label: 'Mobile',
-            },
         ],
     },
     {
         title: 'Individual product',
         options: [
             {
-                value: 'experiments',
-                'data-attr': `support-form-target-area-experiments`,
-                label: 'Experiments',
-            },
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse',
-            },
-            {
-                value: 'batch_exports',
-                'data-attr': `support-form-target-area-batch-exports`,
-                label: 'Batch exports',
-            },
-            {
-                value: 'feature_flags',
-                'data-attr': `support-form-target-area-feature_flags`,
-                label: 'Feature flags',
-            },
-            {
                 value: 'analytics',
                 'data-attr': `support-form-target-area-analytics`,
                 label: 'Product analytics (incl. insights, dashboards, annotations)',
             },
             {
-                value: 'session_replay',
-                'data-attr': `support-form-target-area-session_replay`,
-                label: 'Session replay (incl. recordings)',
+                value: 'batch_exports',
+                'data-attr': `support-form-target-area-batch_exports`,
+                label: 'Destinations (batch exports)',
             },
             {
-                value: 'toolbar',
-                'data-attr': `support-form-target-area-toolbar`,
-                label: 'Toolbar (incl. heatmaps)',
+                value: 'cdp_destinations',
+                'data-attr': `support-form-target-area-cdp_destinations`,
+                label: 'Destinations (real-time)',
             },
             {
-                value: 'surveys',
-                'data-attr': `support-form-target-area-surveys`,
-                label: 'Surveys',
-            },
-            {
-                value: 'web_analytics',
-                'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web analytics',
+                value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'Data warehouse (sources)',
             },
             {
                 value: 'error_tracking',
@@ -207,9 +182,59 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Error tracking',
             },
             {
+                value: 'experiments',
+                'data-attr': `support-form-target-area-experiments`,
+                label: 'Experiments',
+            },
+            {
+                value: 'feature_flags',
+                'data-attr': `support-form-target-area-feature_flags`,
+                label: 'Feature flags',
+            },
+            {
+                value: 'group_analytics',
+                'data-attr': `support-form-target-area-group-analytics`,
+                label: 'Group analytics',
+            },
+            {
                 value: 'llm-observability',
                 'data-attr': `support-form-target-area-llm-observability`,
                 label: 'LLM observability',
+            },
+            {
+                value: 'max-ai',
+                'data-attr': `support-form-target-area-max-ai`,
+                label: 'Max AI',
+            },
+            {
+                value: 'messaging',
+                'data-attr': `support-form-target-area-messaging`,
+                label: 'Messaging',
+            },
+            {
+                value: 'revenue_analytics',
+                'data-attr': `support-form-target-area-revenue-analytics`,
+                label: 'Revenue analytics',
+            },
+            {
+                value: 'session_replay',
+                'data-attr': `support-form-target-area-session_replay`,
+                label: 'Session replay (incl. recordings)',
+            },
+            {
+                value: 'surveys',
+                'data-attr': `support-form-target-area-surveys`,
+                label: 'Surveys',
+            },
+            {
+                value: 'toolbar',
+                'data-attr': `support-form-target-area-toolbar`,
+                label: 'Toolbar (incl. heatmaps)',
+            },
+            {
+                value: 'web_analytics',
+                'data-attr': `support-form-target-area-web_analytics`,
+                label: 'Web analytics',
             },
         ],
     },
@@ -245,6 +270,10 @@ export type SupportTicketTargetArea =
     | 'surveys'
     | 'web_analytics'
     | 'error_tracking'
+    | 'cdp_destinations'
+    | 'data_ingestion'
+    | 'batch_exports'
+    | 'messaging'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -278,6 +307,13 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     warehouse: 'data_warehouse',
     surveys: 'surveys',
     web: 'web_analytics',
+    destination: 'cdp_destinations',
+    destinations: 'cdp_destinations',
+    transformation: 'cdp_destinations',
+    transformations: 'cdp_destinations',
+    source: 'data_warehouse',
+    sources: 'data_warehouse',
+    messaging: 'messaging',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -289,8 +325,19 @@ export const SUPPORT_TICKET_TEMPLATES = {
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
-    const first_part = pathname.split('/')[1]
-    return URL_PATH_TO_TARGET_AREA[first_part] ?? null
+    const pathParts = pathname.split('/')
+
+    if (pathname.includes('pipeline/destinations/') && !pathname.includes('/hog-')) {
+        return 'batch_exports'
+    }
+
+    for (const part of pathParts) {
+        if (URL_PATH_TO_TARGET_AREA[part]) {
+            return URL_PATH_TO_TARGET_AREA[part]
+        }
+    }
+
+    return null
 }
 
 export type SupportFormLogicProps = {
@@ -320,6 +367,8 @@ export const supportLogic = kea<supportLogicType>([
             ['sidePanelAvailable'],
             userLogic,
             ['hasAvailableFeature'],
+            billingLogic,
+            ['billing'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -330,8 +379,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
-        openMaxChatInterface: true,
-        closeMaxChatInterface: true,
+        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -339,7 +387,6 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
-                openMaxChatInterface: () => false,
             },
         ],
         isEmailFormOpen: [
@@ -349,12 +396,12 @@ export const supportLogic = kea<supportLogicType>([
                 closeEmailForm: () => false,
             },
         ],
-        isMaxChatInterfaceOpen: [
-            false,
+        focusedField: [
+            null as string | null,
             {
-                openMaxChatInterface: () => true,
-                closeMaxChatInterface: () => false,
-                openEmailForm: () => false,
+                setFocusedField: (_, { field }) => field,
+                // Reset focused field when form is closed
+                closeSupportForm: () => null,
             },
         ],
     })),
@@ -399,11 +446,14 @@ export const supportLogic = kea<supportLogicType>([
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
+            // Only include non-text fields in the URL parameters
+            // This prevents focus loss when typing in text fields
             const panelOptions = [
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
+                // Explicitly exclude message, name, and email fields
             ].join(':')
 
             if (panelOptions !== ':') {
@@ -453,10 +503,55 @@ export const supportLogic = kea<supportLogicType>([
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
 
+            const billing = billingLogic.values.billing
+            const billingPlan = billingLogic.values.billingPlan
+            const currentOrganization = organizationLogic.values.currentOrganization
+
+            let planLevelTag = 'plan_free'
+
+            const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
+            const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
+
+            const orgCreatedAt = currentOrganization?.created_at
+            const isNewOrganization = orgCreatedAt && dayjs().diff(dayjs(orgCreatedAt), 'month') < 3
+
+            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
+
+            if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
+                planLevelTag = 'plan_enterprise'
+            } else if (isNewOrganization) {
+                planLevelTag = 'plan_onboarding'
+            } else if (hasScaleTrial) {
+                planLevelTag = 'plan_scale'
+            } else if (hasBoostTrial) {
+                planLevelTag = 'plan_boost'
+            } else if (billingPlan) {
+                switch (billingPlan) {
+                    case BillingPlan.Scale:
+                        planLevelTag = 'plan_scale'
+                        break
+                    case BillingPlan.Boost:
+                        planLevelTag = 'plan_boost'
+                        break
+                    case BillingPlan.Teams:
+                        planLevelTag = 'plan_teams_legacy'
+                        break
+                    case BillingPlan.Paid:
+                        planLevelTag = 'plan_pay-as-you-go'
+                        break
+                    case BillingPlan.Free:
+                        planLevelTag = 'plan_free'
+                        break
+                }
+            }
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
+                    tags: [planLevelTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -502,7 +597,6 @@ export const supportLogic = kea<supportLogicType>([
                             (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
                                 ? getBillingAdminLink(organizationLogic.values.currentOrganization)
                                 : '') +
-                            getSentryLink(cloudRegion, teamLogic.values.currentTeam) +
                             (cloudRegion && teamLogic.values.currentTeam
                                 ? '\nPersons-on-events mode for project: ' +
                                   (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
@@ -534,9 +628,9 @@ export const supportLogic = kea<supportLogicType>([
                             body_size: body?.length,
                         },
                     }
-                    captureException(error, {
-                        extra,
-                        contexts,
+                    posthog.captureException(error, {
+                        ...extra,
+                        ...contexts,
                     })
                     lemonToast.error(`There was an error sending the message.`)
                     return
@@ -555,20 +649,9 @@ export const supportLogic = kea<supportLogicType>([
                     zendesk_ticket_link,
                 }
                 posthog.capture('support_ticket', properties)
-                Sentry.captureMessage('User submitted Zendesk ticket', {
-                    tags: {
-                        zendesk_ticket_uuid,
-                        zendesk_ticket_link,
-                        support_request_kind: kind,
-                        support_request_area: target_area,
-                        team_id: teamLogic.values.currentTeamId,
-                    },
-                    extra: properties,
-                    level: 'log',
-                })
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
             } catch (e) {
-                captureException(e)
+                posthog.captureException(e)
                 lemonToast.error(`There was an error sending the message.`)
             }
         },
@@ -577,21 +660,11 @@ export const supportLogic = kea<supportLogicType>([
             props.onClose?.()
         },
 
-        setSendSupportRequestValue: () => {
-            actions.updateUrlParams()
-        },
-        openMaxChatInterface: async () => {
-            const panelOptions = [
-                'max-chat',
-                '', // No target area needed for Max (yet)
-                '', // No severity level needed for Max
-                'false', // Make sure we don't open the email form instead
-            ].join(':')
-
-            if (values.sidePanelAvailable) {
-                actions.setSidePanelOptions(panelOptions)
+        setSendSupportRequestValue: ({ name }) => {
+            // Only update URL params for non-text fields to prevent focus loss during typing
+            if (name !== 'message' && name !== 'name' && name !== 'email') {
+                actions.updateUrlParams()
             }
-            actions.updateUrlParams()
         },
     })),
 

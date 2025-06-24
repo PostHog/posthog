@@ -17,13 +17,16 @@ describe('Experiments', () => {
         cy.visit('/experiments')
         cy.get('[data-attr=top-bar-name]').should('contain', 'Experiments')
 
-        // Name, flag key, description
+        // click on the create experiment button
         cy.get('[data-attr=create-experiment]').first().click()
+
+        // type experiment name
         cy.get('[data-attr=experiment-name]').click().type(`${experimentName}`).should('have.value', experimentName)
-        cy.get('[data-attr=experiment-feature-flag-key]')
-            .click()
-            .type(`${featureFlagKey}`)
-            .should('have.value', featureFlagKey)
+
+        // the flag key should be set automatically when name looses focus
+        cy.get('[data-attr=experiment-feature-flag-key]').click().should('have.value', featureFlagKey)
+
+        // type description
         cy.get('[data-attr=experiment-description]')
             .click()
             .type('This is the description of the experiment')

@@ -27,10 +27,10 @@ export interface TwoFactorLogicProps {
 export const twoFactorLogic = kea<twoFactorLogicType>([
     path(['scenes', 'authentication', 'loginLogic']),
     props({} as TwoFactorLogicProps),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
         actions: [userLogic, ['loadUser'], membersLogic, ['loadAllMembers']],
-    }),
+    })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,

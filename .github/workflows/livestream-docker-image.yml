@@ -22,13 +22,13 @@ jobs:
 
         steps:
             - name: Check out livestream code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
               with:
                   sparse-checkout: 'livestream/'
                   sparse-checkout-cone-mode: false
 
             - name: Log in to the Container registry
-              uses: docker/login-action@v3
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -37,17 +37,17 @@ jobs:
 
             - name: Extract metadata (tags, labels) for Docker
               id: meta
-              uses: docker/metadata-action@v5
+              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
               with:
                   images: ghcr.io/posthog/posthog/livestream
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@v1
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
             - name: Build and push Docker image
               id: push
               if: github.ref == 'refs/heads/master'
-              uses: depot/build-push-action@v1
+              uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
               with:
                   context: ./livestream/
                   file: livestream/Dockerfile
@@ -63,13 +63,13 @@ jobs:
         steps:
             - name: get deployer token
               id: deployer
-              uses: getsentry/action-github-app-token@v3
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
               with:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
             - name: Trigger livestream deployment
-              uses: peter-evans/repository-dispatch@v3
+              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts

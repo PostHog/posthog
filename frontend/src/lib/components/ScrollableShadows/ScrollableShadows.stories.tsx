@@ -24,7 +24,7 @@ export const Horizontal = (): JSX.Element => {
             >
                 <div className="flex gap-2 items-center">
                     {Array.from({ length: 100 }).map((_, index) => (
-                        <div key={index} className="w-24 h-24 shrink-0 bg-accent-primary rounded" />
+                        <div key={index} className="w-24 h-24 shrink-0 bg-accent rounded" />
                     ))}
                 </div>
             </ScrollableShadows>
@@ -61,7 +61,7 @@ export const Vertical = (): JSX.Element => {
             >
                 <div className="flex flex-col gap-2 items-center">
                     {Array.from({ length: 100 }).map((_, index) => (
-                        <div key={index} className="w-24 h-24 shrink-0 bg-accent-primary rounded" />
+                        <div key={index} className="w-24 h-24 shrink-0 bg-accent rounded" />
                     ))}
                 </div>
             </ScrollableShadows>

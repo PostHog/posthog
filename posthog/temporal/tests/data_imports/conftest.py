@@ -1,6 +1,164 @@
+import functools
 import json
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from unittest import mock
 
+import aioboto3
 import pytest
+import pytest_asyncio
+from asgiref.sync import sync_to_async
+from django.conf import settings
+from django.test import override_settings
+from dlt.common.configuration.specs.aws_credentials import AwsCredentials
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.hogql.query import execute_hogql_query
+from posthog.schema import HogQLQueryResponse
+from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.settings import ACTIVITIES
+from posthog.temporal.utils import ExternalDataWorkflowInputs
+from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
+from posthog.warehouse.models.external_table_definitions import external_tables
+
+BUCKET_NAME = "test-pipeline"
+SESSION = aioboto3.Session()
+create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+
+@pytest_asyncio.fixture
+async def minio_client():
+    """Manage an S3 client to interact with a MinIO bucket.
+
+    Yields the client after creating a bucket. Upon resuming, we delete
+    the contents and the bucket itself.
+    """
+    async with create_test_client(
+        "s3",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ) as minio_client:
+        try:
+            await minio_client.head_bucket(Bucket=BUCKET_NAME)
+        except:
+            await minio_client.create_bucket(Bucket=BUCKET_NAME)
+
+        yield minio_client
+
+
+def _mock_to_session_credentials(class_self):
+    return {
+        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+        "aws_session_token": None,
+        "AWS_ALLOW_HTTP": "true",
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+
+def _mock_to_object_store_rs_credentials(class_self):
+    return {
+        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+        "region": "us-east-1",
+        "AWS_ALLOW_HTTP": "true",
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+
+async def run_external_data_job_workflow(
+    team,
+    external_data_source,
+    external_data_schema,
+    table_name,
+    expected_rows_synced: int | None,
+    expected_total_rows: int | None,
+    expected_columns: list[str] | None = None,
+) -> HogQLQueryResponse:
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=external_data_source.pk,
+        external_data_schema_id=external_data_schema.id,
+        billable=False,
+    )
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
+        ) as mock_trigger_compaction_job,
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
+        ) as mock_get_data_import_finished_metric,
+        mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=ACTIVITIES,  # type: ignore
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+                max_concurrent_activities=50,
+            ):
+                await activity_environment.client.execute_workflow(
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    # if not ignore_assertions:
+    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+    if expected_rows_synced is not None:
+        assert run.rows_synced == expected_rows_synced
+
+    mock_trigger_compaction_job.assert_called()
+    mock_get_data_import_finished_metric.assert_called_with(
+        source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
+    )
+
+    await external_data_schema.arefresh_from_db()
+
+    assert external_data_schema.last_synced_at == run.created_at
+
+    if expected_columns is None:
+        columns_str = "*"
+    else:
+        columns_str = ", ".join(expected_columns)
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT {columns_str} FROM {table_name}", team)
+    if expected_total_rows is not None:
+        assert len(res.results) == expected_total_rows
+    if expected_columns is not None:
+        assert set(expected_columns) == set(res.columns or [])
+
+    if table_name in external_tables:
+        table_columns = [name for name, field in external_tables.get(table_name, {}).items() if not field.hidden]
+        assert set(table_columns) == set(res.columns or [])
+
+    await external_data_schema.arefresh_from_db()
+    assert external_data_schema.sync_type_config.get("reset_pipeline") is None
+    return res
 
 
 @pytest.fixture

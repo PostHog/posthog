@@ -11,12 +11,14 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.survey import get_surveys_count, get_surveys_opt_in
+from posthog.api.error_tracking import get_suppression_rules
 from posthog.api.utils import (
     get_project_id,
     get_token,
     on_permitted_recording_domain,
 )
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
     RequestParsingError,
@@ -27,8 +29,9 @@ from posthog.geoip import get_geoip_properties
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.feature_flag import get_all_feature_flags_with_details
 from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.utils import execute_with_timeout
@@ -92,6 +95,15 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
 
+    # errors mean the database is unavailable, rely on team setting in this case
+    surveys_opt_in = get_surveys_opt_in(team)
+    if surveys_opt_in and not skip_db:
+        try:
+            with execute_with_timeout(200):
+                surveys_opt_in = get_surveys_count(team) > 0
+        except Exception:
+            pass
+
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)
 
@@ -99,7 +111,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         response["isAuthenticated"] = False
         response["toolbarParams"] = {}
         response["config"] = {"enable_collect_everything": True}
-        response["surveys"] = True if len(response["surveys"]) > 0 else False
+        response["surveys"] = surveys_opt_in
 
         # Remove some stuff that is specific to the new RemoteConfig
         del response["hasFeatureFlags"]
@@ -113,7 +125,6 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         "isAuthenticated": False,
         # gzip and gzip-js are aliases for the same compression algorithm
         "supportedCompression": ["gzip", "gzip-js"],
-        "featureFlags": [],
         "sessionRecording": False,
     }
 
@@ -135,13 +146,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     )
 
     response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
-    response["autocaptureExceptions"] = (
-        {
-            "endpoint": "/e/",
-        }
-        if team.autocapture_exceptions_opt_in
-        else False
-    )
+    response["autocaptureExceptions"] = True if team.autocapture_exceptions_opt_in else False
 
     # this not settings.DEBUG check is a lazy workaround because
     # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
@@ -168,10 +173,24 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             response["quotaLimited"] = ["recordings"]
             response["sessionRecording"] = False
 
-    response["surveys"] = True if team.surveys_opt_in else False
+    response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+
+    suppression_rules = []
+    # errors mean the database is unavailable, no-op in this case
+    if team.autocapture_exceptions_opt_in and not skip_db:
+        try:
+            with execute_with_timeout(200):
+                suppression_rules = get_suppression_rules(team)
+        except Exception:
+            pass
+
+    response["errorTracking"] = {
+        "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
+        "suppressionRules": suppression_rules,
+    }
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case
@@ -201,18 +220,19 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         # Return minimal default configuration for non-POST requests
         statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
+        empty_response = _format_feature_flags_response({}, {}, {}, False, 2)
+
+        response = {
+            "config": {"enable_collect_everything": True},
+            "toolbarParams": {},
+            "isAuthenticated": False,
+            "supportedCompression": ["gzip", "gzip-js"],
+            "sessionRecording": False,
+        }
+        response.update(empty_response)
         return cors_response(
             request,
-            JsonResponse(
-                {
-                    "config": {"enable_collect_everything": True},
-                    "toolbarParams": {},
-                    "isAuthenticated": False,
-                    "supportedCompression": ["gzip", "gzip-js"],
-                    "featureFlags": [],
-                    "sessionRecording": False,
-                }
-            ),
+            JsonResponse(response),
         )
 
     # --- 2. Parse request data and API version ---
@@ -221,9 +241,9 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         api_version_string = request.GET.get("v")
         # NOTE: This does not support semantic versioning e.g. 2.1.0
         api_version = int(api_version_string) if api_version_string else 1
+        only_evaluate_survey_feature_flags = process_bool(request.GET.get("only_evaluate_survey_feature_flags", False))
     except ValueError:
         # default value added because of bug in posthog-js 1.19.0
-        # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
         # as a tombstone if the below statsd counter hasn't seen errors for N days
         # then it is likely that no clients are running posthog-js 1.19.0
         # and this defaulting could be removed
@@ -232,6 +252,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
             tags={"endpoint": "decide", "api_version_string": api_version_string},
         )
         api_version = 2
+        only_evaluate_survey_feature_flags = False
     except UnspecifiedCompressionFallbackParsingError as error:
         # Notably don't capture this exception as it's not caused by buggy behavior,
         # it's just a fallback for when we can't parse the request due to a missing header
@@ -242,7 +263,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
         )
     except RequestParsingError as error:
-        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        capture_exception(error)  # We still capture this to identify actual potential bugs
         return cors_response(
             request,
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
@@ -300,7 +321,9 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         maybe_log_decide_data(request_body=data)
 
         # --- 5. Handle feature flags ---
-        flags_response = get_feature_flags_response_or_body(request, data, team, token, api_version)
+        flags_response = get_feature_flags_response_or_body(
+            request, data, team, token, api_version, only_evaluate_survey_feature_flags
+        )
         if isinstance(flags_response, HttpResponse):
             return flags_response
 
@@ -315,9 +338,14 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         # For remote config, we need to ensure quota limiting is reflected
         if flags_response.get("quotaLimited"):
             response["quotaLimited"] = flags_response["quotaLimited"]
-            response["featureFlags"] = {}
             response["errorsWhileComputingFlags"] = False
-            response["featureFlagPayloads"] = {}
+            # Account for versions
+            if "featureFlags" in flags_response:
+                response["featureFlags"] = flags_response["featureFlags"]
+            if "featureFlagPayloads" in flags_response:
+                response["featureFlagPayloads"] = flags_response["featureFlagPayloads"]
+            if "flags" in flags_response:
+                response["flags"] = flags_response["flags"]
         else:  # Only update flags if not quota limited
             response.update(flags_response)
         # NOTE: Whenever you add something to decide response, update this test:
@@ -344,7 +372,12 @@ def get_decide(request: HttpRequest) -> HttpResponse:
 
 
 def get_feature_flags_response_or_body(
-    request: HttpRequest, data: dict, team: Team, token: str, api_version: int
+    request: HttpRequest,
+    data: dict,
+    team: Team,
+    token: str,
+    api_version: int,
+    only_evaluate_survey_feature_flags: bool = False,
 ) -> dict | HttpResponse:
     """
     Determine feature flag response body based on various conditions.
@@ -353,11 +386,7 @@ def get_feature_flags_response_or_body(
 
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
-        return {
-            "featureFlags": {},
-            "errorsWhileComputingFlags": False,
-            "featureFlagPayloads": {},
-        }
+        return _format_feature_flags_response({}, {}, {}, False, api_version)
 
     # Check if team is quota limited for feature flags
     if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
@@ -367,12 +396,9 @@ def get_feature_flags_response_or_body(
             QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         if token in limited_tokens_flags:
-            return {
-                "quotaLimited": ["feature_flags"],
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
+            response = _format_feature_flags_response({}, {}, {}, False, api_version)
+            response["quotaLimited"] = ["feature_flags"]
+            return response
 
     # Validate distinct_id
     distinct_id = data.get("distinct_id")
@@ -400,7 +426,7 @@ def get_feature_flags_response_or_body(
     }
 
     # Compute feature flags
-    feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
+    feature_flags, _, feature_flag_payloads, errors, flags_details = get_all_feature_flags_with_details(
         team,
         distinct_id,
         data.get("groups") or {},
@@ -408,31 +434,85 @@ def get_feature_flags_response_or_body(
         property_value_overrides=all_property_overrides,
         group_property_value_overrides=(data.get("group_properties") or {}),
         flag_keys=data.get("flag_keys_to_evaluate"),
+        only_evaluate_survey_feature_flags=only_evaluate_survey_feature_flags,
     )
 
     # Record metrics and handle billing
     _record_feature_flag_metrics(team, feature_flags, errors, data)
 
     # Format response based on API version
-    return _format_feature_flags_response(feature_flags, feature_flag_payloads, errors, api_version)
+    return _format_feature_flags_response(feature_flags, feature_flag_payloads, flags_details, errors, api_version)
 
 
 def _format_feature_flags_response(
-    feature_flags: dict[str, Any], feature_flag_payloads: dict[str, Any], errors: bool, api_version: int
+    feature_flags: dict[str, Any],
+    feature_flag_payloads: dict[str, Any],
+    flags_details: Optional[dict[str, Any]],
+    errors: bool,
+    api_version: int,
 ) -> dict[str, Any]:
     """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
 
     if api_version == 2:
         return {"featureFlags": active_flags}
-    elif api_version >= 3:
+    elif api_version == 3:
         return {
             "featureFlags": feature_flags,
             "errorsWhileComputingFlags": errors,
             "featureFlagPayloads": feature_flag_payloads,
         }
+    elif api_version >= 4:
+        return {
+            "flags": _format_feature_flag_details(flags_details),
+            "errorsWhileComputingFlags": errors,
+        }
     else:  # v1
         return {"featureFlags": list(active_flags.keys())}
+
+
+def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
+    if flags_details is None:
+        return {}
+
+    flag_details = {}
+    for flag_key, flag_value in flags_details.items():
+        flag_details[flag_key] = {
+            "key": flag_key,
+            "enabled": flag_value.match.match,
+            "variant": flag_value.match.variant,
+            "reason": {
+                "code": flag_value.match.reason.value,
+                "condition_index": flag_value.match.condition_index,
+                "description": _get_reason_description(flag_value.match),
+            },
+            "metadata": {
+                "id": flag_value.id,
+                "payload": flag_value.match.payload,
+                "version": flag_value.version,
+                "description": None,
+            },
+        }
+
+    return flag_details
+
+
+def _get_reason_description(match: FeatureFlagMatch) -> str | None:
+    match match.reason.value:
+        case FeatureFlagMatchReason.CONDITION_MATCH:
+            return f"Matched condition set {(match.condition_index or 0) + 1}"
+        case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+            return "No matching condition set"
+        case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+            return "Out of rollout bound"
+        case FeatureFlagMatchReason.NO_GROUP_TYPE:
+            return "No group type"
+        case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+            return "Super condition value"
+        case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+            return "Holdout condition value"
+        case _:
+            return None
 
 
 def _record_feature_flag_metrics(
@@ -510,6 +590,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "triggerMatchType": team.session_recording_trigger_match_type_config,
                 "scriptConfig": rrweb_script_config,
             }
 

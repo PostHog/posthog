@@ -1,0 +1,20 @@
+// Accessing lib styles.
+.StoriesModal__modal {
+    min-width: 0;
+    overflow: hidden;
+    background: transparent !important;
+    border: none;
+    border-radius: 6px;
+    box-shadow: none;
+
+    // This will change the opacity of the swipe component so it's not visible until hovered
+    .stories-container [role='button'][aria-label*='swipe'] {
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+
+        &:hover {
+            opacity: 1;
+        }
+    }
+}

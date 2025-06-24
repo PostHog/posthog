@@ -1,12 +1,12 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
+    CalendarHeatmapQuery,
     CompareFilter,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -18,6 +18,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -29,6 +30,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MathType,
     Node,
     NodeKind,
     PathsQuery,
@@ -37,10 +39,17 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsInsightsQuery,
+    RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsTopCustomersQuery,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
     TracesQuery,
+    TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -48,7 +57,9 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+
+import { LATEST_VERSIONS } from './latest-versions'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -139,6 +150,30 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isRevenueAnalyticsOverviewQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsOverviewQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsInsightsQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsInsightsQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
+}
+
+export function isRevenueAnalyticsGrowthRateQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsGrowthRateQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export function isRevenueAnalyticsTopCustomersQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsTopCustomersQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
+}
+
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
@@ -173,8 +208,14 @@ export function isSessionAttributionExplorerQuery(
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
 }
 
-export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): boolean {
+export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): node is RevenueExampleEventsQuery {
     return node?.kind === NodeKind.RevenueExampleEventsQuery
+}
+
+export function isRevenueExampleDataWarehouseTablesQuery(
+    node?: Record<string, any> | null
+): node is RevenueExampleDataWarehouseTablesQuery {
+    return node?.kind === NodeKind.RevenueExampleDataWarehouseTablesQuery
 }
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
@@ -194,6 +235,10 @@ export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
 
 export function isTrendsQuery(node?: Record<string, any> | null): node is TrendsQuery {
     return node?.kind === NodeKind.TrendsQuery
+}
+
+export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
+    return node?.kind === NodeKind.CalendarHeatmapQuery
 }
 
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
@@ -221,7 +266,7 @@ export function isInsightQueryWithDisplay(node?: Record<string, any> | null): no
 }
 
 export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
-    return isTrendsQuery(node) || isFunnelsQuery(node)
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
 export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
@@ -245,6 +290,15 @@ export function isAsyncResponse(response: NonNullable<QuerySchema['response']>):
     return 'query_status' in response && response.query_status
 }
 
+export function shouldQueryBeAsync(query: Node): boolean {
+    return (
+        isInsightQueryNode(query) ||
+        isHogQLQuery(query) ||
+        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
+        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+    )
+}
+
 export function isInsightQueryWithSeries(
     node?: Node
 ): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
@@ -258,7 +312,8 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isCalendarHeatmapQuery(node)
     )
 }
 
@@ -296,16 +351,35 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
-export const getFormula = (query: InsightQueryNode): string | undefined => {
+export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
+        return (
+            query.trendsFilter?.formulaNodes?.[0]?.formula ||
+            query.trendsFilter?.formulas?.[0] ||
+            query.trendsFilter?.formula
+        )
     }
     return undefined
 }
 
-export const getFormulas = (query: InsightQueryNode): string[] | undefined => {
+export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        return (
+            query.trendsFilter?.formulaNodes?.map((node) => node.formula) ||
+            query.trendsFilter?.formulas ||
+            (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        )
+    }
+    return undefined
+}
+
+export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return (
+            query.trendsFilter?.formulaNodes ||
+            query.trendsFilter?.formulas?.map((formula) => ({ formula })) ||
+            (query.trendsFilter?.formula ? [{ formula: query.trendsFilter.formula }] : undefined)
+        )
     }
     return undefined
 }
@@ -410,6 +484,7 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {
@@ -418,7 +493,7 @@ export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty
 
 export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
     const filterProperty = nodeKindToFilterProperty[node.kind]
-    return node[filterProperty]
+    return node[filterProperty as keyof InsightQueryNode] as InsightFilter | undefined
 }
 
 export function isQuoted(identifier: string): boolean {
@@ -436,7 +511,7 @@ export function trimQuotes(identifier: string): string {
 }
 
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
-export function escapePropertyAsHogQlIdentifier(identifier: string): string {
+export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
         // Same regex as in the backend escape_hogql_identifier
         return identifier // This identifier is simple
@@ -452,13 +527,13 @@ export function taxonomicEventFilterToHogQL(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.EventProperties) {
-        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
@@ -471,7 +546,7 @@ export function taxonomicPersonFilterToHogQL(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
@@ -479,7 +554,20 @@ export function taxonomicPersonFilterToHogQL(
     return null
 }
 
-export function isHogQlAggregation(hogQl: string): boolean {
+export function taxonomicGroupFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
+export function isHogQLAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||
         hogQl.includes('any(') ||
@@ -490,36 +578,60 @@ export function isHogQlAggregation(hogQl: string): boolean {
     )
 }
 
+declare const __hogqlBrand: unique symbol
+export type HogQLQueryString = string & { readonly [__hogqlBrand]: void }
+
 export interface HogQLIdentifier {
     __hogql_identifier: true
     identifier: string
 }
 
-function hogQlIdentifier(identifier: string): HogQLIdentifier {
+function hogQLIdentifier(identifier: string): HogQLIdentifier {
     return {
         __hogql_identifier: true,
         identifier,
     }
 }
 
-function isHogQlIdentifier(value: any): value is HogQLIdentifier {
+function isHogQLIdentifier(value: any): value is HogQLIdentifier {
     return !!value?.__hogql_identifier
 }
 
-function formatHogQlValue(value: any): string {
+export interface HogQLRaw {
+    __hogql_raw: true
+    raw: string
+}
+
+function hogQLRaw(raw: string): HogQLRaw {
+    return {
+        __hogql_raw: true,
+        raw,
+    }
+}
+
+function isHogQLRaw(value: any): value is HogQLRaw {
+    return !!value?.__hogql_raw
+}
+
+function formatHogQLValue(value: any): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { teamLogic } = require('scenes/teamLogic')
+
     if (Array.isArray(value)) {
-        return `[${value.map(formatHogQlValue).join(', ')}]`
+        return `[${value.map(formatHogQLValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {
         return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
-    } else if (isHogQlIdentifier(value)) {
-        return escapePropertyAsHogQlIdentifier(value.identifier)
+    } else if (isHogQLIdentifier(value)) {
+        return escapePropertyAsHogQLIdentifier(value.identifier)
+    } else if (isHogQLRaw(value)) {
+        return value.raw
     } else if (typeof value === 'string') {
         return `'${value}'`
     } else if (typeof value === 'number') {
         return String(value)
     } else if (value === null) {
         throw new Error(
-            `null cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
+            `null cannot be interpolated for SQL. if a null check is needed, make 'IS NULL' part of your query`
         )
     } else {
         throw new Error(`Unsupported interpolated value type: ${typeof value}`)
@@ -530,10 +642,14 @@ function formatHogQlValue(value: any): string {
  * Template tag for HogQL formatting. Handles formatting of values for you.
  * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
  */
-export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
-    return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
+export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQueryString {
+    return strings.reduce(
+        (acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQLValue(values[i]) : ''),
+        ''
+    ) as unknown as HogQLQueryString
 }
-hogql.identifier = hogQlIdentifier
+hogql.identifier = hogQLIdentifier
+hogql.raw = hogQLRaw
 
 /**
  * Wether we have a valid `breakdownFilter` or not.
@@ -548,4 +664,69 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
 
 export function isValidQueryForExperiment(query: Node): boolean {
     return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+}
+
+export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
+    return node?.kind === NodeKind.GroupsQuery
+}
+
+export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+
+/**
+ * Determines if a math type should display a warning based on the trends query interval and display category
+ */
+export function getMathTypeWarning(
+    key: MathType,
+    query: Record<string, any>,
+    isTotalValue: boolean
+): null | 'total' | 'monthly' | 'weekly' {
+    let warning: null | 'total' | 'monthly' | 'weekly' = null
+
+    if (isInsightVizNode(query) && isTrendsQuery(query.source) && TRAILING_MATH_TYPES.has(key)) {
+        const trendsQuery = query.source
+        const interval = trendsQuery?.interval || 'day'
+        const isWeekOrLongerInterval = interval === 'week' || interval === 'month'
+        const isMonthOrLongerInterval = interval === 'month'
+
+        if (key === BaseMathType.MonthlyActiveUsers && isMonthOrLongerInterval) {
+            warning = 'monthly'
+        } else if (key === BaseMathType.WeeklyActiveUsers && isWeekOrLongerInterval) {
+            warning = 'weekly'
+        } else if (isTotalValue) {
+            warning = 'total'
+        }
+    }
+
+    return warning
+}
+
+/**
+ * **Needs to be used on all hardcoded queries.**
+ *
+ * Recursively adds the latest version for the respective kind to each node. This
+ * is necessary so that schema migrations don't run on hardcoded queries that
+ * are already the latest version. */
+export function getFreshQuery<T = any>(node: T): T {
+    if (node === null || typeof node !== 'object') {
+        return node
+    }
+
+    if (Array.isArray(node)) {
+        return (node as unknown as any[]).map(getFreshQuery) as unknown as T
+    }
+
+    const cloned: Record<string, any> = { ...(node as any) }
+
+    if ('kind' in cloned) {
+        const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
+        cloned.version = latest || 1
+    }
+
+    for (const [key, value] of Object.entries(cloned)) {
+        if (value !== null && typeof value === 'object') {
+            cloned[key] = getFreshQuery(value)
+        }
+    }
+
+    return cloned as T
 }

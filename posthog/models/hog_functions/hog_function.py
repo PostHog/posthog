@@ -1,8 +1,9 @@
 import enum
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
+from django.db.models import QuerySet
 from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
 import structlog
@@ -10,6 +11,7 @@ import structlog
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
@@ -20,6 +22,10 @@ from posthog.plugins.plugin_server_api import (
     reload_hog_functions_on_workers,
 )
 from posthog.utils import absolute_uri
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
 
@@ -38,6 +44,7 @@ class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
     INTERNAL_DESTINATION = "internal_destination"
+    SOURCE_WEBHOOK = "source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
 
@@ -46,13 +53,18 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
+    HogFunctionType.SOURCE_WEBHOOK,
 )
-TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION, HogFunctionType.INTERNAL_DESTINATION)
+TYPES_WITH_COMPILED_FILTERS = (
+    HogFunctionType.DESTINATION,
+    HogFunctionType.INTERNAL_DESTINATION,
+    HogFunctionType.TRANSFORMATION,
+)
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 
-class HogFunction(UUIDModel):
+class HogFunction(FileSystemSyncMixin, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
@@ -67,6 +79,9 @@ class HogFunction(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
     type = models.CharField(max_length=24, null=True, blank=True)
+
+    # DEPRECATED: This was an idea that is no longer used
+    kind = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
 
@@ -85,7 +100,47 @@ class HogFunction(UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    hog_function_template = models.ForeignKey(
+        "posthog.HogFunctionTemplate",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hog_functions",
+    )
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
+        base_qs = HogFunction.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog_function/", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        folder = "Unfiled/Destinations"
+        href = f"/pipeline/destinations/hog-{self.pk}/configuration"
+        type = self.type
+
+        if self.type == HogFunctionType.SITE_APP:
+            folder = "Unfiled/Site apps"
+            href = f"/pipeline/site-apps/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.TRANSFORMATION:
+            folder = "Unfiled/Transformations"
+            href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.SOURCE_WEBHOOK:
+            folder = "Unfiled/Sources"
+            href = f"/functions/{self.pk}/configuration"
+
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder(folder),
+            type=f"hog_function/{type}",  # sync with APIScopeObject in scopes.py
+            ref=str(self.pk),
+            name=self.name or "Untitled",
+            href=href,
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:

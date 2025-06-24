@@ -1,4 +1,5 @@
 import asyncio
+import collections.abc
 import dataclasses
 import datetime as dt
 import json
@@ -228,9 +229,10 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
                 await sync_to_async(unpause_batch_export)(client, inputs.schedule_id)
                 return
 
+            assert isinstance(description.schedule.action, temporalio.client.ScheduleActionStartWorkflow)
             schedule_action: temporalio.client.ScheduleActionStartWorkflow = description.schedule.action
 
-            search_attributes = [
+            search_attributes: collections.abc.Sequence[temporalio.common.SearchAttributePair[typing.Any]] = [
                 temporalio.common.SearchAttributePair(
                     key=temporalio.common.SearchAttributeKey.for_text("TemporalScheduledById"), value=description.id
                 ),

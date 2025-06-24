@@ -1,15 +1,11 @@
-import { LemonButton, LemonButtonProps, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { Dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { ReactNode, useEffect } from 'react'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
-import { urls } from 'scenes/urls'
+import { ReactNode } from 'react'
 
-import { EventType, MatchedRecording } from '~/types'
+import { MatchedRecording } from '~/types'
 
-import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
+import ViewRecordingTrigger from './ViewRecordingTrigger'
 
 export default function ViewRecordingButton({
     sessionId,
@@ -19,7 +15,7 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason'> & {
+}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason' | 'loading'> & {
     sessionId: string | undefined
     timestamp?: string | Dayjs
     // whether to open in a modal or navigate to the replay page
@@ -28,58 +24,36 @@ export default function ViewRecordingButton({
     label?: ReactNode
     matchingEvents?: MatchedRecording[]
 }): JSX.Element {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const { recordingViewed, recordingViewedLoading } = useValues(
-        sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
-    )
-    const { loadRecordingViewed, userClickedThrough } = useActions(
-        sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
-    )
-
-    useEffect(() => {
-        if (checkIfViewed && loadRecordingViewed) {
-            loadRecordingViewed()
-        }
-    }, [checkIfViewed, loadRecordingViewed])
-
-    let maybeUnwatchedIndicator = null
-    if (checkIfViewed) {
-        if (recordingViewedLoading) {
-            maybeUnwatchedIndicator = <Spinner />
-        } else if (!recordingViewed?.viewed) {
-            maybeUnwatchedIndicator = <UnwatchedIndicator otherViewersCount={recordingViewed?.otherViewers || 0} />
-        }
-    }
-
     return (
-        <LemonButton
-            disabledReason={sessionId ? undefined : 'No session ID provided'}
-            to={inModal ? undefined : urls.replaySingle(sessionId ?? '')}
-            onClick={() => {
-                userClickedThrough()
-                if (inModal) {
-                    const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
-                    openSessionPlayer(
-                        { id: sessionId ?? '', matching_events: matchingEvents ?? undefined },
-                        Math.max(fiveSecondsBeforeEvent, 0)
-                    )
-                }
-            }}
-            sideIcon={<IconPlayCircle />}
-            {...props}
+        <ViewRecordingTrigger
+            sessionId={sessionId}
+            timestamp={timestamp}
+            inModal={inModal}
+            checkIfViewed={checkIfViewed}
+            matchingEvents={matchingEvents}
         >
-            <div className="flex items-center gap-2">
-                <span>{label ? label : 'View recording'}</span>
-                {maybeUnwatchedIndicator}
-            </div>
-        </LemonButton>
+            {(onClick, link, disabledReason, maybeUnwatchedIndicator) => (
+                <LemonButton
+                    disabledReason={disabledReason}
+                    to={link}
+                    onClick={onClick}
+                    sideIcon={<IconPlayCircle />}
+                    {...props}
+                >
+                    <div className="flex items-center gap-2">
+                        <span>{label ? label : 'View recording'}</span>
+                        {maybeUnwatchedIndicator}
+                    </div>
+                </LemonButton>
+            )}
+        </ViewRecordingTrigger>
     )
 }
 
-export const mightHaveRecording = (properties: EventType['properties']): boolean => {
+export const mightHaveRecording = (properties: { $session_id?: string; $recording_status?: string }): boolean => {
     return properties.$session_id
         ? properties.$recording_status
-            ? properties.$recording_status === 'active'
+            ? ['active', 'sampled'].includes(properties.$recording_status)
             : true
         : false
 }

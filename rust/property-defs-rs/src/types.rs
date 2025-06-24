@@ -169,7 +169,7 @@ pub struct Event {
 impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
         EventDefinition {
-            name: sanitize_event_name(&event.event),
+            name: sanitize_string(&event.event),
             team_id: event.team_id,
             project_id: event.project_id,
             last_seen_at: get_floored_last_seen(),
@@ -288,7 +288,7 @@ impl Event {
             updates.push(Update::EventProperty(EventProperty {
                 team_id: self.team_id,
                 project_id: self.project_id,
-                event: self.event.clone(),
+                event: sanitize_string(&self.event),
                 property: key.clone(),
             }));
 
@@ -363,17 +363,11 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
                 Some(PropertyValueType::String)
             }
         }
-        Value::Number(n) => {
-            // this is a more rigorous threshold to ensure we don't misclassify
-            // larger numerical values easily. It mimics (roughly) the old TS service
-            // classification but still may be too aggressive. TBD
-            if is_likely_unix_timestamp(n) {
-                Some(PropertyValueType::DateTime)
-            } else {
-                Some(PropertyValueType::Numeric)
-            }
-        }
+
+        Value::Number(_) => Some(PropertyValueType::Numeric),
+
         Value::Bool(_) => Some(PropertyValueType::Boolean),
+
         _ => None,
     }
 }
@@ -416,10 +410,6 @@ fn is_likely_unix_timestamp(n: &serde_json::Number) -> bool {
     }
 
     false
-}
-
-fn sanitize_event_name(event_name: &str) -> String {
-    event_name.replace('\u{0000}', "\u{FFFD}")
 }
 
 // These hash impls correspond to DB uniqueness constraints, pulled from the TS
@@ -479,7 +469,7 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // Postgres doesn't like nulls in strings, so we replace them with uFFFD.
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
-pub fn sanitize_string(s: String) -> String {
+pub fn sanitize_string(s: &str) -> String {
     s.replace('\u{0000}', "\u{FFFD}")
 }
 

@@ -125,3 +125,83 @@ class TestBillingManager(BaseTest):
             {"email": "y2@x.com", "distinct_id": y2.distinct_id, "role": 8},
             {"email": "y3@x.com", "distinct_id": y3.distinct_id, "role": 15},
         ]
+
+    @patch("posthoganalytics.capture")
+    def test_update_org_details_preserves_quota_limits(self, patch_capture):
+        organization = self.organization
+        organization.usage = {
+            "events": {
+                "usage": 90,
+                "limit": 1000,
+                "todays_usage": 10,
+                "quota_limited_until": 1612137599,
+            },
+            "exceptions": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "recordings": {
+                "usage": 15,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
+            "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
+            "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+        }
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 90, "limit": 1000},
+                    "exceptions": {"usage": 10, "limit": 100},
+                    "recordings": {"usage": 15, "limit": 100},
+                    "rows_synced": {"usage": 45, "limit": 500},
+                    "feature_flag_requests": {"usage": 25, "limit": 300},
+                    "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
+                },
+                "billing_period": {
+                    "current_period_start": "2024-01-01T00:00:00Z",
+                    "current_period_end": "2024-01-31T23:59:59Z",
+                },
+            }
+        }
+
+        BillingManager(license).update_org_details(organization, billing_status)
+        organization.refresh_from_db()
+
+        assert organization.usage == {
+            "events": {
+                "usage": 90,
+                "limit": 1000,
+                "todays_usage": 10,
+                "quota_limited_until": 1612137599,
+            },
+            "exceptions": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "recordings": {
+                "usage": 15,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
+            "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+            "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
+        }

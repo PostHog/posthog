@@ -38,6 +38,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
     creation_context = serializers.SerializerMethodField()
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Action
@@ -59,6 +60,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "bytecode_error",
             "pinned_at",
             "creation_context",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "team_id",

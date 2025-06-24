@@ -84,6 +84,40 @@ describe('insightVizDataLogic', () => {
                 samplingFactor: 0.1,
             })
         })
+
+        it('handles funnel step range side effects', () => {
+            const querySource = {
+                ...funnelsQueryDefault,
+                series: [funnelsQueryDefault.series[0], funnelsQueryDefault.series[0], funnelsQueryDefault.series[0]],
+                funnelsFilter: {
+                    funnelVizType: 'trends',
+                    funnelFromStep: 0,
+                    funnelToStep: 2,
+                },
+            } as FunnelsQuery
+            builtInsightVizDataLogic.actions.updateQuerySource(querySource)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    ...querySource,
+                    series: querySource.series.slice(0, 2),
+                } as FunnelsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...querySource,
+                        series: querySource.series.slice(0, 2),
+                        funnelsFilter: {
+                            funnelVizType: 'trends',
+                            funnelFromStep: 0,
+                            funnelToStep: 1,
+                        },
+                        trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                    },
+                },
+            })
+        })
     })
 
     describe('updateDateRange', () => {
@@ -453,6 +487,125 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({
                 validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
             })
+        })
+    })
+
+    describe('isSingleSeries', () => {
+        it('returns true for single series without breakdown', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: true })
+        })
+
+        it('returns false for multiple series without formula', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: false })
+        })
+
+        it('returns true for multiple series with single formula', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        formula: 'A + B',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: true })
+        })
+
+        it('returns true for multiple series with single formula in formulas array', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        formulas: ['A + B'],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: true })
+        })
+
+        it('returns false for multiple series with multiple formulas', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        formulas: ['A + B', 'A - B'],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: false })
+        })
+
+        it('returns false for single series with breakdown', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: false })
         })
     })
 })

@@ -1,4 +1,6 @@
+import { IconExternal } from '@posthog/icons'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -6,6 +8,7 @@ import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -34,6 +37,8 @@ import {
     getDisplay,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    isDataTableNode,
+    isDataVisualizationNode,
     isFunnelsQuery,
     isHogQuery,
     isInsightQueryWithBreakdown,
@@ -138,7 +143,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         activeView: [
             (s) => [s.query],
             (query) => {
-                if (containsHogQLQuery(query)) {
+                if (isDataTableNode(query)) {
+                    return InsightType.JSON
+                } else if (containsHogQLQuery(query)) {
                     return InsightType.SQL
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
@@ -183,10 +190,23 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-lifecycle-tab',
                     },
                     {
-                        label: 'SQL',
+                        label: (
+                            <>
+                                SQL <IconExternal />
+                            </>
+                        ),
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
+                    ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+                        ? [
+                              {
+                                  label: 'Calendar Heatmap',
+                                  type: InsightType.CALENDAR_HEATMAP,
+                                  dataAttr: 'insight-calendar-heatmap-tab',
+                              },
+                          ]
+                        : []),
                 ]
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
@@ -227,7 +247,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         setActiveView: ({ view }) => {
             const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
-            if (isInsightVizNode(query)) {
+            if (isDataVisualizationNode(query)) {
+                router.actions.push(urls.sqlEditor(query.source.query))
+            } else if (isInsightVizNode(query)) {
                 actions.setQuery({
                     ...query,
                     source: values.queryPropertyCache
@@ -359,6 +381,13 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                     ...cache.breakdownFilter,
                     breakdowns: undefined,
                 }
+            }
+        }
+
+        if (isRetentionQuery(query) && cache.breakdownFilter?.breakdowns) {
+            mergedQuery.breakdownFilter = {
+                ...query.breakdownFilter,
+                breakdowns: cache.breakdownFilter.breakdowns.filter((b) => b.type === 'person' || b.type === 'event'),
             }
         }
     }

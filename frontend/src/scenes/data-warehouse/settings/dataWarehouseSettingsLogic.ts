@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -27,6 +27,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         abortAnyRunningQuery: true,
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
@@ -119,12 +120,31 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }),
             },
         ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
                 return dataWarehouseTables.filter((table) => !table.source)
+            },
+        ],
+        filteredSelfManagedTables: [
+            (s) => [s.selfManagedTables, s.searchTerm],
+            (
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                searchTerm: string
+            ): DatabaseSchemaDataWarehouseTable[] => {
+                if (!searchTerm?.trim()) {
+                    return selfManagedTables
+                }
+                const normalizedSearch = searchTerm.toLowerCase()
+                return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
             },
         ],
     }),
@@ -162,7 +182,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 if (n.should_sync) {
                     return {
                         ...n,
-                        status: 'Running',
+                        status: ExternalDataSchemaStatus.Running,
                     }
                 }
 

@@ -249,6 +249,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         '_toInt64',
         'toFloat',
         'toDecimal',
+        '_toDate',
         'toDate',
         'toDateTime',
         'toUUID',
@@ -780,6 +781,8 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'maxIntersectionsIf',
         'maxIntersectionsPosition',
         'maxIntersectionsPositionIf',
+        'getSurveyResponse',
+        'windowFunnel',
     ],
     builtinVariables: [],
     tokenizer: {

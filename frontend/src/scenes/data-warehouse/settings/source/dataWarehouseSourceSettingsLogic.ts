@@ -6,8 +6,9 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 import { getErrorsForFields, SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { ExternalDataJob, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
 export interface DataWarehouseSourceSettingsLogicProps {
@@ -24,6 +25,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
+        deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
@@ -134,6 +136,29 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     ...values.source?.job_inputs,
                     ...payload,
                 }
+
+                // Handle file uploads
+                const sourceFieldConfig = values.sourceFieldConfig
+                if (sourceFieldConfig?.fields) {
+                    for (const field of sourceFieldConfig.fields) {
+                        if (field.type === 'file-upload' && payload[field.name]) {
+                            try {
+                                // Assumes we're loading a JSON file
+                                const loadedFile: string = await new Promise((resolve, reject) => {
+                                    const fileReader = new FileReader()
+                                    fileReader.onload = (e) => resolve(e.target?.result as string)
+                                    fileReader.onerror = (e) => reject(e)
+                                    fileReader.readAsText(payload[field.name][0])
+                                })
+                                newJobInputs[field.name] = JSON.parse(loadedFile)
+                            } catch {
+                                lemonToast.error('File is not valid')
+                                return
+                            }
+                        }
+                    }
+                }
+
                 try {
                     const updatedSource = await api.externalDataSources.update(values.sourceId, {
                         job_inputs: newJobInputs,
@@ -150,13 +175,19 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         },
     })),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
         loadSourceSuccess: () => {
             clearTimeout(cache.sourceRefreshTimeout)
 
             cache.sourceRefreshTimeout = setTimeout(() => {
                 actions.loadSource()
             }, REFRESH_INTERVAL)
+
+            dataWarehouseSourceSceneLogic
+                .findMounted({
+                    id: `managed-${props.id}`,
+                })
+                ?.actions.setBreadcrumbName(values.source?.source_type ?? 'Source')
         },
         loadSourceFailure: () => {
             clearTimeout(cache.sourceRefreshTimeout)
@@ -184,7 +215,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
-            clonedSource.schemas[schemaIndex].status = 'Running'
+            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
 
@@ -205,7 +236,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
-            clonedSource.schemas[schemaIndex].status = 'Running'
+            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
 
@@ -218,6 +249,32 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     lemonToast.error(e.message)
                 } else {
                     lemonToast.error('Cant refresh schema at this time')
+                }
+            }
+        },
+        deleteTable: async ({ schema }) => {
+            // Optimistic UI updates before sending updates to the backend
+            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+            const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+            if (schemaIndex === -1) {
+                lemonToast.error('Schema not found')
+                return
+            }
+            clonedSource.schemas[schemaIndex].table = undefined
+            clonedSource.schemas[schemaIndex].status = undefined
+            clonedSource.schemas[schemaIndex].last_synced_at = undefined
+            actions.loadSourceSuccess(clonedSource)
+
+            try {
+                await api.externalDataSchemas.delete_data(schema.id)
+
+                posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
+                lemonToast.success(`Data for ${schema.name} has been deleted`)
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error("Can't delete data at this time")
                 }
             }
         },

@@ -1,10 +1,10 @@
+use crate::flags::flag_request::FlagRequestType;
 use anyhow::Result;
+use common_redis::{Client as RedisClient, CustomRedisError};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::client::redis::{Client as RedisClient, CustomRedisError};
-use crate::flags::flag_request::FlagRequestType;
-
+pub const SURVEY_TARGETING_FLAG_PREFIX: &str = "survey-targeting-";
 const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
 
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {
@@ -58,6 +58,13 @@ mod tests {
         let team_id = 789;
         let count = 5;
 
+        let decide_key = get_team_request_key(team_id, FlagRequestType::Decide);
+        let local_eval_key = get_team_request_key(team_id, FlagRequestType::LocalEvaluation);
+
+        // Clean up Redis before the test to ensure no leftover data
+        redis_client.del(decide_key.clone()).await.unwrap();
+        redis_client.del(local_eval_key.clone()).await.unwrap();
+
         // Test for Decide request type
         increment_request_count(
             redis_client.clone(),
@@ -77,9 +84,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        let decide_key = get_team_request_key(team_id, FlagRequestType::Decide);
-        let local_eval_key = get_team_request_key(team_id, FlagRequestType::LocalEvaluation);
 
         // Get the current time bucket
         let time_bucket = SystemTime::now()

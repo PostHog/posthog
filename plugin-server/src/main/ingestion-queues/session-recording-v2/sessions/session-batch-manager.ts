@@ -1,4 +1,4 @@
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -18,6 +18,8 @@ export interface SessionBatchManagerConfig {
     metadataStore: SessionMetadataStore
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
+    /** Optional switchover date for v2 metadata logic */
+    metadataSwitchoverDate: Date | null
 }
 
 /**
@@ -63,6 +65,7 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
+    private readonly metadataSwitchoverDate: Date | null
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -71,11 +74,13 @@ export class SessionBatchManager {
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
+        this.metadataSwitchoverDate = config.metadataSwitchoverDate
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
-            this.consoleLogStore
+            this.consoleLogStore,
+            this.metadataSwitchoverDate
         )
         this.lastFlushTime = Date.now()
     }
@@ -91,13 +96,14 @@ export class SessionBatchManager {
      * Flushes the current batch and replaces it with a new one
      */
     public async flush(): Promise<void> {
-        status.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
+        logger.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
         await this.currentBatch.flush()
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
-            this.consoleLogStore
+            this.consoleLogStore,
+            this.metadataSwitchoverDate
         )
         this.lastFlushTime = Date.now()
     }
@@ -114,7 +120,7 @@ export class SessionBatchManager {
     }
 
     public discardPartitions(partitions: number[]): void {
-        status.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
+        logger.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
         for (const partition of partitions) {
             this.currentBatch.discardPartition(partition)
         }

@@ -881,3 +881,57 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results[0].events), 2)
         self.assertEqual(response.results[0].events[0].event, "$ai_metric")
         self.assertEqual(response.results[0].events[1].event, "$ai_feedback")
+
+    def test_aggregates_full_trace_events_with_property_filters(self):
+        trace_id = str(uuid.uuid4())
+
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={
+                "$ai_input_tokens": 1,
+                "hay": "needle",
+            },
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={
+                "$ai_input_tokens": 1,
+            },
+        )
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            input_state={},
+            output_state={},
+            trace_name="runnable",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 3),
+            distinct_id="person1",
+        )
+
+        # Should return total latency of 2
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].inputTokens, 2)
+
+        # With a property filter, should also return total latency of 2
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+                properties=[EventPropertyFilter(key="hay", value="needle", operator=PropertyOperator.EXACT)],
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].inputTokens, 2)

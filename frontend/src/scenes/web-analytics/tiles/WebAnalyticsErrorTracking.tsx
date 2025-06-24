@@ -1,8 +1,12 @@
 import clsx from 'clsx'
+import { useActions } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyLargeNumber } from 'lib/utils'
+import { ProductIntentContext } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -10,6 +14,7 @@ import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
+import { ProductKey } from '~/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
@@ -22,7 +27,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="deprecated-space-x-1">
-                            <TZLabel time={record.last_seen as string} className="border-dotted border-b" />
+                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
                         </div>
                     </div>
                 }
@@ -31,6 +36,12 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             />
         </div>
     )
+}
+
+const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
+    const aggregations = (record as ErrorTrackingIssue).aggregations!
+    const count = aggregations[columnName as 'occurrences' | 'users']
+    return <span className="text-lg font-medium">{humanFriendlyLargeNumber(count)}</span>
 }
 
 const context: QueryContext = {
@@ -44,9 +55,11 @@ const context: QueryContext = {
         },
         users: {
             align: 'right',
+            render: CountColumn,
         },
         occurrences: {
             align: 'right',
+            render: CountColumn,
         },
     },
 }
@@ -54,6 +67,7 @@ const context: QueryContext = {
 export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTile }): JSX.Element => {
     const { layout, query } = tile
     const to = urls.errorTracking()
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     return (
         <div
@@ -70,7 +84,19 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
                 <Query query={query} embedded={true} context={context} />
             </div>
             <div className="flex flex-row-reverse my-2">
-                <LemonButton to={to} icon={<IconOpenInNew />} size="small" type="secondary">
+                <LemonButton
+                    to={to}
+                    icon={<IconOpenInNew />}
+                    onClick={() => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.WEB_ANALYTICS,
+                            to: ProductKey.ERROR_TRACKING,
+                            intent_context: ProductIntentContext.WEB_ANALYTICS_ERRORS,
+                        })
+                    }}
+                    size="small"
+                    type="secondary"
+                >
                     View all
                 </LemonButton>
             </div>

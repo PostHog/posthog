@@ -1,0 +1,80 @@
+{
+    let r := [1, 2, {'d': (1, 3, 42, 6)}]
+    print(r.3.d.2)
+}
+{
+    let r := [1, 2, {'d': (1, 3, 42, 6)}]
+    print(r[3].d[3])
+}
+{
+    let r := [1, 2, {'d': (1, 3, 42, 6)}]
+    print(r.3['d'][4])
+}
+{
+    let r := {'d': (1, 3, 42, 6)}
+    print(r.d.2)
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}]
+    r.3.d.3 := 3
+    print(r.3.d.3)
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}]
+    r[3].d[3] := 3
+    print(r[3].d[3])
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}]
+    r[3].c := [666]
+    print(r[3])
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}]
+    r[3].d[3] := 3
+    print(r[3].d)
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}]
+    r.3['d'] := ['a', 'b', 'c', 'd']
+    print(r[3].d[3])
+}
+{
+    let r := [1, 2, {'d': [1, 3, 42, 3]}]
+    let g := 'd'
+    r.3[g] := ['a', 'b', 'c', 'd']
+    print(r[3].d[3])
+}
+{
+    let event := {
+        'event': '$pageview',
+        'properties': {
+            '$browser': 'Chrome',
+            '$os': 'Windows'
+        }
+    }
+    event['properties']['$browser'] := 'Firefox'
+    print(event)
+}
+{
+    let event := {
+        'event': '$pageview',
+        'properties': {
+            '$browser': 'Chrome',
+            '$os': 'Windows'
+        }
+    }
+    event.properties.$browser := 'Firefox'
+    print(event)
+}
+{
+    let event := {
+        'event': '$pageview',
+        'properties': {
+            '$browser': 'Chrome',
+            '$os': 'Windows'
+        }
+    }
+    let config := {}
+    print(event)
+}

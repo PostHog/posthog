@@ -24,12 +24,17 @@ export function TaxonomicBreakdownButton({
         <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
             <LemonButton
                 type="secondary"
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
+                icon={<IconPlusSmall />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
                 disabledReason={disabledReason}
                 size={size}
+                tooltipDocLink={
+                    taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                        ? 'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'
+                        : 'https://posthog.com/docs/product-analytics/trends/breakdowns'
+                }
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                     ? 'Add cohort'

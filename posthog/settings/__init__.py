@@ -31,9 +31,9 @@ from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
+from posthog.settings.messaging import *
 from posthog.settings.metrics import *
 from posthog.settings.schedules import *
-from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
@@ -42,6 +42,7 @@ from posthog.settings.temporal import *
 from posthog.settings.web import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.session_replay import *
+from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
 from posthog.settings.pagerduty import *
 
@@ -106,10 +107,9 @@ AUTO_LOGIN: bool = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 
-PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
+OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 
-IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
-IN_EVAL_TESTING: bool = get_from_env("DEEPEVAL", False, type_cast=str_to_bool)
+PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 

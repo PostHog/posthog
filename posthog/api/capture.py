@@ -3,14 +3,13 @@ import json
 import re
 from random import random
 
-import sentry_sdk
 import structlog
 import time
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from dateutil import parser
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
@@ -18,13 +17,14 @@ from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
-from sentry_sdk import configure_scope, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
+import posthoganalytics
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
+from posthog.api.csp import process_csp_report
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
@@ -34,6 +34,7 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+    KAFKA_EXCEPTIONS_INGESTION,
 )
 from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
@@ -169,9 +170,9 @@ def get_tokens_to_drop() -> set[str]:
 
     if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
         TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
-        if settings.DROPPED_KEYS:
-            # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
-            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROPPED_KEYS.split(";"))
+        if settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID:
+            # DROP_EVENTS_BY_TOKEN_DISTINCT_ID is a comma separated list of <team_id:distinct_id> pairs where the distinct_id is optional
+            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(","))
 
     return TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
@@ -192,16 +193,21 @@ def build_kafka_event_data(
     token: str,
 ) -> dict:
     logger.debug("build_kafka_event_data", token=token)
-    return {
+    res = {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
         "ip": safe_clickhouse_string(ip) if ip else ip,
         "site_url": safe_clickhouse_string(site_url),
         "data": json.dumps(data),
         "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
         "token": token,
     }
+
+    # Equivalent to rust captures "skip_serialising_if = Option::is_none"
+    if sent_at:
+        res["sent_at"] = sent_at.isoformat()
+
+    return res
 
 
 def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = False) -> str:
@@ -216,6 +222,8 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             if overflowing:
                 return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case "$exception":
+            return KAFKA_EXCEPTIONS_INGESTION
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
             # historical data topic.
@@ -259,7 +267,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
         timestamp_number = int(timestamp)
         KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
 
-    return datetime.fromtimestamp(timestamp_number, timezone.utc)
+    return datetime.fromtimestamp(timestamp_number, UTC)
 
 
 def _get_retry_count(request) -> int | None:
@@ -343,6 +351,16 @@ def get_distinct_id(data: dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
+def enforce_numeric_offset(properties: dict[str, Any]):
+    try:
+        raw_offset = properties["offset"]
+    except KeyError:
+        return
+
+    if not isinstance(raw_offset, int):
+        raise ValueError(f'Event field "offset" must be numeric, received {type(properties["offset"]).__name__}!')
+
+
 def drop_performance_events(events: list[Any]) -> list[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
     return cleaned_list
@@ -352,12 +370,13 @@ def drop_performance_events(events: list[Any]) -> list[Any]:
 class EventsOverQuotaResult:
     events: list[Any]
     events_were_limited: bool
+    exceptions_were_limited: bool
     recordings_were_limited: bool
 
 
 def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResult:
     if not settings.EE_AVAILABLE:
-        return EventsOverQuotaResult(events, False, False)
+        return EventsOverQuotaResult(events, False, False, False)
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
@@ -365,11 +384,15 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     limited_tokens_events = list_limited_team_attributes(
         QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
+    limited_tokens_exceptions = list_limited_team_attributes(
+        QuotaResource.EXCEPTIONS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
     limited_tokens_recordings = list_limited_team_attributes(
         QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
     recordings_were_limited = False
+    exceptions_were_limited = False
     events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
@@ -378,6 +401,14 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     recordings_were_limited = True
+                    continue
+
+        elif event.get("event") == "$exception":
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="exceptions").inc()
+            if token in limited_tokens_exceptions:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="exceptions", token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    exceptions_were_limited = True
                     continue
 
         else:
@@ -391,7 +422,10 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
         results.append(event)
 
     return EventsOverQuotaResult(
-        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
+        results,
+        events_were_limited=events_were_limited,
+        exceptions_were_limited=exceptions_were_limited,
+        recordings_were_limited=recordings_were_limited,
     )
 
 
@@ -401,8 +435,38 @@ def lib_version_from_query_params(request) -> str:
 
 
 @csrf_exempt
+@timed("posthog_cloud_csp_event_endpoint")
+def get_csp_event(request):
+    # we want to handle this as early as possible and avoid any processing
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
+
+    debug_enabled = request.GET.get("debug", "").lower() == "true"
+    if debug_enabled:
+        logger.exception(
+            "CSP debug request",
+            error=ValueError("CSP debug request"),
+            method=request.method,
+            url=request.build_absolute_uri(),
+            content_type=request.content_type,
+            headers=dict(request.headers),
+            query_params=dict(request.GET),
+            body_size=len(request.body) if request.body else 0,
+            body=request.body.decode("utf-8", errors="ignore") if request.body else None,
+        )
+
+    csp_report, error_response = process_csp_report(request)
+
+    if error_response:
+        return error_response
+
+    # Explicit mark for get_event pipeline to handle CSP reports on this flow
+    return get_event(request, csp_report=csp_report)
+
+
+@csrf_exempt
 @timed("posthog_cloud_event_endpoint")
-def get_event(request):
+def get_event(request, csp_report: dict[str, Any] | None = None):
     structlog.contextvars.unbind_contextvars("team_id")
 
     # handle cors request
@@ -411,7 +475,12 @@ def get_event(request):
 
     now = timezone.now()
 
-    data, error_response = get_data(request)
+    error_response = None
+    data: Any | None = None
+    if csp_report:
+        data = csp_report
+    else:
+        data, error_response = get_data(request)
 
     if error_response:
         return error_response
@@ -423,121 +492,117 @@ def get_event(request):
 
     retry_count = _get_retry_count(request)
 
-    with start_span(op="request.authenticate"):
-        token = get_token(data, request)
+    token = get_token(data, request)
 
-        if not token:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "API key not provided. You can find your project API key in PostHog project settings.",
-                    type="authentication_error",
-                    code="missing_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
-        try:
-            invalid_token_reason = _check_token_shape(token)
-        except Exception as e:
-            invalid_token_reason = "exception"
-            logger.warning(
-                "capture_token_shape_exception",
-                token=token,
-                reason="exception",
-                exception=e,
-            )
+    try:
+        invalid_token_reason = _check_token_shape(token)
+    except Exception as e:
+        invalid_token_reason = "exception"
+        logger.warning(
+            "capture_token_shape_exception",
+            token=token,
+            reason="exception",
+            exception=e,
+        )
 
-        if invalid_token_reason:
-            TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
-            logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    f"Provided API key is not valid: {invalid_token_reason}",
-                    type="authentication_error",
-                    code=invalid_token_reason,
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
+    if invalid_token_reason:
+        TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
+        logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                f"Provided API key is not valid: {invalid_token_reason}",
+                type="authentication_error",
+                code=invalid_token_reason,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
     structlog.contextvars.bind_contextvars(token=token)
 
     replay_events: list[Any] = []
 
     historical = token in settings.TOKENS_HISTORICAL_DATA
-    with start_span(op="request.process"):
-        if isinstance(data, dict):
-            if data.get("batch"):  # posthog-python and posthog-ruby
-                if not historical:
-                    # If they're not forced into historical by token, they can still opt into it
-                    # for batches via `historical_migration=true`
-                    historical = bool(data.get("historical_migration", False))
-                data = data["batch"]
-                assert data is not None
+    if isinstance(data, dict):
+        if data.get("batch"):  # posthog-python and posthog-ruby
+            if not historical:
+                # If they're not forced into historical by token, they can still opt into it
+                # for batches via `historical_migration=true`
+                historical = bool(data.get("historical_migration", False))
+            data = data["batch"]
+            assert data is not None
 
-                KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
-            elif "engage" in request.path_info:  # JS identify call
-                data["event"] = "$identify"  # make sure it has an event name
+            KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
+        elif "engage" in request.path_info:  # JS identify call
+            data["event"] = "$identify"  # make sure it has an event name
 
-        if isinstance(data, list):
-            events = data
-        else:
-            events = [data]
+    if isinstance(data, list):
+        events = data
+    else:
+        events = [data]
 
-        if not all(data):  # Check that all items are truthy (not null, not empty dict)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture", f"Invalid payload: some events are null", code="invalid_payload"
-                ),
-            )
+    if not all(data):  # Check that all items are truthy (not null, not empty dict)
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: some events are null", code="invalid_payload"),
+        )
 
-        try:
-            events = drop_performance_events(events)
-        except Exception as e:
-            capture_exception(e)
+    try:
+        events = drop_performance_events(events)
+    except Exception as e:
+        capture_exception(e)
 
-        # we're not going to change the response for events
-        recordings_were_quota_limited = False
-        try:
-            events_over_quota_result = drop_events_over_quota(token, events)
-            events = events_over_quota_result.events
-            recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
-        except Exception as e:
-            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
-            capture_exception(e)
+    # we're not going to change the response for events
+    recordings_were_quota_limited = False
+    try:
+        events_over_quota_result = drop_events_over_quota(token, events)
+        events = events_over_quota_result.events
+        recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
+    except Exception as e:
+        # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+        capture_exception(e)
 
-        try:
-            # split the replay events off as they are passed to kafka separately
-            replay_events, other_events = split_replay_events(events)
-            events = other_events
+    try:
+        # split the replay events off as they are passed to kafka separately
+        replay_events, other_events = split_replay_events(events)
+        events = other_events
 
-        except ValueError as e:
-            return cors_response(
-                request,
-                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
-            )
+    except ValueError as e:
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
+        )
 
-        # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
-        site_url = request.build_absolute_uri("/")[:-1]
-        ip = get_ip_address(request)
+    # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
+    site_url = request.build_absolute_uri("/")[:-1]
+    ip = get_ip_address(request)
 
-        try:
-            processed_events = list(preprocess_events(events))
+    try:
+        processed_events = list(preprocess_events(events))
 
-        except ValueError as e:
-            return cors_response(
-                request,
-                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
-            )
+    except ValueError as e:
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
+        )
 
     futures: list[FutureRecordMetadata] = []
 
-    with start_span(op="kafka.produce") as span:
-        span.set_tag("event.count", len(processed_events))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
             if f"{token}:{distinct_id}" in get_tokens_to_drop():
                 logger.warning("Dropping event", token=token, distinct_id=distinct_id)
@@ -572,8 +637,8 @@ def get_event(request):
                     ),
                 )
 
-    with start_span(op="kafka.wait"):
-        span.set_tag("future.count", len(futures))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("future.count", len(futures))
         start_time = time.monotonic()
         for future in futures:
             try:
@@ -653,10 +718,7 @@ def get_event(request):
                                     warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(e)
+        capture_exception(e, {"capture-pathway": "replay", "ph-team-token": token})
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
         return cors_response(
@@ -672,11 +734,14 @@ def get_event(request):
         KAFKA_TIMEOUT_ERROR_COUNTER.labels(retry_count=retry_count, status_code=status_code).inc()
 
         if status_code == status.HTTP_400_BAD_REQUEST:
-            with sentry_sdk.push_scope() as scope:
-                scope.set_tag("capture-pathway", "replay")
-                scope.set_tag("ph-team-token", token)
-                scope.set_tag("retry_count", retry_count)
-                capture_exception(kte)
+            capture_exception(
+                kte,
+                {
+                    "capture-pathway": "replay",
+                    "ph-team-token": token,
+                    "retry_count": retry_count,
+                },
+            )
 
         return cors_response(
             request,
@@ -689,10 +754,10 @@ def get_event(request):
             ),
         )
     except Exception as exc:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(exc, {"data": data})
+        capture_exception(
+            exc,
+            {"data": data, "capture-pathway": "replay", "ph-team-token": token},
+        )
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
         return cors_response(
             request,
@@ -714,6 +779,11 @@ def get_event(request):
     if recordings_were_quota_limited and random() < settings.RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE:
         EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
         response_body["quota_limited"] = ["recordings"]
+
+    # If we have a csp_report parsed, we should return a 204 since that's the standard
+    # https://github.com/PostHog/posthog/pull/32174
+    if csp_report:
+        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
     return cors_response(request, JsonResponse(response_body))
 
@@ -787,9 +857,7 @@ def replace_with_warning(
             },
         }
     except Exception as ex:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            capture_exception(ex)
+        capture_exception(ex, {"capture-pathway": "replay"})
         return None
 
 
@@ -813,10 +881,7 @@ def sample_replay_data_to_object_storage(
             object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(ex)
+        capture_exception(ex, {"capture-pathway": "replay", "ph-team-token": token})
 
 
 def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], UUIDT, str]]:
@@ -846,9 +911,11 @@ def parse_event(event):
     if not event.get("properties"):
         event["properties"] = {}
 
-    with configure_scope() as scope:
-        scope.set_tag("library", event["properties"].get("$lib", "unknown"))
-        scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
+    enforce_numeric_offset(event["properties"])
+
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("library", event["properties"].get("$lib", "unknown"))
+        posthoganalytics.tag("library.version", event["properties"].get("$lib_version", "unknown"))
 
     return event
 

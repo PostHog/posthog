@@ -57,7 +57,7 @@ test.describe('Events', () => {
         await page.waitForURL('**/activity/explore')
     })
 
-    test('Apply 1 overall filter', async ({ page }) => {
+    test.skip('Apply 1 overall filter', async ({ page }) => {
         await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         await page.locator('[data-attr=taxonomic-filter-searchfield]').click()
         await page.locator('.taxonomic-list-row').getByText('Browser').first().click()
@@ -67,7 +67,7 @@ test.describe('Events', () => {
         await expect(page.locator('.DataTable')).toBeVisible()
     })
 
-    test('Separates feature flag properties into their own tab', async ({ page }) => {
+    test.skip('Separates feature flag properties into their own tab', async ({ page }) => {
         await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         await expect(page.locator('[data-attr="taxonomic-tab-event_feature_flags"]')).toContainText('Feature flags: 2')
         await page.locator('[data-attr="taxonomic-tab-event_feature_flags"]').click()

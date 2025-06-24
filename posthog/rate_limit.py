@@ -7,6 +7,8 @@ from typing import Optional
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
+
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -278,6 +280,21 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class SignupIPThrottle(SimpleRateThrottle):
+    """
+    Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
+    """
+
+    scope = "signup_ip"
+    rate = "5/day"
+
+    def get_cache_key(self, request, view):
+        from posthog.utils import get_ip_address
+
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -312,18 +329,56 @@ class AIBurstRateThrottle(UserRateThrottle):
     scope = "ai_burst"
     rate = "10/minute"
 
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, "ai burst rate limited")
+
+        return request_allowed
+
 
 class AISustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
-    rate = "40/day"
+    rate = "100/day"
+
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, "ai sustained rate limited")
+
+        return request_allowed
+
+
+class LLMProxyBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_burst"
+    rate = "30/minute"
+
+
+class LLMProxySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block slower but sustained bursts of requests, per user
+    scope = "llm_proxy_sustained"
+    rate = "500/hour"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
     rate = "120/hour"
+
+
+class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_burst"
+    rate = "120/minute"
+
+
+class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_sustained"
+    rate = "1200/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):

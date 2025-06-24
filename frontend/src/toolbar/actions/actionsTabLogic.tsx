@@ -76,7 +76,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         incrementCounter: true,
         saveAction: (formValues: ActionForm) => ({ formValues }),
-        deleteAction: true,
         showButtonActions: true,
         hideButtonActions: true,
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
@@ -366,17 +365,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
 
                 actions.setActionFormValue('steps', newSteps)
                 actions.incrementCounter()
-            }
-        },
-        deleteAction: async () => {
-            const { selectedActionId, apiURL, temporaryToken } = values
-            if (selectedActionId && selectedActionId !== 'new') {
-                await api.delete(
-                    `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
-                )
-                actionsLogic.actions.deleteAction({ id: selectedActionId })
-                actions.selectAction(null)
-                lemonToast.info('Action deleted')
             }
         },
         showButtonActions: () => {

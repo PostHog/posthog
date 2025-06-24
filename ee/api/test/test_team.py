@@ -12,6 +12,7 @@ from rest_framework.status import (
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
@@ -103,14 +104,13 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(Team.objects.count(), 2, response_2.json())
             response_2_data = response_2.json()
             self.assertEqual(
-                {
-                    "attr": None,
-                    "type": "authentication_error",
-                    "code": "permission_denied",
-                    "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
-                },
-                response_2_data,
+                response_2_data.get("detail"),
+                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
             )
+            self.assertEqual(response_2_data.get("type"), "authentication_error")
+            self.assertEqual(response_2_data.get("code"), "permission_denied")
             self.assertEqual(self.organization.teams.count(), 2)
 
         # Deleting projects
@@ -621,7 +621,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(13, 14)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)

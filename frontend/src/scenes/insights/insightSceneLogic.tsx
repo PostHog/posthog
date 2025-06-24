@@ -3,6 +3,7 @@ import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
 import { AlertType } from 'lib/components/Alerts/types'
+import { isEmptyObject } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
@@ -12,24 +13,38 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    DashboardType,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+    ProjectTreeRef,
+} from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
-import { summarizeInsight } from './summarizeInsight'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
+
+export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
+    return (
+        !filter ||
+        (filter.date_from === null &&
+            filter.date_to === null &&
+            (filter.properties === null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
+            filter.breakdown_filter === null)
+    )
+}
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -161,24 +176,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
-            (s) => [
-                s.insightLogicRef,
-                s.insight,
-                s.dashboardId,
-                s.dashboardName,
-                groupsModel.selectors.aggregationLabel,
-                cohortsModel.selectors.cohortsById,
-                mathsLogic.selectors.mathDefinitions,
-            ],
-            (
-                insightLogicRef,
-                insight,
-                dashboardId,
-                dashboardName,
-                aggregationLabel,
-                cohortsById,
-                mathDefinitions
-            ): Breadcrumb[] => {
+            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName],
+            (insightLogicRef, insight, dashboardId, dashboardName): Breadcrumb[] => {
                 return [
                     ...(dashboardId !== null && dashboardName
                         ? [
@@ -202,21 +201,23 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
-                        name:
-                            insight?.name ||
-                            summarizeInsight(insight?.query, {
-                                aggregationLabel,
-                                cohortsById,
-                                mathDefinitions,
-                            }),
+                        name: insightLogicRef?.logic.values.insightName,
                         onRename: insightLogicRef?.logic.values.canEditInsight
                             ? async (name: string) => {
                                   await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
                               }
                             : undefined,
+                        forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                     },
                 ]
             },
+        ],
+        projectTreeRef: [
+            (s) => [s.insightId],
+            (insightId): ProjectTreeRef => ({
+                type: 'insight',
+                ref: insightId && insightId !== 'new' ? String(insightId) : null,
+            }),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.insight],
@@ -315,13 +316,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
             const filtersOverride = dashboardLogic.findMounted({ id: dashboard })?.values.temporaryFilters
+            const variablesOverride = searchParams['variables_override']
 
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
                 alert_id !== values.alertId ||
-                !objectsEqual(searchParams['variables_override'], values.variablesOverride) ||
+                !objectsEqual(variablesOverride, values.variablesOverride) ||
                 !objectsEqual(filtersOverride, values.filtersOverride) ||
                 dashboard !== values.dashboardId ||
                 dashboardName !== values.dashboardName
@@ -331,8 +333,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     insightMode,
                     itemId,
                     alert_id,
-                    filtersOverride,
-                    searchParams['variables_override'],
+                    // Only pass filters/variables if overrides exist
+                    filtersOverride && isDashboardFilterEmpty(filtersOverride) ? undefined : filtersOverride,
+                    variablesOverride && !isEmptyObject(variablesOverride) ? variablesOverride : undefined,
                     dashboard,
                     dashboardName
                 )

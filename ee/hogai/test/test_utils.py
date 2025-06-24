@@ -17,16 +17,13 @@ class TestTrendsUtils(BaseTest):
             HumanMessage(content="Text"),
             VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan"),
             HumanMessage(content="Text2"),
-            VisualizationMessage(answer=None, plan="plan"),
         ]
         messages = filter_and_merge_messages(conversation)
-        self.assertEqual(len(messages), 4)
         self.assertEqual(
             [
                 HumanMessage(content="Text\nText"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan"),
                 HumanMessage(content="Text2"),
-                VisualizationMessage(answer=None, plan="plan"),
             ],
             messages,
         )

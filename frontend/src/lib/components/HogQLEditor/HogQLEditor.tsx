@@ -9,7 +9,7 @@ import { isActorsQuery } from '~/queries/utils'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void
-    value: string | undefined
+    value: string | undefined | null
     metadataSource?: AnyDataNode
     disablePersonProperties?: boolean
     disableAutoFocus?: boolean
@@ -73,8 +73,8 @@ export function HogQLEditor({
             </LemonButton>
             <div className="flex mt-1 gap-1">
                 <div className={`w-full text-right select-none ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
-                    <Link to="https://posthog.com/docs/hogql" target="_blank">
-                        Learn more about HogQL
+                    <Link to="https://posthog.com/docs/sql" target="_blank">
+                        Learn more about SQL
                     </Link>
                 </div>
             </div>

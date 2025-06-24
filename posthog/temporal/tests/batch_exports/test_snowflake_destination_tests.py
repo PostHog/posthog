@@ -7,6 +7,7 @@ import snowflake.connector
 from posthog.temporal.batch_exports.destination_tests import (
     SnowflakeDatabaseTestStep,
     SnowflakeEstablishConnectionTestStep,
+    SnowflakeSchemaTestStep,
     SnowflakeWarehouseTestStep,
     Status,
 )
@@ -256,7 +257,110 @@ async def test_snowflake_database_with_invalid_database(snowflake_config):
     )
 
 
-@pytest.mark.parametrize("step", [SnowflakeEstablishConnectionTestStep(), SnowflakeWarehouseTestStep()])
+async def test_snowflake_schema_test_step(snowflake_config, ensure_database, ensure_schema):
+    test_step = SnowflakeSchemaTestStep(
+        account=snowflake_config["account"],
+        user=snowflake_config["user"],
+        role=snowflake_config.get("role", None),
+        password=snowflake_config.get("password", None),
+        private_key=snowflake_config.get("private_key", None),
+        private_key_passphrase=snowflake_config.get("private_key_passphrase", None),
+        warehouse=snowflake_config["warehouse"],
+        database=snowflake_config["database"],
+        schema=snowflake_config["schema"],
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.PASSED
+    assert result.message is None
+
+
+async def test_snowflake_schema_with_invalid_schema(snowflake_config, ensure_database):
+    test_step = SnowflakeSchemaTestStep(
+        account=snowflake_config["account"],
+        user=snowflake_config["user"],
+        role=snowflake_config.get("role", None),
+        password=snowflake_config.get("password", None),
+        private_key=snowflake_config.get("private_key", None),
+        private_key_passphrase=snowflake_config.get("private_key_passphrase", None),
+        warehouse=snowflake_config["warehouse"],
+        database=snowflake_config["database"],
+        schema="garbage",
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert (
+        result.message == "The configured schema 'garbage' does not exist or we are missing 'USAGE' permissions on it."
+    )
+
+
+@pytest.fixture
+def password():
+    return str(uuid.uuid4())
+
+
+@pytest.fixture
+def user(snowflake_cursor, password):
+    """Manage a test user without any privileges."""
+    test_user = "EMPTY_TEST_USER"
+    snowflake_cursor.execute(f"DROP USER IF EXISTS {test_user}")
+
+    snowflake_cursor.execute(f"CREATE USER {test_user} PASSWORD = '{password}'")
+
+    yield test_user
+
+    snowflake_cursor.execute(f"DROP USER {test_user}")
+
+
+@pytest.fixture
+def role(snowflake_cursor, snowflake_config, user, ensure_database):
+    """Manage a test role without any privileges."""
+    test_role = "EMPTY_TEST_ROLE"
+    snowflake_cursor.execute(f"DROP ROLE IF EXISTS {test_role}")
+
+    snowflake_cursor.execute(f"CREATE ROLE {test_role}")
+    snowflake_cursor.execute(f"GRANT ROLE {test_role} TO USER {user}")
+
+    yield test_role
+
+    snowflake_cursor.execute(f"DROP ROLE {test_role}")
+
+
+async def test_snowflake_schema_without_permissions(
+    snowflake_config, snowflake_cursor, user, password, role, ensure_database, ensure_schema
+):
+    """Test whether a Snowflake schema test fails without permissions."""
+    # Grant database USAGE privilege otherwise we will fail before checking schema.
+    snowflake_cursor.execute(f"GRANT USAGE ON DATABASE \"{snowflake_config['database']}\" TO ROLE {role}")
+
+    test_step = SnowflakeSchemaTestStep(
+        account=snowflake_config["account"],
+        user=user,
+        role=role,
+        password=password,
+        warehouse=snowflake_config["warehouse"],
+        database=snowflake_config["database"],
+        schema=snowflake_config["schema"],
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert (
+        result.message
+        == f"The configured schema '{snowflake_config['schema']}' does not exist or we are missing 'USAGE' permissions on it."
+    )
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        SnowflakeEstablishConnectionTestStep(),
+        SnowflakeWarehouseTestStep(),
+        SnowflakeDatabaseTestStep(),
+        SnowflakeSchemaTestStep(),
+    ],
+)
 async def test_test_steps_fail_if_not_configured(step):
     result = await step.run()
     assert result.status == Status.FAILED

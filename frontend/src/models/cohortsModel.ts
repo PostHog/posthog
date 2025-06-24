@@ -12,6 +12,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -27,6 +28,8 @@ const POLL_TIMEOUT = 5000
 
 export const COHORTS_PER_PAGE = 100
 
+export const MAX_COHORTS_FOR_FULL_LIST = 2000
+
 export interface CohortFilters {
     search?: string
     page?: number
@@ -40,22 +43,19 @@ export const DEFAULT_COHORT_FILTERS: CohortFilters = {
 export function processCohort(cohort: CohortType): CohortType {
     return {
         ...cohort,
-        ...{
-            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-            filters: {
-                properties: {
-                    ...cohort.filters.properties,
-                    values: (cohort.filters.properties?.values?.map((group) =>
-                        'values' in group
-                            ? {
-                                  ...group,
-                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
-                                      processCohortCriteria(c)
-                                  ),
-                              }
-                            : group
-                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                },
+
+        /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+        filters: {
+            properties: {
+                ...cohort.filters.properties,
+                values: (cohort.filters.properties?.values?.map((group) =>
+                    'values' in group
+                        ? {
+                              ...group,
+                              values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
+                          }
+                        : group
+                ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
         },
     }
@@ -128,6 +128,18 @@ export const cohortsModel = kea<cohortsModelType>([
                 }
             },
         },
+        allCohorts: {
+            __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
+            loadAllCohorts: async () => {
+                const response = await api.cohorts.listPaginated({
+                    limit: MAX_COHORTS_FOR_FULL_LIST,
+                })
+                return {
+                    count: response.count,
+                    results: response.results.map((cohort) => processCohort(cohort)),
+                }
+            },
+        },
     })),
     reducers({
         pollTimeout: [
@@ -178,9 +190,9 @@ export const cohortsModel = kea<cohortsModelType>([
     }),
     selectors({
         cohortsById: [
-            (s) => [s.cohorts],
-            (cohorts): Partial<Record<string | number, CohortType>> =>
-                Object.fromEntries(cohorts.results.map((cohort) => [cohort.id, cohort])),
+            (s) => [s.allCohorts],
+            (allCohorts): Partial<Record<string | number, CohortType>> =>
+                Object.fromEntries(allCohorts.results.map((cohort) => [cohort.id, cohort])),
         ],
         count: [(selectors) => [selectors.cohorts], (cohorts) => cohorts.count],
         paramsFromFilters: [
@@ -203,7 +215,7 @@ export const cohortsModel = kea<cohortsModelType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
             const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
@@ -211,13 +223,22 @@ export const cohortsModel = kea<cohortsModelType>([
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
+        loadAllCohortsSuccess: async ({ allCohorts }: { allCohorts: CountedPaginatedResponse<CohortType> }) => {
+            const is_calculating = allCohorts.results.filter((cohort) => cohort.is_calculating).length > 0
+            if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
+                return
+            }
+            actions.setPollTimeout(window.setTimeout(actions.loadAllCohorts, POLL_TIMEOUT))
+        },
         exportCohortPersons: async ({ id, columns }) => {
+            const cohort = values.cohortsById[id]
             const exportCommand = {
                 export_format: ExporterFormat.CSV,
                 export_context: {
                     path: `/api/cohort/${id}/persons`,
                     columns,
-                } as { path: string; columns?: string[] },
+                    filename: cohort?.name ? `cohort-${cohort.name}` : 'cohort',
+                } as { path: string; columns?: string[]; filename?: string },
             }
             if (columns && columns.length > 0) {
                 exportCommand.export_context['columns'] = columns
@@ -228,7 +249,16 @@ export const cohortsModel = kea<cohortsModelType>([
             await deleteWithUndo({
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
-                callback: actions.loadCohorts,
+                callback: (undo) => {
+                    actions.loadCohorts()
+                    if (cohort.id && cohort.id !== 'new') {
+                        if (undo) {
+                            refreshTreeItem('cohort', String(cohort.id))
+                        } else {
+                            deleteFromTree('cohort', String(cohort.id))
+                        }
+                    }
+                },
             })
         },
         setCohortFilters: async () => {
@@ -275,7 +305,7 @@ export const cohortsModel = kea<cohortsModelType>([
     afterMount(({ actions, values }) => {
         if (isAuthenticatedTeam(values.currentTeam)) {
             // Don't load on shared insights/dashboards
-            actions.loadCohorts()
+            actions.loadAllCohorts()
         }
     }),
     permanentlyMount(),

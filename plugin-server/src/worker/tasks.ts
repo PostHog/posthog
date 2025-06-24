@@ -1,8 +1,8 @@
 import { Hub, PluginConfig } from '../types'
 import { processError } from '../utils/db/error'
+import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { status } from '../utils/status'
 import { pluginConfigIdFromStack, sleep } from '../utils/utils'
 import { setupMmdb } from './plugins/mmdb'
 import { setupPlugins } from './plugins/setup'
@@ -37,7 +37,7 @@ export const reloadPlugins = async (hub: Hub) => {
         RELOAD_PLUGINS_PROMISE = (async () => {
             // Jitter the reload time to avoid all workers reloading at the same time.
             const jitterMs = Math.random() * hub.RELOAD_PLUGIN_JITTER_MAX_MS
-            status.info('💤', `Sleeping for ${jitterMs}ms to jitter reloadPlugins`)
+            logger.info('💤', `Sleeping for ${jitterMs}ms to jitter reloadPlugins`)
             await sleep(jitterMs)
 
             RELOAD_PLUGINS_PROMISE_STARTED = true
@@ -88,5 +88,5 @@ export function processUnhandledException(error: Error, server: Hub, kind: strin
         },
     })
 
-    status.error('🤮', `${kind}!`, { error, stack: error.stack })
+    logger.error('🤮', `${kind}!`, { error, stack: error.stack })
 }

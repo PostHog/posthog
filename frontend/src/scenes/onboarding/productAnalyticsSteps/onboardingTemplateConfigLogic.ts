@@ -17,7 +17,7 @@ import type { onboardingTemplateConfigLogicType } from './onboardingTemplateConf
 
 export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicType>([
     path(['scenes', 'onboarding', 'productAnalyticsSteps', 'onboardingTemplateConfigLogic']),
-    connect({
+    connect(() => ({
         values: [newDashboardLogic, ['activeDashboardTemplate'], dashboardTemplateVariablesLogic, ['activeVariable']],
         actions: [
             newDashboardLogic,
@@ -34,7 +34,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             sidePanelStateLogic,
             ['closeSidePanel'],
         ],
-    }),
+    })),
     actions({
         setDashboardCreatedDuringOnboarding: (dashboard: DashboardType | null) => ({ dashboard }),
         showCustomEventField: true,

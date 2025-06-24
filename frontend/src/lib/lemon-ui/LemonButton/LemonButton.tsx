@@ -55,6 +55,8 @@ export interface LemonButtonPropsBase
     loading?: boolean
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
+    /** Documentation link to show in the tooltip. */
+    tooltipDocLink?: string
     tooltipPlacement?: TooltipProps['placement']
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
@@ -64,17 +66,20 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: React.ReactElement | string | null | false
     noPadding?: boolean
-    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
+    /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
+    tooltipArrowOffset?: number
 }
 
 export type SideAction = Pick<
     LemonButtonProps,
+    | 'id'
     | 'onClick'
     | 'to'
     | 'loading'
@@ -105,7 +110,7 @@ export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase 
 }
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
-    sideAction: SideAction
+    sideAction?: SideAction
     sideIcon?: null
 }
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
@@ -131,6 +136,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
+                tooltipArrowOffset,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -139,6 +145,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 onClick,
                 truncate = false,
                 buttonWrapper,
+                tooltipDocLink,
                 ...buttonProps
             },
             ref
@@ -245,9 +252,14 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 workingButton = buttonWrapper(workingButton)
             }
 
-            if (tooltipContent) {
+            if (tooltipContent || tooltipDocLink) {
                 workingButton = (
-                    <Tooltip title={tooltipContent} placement={tooltipPlacement}>
+                    <Tooltip
+                        title={tooltipContent}
+                        placement={tooltipPlacement}
+                        arrowOffset={tooltipArrowOffset}
+                        docLink={tooltipDocLink}
+                    >
                         {workingButton}
                     </Tooltip>
                 )

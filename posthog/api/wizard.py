@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Optional
 
@@ -24,7 +25,7 @@ from .utils import action
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
-SETUP_WIZARD_MODEL = "o3-mini"
+SETUP_WIZARD_MODEL = "o4-mini"
 
 
 class SetupWizardSerializer(serializers.Serializer):
@@ -123,17 +124,32 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         openai = OpenAI(posthog_client=posthog_client)
 
-        completion = openai.beta.chat.completions.parse(
+        distinct_id = wizard_data.get("user_distinct_id")
+
+        trace_id = hashlib.sha256(hash.encode()).hexdigest()
+
+        result = openai.chat.completions.create(
             model=SETUP_WIZARD_MODEL,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": json_schema},  # type: ignore
+            posthog_distinct_id=distinct_id,
+            posthog_trace_id=trace_id,
+            posthog_properties={
+                "ai_product": "wizard",
+                "ai_feature": "query",
+            },
         )
 
-        if not completion.choices or not completion.choices[0].message.content:
+        if (
+            not result.choices
+            or len(result.choices) == 0
+            or not result.choices[0].message
+            or not result.choices[0].message.content
+        ):
             raise exceptions.ValidationError("Invalid response from OpenAI")
 
         try:
-            response_data = json.loads(completion.choices[0].message.content)
+            response_data = json.loads(result.choices[0].message.content)
         except json.JSONDecodeError:
             raise exceptions.ValidationError("Invalid JSON response from OpenAI")
 

@@ -1,8 +1,8 @@
-import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import {
@@ -211,6 +211,15 @@ export const stringOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const stringArrayOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+}
+
 export const numericOperatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",
@@ -253,19 +262,27 @@ export const cohortOperatorMap: Record<string, string> = {
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: 'Exactly',
-    gte: 'At least',
-    lte: 'At most (but at least once)',
+    exact: '= Exactly',
+    gte: '≥ At least',
+    lte: '≤ At most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
 }
 
+export const assigneeOperatorMap: Record<string, string> = {
+    exact: '= is',
+    is_not: '≠ is not',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...assigneeOperatorMap,
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
+    ...stringArrayOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
@@ -285,6 +302,8 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Assignee: assigneeOperatorMap,
+    StringArray: stringArrayOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -396,6 +415,20 @@ export function objectCleanWithEmpty<T extends Record<string | number | symbol, 
     return response
 }
 
+export const removeUndefinedAndNull = (obj: any): any => {
+    if (Array.isArray(obj)) {
+        return obj.map(removeUndefinedAndNull)
+    } else if (obj && typeof obj === 'object') {
+        return Object.entries(obj).reduce((acc, [key, value]) => {
+            if (value !== undefined && value !== null) {
+                acc[key] = removeUndefinedAndNull(value)
+            }
+            return acc
+        }, {} as Record<string, any>)
+    }
+    return obj
+}
+
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
 export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
     const response: Record<string, any> = { ...obj2 }
@@ -460,27 +493,19 @@ export function slugify(text: string): string {
 export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
-    if (isNaN(precision) || precision < 0) {
-        precision = DEFAULT_DECIMAL_PLACES
+export function humanFriendlyNumber(
+    d: number,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
+    minimumFractionDigits: number = 0
+): string {
+    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
+        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
-}
-
-/** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
-    if (!d) {
-        d = '0.00'
-    }
-
-    let number: number
-    if (typeof d === 'string') {
-        number = parseFloat(d)
-    } else {
-        number = d
+    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
+        minimumFractionDigits = 0
     }
 
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -516,6 +541,22 @@ export function humanFriendlyLargeNumber(d: number): string {
         return `${prefix}${(d / thousand).toString()}K`
     }
     return `${prefix}${d}`
+}
+
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -784,7 +825,9 @@ export function autoCaptureEventToDescription(
     }
 
     const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
+        if (event.properties.$el_text) {
+            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
+        } else if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
         } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
@@ -819,9 +862,9 @@ export function determineDifferenceType(
     return 'minute'
 }
 
-const DATE_FORMAT = 'MMMM D, YYYY'
-const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
-const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT = 'MMMM D, YYYY'
+export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
+export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
@@ -937,6 +980,7 @@ const dateOptionsMap = {
     w: 'week',
     d: 'day',
     h: 'hour',
+    M: 'minute',
 } as const
 
 export function dateFilterToText(
@@ -1000,6 +1044,9 @@ export function dateFilterToText(
                 case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
                     break
+                case 'minute':
+                    date = dayjs().subtract(counter, 'm')
+                    break
                 default:
                     date = dayjs().subtract(counter, 'd')
                     break
@@ -1026,16 +1073,18 @@ export function dateFromToText(dateFrom: string): string | undefined {
     return undefined
 }
 
-export function dateStringToComponents(date: string | null): {
+export type DateComponents = {
     amount: number
     unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
     clip: 'Start' | 'End'
-} | null {
+}
+
+export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
         return null
     }
-    const parseDate = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
-    const matches = date.match(parseDate)
+    const matches = date.match(isStringDateRegex)
     if (!matches) {
         return null
     }
@@ -1043,6 +1092,43 @@ export function dateStringToComponents(date: string | null): {
     const amount = rawAmount ? parseInt(sign + rawAmount) : 0
     const unit = dateOptionsMap[rawUnit] || 'day'
     return { amount, unit, clip: clip as 'Start' | 'End' }
+}
+
+export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset?: Dayjs): Dayjs {
+    const dayjsInstance = offset ?? dayjs()
+    let response: dayjs.Dayjs
+    switch (unit) {
+        case 'year':
+            response = dayjsInstance.add(amount, 'year')
+            break
+        case 'quarter':
+            response = dayjsInstance.add(amount * 3, 'month')
+            break
+        case 'month':
+            response = dayjsInstance.add(amount, 'month')
+            break
+        case 'week':
+            response = dayjsInstance.add(amount * 7, 'day')
+            break
+        case 'day':
+            response = dayjsInstance.add(amount, 'day')
+            break
+        case 'hour':
+            response = dayjsInstance.add(amount, 'hour')
+            break
+        case 'minute':
+            response = dayjsInstance.add(amount, 'minute')
+            break
+        default:
+            throw new UnexpectedNeverError(unit)
+    }
+
+    if (clip === 'Start') {
+        return response.startOf(unit)
+    } else if (clip === 'End') {
+        return response.endOf(unit)
+    }
+    return response
 }
 
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
@@ -1054,39 +1140,9 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (!dateComponents) {
         return null
     }
-
-    const { unit, amount, clip } = dateComponents
-    let response: dayjs.Dayjs
-
-    switch (unit) {
-        case 'year':
-            response = dayjs().add(amount, 'year')
-            break
-        case 'quarter':
-            response = dayjs().add(amount * 3, 'month')
-            break
-        case 'month':
-            response = dayjs().add(amount, 'month')
-            break
-        case 'week':
-            response = dayjs().add(amount * 7, 'day')
-            break
-        case 'day':
-            response = dayjs().add(amount, 'day')
-            break
-        case 'hour':
-            response = dayjs().add(amount, 'hour')
-            break
-        default:
-            throw new UnexpectedNeverError(unit)
-    }
-
-    if (clip === 'Start') {
-        return response.startOf(unit)
-    } else if (clip === 'End') {
-        return response.endOf(unit)
-    }
-    return response.startOf('day')
+    const offset: dayjs.Dayjs = dayjs().startOf('day')
+    const response = componentsToDayJs(dateComponents, offset)
+    return response
 }
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
@@ -1378,6 +1434,49 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
+const WORD_PLURALIZATION_RULES = [
+    [/s?$/i, 's'],
+    [/([^aeiou]ese)$/i, '$1'],
+    [/(ax|test)is$/i, '$1es'],
+    [/(alias|[^aou]us|t[lm]as|gas|ris)$/i, '$1es'],
+    [/(e[mn]u)s?$/i, '$1s'],
+    [/([^l]ias|[aeiou]las|[ejzr]as|[iu]am)$/i, '$1'],
+    [/(alumn|syllab|vir|radi|nucle|fung|cact|stimul|termin|bacill|foc|uter|loc|strat)(?:us|i)$/i, '$1i'],
+    [/(alumn|alg|vertebr)(?:a|ae)$/i, '$1ae'],
+    [/(seraph|cherub)(?:im)?$/i, '$1im'],
+    [/(her|at|gr)o$/i, '$1oes'],
+    [
+        /(agend|addend|millenni|dat|extrem|bacteri|desiderat|strat|candelabr|errat|ov|symposi|curricul|automat|quor)(?:a|um)$/i,
+        '$1a',
+    ],
+    [/(apheli|hyperbat|periheli|asyndet|noumen|phenomen|criteri|organ|prolegomen|hedr|automat)(?:a|on)$/i, '$1a'],
+    [/sis$/i, 'ses'],
+    [/(?:(kni|wi|li)fe|(ar|l|ea|eo|oa|hoo)f)$/i, '$1$2ves'],
+    [/([^aeiouy]|qu)y$/i, '$1ies'],
+    [/([^ch][ieo][ln])ey$/i, '$1ies'],
+    [/(x|ch|ss|sh|zz)$/i, '$1es'],
+    [/(matr|cod|mur|sil|vert|ind|append)(?:ix|ex)$/i, '$1ices'],
+    [/\b((?:tit)?m|l)(?:ice|ouse)$/i, '$1ice'],
+    [/(pe)(?:rson|ople)$/i, '$1ople'],
+    [/(child)(?:ren)?$/i, '$1ren'],
+    [/eaux$/i, '$0'],
+    [/m[ae]n$/i, 'men'],
+] as [RegExp, string][]
+
+export function wordPluralize(word: string): string {
+    let len = WORD_PLURALIZATION_RULES.length
+
+    // Iterate over the sanitization rules and use the first one to match.
+    while (len--) {
+        const [regex, replacement] = WORD_PLURALIZATION_RULES[len]
+        if (regex.test(word)) {
+            return word.replace(regex, replacement)
+        }
+    }
+
+    return word
+}
+
 const COMPACT_NUMBER_MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1439,7 +1538,7 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
             .split(' ')
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
-        Sentry.captureException(e)
+        posthog.captureException(e)
         return null
     }
 }
@@ -1634,7 +1733,7 @@ export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
         return true
-    } catch (error) {
+    } catch {
         return false
     }
 }
@@ -1642,7 +1741,7 @@ export function validateJson(value: string): boolean {
 export function tryJsonParse(value: string, fallback?: any): any {
     try {
         return JSON.parse(value)
-    } catch (error) {
+    } catch {
         return fallback
     }
 }
@@ -1976,4 +2075,37 @@ export const getJSHeapMemory = (): {
         }
     }
     return {}
+}
+
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+    let decoded: string
+    try {
+        decoded = decodeURIComponent(nextPath)
+    } catch {
+        decoded = nextPath
+    }
+
+    // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
+    if (decoded.startsWith('//')) {
+        return null
+    }
+
+    // Root-relative path
+    if (decoded.startsWith('/')) {
+        return decoded
+    }
+
+    // Try to parse as a full URL
+    try {
+        const url = new URL(decoded)
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
+            return url.pathname + url.search + url.hash
+        }
+        return null
+    } catch {
+        return null
+    }
 }

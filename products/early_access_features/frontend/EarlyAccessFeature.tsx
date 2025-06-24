@@ -1,5 +1,6 @@
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
@@ -17,24 +18,26 @@ import { router } from 'kea-router'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useState } from 'react'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
+    CyclotronJobFiltersType,
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     FilterLogicalOperator,
-    HogFunctionFiltersType,
     PersonPropertyFilter,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
@@ -50,6 +53,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
         id: id && id !== 'new' ? id : 'new',
     }),
+    settingSectionId: 'environment-feature-flags',
 }
 
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
@@ -71,7 +75,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -81,8 +84,8 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         return <LemonSkeleton active />
     }
 
-    const destinationFilters: HogFunctionFiltersType | null =
-        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
+    const destinationFilters: CyclotronJobFiltersType | null =
+        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature
             ? {
                   events: [
                       {
@@ -234,7 +237,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         )
                     ) : undefined
                 }
-                delimited
             />
             <div className={clsx(isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null)}>
                 <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
@@ -244,7 +246,18 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </LemonField>
                     )}
 
-                    <div className="flex flex-wrap items-start gap-4">
+                    {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
+                        <LemonBanner type="info">
+                            The{' '}
+                            <LemonTag type="default" className="uppercase">
+                                Concept
+                            </LemonTag>{' '}
+                            stage assigns the feature flag to the user. Gate your code behind a different feature flag
+                            if you'd like to keep it hidden, and then switch your code to this feature flag when you're
+                            ready to release to your early access users.
+                        </LemonBanner>
+                    )}
+                    <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex-1 min-w-[20rem]">
                             {'feature_flag' in earlyAccessFeature ? (
                                 <LemonField.Pure label="Connected Feature flag">
@@ -333,7 +346,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         ) : null}
                     </div>
-                    <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex-1 min-w-[20rem]">
                             {isEditingFeature || isNewEarlyAccessFeature ? (
                                 <LemonField name="description" label="Description" showOptional>
@@ -388,17 +401,16 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <h3>Notifications</h3>
                         <p>Get notified when people opt in or out of your feature.</p>
                         <LinkedHogFunctions
-                            logicKey="early-access-feature"
                             type="destination"
-                            filters={destinationFilters}
-                            subTemplateId="early-access-feature-enrollment"
+                            forceFilterGroups={[destinationFilters]}
+                            subTemplateIds={['early-access-feature-enrollment']}
                         />
                     </>
                 )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="flex gap-4 justify-between items-start">
                             <div>
                                 <h3>Users</h3>
                                 <p>
@@ -438,7 +450,7 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function featureFlagEnrolmentFilter(
+function featureFlagRecordingEnrollmentFilter(
     earlyAccessFeature: EarlyAccessFeatureType,
     optedIn: boolean
 ): Partial<RecordingUniversalFilters> {
@@ -477,10 +489,8 @@ function featureFlagEnrolmentFilter(
 }
 
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
-    const { activeTab } = useValues(earlyAccessFeatureLogic)
+    const { activeTab, optedInCount, optedOutCount, featureEnrollmentKey } = useValues(earlyAccessFeatureLogic)
     const { setActiveTab } = useActions(earlyAccessFeatureLogic)
-
-    const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
 
     return (
         <>
@@ -490,14 +500,14 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                 tabs={[
                     {
                         key: EarlyAccessFeatureTabs.OptedIn,
-                        label: 'Opted-In Users',
+                        label: optedInCount !== null ? `Opted-In Users (${optedInCount})` : 'Opted-In Users',
                         content: (
                             <>
                                 <PersonsTableByFilter
-                                    recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, true)}
+                                    recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, true)}
                                     properties={[
                                         {
-                                            key: key,
+                                            key: featureEnrollmentKey,
                                             type: PropertyFilterType.Person,
                                             operator: PropertyOperator.Exact,
                                             value: ['true'],
@@ -509,13 +519,13 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                     },
                     {
                         key: EarlyAccessFeatureTabs.OptedOut,
-                        label: 'Opted-Out Users',
+                        label: optedOutCount !== null ? `Opted-Out Users (${optedOutCount})` : 'Opted-Out Users',
                         content: (
                             <PersonsTableByFilter
-                                recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, false)}
+                                recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, false)}
                                 properties={[
                                     {
-                                        key: key,
+                                        key: featureEnrollmentKey,
                                         type: PropertyFilterType.Person,
                                         operator: PropertyOperator.Exact,
                                         value: ['false'],
@@ -546,6 +556,8 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
         propertiesViaUrl: false,
     })
 
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
+
     return (
         <div className="relative">
             {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
@@ -553,6 +565,13 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
                 <LemonButton
                     key="view-opt-in-session-recordings"
                     to={urls.replay(ReplayTabs.Home, recordingsFilters)}
+                    onClick={() => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.EARLY_ACCESS_FEATURES,
+                            to: ProductKey.SESSION_REPLAY,
+                            intent_context: ProductIntentContext.EARLY_ACCESS_FEATURE_VIEW_RECORDINGS,
+                        })
+                    }}
                     type="secondary"
                 >
                     View recordings

@@ -19,9 +19,9 @@ export function findActionName(id: number): string | null {
 export const actionsModel = kea<actionsModelType>([
     props({} as ActionsModelProps),
     path(['models', 'actionsModel']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     loaders(({ props, values, actions }) => ({
         actions: {
             __default: [] as ActionType[],

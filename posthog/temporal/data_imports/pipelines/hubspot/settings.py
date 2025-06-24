@@ -86,6 +86,7 @@ DEFAULT_CONTACT_PROPS = [
     "hs_lead_status",
     "lastmodifieddate",
     "lastname",
+    "hs_buying_role",
 ]
 
 DEFAULT_TICKET_PROPS = [
@@ -144,5 +145,3 @@ DEFAULT_PROPS = {
     OBJECT_TYPE_PLURAL[EMAILS]: DEFAULT_EMAIL_PROPS,
     OBJECT_TYPE_PLURAL[MEETINGS]: DEFAULT_MEETINGS_PROPS,
 }
-
-ALL = ("ALL",)

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Error};
+use chrono::Duration;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -10,7 +11,8 @@ use crate::{context::AppContext, job::model::JobModel};
 
 use super::{
     content::{
-        captured::captured_parse_fn, mixpanel::MixpanelEvent, ContentType, TransformContext,
+        amplitude::AmplitudeEvent, captured::captured_parse_fn, mixpanel::MixpanelEvent,
+        ContentType, TransformContext,
     },
     Parsed,
 };
@@ -51,11 +53,36 @@ impl FormatConfig {
                 let event_transform = MixpanelEvent::parse_fn(
                     transform_context,
                     config.skip_no_distinct_id,
+                    config
+                        .timestamp_offset_seconds
+                        .map(Duration::seconds)
+                        .unwrap_or_default(),
                     skip_geoip(),
                 );
 
                 let parser = move |data| {
                     let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
+                    let consumed = parsed.consumed;
+                    let result: Result<_, Error> = parsed
+                        .data
+                        .into_par_iter()
+                        .map(&event_transform)
+                        .filter_map(|x| x.transpose())
+                        .collect();
+
+                    Ok(Parsed {
+                        data: result?,
+                        consumed,
+                    })
+                };
+
+                Ok(Box::new(parser))
+            }
+            ContentType::Amplitude => {
+                let format_parse = json_nd(*skip_blanks);
+                let event_transform = AmplitudeEvent::parse_fn(transform_context, skip_geoip());
+                let parser = move |data| {
+                    let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
                     let result: Result<_, Error> = parsed
                         .data

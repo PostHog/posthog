@@ -2,8 +2,9 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { MaxContextOption } from 'scenes/max/maxTypes'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,
@@ -23,7 +24,10 @@ export type ExcludedProperties = { [key in TaxonomicFilterGroupType]?: Taxonomic
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
+    // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
+    // in that case the original value is returned here as well as the property that the user chose
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -32,9 +36,10 @@ export interface TaxonomicFilterProps {
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
     height?: number
-    width?: number
+    width?: number | string
     popoverEnabled?: boolean
     selectFirstItem?: boolean
+    autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -42,14 +47,27 @@ export interface TaxonomicFilterProps {
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    maxContextOptions?: MaxContextOption[]
+    /**
+     * Controls the layout of taxonomic groups.
+     * When undefined (default), vertical/columnar layout is automatically used when there are more than VERTICAL_LAYOUT_THRESHOLD (4) groups.
+     * Set to true to force vertical/columnar layout, or false to force horizontal layout.
+     */
+    useVerticalLayout?: boolean
+    initialSearchQuery?: string
+    /** Allow users to select events that haven't been captured yet (default: false) */
+    allowNonCapturedEvents?: boolean
 }
 
 export interface DataWarehousePopoverField {
     key: string
     label: string
+    description?: string
     allowHogQL?: boolean
     hogQLOnly?: boolean
+    optional?: boolean
     tableName?: string
+    type?: DatabaseSerializedFieldType
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -104,6 +122,7 @@ export enum TaxonomicFilterGroupType {
     Events = 'events',
     EventProperties = 'event_properties',
     EventFeatureFlags = 'event_feature_flags',
+    EventMetadata = 'event_metadata',
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
@@ -123,8 +142,14 @@ export enum TaxonomicFilterGroupType {
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
+    ErrorTrackingIssues = 'error_tracking_issues',
+    LogAttributes = 'log_attributes',
     // Misc
     Replay = 'replay',
+    RevenueAnalyticsProperties = 'revenue_analytics_properties',
+    Resources = 'resources',
+    // Max AI Context
+    MaxAIContext = 'max_ai_context',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
@@ -133,7 +158,11 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    searchQuery?: string // Query used for the results currently in state
+    // Query used for the results currently in state
+    searchQuery?: string
+    // some list logics alter the query to make it more useful
+    // the original query might be different to the search query
+    originalQuery?: string
     count: number
     expandedCount?: number
     queryChanged?: boolean
@@ -157,3 +186,4 @@ export type TaxonomicDefinitionTypes =
     | ActionType
     | PersonProperty
     | DataWarehouseTableForInsight
+    | MaxContextOption

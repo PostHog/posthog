@@ -6,6 +6,7 @@ import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Cohorts } from 'scenes/cohorts/Cohorts'
 import { Groups } from 'scenes/groups/Groups'
+import { groupsSceneLogic } from 'scenes/groups/groupsSceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,9 +19,10 @@ import { Persons } from './tabs/Persons'
 export type PersonsManagementTab = {
     key: string
     url: string
-    label: string
+    label: string | JSX.Element
     content: any
     buttons?: any
+    tooltipDocLink?: string
 }
 
 export type PersonsManagementTabs = Record<
@@ -30,9 +32,10 @@ export type PersonsManagementTabs = Record<
 
 export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
-    connect({
-        values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupsAccessStatus']],
-    }),
+    connect(() => ({
+        actions: [groupsSceneLogic, ['setGroupTypeIndex']],
+        values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus']],
+    })),
     actions({
         setTabKey: (tabKey: string) => ({ tabKey }),
     }),
@@ -52,8 +55,9 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     {
                         key: 'persons',
                         url: urls.persons(),
-                        label: 'Persons',
+                        label: 'People',
                         content: <Persons />,
+                        tooltipDocLink: 'https://posthog.com/docs/data/persons',
                     },
                     {
                         key: 'cohorts',
@@ -69,12 +73,12 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                                 New cohort
                             </LemonButton>
                         ),
+                        tooltipDocLink: 'https://posthog.com/docs/data/cohorts',
                     },
                     ...groupTabs,
                 ]
             },
         ],
-
         activeTab: [
             (s) => [s.tabs, s.tabKey],
             (tabs, tabKey): PersonsManagementTab | null => {
@@ -91,23 +95,21 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     GroupsAccessStatus.NoAccess,
                 ].includes(groupsAccessStatus)
 
-                const groupTabs: PersonsManagementTab[] = [
-                    ...(showGroupsIntroductionPage
-                        ? [
-                              {
-                                  key: 'groups-0',
-                                  label: 'Groups',
-                                  url: urls.groups(0),
-                                  content: <Groups groupTypeIndex={0} />,
-                              },
-                          ]
-                        : Array.from(groupTypes.values()).map((groupType) => ({
-                              key: `groups-${groupType.group_type_index}`,
-                              label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              url: urls.groups(groupType.group_type_index),
-                              content: <Groups groupTypeIndex={groupType.group_type_index} />,
-                          }))),
-                ]
+                const groupTabs: PersonsManagementTab[] = showGroupsIntroductionPage
+                    ? [
+                          {
+                              key: 'groups-0',
+                              label: 'Groups',
+                              url: urls.groups(0),
+                              content: <Groups groupTypeIndex={0} />,
+                          },
+                      ]
+                    : Array.from(groupTypes.values()).map((groupType) => ({
+                          key: `groups-${groupType.group_type_index}`,
+                          label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                          url: urls.groups(groupType.group_type_index),
+                          content: <Groups groupTypeIndex={groupType.group_type_index} />,
+                      }))
 
                 return groupTabs
             },
@@ -137,25 +139,33 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
     }),
     actionToUrl(({ values }) => ({
         setTabKey: ({ tabKey }) => {
-            const tab = values.tabs.find((x) => x.key === tabKey)
-            if (!tab) {
+            let tabUrl = values.tabs.find((x) => x.key === tabKey)?.url
+            if (!tabUrl && values.groupTypesLoading) {
+                const groupMatch = tabKey.match(/^groups-(\d+)$/)
+                if (groupMatch) {
+                    tabUrl = urls.groups(parseInt(groupMatch[1]))
+                }
+            }
+            if (!tabUrl) {
                 return values.tabs[0].url
             }
             // Preserve existing search params when changing tabs
-            return [tab.url, router.values.searchParams, router.values.hashParams, { replace: true }]
+            return [tabUrl, router.values.searchParams, router.values.hashParams, { replace: true }]
         },
     })),
     urlToAction(({ actions }) => {
-        return {
+        const urlToAction = {
             [urls.persons()]: () => {
                 actions.setTabKey('persons')
             },
             [urls.cohorts()]: () => {
                 actions.setTabKey('cohorts')
             },
-            [urls.groups(':key')]: ({ key }) => {
-                actions.setTabKey(`groups-${key}`)
-            },
+        } as Record<string, (...args: any[]) => void>
+        urlToAction[urls.groups(':key')] = ({ key }: { key: string }) => {
+            actions.setTabKey(`groups-${key}`)
+            actions.setGroupTypeIndex(parseInt(key))
         }
+        return urlToAction
     }),
 ])

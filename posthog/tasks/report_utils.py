@@ -71,7 +71,7 @@ def capture_event(
             distinct_id,
             name,
             {**properties, "scope": "user"},
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
+            groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
     else:

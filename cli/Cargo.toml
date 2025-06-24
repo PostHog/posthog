@@ -1,0 +1,69 @@
+[package]
+name = "posthog-cli"
+version = "0.3.1"
+authors = [
+    "David <david@posthog.com>",
+    "Olly <oliver@posthog.com>",
+    "Hugues <hugues@posthog.com>",
+]
+description = "The command line interface for PostHog 🦔"
+homepage = "https://posthog.com"
+license = "MIT"
+edition = "2021"
+repository = "https://github.com/PostHog/posthog"
+readme = "README.md"
+resolver = "2"
+
+[[bin]]
+name = "posthog-cli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.31", features = ["derive"] }
+dirs = "6.0.0"
+inquire = "0.7.5"
+posthog-symbol-data = "0.1.0"
+walkdir = "2.5.0"
+ratatui = "0.29.0"
+crossterm = "0.28.1"
+tui-textarea = "0.7.0"
+sourcemap = "9.1.2"
+magic_string = "0.3.4"
+miette = { version = "7.5.0", features = ["fancy"] }
+serde_json = "1.0.140"
+reqwest = { version = "0.12.14", features = [
+    "blocking",
+    "json",
+    "multipart",
+    "rustls-tls",
+], default-features = false }
+anyhow = "1.0.97"
+serde = "1.0.219"
+tracing = "0.1.41"
+uuid = { version = "1.16.0", features = ["v7"] }
+thiserror = "2.0.12"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+posthog-rs = { version = "0.3.5", default-features = false }
+sha2 = "0.10.9"
+
+[dev-dependencies]
+test-log = "0.2.17"
+
+[workspace.lints.rust]
+# See https://doc.rust-lang.org/stable/rustc/lints/listing/allowed-by-default.html
+unstable_features = "forbid"
+macro_use_extern_crate = "forbid"
+let_underscore_drop = "deny"
+non_ascii_idents = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[package.metadata.dist]
+npm-package = "cli"

@@ -5,7 +5,7 @@ const VIEW_EMPTY_STATE_COPY = [
     'Saving references to your tables…',
     'Searching saved queries for references…',
     'Fetching all references to optimize view…',
-    'Constructing HOGQL expressions…',
+    'Constructing SQL expressions…',
 ]
 
 export function ViewEmptyState(): JSX.Element {

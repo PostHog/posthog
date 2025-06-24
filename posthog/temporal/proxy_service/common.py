@@ -1,15 +1,15 @@
-from asgiref.sync import sync_to_async
-from dataclasses import dataclass
-import grpc.aio
+import typing as t
 import uuid
+from dataclasses import dataclass
+
+import grpc.aio
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import connection
-
 from temporalio import activity
 
 from posthog.models import ProxyRecord
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
-
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
 
@@ -32,6 +32,14 @@ class UpdateProxyRecordInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
     status: str
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "status": self.status,
+        }
 
 
 @activity.defn

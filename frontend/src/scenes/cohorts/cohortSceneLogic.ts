@@ -3,7 +3,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import { CohortLogicProps } from './cohortEditLogic'
 import type { cohortSceneLogicType } from './cohortSceneLogicType'
@@ -34,6 +34,10 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
                     },
                 ]
             },
+        ],
+        projectTreeRef: [
+            () => [(_, props: CohortLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'cohort', ref: id === 'new' ? null : String(id) }),
         ],
     }),
 ])

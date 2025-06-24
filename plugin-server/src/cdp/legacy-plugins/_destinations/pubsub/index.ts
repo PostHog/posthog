@@ -2,6 +2,7 @@ import { PubSub, Topic } from '@google-cloud/pubsub'
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 type PubSubMeta = LegacyDestinationPluginMeta & {
@@ -25,7 +26,7 @@ export const setupPlugin = async (meta: PubSubMeta): Promise<void> => {
     }
 
     try {
-        const credentials = JSON.parse(attachments.googleCloudKeyJson.contents.toString())
+        const credentials = parseJSON(attachments.googleCloudKeyJson.contents.toString())
         global.pubSubClient = new PubSub({
             projectId: credentials['project_id'],
             credentials,

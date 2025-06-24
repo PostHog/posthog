@@ -62,18 +62,13 @@ export function PathItemFilters({
                                     className="new-prop-filter"
                                     data-attr={'new-prop-filter-' + pageKey}
                                     type="secondary"
-                                    icon={<IconPlusSmall color="var(--accent-primary)" />}
+                                    icon={<IconPlusSmall />}
                                     sideIcon={null}
                                 >
                                     Add exclusion
                                 </LemonButton>
                             ) : (
-                                <PropertyFilterButton
-                                    item={filter}
-                                    onClose={() => {
-                                        remove(index)
-                                    }}
-                                >
+                                <PropertyFilterButton item={filter} onClose={() => remove(index)}>
                                     {filter.value.toString()}
                                 </PropertyFilterButton>
                             )}

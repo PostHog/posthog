@@ -4,10 +4,11 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.test.base import BaseTest
-
+from rest_framework import serializers
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -25,7 +26,7 @@ class BaseUserAccessControlTest(BaseTest):
         ac, _ = AccessControl.objects.get_or_create(
             team=self.team,
             resource=resource,
-            resource_id=resource_id or self.team.id,
+            resource_id=resource_id,
             organization_member=organization_member,
             role=role,
         )
@@ -330,6 +331,212 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
     def test_ac_object_default_response(self):
         assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
+
+
+@pytest.mark.ee
+class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
+    def setUp(self):
+        super().setUp()
+
+        # Enable advanced permissions & role-based access for tests
+        self.organization.available_product_features = [
+            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "role_based_access", "name": "sso_enforcement"},
+        ]
+        self.organization.save()
+
+        # We create a user that belongs to self.organization with membership
+        # and a separate user that also belongs to the same org
+        self.user_access_control = UserAccessControl(self.user, self.team)
+
+        # Create some FileSystem rows
+        # "my_resource" is the AccessControl resource
+        # "abc"/"def" are the resource_id fields
+        self.file_a = FileSystem.objects.create(
+            team=self.team,
+            path="top/folderA",
+            depth=2,
+            type="my_resource",
+            ref="abc",
+            created_by=self.user,
+        )
+        self.file_b = FileSystem.objects.create(
+            team=self.team,
+            path="top/folderB",
+            depth=2,
+            type="my_resource",
+            ref="def",
+            created_by=self.other_user,
+        )
+
+    def test_filtering_no_access_controls_means_default_editor(self):
+        """
+        By default, if no relevant AccessControl rows exist for (type,ref),
+        the user gets 'editor' access. So both files should appear for the user.
+        """
+        queryset = FileSystem.objects.all()
+
+        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+        filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_other)
+
+        # We can also check the .effective_access_level annotation:
+        a_for_user = filtered_for_user.get(id=self.file_a.id)
+        b_for_user = filtered_for_user.get(id=self.file_b.id)
+        self.assertEqual(a_for_user.effective_access_level, "some")  # type: ignore
+        self.assertEqual(b_for_user.effective_access_level, "some")  # type: ignore
+
+    def test_none_access_on_resource_excludes_items_for_non_creator(self):
+        """
+        If an AccessControl row specifically sets "none" for a resource_id,
+        the user shouldn't see that FileSystem object, unless they are the creator or admin/staff.
+        """
+        # Mark file_b as "none" for self.user
+        AccessControl.objects.create(
+            team=self.team,
+            resource="my_resource",
+            resource_id="def",
+            access_level="none",
+            organization_member=None,  # global "none"
+        )
+
+        queryset = FileSystem.objects.all()
+        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+
+        # user is the creator of file_a => sees it
+        # user is NOT the creator of file_b => 'none' access => excluded
+        self.assertCountEqual([self.file_a], filtered_for_user)
+
+        # Meanwhile, other_user is the *creator* of file_b => they still see it
+        filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_other)
+
+    def test_org_admin_sees_all_even_if_none(self):
+        # Make "def" = none for everyone
+        AccessControl.objects.create(
+            team=self.team,
+            resource="my_resource",
+            resource_id="def",
+            access_level="none",
+        )
+
+        # Promote self.user to org admin
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        queryset = FileSystem.objects.all()
+        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        # Because user is org admin => sees everything
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+    def test_setting_explicit_viewer_or_editor_access(self):
+        """
+        If we explicitly set "viewer" or "editor" in AccessControl, that should override the default.
+        """
+        # Set "def" => "viewer" for self.user
+        self._create_access_control(resource_id="def", access_level="viewer", resource="my_resource")
+        # self._create_access_control_file_system(resource_id="def", access_level="viewer")
+        # Set "abc" => "none" globally
+        self._create_access_control(resource_id="abc", access_level="none", resource="my_resource")
+
+        queryset = FileSystem.objects.all()
+        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+
+        # file_a => "abc" => default is "none" from that row, but user is also the creator of file_a => sees it anyway
+        # file_b => "def" => explicit "viewer" => user sees it
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+        # Meanwhile, other_user is the creator of file_b, but for file_a there's a "none" row
+        # and other_user is not the creator of file_a => "none" excludes them from file_a
+        filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        self.assertCountEqual([self.file_b], filtered_for_other)
+
+    def test_project_admin_allows_visibility_even_if_none(self):
+        """
+        If the user is an 'admin' at the project level, they can see items even if there's
+        a 'none' row for the resource in that project.
+        """
+        # 1) Mark file_b with "none" for everyone (global none).
+        AccessControl.objects.create(
+            team=self.team,
+            resource="my_resource",
+            resource_id="def",
+            access_level="none",
+        )
+
+        # 2) Give self.user "admin" at the project level.
+        #    This means resource='project', resource_id = team.id (string-cast if needed).
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),  # important if resource_id is stored as string
+            access_level="admin",
+            organization_member=None,  # global rule (no specific org member), or you can tie to the user
+            team=self.team,
+        )
+
+        queryset = FileSystem.objects.all()
+        # Now, because user is project admin, they should see file_b despite 'none'
+        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+        # 3) Remove the "admin" row, confirm user no longer sees file_b.
+        AccessControl.objects.filter(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+        ).delete()
+        self._clear_uac_caches()
+
+        queryset = FileSystem.objects.all()
+        filtered_for_user_after_removal = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+        # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
+        self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
+
+
+@pytest.mark.ee
+class TestUserAccessControlSerializer(BaseUserAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        # We'll use Dashboard as a sample resource object
+        from posthog.models.dashboard import Dashboard
+
+        self.dashboard = Dashboard.objects.create(team=self.team)
+
+        # Minimal serializer using the mixin
+        class DummySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+            class Meta:
+                model = Dashboard
+                fields = ("id", "user_access_level")
+
+        self.Serializer = DummySerializer
+
+    def test_object_level_access_when_no_resource_level(self):
+        # No resource-level access controls, only object-level
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "viewer"
+
+    def test_resource_level_takes_priority(self):
+        # Both resource-level and object-level; resource-level should take priority
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "editor"
+
+    def test_falls_back_to_object_level(self):
+        # Only object-level present
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="editor")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "editor"
+
+    def test_none_if_no_access(self):
+        # No access controls at all
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "editor"  # falls to default_access_level
 
 
 # class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):

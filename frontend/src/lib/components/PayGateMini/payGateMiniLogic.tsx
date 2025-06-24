@@ -47,26 +47,28 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (billing) => {
                 // TODO(@zach): revisit this logic after subscribe to all products is released
                 // There are some features where we want to check the product first
-                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS]
+                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS, AvailableFeature.ENVIRONMENTS]
 
                 let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = undefined
 
                 if (checkProductFirst.includes(props.feature)) {
-                    foundProduct = billing?.products?.find((product) =>
-                        product.features?.some((f) => f.key === props.feature)
-                    )
+                    foundProduct = billing?.products
+                        .filter((plan) => !plan.legacy_product || plan.subscribed)
+                        .find((product) => product.features?.some((f) => f.key === props.feature))
                 }
 
                 // Check addons first (if not included in checkProductFirst) since their features are rolled up into the parent
                 const allAddons = billing?.products?.map((product) => product.addons).flat() || []
                 if (!foundProduct) {
-                    foundProduct = allAddons.find((addon) => addon.features?.some((f) => f.key === props.feature))
+                    foundProduct = allAddons
+                        .filter((plan) => !plan.legacy_product || plan.subscribed)
+                        .find((addon) => addon.features?.some((f) => f.key === props.feature))
                 }
 
                 if (!foundProduct) {
-                    foundProduct = billing?.products?.find((product) =>
-                        product.features?.some((f) => f.key === props.feature)
-                    )
+                    foundProduct = billing?.products
+                        .filter((plan) => !plan.legacy_product || plan.subscribed)
+                        .find((product) => product.features?.some((f) => f.key === props.feature))
                 }
                 return foundProduct
             },
@@ -97,7 +99,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (s) => [s.productWithFeature],
             (productWithFeature) => {
                 const currentPlanIndex = productWithFeature?.plans.findIndex((plan) => plan.current_plan)
-                if (!currentPlanIndex) {
+                if (currentPlanIndex === undefined || currentPlanIndex < 0) {
                     return null
                 }
                 return productWithFeature?.plans[currentPlanIndex + 1]

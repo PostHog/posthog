@@ -1,5 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../helpers/mocks/producer.mock'
 
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
@@ -9,7 +9,7 @@ import { createConsole } from '../../src/worker/vm/extensions/console'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 
 jest.setTimeout(60000) // 60 sec timeout
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 describe('console extension', () => {
     let hub: Hub
@@ -40,8 +40,8 @@ describe('console extension', () => {
 
                     await (console[typeMethod](...args) as unknown as Promise<void>)
 
-                    expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                    expect(getParsedQueuedMessages()[0]).toEqual({
+                    expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+                    expect(mockProducerObserver.getParsedQueuedMessages()[0]).toEqual({
                         topic: KAFKA_PLUGIN_LOG_ENTRIES,
                         messages: [
                             {

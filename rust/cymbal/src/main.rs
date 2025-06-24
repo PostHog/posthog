@@ -3,13 +3,16 @@ use std::{future::ready, sync::Arc};
 use axum::{routing::get, Router};
 use common_kafka::{kafka_consumer::RecvErr, kafka_producer::KafkaProduceError};
 use common_metrics::{serve, setup_metrics_routes};
-use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    handle_events,
-    metric_consts::{DROPPED_EVENTS, ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
+    metric_consts::{
+        DROPPED_EVENTS, EMIT_EVENTS_TIME, ERRORS, EVENTS_WRITTEN, EVENT_BATCH_SIZE,
+        EVENT_PROCESSED, EVENT_RECEIVED, HANDLE_BATCH_TIME, MAIN_LOOP_TIME,
+    },
+    pipeline::{errors::handle_errors, handle_batch, IncomingEvent},
 };
+use metrics::histogram;
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -83,20 +86,12 @@ async fn main() {
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let received: Vec<Result<(ClickHouseEvent, _), _>> = context
+        let received: Vec<Result<(IncomingEvent, _), _>> = context
             .kafka_consumer
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
 
         let mut transactional_producer = context.transactional_producer.lock().await;
-
-        let txn = match transactional_producer.begin() {
-            Ok(txn) => txn,
-            Err(e) => {
-                error!("Failed to start kafka transaction, {:?}", e);
-                panic!("Failed to start kafka transaction: {:?}", e);
-            }
-        };
 
         let mut to_process = Vec::with_capacity(received.len());
         let mut offsets = Vec::with_capacity(received.len());
@@ -121,22 +116,39 @@ async fn main() {
             metrics::counter!(EVENT_RECEIVED).increment(1);
         }
 
-        let processed = match handle_events(context.clone(), to_process).await {
+        histogram!(EVENT_BATCH_SIZE).record(to_process.len() as f64);
+        let handle_batch_start = common_metrics::timing_guard(HANDLE_BATCH_TIME, &[]);
+        let processed = match handle_batch(to_process, &offsets, context.clone()).await {
             Ok(events) => events,
-            Err((index, e)) => {
+            Err(failure) => {
+                let (index, err) = (failure.index, failure.error);
                 let offset = &offsets[index];
-                error!("Error handling event: {:?}; offset: {:?}", e, offset);
-                panic!("Unhandled error: {:?}; offset: {:?}", e, offset);
+                error!("Error handling event: {:?}; offset: {:?}", err, offset);
+                panic!("Unhandled error: {:?}; offset: {:?}", err, offset);
             }
         };
+        handle_batch_start.label("outcome", "completed").fin();
 
         metrics::counter!(EVENT_PROCESSED).increment(processed.len() as u64);
 
+        let txn = match transactional_producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
+            }
+        };
+
+        let to_emit = handle_errors(processed, context.clone()).await;
+
+        metrics::counter!(EVENTS_WRITTEN).increment(to_emit.len() as u64);
+
+        let emit_time = common_metrics::timing_guard(EMIT_EVENTS_TIME, &[]);
         let results = txn
             .send_keyed_iter_to_kafka(
                 &context.config.events_topic,
                 |ev| Some(ev.uuid.to_string()),
-                &processed,
+                to_emit,
             )
             .await;
 
@@ -155,7 +167,7 @@ async fn main() {
                         "Dropping exception at offset {:?} due to {:?}",
                         offset, error
                     );
-                    metrics::counter!(DROPPED_EVENTS, "cause" => "message_too_large").increment(1);
+                    metrics::counter!(DROPPED_EVENTS, "reason" => "message_too_large").increment(1);
                 }
                 Err(e) => {
                     error!(
@@ -169,6 +181,7 @@ async fn main() {
                 }
             }
         }
+        emit_time.label("outcome", "completed").fin();
 
         let metadata = context.kafka_consumer.metadata();
 

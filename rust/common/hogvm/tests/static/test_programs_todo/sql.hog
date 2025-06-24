@@ -1,0 +1,14 @@
+// Hog SQL support works everywhere (it's just a dict from the compiler)
+// Hog SQL printing however is only implemented in the NodeJS VM. 
+// It's just used for debugging anyway --> run(query) sends the AST nodes over the wire.
+
+let a := sql(event)
+let b := sql(uuid)
+let c := 3
+let query := (select *, {c > 0 ? a : b} from events)
+print(query)
+print(query.select)
+
+let event := '$pageview'
+let query2 := (select * from events where event={event})
+print(query2)

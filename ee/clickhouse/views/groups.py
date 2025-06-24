@@ -1,10 +1,13 @@
 from collections import defaultdict
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from typing import cast
 
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets, status
+from posthog.api.capture import capture_internal
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -14,14 +17,21 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.client import sync_execute
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group.util import raw_create_group_ch
+from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
+from loginas.utils import is_impersonated_session
+
+from posthog.models.user import User
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = ["group_type", "group_type_index", "name_singular", "name_plural"]
+        fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
         read_only_fields = ["group_type", "group_type_index"]
 
 
@@ -43,6 +53,39 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
             serializer.save()
 
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["PUT"], detail=False)
+    def create_detail_dashboard(self, request: request.Request, **kw):
+        try:
+            group_type_mapping = GroupTypeMapping.objects.get(
+                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+            )
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound(detail="Group type not found")
+
+        if group_type_mapping.detail_dashboard:
+            return response.Response(
+                {"detail": "Dashboard already exists for this group type."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
+        group_type_mapping.detail_dashboard = dashboard
+        group_type_mapping.save()
+        return response.Response(self.get_serializer(group_type_mapping).data)
+
+    @action(methods=["PUT"], detail=False)
+    def set_default_columns(self, request: request.Request, **kw):
+        try:
+            group_type_mapping = GroupTypeMapping.objects.get(
+                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+            )
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound(detail="Group type not found")
+
+        group_type_mapping.default_columns = request.data["default_columns"]
+        group_type_mapping.save()
+        return response.Response(self.get_serializer(group_type_mapping).data)
 
 
 class GroupCursorPagination(CursorPagination):
@@ -67,6 +110,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             group_type_index=self.request.GET["group_type_index"],
             group_key__icontains=self.request.GET.get("group_key", ""),
         )
+
+    def safely_get_object(self, queryset):
+        queryset = queryset.filter(
+            group_type_index=self.request.GET["group_type_index"],
+            group_key=self.request.GET.get("group_key", ""),
+        )
+
+        return get_object_or_404(queryset)
 
     @extend_schema(
         parameters=[
@@ -126,12 +177,187 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         try:
             group = self.get_queryset().get(group_key=request.GET["group_key"])
             data = self.get_serializer(group).data
             return response.Response(data)
+        except Group.DoesNotExist:
+            raise NotFound()
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
+            ),
+            OpenApiParameter(
+                "group_key",
+                OpenApiTypes.STR,
+                description="Specify the key of the group to find",
+                required=True,
+            ),
+        ]
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["group:write"])
+    def update_property(self, request: request.Request, **kw) -> response.Response:
+        try:
+            group = self.get_object()
+            for key in ["value", "key"]:
+                if request.data.get(key) is None:
+                    return response.Response(
+                        {
+                            "attr": key,
+                            "code": "This field is required.",
+                            "detail": "required",
+                            "type": "validation_error",
+                        },
+                        status=400,
+                    )
+            try:
+                group_type_mapping = GroupTypeMapping.objects.get(
+                    project_id=self.team.project_id, group_type_index=group.group_type_index
+                )
+            except GroupTypeMapping.DoesNotExist:
+                raise NotFound()
+            original_value = group.group_properties.get(request.data["key"], None)
+            group.group_properties[request.data["key"]] = request.data["value"]
+            group.save()
+            # Need to update ClickHouse too
+            raw_create_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                properties=group.group_properties,
+                created_at=group.created_at,
+                timestamp=timezone.now(),
+            )
+            capture_internal(
+                distinct_id=str(self.team.uuid),
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=timezone.now(),
+                sent_at=None,
+                event={
+                    "event": "$groupidentify",
+                    "properties": {
+                        "$group_type": group_type_mapping.group_type,
+                        "$group_key": group.group_key,
+                        "$group_set": {request.data["key"]: request.data["value"]},
+                    },
+                    "distinct_id": str(self.team.uuid),
+                    "timestamp": timezone.now().isoformat(),
+                },
+            )
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=group.pk,
+                scope="Group",
+                activity="update_property",
+                detail=Detail(
+                    name=str(request.data["key"]),
+                    changes=[
+                        Change(
+                            type="Group",
+                            action="created" if original_value is None else "changed",
+                            before=original_value,
+                            after=request.data["value"],
+                        )
+                    ],
+                ),
+            )
+            return response.Response(self.get_serializer(group).data)
+        except Group.DoesNotExist:
+            raise NotFound()
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
+            ),
+            OpenApiParameter(
+                "group_key",
+                OpenApiTypes.STR,
+                description="Specify the key of the group to find",
+                required=True,
+            ),
+        ]
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["group:write"])
+    def delete_property(self, request: request.Request, **kw) -> response.Response:
+        try:
+            group = self.get_object()
+            for key in ["$unset"]:
+                if request.data.get(key) is None:
+                    return response.Response(
+                        {
+                            "attr": key,
+                            "code": "This field is required.",
+                            "detail": "required",
+                            "type": "validation_error",
+                        },
+                        status=400,
+                    )
+            try:
+                group_type_mapping = GroupTypeMapping.objects.get(
+                    project_id=self.team.project_id, group_type_index=group.group_type_index
+                )
+            except GroupTypeMapping.DoesNotExist:
+                raise NotFound()
+            original_value = group.group_properties[request.data["$unset"]]
+            del group.group_properties[request.data["$unset"]]
+            group.save()
+            # Need to update ClickHouse too
+            raw_create_group_ch(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                properties=group.group_properties,
+                created_at=group.created_at,
+                timestamp=timezone.now(),
+            )
+            capture_internal(
+                distinct_id=str(self.team.uuid),
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=timezone.now(),
+                sent_at=None,
+                event={
+                    "event": "$delete_group_property",
+                    "properties": {
+                        "$group_type": group_type_mapping.group_type,
+                        "$group_key": group.group_key,
+                        "$group_unset": [request.data["$unset"]],
+                    },
+                    "distinct_id": str(self.team.uuid),
+                    "timestamp": timezone.now().isoformat(),
+                },
+            )
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=group.pk,
+                scope="Group",
+                activity="update_property",
+                detail=Detail(
+                    name=str(request.data["$unset"]),
+                    changes=[Change(type="Group", action="deleted", before=original_value)],
+                ),
+            )
+            return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:
             raise NotFound()
 
@@ -151,7 +377,42 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, pk=None, **kwargs):
+        try:
+            group = self.get_object()
+        except Group.DoesNotExist:
+            raise NotFound()
+
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            scope="Group",
+            team_id=self.team_id,
+            item_ids=[group.pk],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
+            ),
+            OpenApiParameter(
+                "id",
+                OpenApiTypes.STR,
+                description="Specify the id of the user to find groups for",
+                required=True,
+            ),
+        ]
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
         id = request.GET["id"]
@@ -159,7 +420,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         results = RelatedActorsQuery(self.team, group_type_index, id).run()
         return response.Response(results)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
         rows = sync_execute(
             f"""
@@ -179,7 +440,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
 
         return response.Response(group_type_index_to_properties)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
         value_filter = request.GET.get("value")
 

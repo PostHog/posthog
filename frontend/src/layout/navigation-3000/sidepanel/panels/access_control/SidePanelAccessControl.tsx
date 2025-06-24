@@ -15,6 +15,8 @@ export const SidePanelAccessControl = (): JSX.Element => {
                     <AccessControlObject
                         resource={sceneSidePanelContext.access_control_resource}
                         resource_id={sceneSidePanelContext.access_control_resource_id}
+                        title="Object permissions"
+                        description="Use object permissions to assign access for individuals and roles."
                     />
                 ) : (
                     <p>Not supported</p>

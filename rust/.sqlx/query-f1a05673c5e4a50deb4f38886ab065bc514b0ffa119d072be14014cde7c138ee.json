@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)\n            VALUES ($1, $2, $3, $4, $5, NOW())\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f1a05673c5e4a50deb4f38886ab065bc514b0ffa119d072be14014cde7c138ee"
+}

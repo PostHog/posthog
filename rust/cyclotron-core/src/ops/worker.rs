@@ -4,10 +4,11 @@ use uuid::Uuid;
 
 use crate::{
     error::QueueError,
+    ops::compress::decompress_vm_state,
     types::{Bytes, Job, JobState, JobUpdate},
 };
 
-use super::meta::throw_if_no_rows;
+use super::{compress::compress_vm_state, meta::throw_if_no_rows};
 
 // Dequeue the next job batch from the queue, skipping VM state since it can be large
 pub async fn dequeue_jobs<'c, E>(
@@ -85,7 +86,7 @@ where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     let lock_id = Uuid::now_v7();
-    Ok(sqlx::query_as!(
+    let result = sqlx::query_as!(
         Job,
         r#"
 WITH available AS (
@@ -137,7 +138,15 @@ RETURNING
         lock_id
     )
     .fetch_all(executor)
-    .await?)
+    .await?;
+
+    let mut out: Vec<Job> = Vec::with_capacity(result.len());
+    for mut job in result {
+        job.vm_state = decompress_vm_state(job.vm_state);
+        out.push(job);
+    }
+
+    Ok(out)
 }
 
 pub async fn get_vm_state<'c, E>(
@@ -161,7 +170,7 @@ where
     .fetch_one(executor)
     .await?;
 
-    Ok(res.vm_state)
+    Ok(decompress_vm_state(res.vm_state))
 }
 
 // NOTE - this clears the lock_id when the job state is set to anything other than "running", since that indicates
@@ -170,6 +179,7 @@ pub async fn flush_job<'c, E>(
     executor: E,
     job_id: Uuid,
     updates: &JobUpdate,
+    should_compress_vm_state: bool,
 ) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -201,7 +211,12 @@ where
     }
 
     if let Some(vm_state) = &updates.vm_state {
-        set_helper(&mut query, "vm_state", vm_state, needs_comma);
+        if should_compress_vm_state {
+            let new_vm_state = compress_vm_state(vm_state.clone())?;
+            set_helper(&mut query, "vm_state", new_vm_state.to_owned(), needs_comma)
+        } else {
+            set_helper(&mut query, "vm_state", vm_state, needs_comma)
+        }
         needs_comma = true;
     }
 

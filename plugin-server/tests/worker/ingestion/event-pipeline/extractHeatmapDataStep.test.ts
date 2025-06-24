@@ -1,5 +1,6 @@
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../../../src/types'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { cloneObject } from '../../../../src/utils/utils'
 import { extractHeatmapDataStep } from '../../../../src/worker/ingestion/event-pipeline/extractHeatmapDataStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
@@ -139,7 +140,7 @@ describe('extractHeatmapDataStep()', () => {
                 kafkaProducer: mockProducer,
                 teamManager: {
                     // @ts-expect-error this is a mock, this is all right
-                    fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
+                    getTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
             },
         }
@@ -153,7 +154,7 @@ describe('extractHeatmapDataStep()', () => {
         expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
         const messages = (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages
         expect(messages).toHaveLength(16)
-        const parsed = JSON.parse(messages[0].value!.toString())
+        const parsed = parseJSON(messages[0].value!.toString())
 
         expect(parsed).toMatchInlineSnapshot(`
             {
@@ -195,7 +196,7 @@ describe('extractHeatmapDataStep()', () => {
         const messages = (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages
         expect(messages).toHaveLength(17)
 
-        const allParsedMessages = messages.map((call) => JSON.parse(call.value!.toString()))
+        const allParsedMessages = messages.map((call) => parseJSON(call.value!.toString()))
 
         expect(allParsedMessages.find((x) => x.type === 'scrolldepth')).toMatchInlineSnapshot(`
             {
@@ -217,7 +218,7 @@ describe('extractHeatmapDataStep()', () => {
 
     it('drops if the associated team has explicit opt out', async () => {
         // @ts-expect-error this is a mock, this is all right
-        runner.hub.teamManager.fetchTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
+        runner.hub.teamManager.getTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
 
         const response = await extractHeatmapDataStep(runner, event)
         expect(response[0]).toEqual(event)
@@ -253,6 +254,11 @@ describe('extractHeatmapDataStep()', () => {
             const response = await extractHeatmapDataStep(runner, event)
             expect(response).toEqual([event, []])
             expect(response[0].properties.$heatmap_data).toBeUndefined()
+
+            expect(runner.hub.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(runner.hub.kafkaProducer.queueMessages).toHaveBeenCalledWith(
+                expect.objectContaining({ topic: 'clickhouse_ingestion_warnings_test' })
+            )
         })
 
         it.each([

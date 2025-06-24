@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { PlayerSidebarSessionSummary } from 'scenes/session-recordings/player/sidebar/PlayerSidebarSessionSummary'
 
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
@@ -16,7 +15,6 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
             <PersonDisplay person={sessionPerson} withIcon withCopyButton placement="bottom" />
             <PlayerSidebarOverviewGrid />
             <PlayerSidebarOverviewOtherWatchers />
-            <PlayerSidebarSessionSummary />
         </div>
     )
 }

@@ -20,6 +20,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { getAppContext } from 'lib/utils/getAppContext'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -30,6 +31,7 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ProductKey } from '~/types'
 import {
+    AccessControlLevel,
     ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
@@ -38,11 +40,13 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
+    settingSectionId: 'environment-feature-flags',
 }
 
 export function OverViewTab({
@@ -209,7 +213,7 @@ export function OverViewTab({
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={featureFlag.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.FeatureFlag}
                                     data-attr={`feature-flag-${featureFlag.key}-switch`}
                                     onClick={() => {
@@ -248,13 +252,17 @@ export function OverViewTab({
                                 {featureFlag.id && (
                                     <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                         resourceType={AccessControlResourceType.FeatureFlag}
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
-                                        onClick={() =>
-                                            featureFlag.id && router.actions.push(urls.featureFlag(featureFlag.id))
-                                        }
+                                        onClick={() => {
+                                            if (featureFlag.id) {
+                                                featureFlagLogic({ id: featureFlag.id }).mount()
+                                                featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
+                                                router.actions.push(urls.featureFlag(featureFlag.id))
+                                            }
+                                        }}
                                     >
                                         Edit
                                     </AccessControlledLemonButton>
@@ -277,7 +285,7 @@ export function OverViewTab({
                                 {featureFlag.id && (
                                     <AccessControlledLemonButton
                                         userAccessLevel={featureFlag.user_access_level}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                         resourceType={AccessControlResourceType.FeatureFlag}
                                         status="danger"
                                         onClick={() => {
@@ -461,9 +469,18 @@ export function FeatureFlags(): JSX.Element {
         <div className="feature_flags">
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                    <AccessControlledLemonButton
+                        type="primary"
+                        to={urls.featureFlag('new')}
+                        data-attr="new-feature-flag"
+                        resourceType={AccessControlResourceType.FeatureFlag}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag]
+                        }
+                    >
                         New feature flag
-                    </LemonButton>
+                    </AccessControlledLemonButton>
                 }
             />
             <LemonTabs

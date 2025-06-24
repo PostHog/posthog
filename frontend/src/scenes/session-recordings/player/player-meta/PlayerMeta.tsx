@@ -12,6 +12,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
@@ -24,47 +25,60 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
-function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
-    if (isObject(lastUrl) && 'href' in lastUrl) {
+export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
+    let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
+    if (isObject(lastUrl)) {
         // regression protection, we saw a user whose site was sometimes sending the string-ified location object
         // this is a best-effort attempt to show the href in that case
-        lastUrl = lastUrl['href'] as string | undefined
+        // we've also seen lastUrl arrive as the empty object
+        const maybeHref = lastUrl?.href
+        if (typeof maybeHref === 'string') {
+            urlToUse = maybeHref
+        }
     }
 
-    if (!lastUrl) {
-        return null
+    if (!urlToUse || urlToUse.trim() === '') {
+        return { urlToUse: undefined, isValidUrl: false }
     }
 
-    // re-using the rrweb web schema means that this might be a mobile replay screen name
     let isValidUrl = false
     try {
-        new URL(lastUrl || '')
+        new URL(urlToUse)
         isValidUrl = true
-    } catch (_e) {
+    } catch {
         // no valid url
     }
 
+    return { urlToUse, isValidUrl }
+}
+
+function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
+    const { urlToUse, isValidUrl } = parseUrl(url)
+
+    if (!urlToUse) {
+        return null
+    }
+
     return (
-        <span className="flex flex-row items-center deprecated-space-x-1 truncate">
-            <span>·</span>
-            <span className="flex flex-row items-center deprecated-space-x-1 truncate">
-                {isValidUrl ? (
-                    <Tooltip title="Click to open url">
-                        <Link to={lastUrl} target="_blank" className="truncate">
-                            {lastUrl}
-                        </Link>
-                    </Tooltip>
-                ) : (
-                    lastUrl
-                )}
+        <span className="flex flex-row items-center gap-x-1 truncate">
+            <span className="flex flex-row items-center gap-x-1 truncate">
                 <span className="flex items-center">
                     <CopyToClipboardInline
-                        description={lastUrl}
-                        explicitValue={lastUrl}
+                        description={urlToUse}
+                        explicitValue={urlToUse}
                         iconStyle={{ color: 'var(--text-secondary)' }}
                         selectable={true}
                     />
                 </span>
+                {isValidUrl ? (
+                    <Tooltip title={`Click to open url: ${urlToUse}`}>
+                        <Link to={urlToUse} target="_blank" className="truncate">
+                            {urlToUse}
+                        </Link>
+                    </Tooltip>
+                ) : (
+                    urlToUse
+                )}
             </span>
         </span>
     )
@@ -88,7 +102,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center deprecated-space-x-1">
+            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
                 {size === 'normal' && <span>{resolutionDisplay}</span>}
                 <span>({scaleDisplay})</span>
             </span>
@@ -99,9 +113,10 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 export function PlayerMeta(): JSX.Element {
+    const { isZenMode } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, lastPageviewEvent, lastUrl, currentWindowIndex, loading } = useValues(
+    const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
         playerMetaLogic(logicProps)
     )
 
@@ -146,8 +161,9 @@ export function PlayerMeta(): JSX.Element {
         windowOptions.push({
             label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
-                <div className="flex flex-row deprecated-space-x-1 space-between items-center">
-                    Follow window: <IconWindow value={index + 1} className="text-secondary" />
+                <div className="flex flex-row gap-x-1 space-between items-center">
+                    Follow window:&nbsp;
+                    <IconWindow value={index + 1} className="text-secondary" />
                 </div>
             ),
             value: windowId,
@@ -162,7 +178,7 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div className="flex flex-row items-center justify-between deprecated-space-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
+                <div className="flex flex-row items-center justify-between gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
                     {loading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
@@ -175,11 +191,11 @@ export function PlayerMeta(): JSX.Element {
                                 onSelect={(value) => setTrackedWindow(value)}
                             />
 
-                            <URLOrScreen lastUrl={lastUrl} />
+                            <URLOrScreen url={currentURL} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
-                                <span className="flex flex-row items-center deprecated-space-x-1 truncate">
+                                <span className="flex flex-row items-center gap-x-1 truncate">
                                     <span>·</span>
-                                    <span className="flex flex-row items-center deprecated-space-x-1 truncate">
+                                    <span className="flex flex-row items-center gap-x-1 truncate">
                                         {lastPageviewEvent?.properties['$screen_name']}
                                     </span>
                                 </span>
@@ -187,11 +203,11 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    <PlayerMetaLinks size={size} />
-                    <ResolutionView size={size} />
+                    {!isZenMode && <PlayerMetaLinks size={size} />}
+                    {!isZenMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                <PlayerMetaBottomSettings size={size} />
+                {!isZenMode && <PlayerMetaBottomSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

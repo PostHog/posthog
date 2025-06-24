@@ -52,10 +52,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             actions.setQueryInput(props.query.query)
         }
     }),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
         actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
-    }),
+    })),
     actions({
         saveQuery: (queryOverride?: string) => ({ queryOverride }),
         setQueryInput: (queryInput: string) => ({ queryInput }),
@@ -88,7 +88,15 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
             actions.setQueryInput(query)
 
-            props.setQuery?.({ ...props.query, query: queryOverride ?? query })
+            props.setQuery?.({
+                ...props.query,
+                query: queryOverride ?? query,
+                variables: Object.fromEntries(
+                    Object.entries(props.query.variables ?? {}).filter(([_, variable]) =>
+                        query.includes(`{variables.${variable.code_name}}`)
+                    )
+                ),
+            })
         },
         setQueryInput: async ({ queryInput }) => {
             props.onChange?.(queryInput)

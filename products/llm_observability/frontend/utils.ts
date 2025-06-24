@@ -5,6 +5,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,
+    AnthropicThinkingMessage,
     AnthropicToolCallMessage,
     AnthropicToolResultMessage,
     CompatMessage,
@@ -113,6 +114,10 @@ export function isAnthropicToolCallMessage(output: unknown): output is Anthropic
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
 }
 
+export function isAnthropicThinkingMessage(output: unknown): output is AnthropicThinkingMessage {
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'thinking'
+}
+
 export function isAnthropicToolResultMessage(output: unknown): output is AnthropicToolResultMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_result'
 }
@@ -196,7 +201,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
     // Tool call completion
     if (isAnthropicToolCallMessage(output)) {
         return [
@@ -216,7 +220,15 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
+    // Thinking
+    if (isAnthropicThinkingMessage(output)) {
+        return [
+            {
+                role: 'assistant (thinking)',
+                content: output.thinking,
+            },
+        ]
+    }
     // Tool result completion
     if (isAnthropicToolResultMessage(output)) {
         if (Array.isArray(output.content)) {
@@ -228,7 +240,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
                     tool_call_id: output.tool_use_id,
                 }))
         }
-
         return [
             {
                 role,
@@ -253,9 +264,10 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         ]
     }
     // Unsupported message.
+    console.warn('Unsupported AI message type', output)
     return [
         {
-            role: 'message',
+            role: 'user',
             content: typeof output === 'string' ? output : JSON.stringify(output),
         },
     ]
@@ -280,6 +292,13 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
     }
 
+    if (typeof messages === 'string') {
+        normalizedMessages.push({
+            role: 'user',
+            content: messages,
+        })
+    }
+
     return normalizedMessages
 }
 
@@ -290,6 +309,10 @@ export function removeMilliseconds(timestamp: string): string {
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMTraceEvent(event)) {
         if (event.event === '$ai_generation') {
+            const spanName = event.properties.$ai_span_name
+            if (spanName) {
+                return `${spanName}`
+            }
             const title = event.properties.$ai_model || 'Generation'
             if (event.properties.$ai_provider) {
                 return `${title} (${event.properties.$ai_provider})`

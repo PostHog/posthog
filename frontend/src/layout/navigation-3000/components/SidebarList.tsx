@@ -1,6 +1,5 @@
 import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,12 +9,13 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
+import posthog from 'posthog-js'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
 
-import SearchHighlight from '~/layout/navigation-3000/components/SearchHighlight'
+import { SearchHighlight } from '~/layout/navigation-3000/components/SearchHighlight'
 
 import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
 import {
@@ -270,7 +270,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
               try {
                   await item.onRename?.(newName)
               } catch (error) {
-                  captureException(error)
+                  posthog.captureException(error)
                   lemonToast.error('Could not rename item')
               } finally {
                   setIsSavingName(false)
@@ -308,6 +308,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
                 <SearchHighlight string={item.name} substring={navigation3000Logic.values.searchTerm} />
+                {'endElement' in item && item.endElement}
             </div>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
@@ -485,13 +486,15 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                     />
                 </div>
             ) : (
-                !!menuItems?.length && (
-                    <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
-                        <div className="SidebarListItem__actions">
-                            <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                        </div>
-                    </LemonMenu>
-                )
+                <>
+                    {!!menuItems?.length && (
+                        <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
+                            <div className="SidebarListItem__actions">
+                                <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                            </div>
+                        </LemonMenu>
+                    )}
+                </>
             )}
         </li>
     )
@@ -535,6 +538,7 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                 onClick={isExpanded || items.length > 0 ? () => toggleListItemAccordion(keyString) : undefined}
             >
                 <IconChevronRight />
+                {category.icon && <div className="SidebarListItemAccordion__icon">{category.icon}</div>}
                 <h4>
                     {capitalizeFirstLetter(pluralizeCategory(category.noun))}
                     {isEmpty && (

@@ -11,7 +11,6 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -30,7 +29,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-
 from .utils import UUIDModel, sane_repr
 
 try:
@@ -492,8 +490,8 @@ def fetch_plugin_log_entries(
     *,
     team_id: Optional[int] = None,
     plugin_config_id: Optional[int] = None,
-    after: Optional[timezone.datetime] = None,
-    before: Optional[timezone.datetime] = None,
+    after: Optional[datetime.datetime] = None,
+    before: Optional[datetime.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
     type_filter: Optional[list[PluginLogEntryType]] = None,
@@ -525,29 +523,6 @@ def fetch_plugin_log_entries(
         WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
-
-
-def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str, Any], *, is_staff: bool):
-    if not plugin.public_jobs:
-        raise ValidationError("Plugin has no public jobs")
-    if job_type not in plugin.public_jobs:
-        raise ValidationError(f"Unknown plugin job: {repr(job_type)}")
-
-    payload_spec = plugin.public_jobs[job_type].get("payload", {})
-    for key, field_options in payload_spec.items():
-        if field_options.get("required", False) and key not in payload:
-            raise ValidationError(f"Missing required job field: {key}")
-        if (
-            field_options.get("staff_only", False)
-            and not is_staff
-            and key in payload
-            and payload.get(key) != field_options.get("default")
-        ):
-            raise ValidationError(f"Field is only settable for admins: {key}")
-
-    for key in payload:
-        if key not in payload_spec:
-            raise ValidationError(f"Unknown field for job: {key}")
 
 
 @receiver(models.signals.post_save, sender=Organization)

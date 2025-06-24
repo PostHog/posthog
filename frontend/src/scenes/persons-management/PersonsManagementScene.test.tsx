@@ -13,14 +13,12 @@ import { initKeaTests } from '~/test/init'
 
 const testExampleResult = [
     {
-        id: 1,
-        name: 'Test User',
-        distinct_ids: ['test_id'],
-        properties: {
-            email: 'test@example.com',
-        },
-        created_at: '2021-01-01T00:00:00Z',
+        display_name: 'test@example.com',
+        id: '0257ab53-0816-55da-8919-73abbf36d5a9',
     },
+    '0257ab53-0816-55da-8919-73abbf36d5a9',
+    '2025-02-04T22:34:07.384000Z',
+    1,
 ]
 
 describe('PersonsManagementScene', () => {
@@ -65,14 +63,12 @@ describe('PersonsManagementScene', () => {
                                 testExampleResult,
                                 [
                                     {
-                                        id: 2,
-                                        name: 'And another test User',
-                                        distinct_ids: ['test_i2'],
-                                        properties: {
-                                            email: 'test2@example.com',
-                                        },
-                                        created_at: '2021-01-01T00:00:00Z',
+                                        display_name: 'test2@example.com',
+                                        id: 'd6a1f1d1-a6e5-528f-9ef1-087013121739',
                                     },
+                                    'd6a1f1d1-a6e5-528f-9ef1-087013121739',
+                                    '2025-02-04T22:34:07.384000Z',
+                                    1,
                                 ],
                             ],
                             count: 1,
@@ -100,9 +96,7 @@ describe('PersonsManagementScene', () => {
         const withinTable = within(lemonTable)
 
         await waitFor(() => {
-            expect(
-                withinTable.getByTitle('This is the Gravatar for test@example.com <test@example.com>')
-            ).toBeInTheDocument()
+            expect(withinTable.getByTitle('This is the Gravatar for test@example.com')).toBeInTheDocument()
             expect(withinTable.getByText('T', { selector: '.Lettermark' })).toBeInTheDocument()
         })
     })
@@ -121,8 +115,7 @@ describe('PersonsManagementScene', () => {
         const withinTable = within(lemonTable)
 
         await waitFor(() => {
-            // TODO: this shouldn't say events, right?
-            expect(withinTable.getByText('There are no matching events for this query')).toBeInTheDocument()
+            expect(withinTable.getByText('There are no matching persons for this query')).toBeInTheDocument()
         })
     })
 
@@ -152,7 +145,9 @@ describe('PersonsManagementScene', () => {
         userEvent.click(personDisplayLink)
 
         await waitFor(() => {
-            expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}/person/test_id`)
+            expect(router.values.location.pathname).toBe(
+                `/project/${MOCK_TEAM_ID}/persons/0257ab53-0816-55da-8919-73abbf36d5a9`
+            )
         })
     })
 })

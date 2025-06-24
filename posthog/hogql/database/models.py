@@ -1,15 +1,16 @@
-from dataclasses import dataclass, field
-from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
-from pydantic import ConfigDict, BaseModel
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql.base import Expr
-from posthog.hogql.errors import ResolutionError, NotImplementedError
+from posthog.hogql.errors import NotImplementedError, ResolutionError
 
 if TYPE_CHECKING:
-    from posthog.hogql.context import HogQLContext
-    from posthog.hogql.ast import SelectQuery, LazyJoinType
+    from posthog.hogql.ast import LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
+    from posthog.hogql.context import HogQLContext
 
 
 class FieldOrTable(BaseModel):
@@ -64,6 +65,13 @@ class StringDatabaseField(DatabaseField):
         return StringType(nullable=self.is_nullable())
 
 
+class UnknownDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UnknownType
+
+        return UnknownType(nullable=self.is_nullable())
+
+
 class StringJSONDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringType
@@ -76,6 +84,13 @@ class StringArrayDatabaseField(DatabaseField):
         from posthog.hogql.ast import StringType
 
         return StringType(nullable=self.is_nullable())
+
+
+class FloatArrayDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import FloatType
+
+        return FloatType(nullable=self.is_nullable())
 
 
 class DateDatabaseField(DatabaseField):
@@ -151,6 +166,48 @@ class Table(FieldOrTable):
             else:
                 raise ResolutionError(f"Unknown field type {type(field_).__name__} for asterisk")
         return asterisk
+
+
+class TableGroup(FieldOrTable):
+    tables: dict[str, "Table | TableGroup"] = field(default_factory=dict)
+
+    def has_table(self, name: str) -> bool:
+        return name in self.tables
+
+    def get_table(self, name: str) -> "Table | TableGroup":
+        return self.tables[name]
+
+    def merge_with(self, table_group: "TableGroup"):
+        for name, table in table_group.tables.items():
+            if name in self.tables:
+                if isinstance(self.tables[name], TableGroup) and isinstance(table, TableGroup):
+                    # Yes, casts are required to make mypy happy
+                    this_table = cast("TableGroup", self.tables[name])
+                    other_table = cast("TableGroup", table)
+                    this_table.merge_with(other_table)
+                else:
+                    raise ValueError(f"Conflict between Table and TableGroup: {name} already exists")
+            else:
+                self.tables[name] = table
+
+        return self
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        raise NotImplementedError("TableGroup.to_printed_clickhouse not overridden")
+
+    def to_printed_hogql(self) -> str:
+        raise NotImplementedError("TableGroup.to_printed_hogql not overridden")
+
+    def resolve_all_table_names(self) -> list[str]:
+        names: list[str] = []
+        for name, table in self.tables.items():
+            if isinstance(table, Table):
+                names.append(name)
+            elif isinstance(table, TableGroup):
+                child_names = table.resolve_all_table_names()
+                names.extend([f"{name}.{x}" for x in child_names])
+
+        return names
 
 
 class LazyJoin(FieldOrTable):

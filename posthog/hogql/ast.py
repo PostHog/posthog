@@ -190,15 +190,6 @@ class TableType(BaseTableType):
 
 
 @dataclass(kw_only=True)
-class TableAliasType(BaseTableType):
-    alias: str
-    table_type: TableType
-
-    def resolve_database_table(self, context: HogQLContext) -> Table:
-        return self.table_type.table
-
-
-@dataclass(kw_only=True)
 class LazyJoinType(BaseTableType):
     table_type: TableOrSelectType
     field: str
@@ -217,6 +208,15 @@ class LazyTableType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
+
+
+@dataclass(kw_only=True)
+class TableAliasType(BaseTableType):
+    alias: str
+    table_type: TableType | LazyTableType
+
+    def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
+        return self.table_type.table
 
 
 @dataclass(kw_only=True)
@@ -512,7 +512,7 @@ class FieldType(Type):
     def is_nullable(self, context: HogQLContext) -> bool:
         database_field = self.resolve_database_field(context)
         if isinstance(database_field, DatabaseField):
-            return database_field.nullable
+            return bool(database_field.nullable)
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
@@ -537,6 +537,7 @@ class FieldType(Type):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
@@ -776,7 +777,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Placeholder, "HogQLXTag", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -839,18 +840,31 @@ class SelectQuery(Expr):
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
 
+    @classmethod
+    def empty(cls) -> "SelectQuery":
+        """Returns an empty SelectQuery that evaluates to no rows.
+
+        Creates a query that selects constant 1 with a WHERE clause that is always false,
+        effectively returning zero rows while maintaining valid SQL syntax.
+        """
+        return SelectQuery(select=[Constant(value=1)], where=Constant(value=False))
+
 
 SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
 
 
 @dataclass(kw_only=True)
-class SelectSetNode:
+class SelectSetNode(AST):
     select_query: Union[SelectQuery, "SelectSetQuery"]
     set_operator: SetOperator
 
     def __post_init__(self):
         if self.set_operator not in get_args(SetOperator):
             raise ValueError("Invalid Set Operator")
+
+    # This is part of the visitor pattern from visitor.py, so we can visit and copy the SelectSetNode
+    def accept(self, visitor):
+        return visitor.visit_select_set_node(self)
 
 
 @dataclass(kw_only=True)
@@ -866,6 +880,9 @@ class SelectSetQuery(Expr):
     def create_from_queries(
         cls, queries: Sequence[Union[SelectQuery, "SelectSetQuery"]], set_operator: SetOperator
     ) -> "SelectSetQuery":
+        if len(queries) == 0:
+            raise ValueError("Cannot create a SelectSetQuery from an empty list of queries")
+
         return SelectSetQuery(
             initial_select_query=queries[0],
             subsequent_select_queries=[
@@ -897,6 +914,7 @@ class HogQLXAttribute(AST):
 class HogQLXTag(AST):
     kind: str
     attributes: list[HogQLXAttribute]
+    type: Optional[Type] = None
 
     def to_dict(self):
         return {

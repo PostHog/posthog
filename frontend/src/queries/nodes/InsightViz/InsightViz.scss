@@ -3,7 +3,6 @@
     flex: 1; // important for when rendered within a flex parent
     flex-direction: column;
     gap: 1rem;
-    overflow: hidden;
     container-type: inline-size;
 
     .PropertyGroupFilters__add-filter-group-inline {
@@ -188,7 +187,7 @@
 .funnel-significance-highlight {
     display: inline-flex;
     color: var(--bg-surface-primary);
-    background: var(--accent-primary);
+    background: var(--accent);
 
     .LemonIcon {
         color: var(--bg-surface-primary);

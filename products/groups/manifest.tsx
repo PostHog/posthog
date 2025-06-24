@@ -13,4 +13,8 @@ export const manifest: ProductManifest = {
         ): string =>
             `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     },
+    fileSystemTypes: {
+        // TODO: create group node entries in the backend
+    },
+    treeItemsProducts: [],
 }

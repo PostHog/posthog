@@ -16,12 +16,14 @@ export interface ExportButtonItem {
     insight?: number
 }
 
-export interface ExportButtonProps extends Pick<LemonButtonProps, 'disabledReason' | 'icon' | 'type' | 'fullWidth'> {
+export interface ExportButtonProps
+    extends Pick<LemonButtonProps, 'disabledReason' | 'icon' | 'sideIcon' | 'id' | 'type' | 'fullWidth'> {
     items: ExportButtonItem[]
+    buttonCopy?: string
 }
 
 export const ExportButton: React.FunctionComponent<ExportButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    forwardRef(function ExportButton({ items, ...buttonProps }, ref): JSX.Element {
+    forwardRef(function ExportButton({ items, buttonCopy, ...buttonProps }, ref): JSX.Element {
         useMountedLogic(exportsLogic)
 
         const { actions } = exportsLogic
@@ -81,7 +83,7 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                     ),
                 }}
             >
-                Export
+                {buttonCopy ?? 'Export'}
             </LemonButtonWithDropdown>
         )
     })

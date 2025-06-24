@@ -3,6 +3,7 @@ import { Counter, Summary } from 'prom-client'
 
 import { Hub, PluginConfig } from '../../../types'
 import { PostgresUse } from '../../../utils/db/postgres'
+import { parseJSON } from '../../../utils/json-parse'
 import { postgresGet } from '../utils'
 
 const vmExtensionStorageGetCounter = new Counter({
@@ -22,7 +23,7 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
         vmExtensionStorageGetCounter.labels(String(pluginConfig.plugin?.id)).inc()
 
         const result = await postgresGet(server.db, pluginConfig.id, key)
-        return result?.rows.length === 1 ? JSON.parse(result.rows[0].value) : defaultValue
+        return result?.rows.length === 1 ? parseJSON(result.rows[0].value) : defaultValue
     }
     const set = async function (key: string, value: unknown): Promise<void> {
         const timer = new Date()

@@ -7,6 +7,7 @@ from django.db.models.functions import Coalesce
 
 
 class EventProperty(models.Model):
+    id = models.BigAutoField(primary_key=True)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     event = models.CharField(max_length=400, null=False)

@@ -1,48 +1,61 @@
+import asyncio
 import json
 import os
 import re
-import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from typing import Any, Optional, cast, Literal
-
-from posthoganalytics.ai.openai import OpenAI
+from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
 import posthoganalytics
 import requests
+import structlog
+from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import extend_schema
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
+from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter, Histogram
-from pydantic import ValidationError, BaseModel
+from pydantic import BaseModel, ValidationError
 from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
-from rest_framework.request import Request
-
+from ee.session_recordings.session_summary.stream import stream_recording_summary
 import posthog.session_recordings.queries.session_recording_list_from_query
-from ee.session_recordings.session_summary.summarize_session import summarize_recording
+import posthog.session_recordings.queries.sub_queries.events_subquery
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, safe_clickhouse_string
+from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
 )
-from posthog.schema import HogQLQueryModifiers, QueryTiming, RecordingsQuery
+from posthog.renderers import ServerSentEventRenderer
+from posthog.schema import HogQLQueryModifiers, PropertyFilterType, QueryTiming, RecordingsQuery
+from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
+from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -53,24 +66,18 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from posthog.storage import object_storage
-from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
-from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
-from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
-from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
-from posthog.settings.session_replay import SESSION_REPLAY_AI_DEFAULT_MODEL, SESSION_REPLAY_AI_REGEX_MODEL
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-    ChatCompletionAssistantMessageParam,
-)
+from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
+from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
+from posthog.storage import object_storage, session_recording_v2_object_storage
+from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+
+from ..models.product_intent.product_intent import ProductIntent
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
-    labelnames=["api_key", "source"],
+    labelnames=["key_label", "source"],
 )
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
@@ -89,10 +96,19 @@ GET_REALTIME_SNAPSHOTS_FROM_REDIS = Histogram(
     "Time taken to get realtime snapshots from Redis",
 )
 
+GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
+    "session_snapshots_gather_recording_sources_histogram",
+    "Time taken to gather recording sources",
+    labelnames=["blob_version"],
+)
+
 STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
+    labelnames=["blob_version"],
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -140,31 +156,6 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     """
 
     encoder_class = SurrogatePairSafeJSONEncoder
-
-
-# context manager for gathering a sequence of server timings
-class ServerTimingsGathered:
-    def __init__(self):
-        # Instance level dictionary to store timings
-        self.timings_dict = {}
-
-    def __call__(self, name):
-        self.name = name
-        return self
-
-    def __enter__(self):
-        # timings are assumed to be in milliseconds when reported
-        # but are gathered by time.perf_counter which is fractional seconds 🫠
-        # so each value is multiplied by 1000 at collection
-        self.start_time = time.perf_counter() * 1000
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        end_time = time.perf_counter() * 1000
-        elapsed_time = end_time - self.start_time
-        self.timings_dict[self.name] = elapsed_time
-
-    def get_all_timings(self):
-        return self.timings_dict
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -285,10 +276,73 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
         return data
 
 
+class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
+    # shared
+    # need to ignore type here because mypy is being weird
+    source = serializers.CharField(required=False, allow_null=True)  # type: ignore
+    blob_v2 = serializers.BooleanField(default=False, help_text="Whether to enable v2 blob functionality")
+    blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
+
+    # v2
+    start_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Start of blob key range")
+    end_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="End of blob key range")
+
+    # v1
+    if_none_match = serializers.SerializerMethodField()
+
+    def get_if_none_match(self) -> str | None:
+        return self.context.get("if_none_match")
+
+    def validate(self, data):
+        source = data.get("source")
+        blob_key = data.get("blob_key")
+        start_blob_key = data.get("start_blob_key")
+        end_blob_key = data.get("end_blob_key")
+        is_personal_api_key = self.context.get("is_personal_api_key")
+
+        if source not in ["realtime", "blob", "blob_v2", None]:
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2, None]")
+
+        # Validate blob_v2 parameters
+        if source == "blob_v2":
+            if blob_key and (start_blob_key or end_blob_key):
+                raise serializers.ValidationError("Must provide a single blob key or start and end blob keys, not both")
+
+            if start_blob_key and not end_blob_key:
+                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+            if end_blob_key and not start_blob_key:
+                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+
+            if not blob_key and not start_blob_key:
+                raise serializers.ValidationError("Must provide one of blob key or start and end blob keys")
+
+            try:
+                min_blob_key = int(start_blob_key or blob_key)
+                max_blob_key = int(end_blob_key or blob_key)
+                data["min_blob_key"] = min_blob_key
+                data["max_blob_key"] = max_blob_key
+            except (ValueError, TypeError):
+                raise serializers.ValidationError("Blob key must be an integer")
+
+            max_blobs_allowed = 20 if is_personal_api_key else 100
+            if max_blob_key - min_blob_key > max_blobs_allowed:
+                raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
+
+        # Validate blob parameters (v1)
+        elif source == "blob" and blob_key:
+            if not blob_key:
+                raise serializers.ValidationError("Must provide a snapshot file blob key")
+            # blob key should be a string of the form 1619712000-1619712060
+            if not all(x.isdigit() for x in blob_key.split("-")):
+                raise serializers.ValidationError("Invalid blob key: " + blob_key)
+
+        return data
+
+
 def list_recordings_response(
-    listing_result: tuple[list[SessionRecording], bool, dict], context: dict[str, Any]
+    listing_result: tuple[list[SessionRecording], bool, str], context: dict[str, Any]
 ) -> Response:
-    (recordings, more_recordings_available, timings) = listing_result
+    (recordings, more_recordings_available, timings_header) = listing_result
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
@@ -296,9 +350,8 @@ def list_recordings_response(
     response = Response(
         {"results": results, "has_next": more_recordings_available, "version": 4},
     )
-    response.headers["Server-Timing"] = ", ".join(
-        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-    )
+    response.headers["Server-Timing"] = timings_header
+
     return response
 
 
@@ -369,7 +422,8 @@ def clean_referer_url(current_url: str | None) -> str:
 
         path = re.sub(r"^/?project/\d+", "", path)
 
-        path = re.sub(r"^/?person/.*$", "person-page", path)
+        # matches person or persons
+        path = re.sub(r"^/?persons?/.*$", "person-page", path)
 
         path = re.sub(r"^/?insights/[^/]+/edit$", "insight-edit", path)
 
@@ -386,7 +440,7 @@ def clean_referer_url(current_url: str | None) -> str:
         path = re.sub("/", "-", path)
         return path or "unknown"
     except Exception as e:
-        posthoganalytics.capture_exception(e, distinct_id="clean_referer_url", properties={"current_url": current_url})
+        capture_exception(e, additional_properties={"current_url": current_url, "function_name": "clean_referer_url"})
         return "unknown"
 
 
@@ -416,13 +470,33 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        query = filter_from_params_to_query(request.GET.dict())
+        user_distinct_id = cast(User, request.user).distinct_id
 
-        self._maybe_report_recording_list_filters_changed(request, team=self.team)
-        return list_recordings_response(
-            list_recordings_from_query(query, cast(User, request.user), team=self.team),
-            context=self.get_serializer_context(),
-        )
+        try:
+            query = filter_from_params_to_query(request.GET.dict())
+
+            self._maybe_report_recording_list_filters_changed(request, team=self.team)
+            response = list_recordings_response(
+                list_recordings_from_query(query, cast(User, request.user), team=self.team),
+                context=self.get_serializer_context(),
+            )
+
+            return response
+        except CHQueryErrorTooManySimultaneousQueries:
+            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except (ServerException, Exception) as e:
+            if isinstance(e, exceptions.ValidationError):
+                raise
+
+            if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+                raise Throttled(detail="Query timeout exceeded. Try again later.")
+
+            posthoganalytics.capture_exception(
+                e,
+                distinct_id=user_distinct_id,
+                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
+            )
+            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
@@ -442,25 +516,26 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 "Must specify exactly one session_id",
             )
 
-        if not query.events and not query.actions:
+        has_event_properties = any(
+            getattr(p, "type", None) == PropertyFilterType.EVENT for p in (query.properties or [])
+        )
+
+        if not query.events and not query.actions and not has_event_properties:
             raise exceptions.ValidationError(
-                "Must specify at least one event or action filter",
+                "Must specify at least one event or action filter, or event properties filter",
             )
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
         results, _, timings = (
-            posthog.session_recordings.queries.session_recording_list_from_query.ReplayFiltersEventsSubQuery(
+            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
                 query=query, team=self.team, hogql_query_modifiers=modifiers
             ).get_event_ids_for_session()
         )
 
         response = JsonResponse(data={"results": results})
 
-        response.headers["Server-Timing"] = ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}"
-            for key, duration in _generate_timings(timings, ServerTimingsGathered()).items()
-        )
+        response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response
 
     @extend_schema(
@@ -607,43 +682,87 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         NB version 1 of this API has been deprecated and ClickHouse stored snapshots are no longer supported.
         """
 
-        recording = self.get_object()
+        timer = ServerTimingsGathered()
+
+        with timer("get_recording"):
+            recording: SessionRecording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        source = request.GET.get("source")
-
-        event_properties = {
-            "team_id": self.team.pk,
-            "request_source": source,
-            "session_being_loaded": recording.session_id,
-        }
-
-        if request.headers.get("X-POSTHOG-SESSION-ID"):
-            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "v2 session recording snapshots viewed",
-            event_properties,
+        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        serializer = SessionRecordingSnapshotsRequestSerializer(
+            data=request.GET.dict(),
+            context={"is_personal_api_key": is_personal_api_key, "if_none_match": request.headers.get("If-None-Match")},
         )
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
 
-        if source:
-            SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
+        source = validated_data.get("source")
+        source_log_label = source or "listing"
+        is_v2_enabled = validated_data.get("blob_v2", False)
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
-        if personal_api_key:
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
-        if not source:
-            return self._gather_session_recording_sources(recording)
-        elif source == "realtime":
-            return self._send_realtime_snapshots_to_client(recording, request, event_properties)
-        elif source == "blob":
-            return self._stream_blob_to_client(recording, request, event_properties)
-        else:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
+        if is_personal_api_key:
+            personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
+            used_key = personal_api_authenticator.personal_api_key
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
+            # we want to track personal api key usage of this endpoint
+            # with better visibility than just the token in a counter
+            posthoganalytics.capture(
+                self._distinct_id_from_request(request),
+                "snapshots_api_called_with_personal_api_key",
+                {
+                    "key_label": used_key.label,
+                    "key_scopes": used_key.scopes,
+                    "key_scoped_teams": used_key.scoped_teams,
+                    "session_requested": recording.session_id,
+                    "recording_start_time": recording.start_time,
+                    "source": source_log_label,
+                },
+            )
+
+        try:
+            response: Response | HttpResponse
+            if not source:
+                response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
+            elif source == "realtime":
+                with timer("send_realtime_snapshots_to_client"):
+                    response = self._send_realtime_snapshots_to_client(recording)
+            elif source == "blob":
+                with timer("stream_blob_to_client"):
+                    response = self._stream_blob_to_client(
+                        recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
+                    )
+            elif source == "blob_v2":
+                if "min_blob_key" in validated_data:
+                    response = self._stream_blob_v2_to_client(
+                        recording,
+                        timer,
+                        min_blob_key=validated_data["min_blob_key"],
+                        max_blob_key=validated_data["max_blob_key"],
+                    )
+                else:
+                    response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
+
+            response.headers["Server-Timing"] = timer.to_header_string()
+            return response
+        except NotFound:
+            raise
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e,
+                distinct_id=self._distinct_id_from_request(request),
+                properties={
+                    "location": "session_recording_api.snapshots",
+                    "session_id": str(recording.session_id) if recording else None,
+                },
+            )
+            return Response(
+                {"error": "An unexpected error has occurred. Please try again later."},
+                status=500,
+            )
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -667,7 +786,20 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 team=team,
             )
 
-    def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
+            ProductIntent.register(
+                team=team,
+                product_type="session_replay",
+                context="session_replay_set_filters",
+                user=cast(User, request.user),
+                metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
+            )
+
+    def _gather_session_recording_sources(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        is_v2_enabled: bool = False,
+    ) -> Response:
         might_have_realtime = True
         newest_timestamp = None
         response_data = {}
@@ -675,52 +807,73 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_keys: list[str] | None = None
         blob_prefix = ""
 
-        if recording.object_storage_path:
-            blob_prefix = recording.object_storage_path
-            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-            might_have_realtime = False
-        else:
-            blob_prefix = recording.build_blob_ingestion_storage_path()
-            blob_keys = object_storage.list_objects(blob_prefix)
+        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2" if is_v2_enabled else "v1").time():
+            if is_v2_enabled:
+                with timer("list_blocks__gather_session_recording_sources"):
+                    blocks = list_blocks(recording)
 
-        if blob_keys:
-            for full_key in blob_keys:
-                # Keys are like 1619712000-1619712060
-                blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
+                for i, block in enumerate(blocks):
+                    sources.append(
+                        {
+                            "source": "blob_v2",
+                            "start_timestamp": block.start_time,
+                            "end_timestamp": block.end_time,
+                            "blob_key": str(i),
+                        }
+                    )
 
-                sources.append(
-                    {
-                        "source": "blob",
-                        "start_timestamp": time_range[0],
-                        "end_timestamp": time_range.pop(),
-                        "blob_key": blob_key,
-                    }
-                )
-        if sources:
-            sources = sorted(sources, key=lambda x: x["start_timestamp"])
-            oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-            newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+            with timer("list_objects__gather_session_recording_sources"):
+                if recording.object_storage_path:
+                    blob_prefix = recording.object_storage_path
+                    blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                    might_have_realtime = False
+                else:
+                    blob_prefix = recording.build_blob_ingestion_storage_path()
+                    blob_keys = object_storage.list_objects(blob_prefix)
 
-            if might_have_realtime:
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
-        if might_have_realtime:
-            sources.append(
-                {
-                    "source": "realtime",
-                    "start_timestamp": newest_timestamp,
-                    "end_timestamp": None,
-                }
-            )
-            # the UI will use this to try to load realtime snapshots
-            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-            # it takes a short while for the subscription to be sync'd into redis
-            # let's use the network round trip time to get started
-            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
-        response_data["sources"] = sources
-        serializer = SessionRecordingSourcesSerializer(response_data)
-        return Response(serializer.data)
+            with timer("prepare_sources__gather_session_recording_sources"):
+                if blob_keys:
+                    for full_key in blob_keys:
+                        # Keys are like 1619712000-1619712060
+                        blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
+                        blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
+                        time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
+
+                        sources.append(
+                            {
+                                "source": "blob",
+                                "start_timestamp": time_range[0],
+                                "end_timestamp": time_range.pop(),
+                                "blob_key": blob_key,
+                            }
+                        )
+                if sources:
+                    sources = sorted(sources, key=lambda x: x["start_timestamp"])
+                    oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                    newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+
+                    if might_have_realtime:
+                        might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
+
+                if might_have_realtime:
+                    sources.append(
+                        {
+                            "source": "realtime",
+                            "start_timestamp": newest_timestamp,
+                            "end_timestamp": None,
+                        }
+                    )
+                    # the UI will use this to try to load realtime snapshots
+                    # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                    # it takes a short while for the subscription to be sync'd into redis
+                    # let's use the network round trip time to get started
+                    publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+                response_data["sources"] = sources
+
+            with timer("serialize_data__gather_session_recording_sources"):
+                serializer = SessionRecordingSourcesSerializer(response_data)
+
+            return Response(serializer.data)
 
     @staticmethod
     def _validate_blob_key(blob_key: Any) -> None:
@@ -736,12 +889,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     @staticmethod
     def _distinct_id_from_request(request):
-        if isinstance(request.user, AnonymousUser):
-            return request.GET.get("sharing_access_token") or "anonymous"
-        elif isinstance(request.user, User):
-            return str(request.user.distinct_id)
-        else:
-            return "anonymous"
+        try:
+            if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+                return cast(
+                    PersonalAPIKeyAuthentication, request.successful_authenticator
+                ).personal_api_key.secure_value
+            if isinstance(request.user, AnonymousUser):
+                return request.GET.get("sharing_access_token") or "anonymous"
+            elif isinstance(request.user, User):
+                return str(request.user.distinct_id)
+            else:
+                return "anonymous"
+        except:
+            return "unknown"
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -770,26 +930,27 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        summary = summarize_recording(recording, user, self.team)
-        timings = summary.pop("timings", None)
-        cache.set(cache_key, summary, timeout=30)
+        # If you want to test sessions locally - override `session_id` and `self.team.pk`
+        # with session/team ids of your choice and set `local_reads_prod` to True
+        session_id = recording.session_id
+        return StreamingHttpResponse(
+            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            content_type=ServerSentEventRenderer.media_type,
+        )
 
-        posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
-
-        # let the browser cache for half the time we cache on the server
-        r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
-        return r
+        # TODO: Calculate timings for stream, and track summarization events (follow-up)
+        # timings_header = summary.pop("timings_header", None)
+        # cache.set(cache_key, summary, timeout=30)
+        # posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
+        # # let the browser cache for half the time we cache on the server
+        # r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        # if timings_header:
+        #     r.headers["Server-Timing"] = timings_header
+        # return r
 
     def _stream_blob_to_client(
-        self, recording: SessionRecording, request: request.Request, event_properties: dict
+        self, recording: SessionRecording, blob_key: str, if_none_match: str | None
     ) -> HttpResponse:
-        blob_key = request.GET.get("blob_key", "")
-        self._validate_blob_key(blob_key)
-
         # very short-lived pre-signed URL
         with GENERATE_PRE_SIGNED_URL_HISTOGRAM.time():
             if recording.object_storage_path:
@@ -806,15 +967,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
 
-        event_properties["source"] = "blob"
-        event_properties["blob_key"] = blob_key
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "session recording snapshots v2 loaded",
-            event_properties,
-        )
-
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1").time():
             # streams the file from S3 to the client
             # will not decompress the possibly large file because of `stream=True`
             #
@@ -826,7 +979,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             # object store will respect this and send back 304 if the file hasn't changed,
             # and we don't need to send the large file over the wire
 
-            if_none_match = request.headers.get("If-None-Match")
             headers = {}
             if if_none_match:
                 headers["If-None-Match"] = ensure_not_weak(if_none_match)
@@ -852,108 +1004,95 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
-    def _send_realtime_snapshots_to_client(
-        self, recording: SessionRecording, request: request.Request, event_properties: dict
-    ) -> HttpResponse | Response:
-        version = request.GET.get("version", "og")
+    async def _stream_blob_v2_to_client_async(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
+            with timer("list_blocks__stream_blob_v2_to_client"):
+                blocks = list_blocks(recording)
+                if not blocks:
+                    raise exceptions.NotFound("Session recording not found")
 
+            if max_blob_key >= len(blocks):
+                raise exceptions.NotFound("Block index out of range")
+
+            async def fetch_single_block_async(block_index: int) -> tuple[int, str | None]:
+                try:
+                    block = blocks[block_index]
+                    content = await asyncio.to_thread(
+                        session_recording_v2_object_storage.client().fetch_block, block.url
+                    )
+                    return block_index, content
+                except BlockFetchError:
+                    logger.exception(
+                        "Failed to fetch block",
+                        recording_id=recording.session_id,
+                        team_id=self.team.id,
+                        block_index=block_index,
+                    )
+                    return block_index, None
+
+            with timer("fetch_blocks_parallel__stream_blob_v2_to_client"):
+                tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+
+                results = await asyncio.gather(*tasks)
+
+                decompressed_blocks: list[str | None] = [None] * len(results)
+                block_errors: list[int] = []
+
+                for block_index, content in results:
+                    if content is None:
+                        block_errors.append(block_index)
+                    else:
+                        decompressed_blocks[block_index - min_blob_key] = content
+
+            if block_errors:
+                raise exceptions.APIException("Failed to load recording block")
+
+            # After error check, all values are guaranteed to be strings
+            response = HttpResponse(
+                content="\n".join(cast(list[str], decompressed_blocks)),
+                content_type="application/jsonl",
+            )
+            response["Cache-Control"] = "max-age=3600"
+            response["Content-Disposition"] = "inline"
+            return response
+
+    def _stream_blob_v2_to_client(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
+
+    def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
-                    team_id=self.team.pk,
+                    team_id=str(self.team.pk),
                     session_id=str(recording.session_id),
                 )
                 or []
             )
 
-        event_properties["source"] = "realtime"
-        event_properties["snapshots_length"] = len(snapshot_lines)
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "session recording snapshots v2 loaded",
-            event_properties,
+        response = HttpResponse(
+            # convert list to a jsonl response
+            content=("\n".join(snapshot_lines)),
+            content_type="application/json",
         )
-
-        if version == "og":
-            # originally we returned a list of dictionaries
-            # under a snapshot key
-            # we keep doing this here for a little while
-            # so that existing browser sessions, that don't know about the new format
-            # can carry on working until the next refresh
-            serializer = SessionRecordingSourcesSerializer({"snapshots": [json.loads(s) for s in snapshot_lines]})
-            return Response(serializer.data)
-        elif version == "2024-04-30":
-            response = HttpResponse(
-                # convert list to a jsonl response
-                content=("\n".join(snapshot_lines)),
-                content_type="application/json",
-            )
-            # the browser is not allowed to cache this at all
-            response["Cache-Control"] = "no-store"
-            return response
-        else:
-            raise exceptions.ValidationError(f"Invalid version: {version}")
+        # the browser is not allowed to cache this at all
+        response["Cache-Control"] = "no-store"
+        return response
 
     @extend_schema(
-        description="Generate session recording filters using AI. This is in development and likely to change, you should not depend on this API."
-    )
-    @action(methods=["POST"], detail=False, url_path="ai/filters")
-    def ai_filters(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not request.user.is_authenticated:
-            raise exceptions.NotAuthenticated()
-
-        try:
-            # Validate request data against schema
-            request_data = AiFilterRequest(messages=[ChatMessage(**msg) for msg in request.data.get("messages", [])])
-        except ValidationError:
-            raise exceptions.ValidationError(
-                "Invalid message format. Messages must be a list of objects with 'role' (either 'user' or 'assistant') and 'content' fields."
-            )
-
-        # Create system prompt by combining the initial and properties prompts
-        system_message = ChatCompletionSystemMessageParam(
-            role="system", content=clean_prompt_whitespace(AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT)
-        )
-
-        # Convert messages to OpenAI format and combine with system message
-        messages: list[ChatCompletionMessageParam] = [system_message]
-        for msg in request_data.messages:
-            if msg.role == "user":
-                messages.append(
-                    ChatCompletionUserMessageParam(role="user", content=clean_prompt_whitespace(msg.content))
-                )
-            else:
-                messages.append(
-                    ChatCompletionAssistantMessageParam(role="assistant", content=clean_prompt_whitespace(msg.content))
-                )
-
-        client = _get_openai_client()
-
-        completion = client.beta.chat.completions.parse(
-            model=SESSION_REPLAY_AI_DEFAULT_MODEL,
-            messages=messages,
-            response_format=AiFilterSchema,
-            # need to type ignore before, this will be a WrappedParse
-            # but the type detection can't figure that out
-            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
-            posthog_properties={
-                "ai_product": "session_replay",
-                "ai_feature": "ai_filters",
-            },
-        )
-
-        if not completion.choices or not completion.choices[0].message.content:
-            raise exceptions.ValidationError("Invalid response from OpenAI")
-
-        try:
-            response_data = json.loads(completion.choices[0].message.content)
-        except JSONDecodeError:
-            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
-
-        return Response(response_data)
-
-    @extend_schema(
-        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API."
+        exclude=True,
+        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API.",
     )
     @action(methods=["POST"], detail=False, url_path="ai/regex")
     def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -993,11 +1132,51 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response(response_data)
 
+    @extend_schema(
+        exclude=True,
+        description="Find recordings with similar event sequences to the given recording. This is in development and likely to change, you should not depend on this API.",
+    )
+    @action(methods=["GET"], detail=True, url_path="analyze/similar")
+    def similar_recordings(self, request: request.Request, **kwargs) -> Response:
+        """Find recordings with similar event sequences to the given recording."""
+        timer = ServerTimingsGathered()
+        recording = self.get_object()
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        # Find recordings with similar event sequences using ClickHouse
+        with timer("get_similar_recordings"):
+            similar_recordings = SessionReplayEvents().get_similar_recordings(
+                session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.9
+            )
+
+        recordings = []
+        recording_ids = []
+        for rec in similar_recordings:
+            recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
+            recordings.append(recording_instance)
+            recording_ids.append(recording_instance.session_id)
+
+        # Filter out recordings that have been viewed by the current user
+        with timer("filter_viewed_recordings"):
+            viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
+            unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
+
+        response = Response(
+            {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
+        )
+        response.headers["Server-Timing"] = timer.to_header_string()
+        return response
+
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
     query: RecordingsQuery, user: User | None, team: Team
-) -> tuple[list[SessionRecording], bool, dict]:
+) -> tuple[list[SessionRecording], bool, str]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -1067,9 +1246,11 @@ def list_recordings_from_query(
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
-        distinct_ids = sorted([x.distinct_id for x in recordings])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
+        distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team=team)
+            .select_related("person")
         )
 
     with timer("process_persons"):
@@ -1083,11 +1264,11 @@ def list_recordings_from_query(
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
-            person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if person:
                 recording.person = person
 
-    return recordings, more_recordings_available, _generate_timings(hogql_timings, timer)
+    return recordings, more_recordings_available, timer.to_header_string(hogql_timings)
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
@@ -1137,7 +1318,7 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         #     distinct_id,
         #     groups=groups,
         # )
-        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
+        modifier_overrides = (flags_n_bags.get("featureFlagPayloads") or {}).get(flag_key, None)
         if modifier_overrides:
             modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
     except:
@@ -1145,17 +1326,6 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         pass
 
     return modifiers
-
-
-def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:
-    timings_dict = timer.get_all_timings()
-    hogql_timings_dict = {}
-    for key, value in hogql_timings or {}:
-        new_key = f"hogql_{key[1].lstrip('./').replace('/', '_')}"
-        # HogQL query timings are in seconds, convert to milliseconds
-        hogql_timings_dict[new_key] = value[1] * 1000
-    all_timings = {**timings_dict, **hogql_timings_dict}
-    return all_timings
 
 
 def _get_openai_client() -> OpenAI:

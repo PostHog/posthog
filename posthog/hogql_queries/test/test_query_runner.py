@@ -91,26 +91,27 @@ class TestQueryRunner(BaseTest):
         # result in new cache keys, which effectively invalidates our cache.
         # this causes increased load on the cluster and increased cache
         # memory usage (until old cache items are evicted).
-        self.assertEqual(
-            cache_payload,
-            {
-                "hogql_modifiers": {
-                    "inCohortVia": "auto",
-                    "materializationMode": "legacy_null_as_null",
-                    "personsArgMaxVersion": "auto",
-                    "optimizeJoinedFilters": False,
-                    "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                    "bounceRatePageViewMode": "count_pageviews",
-                    "sessionTableVersion": "auto",
-                },
-                "limit_context": "query",
-                "query": {"kind": "TestQuery", "some_attr": "bla"},
-                "query_runner": "TestQueryRunner",
-                "team_id": 42,
-                "timezone": "UTC",
-                "version": 2,
+        assert cache_payload == {
+            "hogql_modifiers": {
+                "inCohortVia": "auto",
+                "materializationMode": "legacy_null_as_null",
+                "personsArgMaxVersion": "auto",
+                "optimizeJoinedFilters": False,
+                "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "bounceRatePageViewMode": "count_pageviews",
+                "convertToProjectTimezone": True,
+                "sessionTableVersion": "auto",
+                "useMaterializedViews": True,
+                "sessionsV2JoinMode": "string",
+                "usePresortedEventsTable": False,
             },
-        )
+            "limit_context": "query",
+            "query": {"kind": "TestQuery", "some_attr": "bla"},
+            "query_runner": "TestQueryRunner",
+            "team_id": 42,
+            "timezone": "UTC",
+            "version": 2,
+        }
 
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -120,7 +121,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_93427f8f06e6cc8643a394ae002de2c1")
+        assert cache_key == "cache_81cddfbbf27c8656cc0c71e17917c8bd"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -134,7 +135,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_bb6398a99867dfbdc45a2fc4fccb8f27")
+        assert cache_key == "cache_ac85f6f0bfcc738665881287b9d86890"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -145,7 +146,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_e0c2bb1ad091102533399ebdddbfb24d")
+        assert cache_key == "cache_2c629e23e4015d311ade6565dcdf0387"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

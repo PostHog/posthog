@@ -15,7 +15,6 @@ import type { destinationsFiltersLogicType } from './destinationsFiltersLogicTyp
 export type DestinationsFilters = {
     search?: string
     kind?: PipelineBackend | null
-    sub_template?: string
     showPaused?: boolean
 }
 
@@ -27,9 +26,9 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
     props({} as DestinationsFiltersLogicProps),
     key((props) => props.types.join(',') ?? ''),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<DestinationsFilters>) => ({ filters }),
         resetFilters: true,

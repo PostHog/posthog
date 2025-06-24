@@ -10,6 +10,7 @@ import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
     SidePanelExports,
     SidePanelExportsIcon,
@@ -35,7 +36,7 @@ export const SIDE_PANEL_TABS: Record<
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
     [SidePanelTab.Max]: {
-        label: 'Max',
+        label: 'Max AI',
         Icon: function IconMaxFromHedgehogConfig() {
             const { user } = useValues(userLogic)
             return (
@@ -122,7 +123,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const PanelConent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -195,7 +196,7 @@ export function SidePanel(): JSX.Element | null {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
-                ...(theme?.sidebarStyle ?? {}),
+                ...theme?.sidebarStyle,
             }}
         >
             <Resizer {...resizerLogicProps} />
@@ -235,7 +236,9 @@ export function SidePanel(): JSX.Element | null {
             {PanelConent ? (
                 <div className="SidePanel3000__content">
                     <WithinSidePanelContext.Provider value={true}>
-                        <PanelConent />
+                        <ErrorBoundary>
+                            <PanelConent />
+                        </ErrorBoundary>
                     </WithinSidePanelContext.Provider>
                 </div>
             ) : null}

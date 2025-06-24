@@ -18,6 +18,7 @@ from posthog.schema import (
     BreakdownAttributionType,
     TrendsQuery,
     RetentionQuery,
+    BaseMathType,
 )
 from posthog.schema_helpers import to_dict
 
@@ -235,3 +236,44 @@ class TestSchemaHelpers(TestCase):
         q2 = FunnelsQuery(**base_funnel, funnelsFilter=f2)
 
         self._assert_filter("funnelsFilter", num_keys, q1, q2)
+
+    def test_series_math_set_to_dau_when_appropriate(self):
+        query_with_day_interval = TrendsQuery(
+            interval="week", series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]
+        )
+        result = to_dict(query_with_day_interval)
+        self.assertEqual(result["series"][0]["math"], BaseMathType.DAU)
+
+        query_with_day_interval = TrendsQuery(
+            interval="week", series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]
+        )
+        result = to_dict(query_with_day_interval)
+        self.assertEqual(result["series"][0]["math"], BaseMathType.MONTHLY_ACTIVE)
+
+        query_with_day_interval = TrendsQuery(
+            interval="month", series=[EventsNode(name="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]
+        )
+        result = to_dict(query_with_day_interval)
+        self.assertEqual(result["series"][0]["math"], BaseMathType.DAU)
+
+        # Test case where DAU should NOT be set (assuming 'month' interval doesn't trigger it)
+        query_with_month_interval = TrendsQuery(
+            interval="day", series=[EventsNode(name="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]
+        )
+        result = to_dict(query_with_month_interval)
+        self.assertEqual(result["series"][0]["math"], BaseMathType.WEEKLY_ACTIVE)
+
+        # Test case with existing math that should NOT be overridden
+        query_with_existing_math = TrendsQuery(interval="day", series=[EventsNode(name="$pageview")])
+        result = to_dict(query_with_existing_math)
+        self.assertNotIn("math", result["series"][0])
+
+    def test_serializes_versions_equally(self):
+        """
+        Nodes with different versions should serialize to the same JSON. We only want the cache key to differ
+        if the actual query parameters differ, not the version.
+        """
+        q1 = TrendsQuery(series=[EventsNode(name="$pageview", version=1)], version=1)
+        q2 = TrendsQuery(series=[EventsNode(name="$pageview", version=2)], version=2)
+
+        self.assertEqual(to_dict(q1), to_dict(q2))

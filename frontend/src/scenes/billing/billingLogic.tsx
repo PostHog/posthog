@@ -1,7 +1,7 @@
 import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { FieldNamePath, forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { capitalizeFirstLetter, FieldNamePath, forms } from 'kea-forms'
+import { lazyLoaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,7 +17,14 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
+import {
+    BillingPlan,
+    BillingPlanType,
+    BillingProductV2Type,
+    BillingType,
+    ProductKey,
+    StartupProgramLabel,
+} from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -100,9 +107,17 @@ export const billingLogic = kea<billingLogicType>([
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
+        scrollToProduct: (productType: string) => ({ productType }),
     }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+    connect({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [
             userLogic,
             ['loadUser'],
@@ -115,7 +130,7 @@ export const billingLogic = kea<billingLogicType>([
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
-    })),
+    }),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -210,7 +225,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -308,7 +323,7 @@ export const billingLogic = kea<billingLogicType>([
         billingError: [
             null as BillingError | null,
             {
-                getInvoices: async () => {
+                loadInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
                         const res = await api.getResponse('api/billing/get_invoices?status=open')
@@ -399,22 +414,6 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
-        projectedTotalAmountUsdWithBillingLimits: [
-            (s) => [s.billing],
-            (billing: BillingType): number => {
-                if (!billing) {
-                    return 0
-                }
-                let projectedTotal = 0
-                for (const product of billing.products || []) {
-                    const billingLimit =
-                        billing?.custom_limits_usd?.[product.type] ||
-                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
-                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
-                }
-                return projectedTotal
-            },
-        ],
         supportPlans: [
             (s) => [s.billing],
             (billing: BillingType): BillingPlanType[] => {
@@ -441,6 +440,55 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
+        billingPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
+        ],
+        startupProgramLabelCurrent: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        startupProgramLabelPrevious: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null =>
+                billing?.startup_program_label_previous || null,
+        ],
+        isAnnualPlanCustomer: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
+        ],
+        showBillingSummary: [
+            (s) => [s.billing, s.isOnboarding],
+            (billing: BillingType | null, isOnboarding: boolean): boolean => {
+                return !isOnboarding && !!billing?.billing_period
+            },
+        ],
+        showCreditCTAHero: [
+            (s) => [s.creditOverview, s.featureFlags],
+            (creditOverview, featureFlags): boolean => {
+                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+                return isEligible && creditOverview.status !== 'paid'
+            },
+        ],
+        showBillingHero: [
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero],
+            (billing: BillingType | null, billingPlan: BillingPlan | null, showCreditCTAHero: boolean): boolean => {
+                const platformAndSupportProduct = billing?.products?.find(
+                    (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return !!billingPlan && !billing?.trial && !!platformAndSupportProduct && !showCreditCTAHero
+            },
+        ],
+        isManagedAccount: [
+            (s) => [s.billing],
+            (billing: BillingType): boolean => {
+                return !!(billing?.account_owner?.name || billing?.account_owner?.email)
+            },
+        ],
+        accountOwner: [
+            (s) => [s.billing],
+            (billing: BillingType): { name?: string; email?: string } | null => billing?.account_owner || null,
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -593,20 +641,27 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            if (values.billing.free_trial_until && values.billing.free_trial_until.isAfter(dayjs())) {
-                const remainingDays = values.billing.free_trial_until.diff(dayjs(), 'days')
-                const remainingHours = values.billing.free_trial_until.diff(dayjs(), 'hours')
+            const trial = values.billing.trial
+            if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
+                if (trial.type === 'autosubscribe' || trial.status !== 'active') {
+                    // Only show for standard ones (managed by sales)
+                    return
+                }
 
+                const remainingDays = dayjs(trial.expires_at).diff(dayjs(), 'days')
+                const remainingHours = dayjs(trial.expires_at).diff(dayjs(), 'hours')
                 if (remainingHours > 72) {
                     return
                 }
 
+                const contactEmail = values.billing.account_owner?.email || 'sales@posthog.com'
+                const contactName = values.billing.account_owner?.name || 'sales'
                 actions.setBillingAlert({
                     status: 'info',
-                    title: `Your free trial will end in ${
+                    title: `Your free trial for the ${capitalizeFirstLetter(trial.target)} plan will end in ${
                         remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
                     }.`,
-                    message: `Setup billing now to ensure you don't lose access to premium features.`,
+                    message: `If you have any questions, please reach out to ${contactName} at ${contactEmail}.`,
                 })
                 return
             }
@@ -626,6 +681,11 @@ export const billingLogic = kea<billingLogicType>([
             })
 
             if (productOverLimit) {
+                const hideProductFlag = `billing_hide_product_${productOverLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
@@ -650,6 +710,11 @@ export const billingLogic = kea<billingLogicType>([
             )
 
             if (productApproachingLimit) {
+                const hideProductFlag = `billing_hide_product_${productApproachingLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'info',
                     title: 'You will soon hit your usage limit',
@@ -684,7 +749,7 @@ export const billingLogic = kea<billingLogicType>([
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.billing) {
-                const payload = {
+                const payload: { [key: string]: any } = {
                     has_billing_plan: !!values.billing.has_active_subscription,
                     free_trial_until: values.billing.free_trial_until?.toISOString(),
                     customer_deactivated: values.billing.deactivated,
@@ -719,11 +784,14 @@ export const billingLogic = kea<billingLogicType>([
                 actions.reportCreditsModalShown()
             }
         },
+        scrollToProduct: ({ productType }) => {
+            const element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            element?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            })
+        },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBilling()
-        actions.getInvoices()
-    }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
@@ -743,6 +811,7 @@ export const billingLogic = kea<billingLogicType>([
                     message: _search.billing_error,
                 })
             }
+
             actions.setRedirectPath()
             actions.setIsOnboarding()
         },

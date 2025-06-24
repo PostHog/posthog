@@ -9,7 +9,9 @@ import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
+import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
+import IconMailjet from 'public/services/mailjet.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
@@ -30,13 +32,15 @@ const ICONS: Record<IntegrationKind, any> = {
     snapchat: IconSnapchat,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
+    email: IconMailjet,
+    linear: IconLinear,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
+    })),
 
     actions({
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
@@ -123,7 +127,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
                 actions.loadIntegrations()
                 lemonToast.success(`Integration successful.`)
-            } catch (e) {
+            } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
                 router.actions.replace(replaceUrl)
@@ -149,6 +153,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.integrations],
             (integrations) => {
                 return integrations?.filter((x) => x.kind == 'slack')
+            },
+        ],
+        linearIntegrations: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.filter((x) => x.kind == 'linear') || []
             },
         ],
 

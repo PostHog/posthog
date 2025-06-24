@@ -2,9 +2,9 @@ import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
 import * as prometheus from 'prom-client'
 
-import { PluginServerService } from '~/src/types'
+import { PluginServerService } from '~/types'
 
-import { status } from './utils/status'
+import { logger } from './utils/logger'
 import { delay } from './utils/utils'
 
 prometheus.collectDefaultMetrics()
@@ -69,9 +69,9 @@ const buildGetHealth =
         const checkResultsMapping = Object.fromEntries(checkResults.map((result) => [result.service, result.status]))
 
         if (statusCode === 200) {
-            status.info('💚', 'Server liveness check succeeded')
+            logger.info('💚', 'Server liveness check succeeded')
         } else {
-            status.info('💔', 'Server liveness check failed', checkResultsMapping)
+            logger.info('💔', 'Server liveness check failed', checkResultsMapping)
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
@@ -82,7 +82,7 @@ const getMetrics = async (req: Request, res: Response) => {
         const metrics = await prometheus.register.metrics()
         res.send(metrics)
     } catch (err) {
-        status.error('🩺', 'Error while collecting metrics', { err })
+        logger.error('🩺', 'Error while collecting metrics', { err })
         res.sendStatus(500)
     }
 }
@@ -110,7 +110,7 @@ async function getProfileByType(req: Request, res: Response) {
             })
         }
 
-        status.info('🩺', `Collecting ${type} profile for ${durationSeconds} seconds...`)
+        logger.info('🩺', `Collecting ${type} profile for ${durationSeconds} seconds...`)
 
         let finishProfile: (() => any) | undefined
 
@@ -139,11 +139,11 @@ async function getProfileByType(req: Request, res: Response) {
                 output.export(function (error: any, result: any) {
                     if (error) {
                         reject(error)
-                        status.error('😖', 'Error while exporting profile', { error })
+                        logger.error('😖', 'Error while exporting profile', { error })
                     } else {
                         resolve(result)
                         output.delete?.() // heap profiles do not implement delete
-                        status.info('🩺', `${type} profile successfully exported`)
+                        logger.info('🩺', `${type} profile successfully exported`)
                     }
                 })
             })
@@ -153,7 +153,7 @@ async function getProfileByType(req: Request, res: Response) {
 
         return res.sendStatus(404)
     } catch (error) {
-        status.error('😖', 'Error while exporting profile', { error })
+        logger.error('😖', 'Error while exporting profile', { error })
         res.sendStatus(500)
     }
 }

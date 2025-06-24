@@ -1,32 +1,32 @@
 import { DateTime } from 'luxon'
 
-import { LogLevel, TimestampFormat } from '../../../../types'
+import { TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
-import { ParsedMessageData } from '../kafka/types'
-import { RRWebEventType } from '../rrweb-types'
+import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
+import { MessageWithTeam } from '../teams/types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
-const levelMapping: Record<string, LogLevel> = {
-    info: LogLevel.Info,
-    count: LogLevel.Info,
-    timeEnd: LogLevel.Info,
-    warn: LogLevel.Warn,
-    countReset: LogLevel.Warn,
-    error: LogLevel.Error,
-    assert: LogLevel.Error,
-    // really these should be 'log' but we don't want users to have to think about this
-    log: LogLevel.Info,
-    trace: LogLevel.Info,
-    dir: LogLevel.Info,
-    dirxml: LogLevel.Info,
-    group: LogLevel.Info,
-    groupCollapsed: LogLevel.Info,
-    debug: LogLevel.Info,
-    timeLog: LogLevel.Info,
+const levelMapping: Record<string, ConsoleLogLevel> = {
+    info: ConsoleLogLevel.Info,
+    count: ConsoleLogLevel.Info,
+    timeEnd: ConsoleLogLevel.Info,
+    warn: ConsoleLogLevel.Warn,
+    countReset: ConsoleLogLevel.Warn,
+    error: ConsoleLogLevel.Error,
+    assert: ConsoleLogLevel.Error,
+    // really these should be 'info' but we don't want users to have to think about this
+    log: ConsoleLogLevel.Info,
+    trace: ConsoleLogLevel.Info,
+    dir: ConsoleLogLevel.Info,
+    dirxml: ConsoleLogLevel.Info,
+    group: ConsoleLogLevel.Info,
+    groupCollapsed: ConsoleLogLevel.Info,
+    debug: ConsoleLogLevel.Info,
+    timeLog: ConsoleLogLevel.Info,
 }
 
-function safeLevel(level: unknown): LogLevel {
-    return levelMapping[typeof level === 'string' ? level : 'info'] || LogLevel.Info
+function safeLevel(level: unknown): ConsoleLogLevel {
+    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Info
 }
 
 function sanitizeForUTF8(input: string): string {
@@ -87,7 +87,8 @@ export class SessionConsoleLogRecorder {
         public readonly sessionId: string,
         public readonly teamId: number,
         public readonly batchId: string,
-        private readonly store: SessionConsoleLogStore
+        private readonly store: SessionConsoleLogStore,
+        private readonly metadataSwitchoverDate: Date | null
     ) {}
 
     /**
@@ -97,29 +98,39 @@ export class SessionConsoleLogRecorder {
      * @param message - Message containing events for one or more windows
      * @throws If called after end()
      */
-    public async recordMessage(message: ParsedMessageData): Promise<void> {
+    public async recordMessage(message: MessageWithTeam): Promise<void> {
         if (this.ended) {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        if (!message.team.consoleLogIngestionEnabled) {
+            return
+        }
+
         const logsToStore: ConsoleLogEntry[] = []
 
-        for (const events of Object.values(message.eventsByWindowId)) {
+        for (const events of Object.values(message.message.eventsByWindowId)) {
             for (const event of events) {
                 const eventData = event.data as
                     | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
                     | undefined
                 if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
+                    const timestamp = DateTime.fromMillis(event.timestamp)
+
+                    if (this.metadataSwitchoverDate === null || timestamp.toJSDate() < this.metadataSwitchoverDate) {
+                        continue
+                    }
+
                     const level = safeLevel(eventData?.payload?.level)
                     const maybePayload = eventData?.payload?.payload
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
 
-                    if (level === 'info') {
+                    if (level === ConsoleLogLevel.Info) {
                         this.consoleLogCount++
-                    } else if (level === 'warn') {
+                    } else if (level === ConsoleLogLevel.Warn) {
                         this.consoleWarnCount++
-                    } else if (level === 'error') {
+                    } else if (level === ConsoleLogLevel.Error) {
                         this.consoleErrorCount++
                     }
 
@@ -130,7 +141,7 @@ export class SessionConsoleLogRecorder {
                         log_source: 'session_replay',
                         log_source_id: this.sessionId,
                         instance_id: null,
-                        timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+                        timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
                         batch_id: this.batchId,
                     })
                 }

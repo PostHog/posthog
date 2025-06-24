@@ -59,6 +59,7 @@ class DebugCHQueries(viewsets.ViewSet):
                         is_initial_query
                     ORDER BY query_start_time DESC
                     LIMIT 100
+                    SETTINGS skip_unavailable_shards=1
                 )
                 GROUP BY hour
                 ORDER BY hour
@@ -101,6 +102,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     JSONExtractRaw(log_comment, 'insight_id') = %(insight_id)s AND
                     event_time > %(start_time)s AND
                     is_initial_query
+
+                SETTINGS skip_unavailable_shards=1
             )
         """
 
@@ -151,6 +154,8 @@ class DebugCHQueries(viewsets.ViewSet):
                     is_initial_query
                 ORDER BY query_start_time DESC
                 LIMIT 100
+
+                SETTINGS skip_unavailable_shards=1
             )
             GROUP BY query_id
             ORDER BY query_start_time DESC

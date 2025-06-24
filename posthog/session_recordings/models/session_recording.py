@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import models
 
 from posthog.models.person.missing_person import MissingPerson
-from posthog.models.person.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -32,6 +32,7 @@ class SessionRecording(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     deleted = models.BooleanField(null=True, blank=True)
     object_storage_path = models.CharField(max_length=200, null=True, blank=True)
+    full_recording_v2_path = models.CharField(max_length=1000, null=True, blank=True)
 
     distinct_id = models.CharField(max_length=400, null=True, blank=True)
 
@@ -77,7 +78,7 @@ class SessionRecording(UUIDModel):
         else:
             # Try to load from Clickhouse
             metadata = SessionReplayEvents().get_metadata(
-                team=self.team,
+                team_id=self.team.pk,
                 session_id=self.session_id,
                 recording_start_time=self.start_time,
             )
@@ -120,7 +121,9 @@ class SessionRecording(UUIDModel):
         if self._person:
             return self._person
 
-        return MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id)
+        # kludge: satisfy mypy by making distinct_id always a string.
+        # if distinct_id is none we've got bigger problems
+        return MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id or "")
 
     @person.setter
     def person(self, value: Person):
@@ -131,9 +134,9 @@ class SessionRecording(UUIDModel):
             return
 
         try:
-            self.person = Person.objects.get(
+            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
                 persondistinctid__distinct_id=self.distinct_id,
-                persondistinctid__team_id=self.team,
+                persondistinctid__team_id=self.team.pk,
                 team=self.team,
             )
         except Person.DoesNotExist:

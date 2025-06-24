@@ -1,4 +1,3 @@
-import time
 from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
@@ -6,7 +5,7 @@ from django.db.models import Q, QuerySet
 from rest_framework import serializers, status, viewsets, mixins
 from rest_framework.pagination import PageNumberPagination, CursorPagination, BasePagination
 
-from posthog.api.utils import action
+from posthog.api.utils import ServerTimingsGathered, action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -65,31 +64,6 @@ class ActivityLogPagination(BasePagination):
             return self.page_number_pagination.get_paginated_response(data)
         else:
             return self.cursor_pagination.get_paginated_response(data)
-
-
-# context manager for gathering a sequence of server timings
-class ServerTimingsGathered:
-    # Class level dictionary to store timings
-    timings_dict: dict[str, float] = {}
-
-    def __call__(self, name):
-        self.name = name
-        return self
-
-    def __enter__(self):
-        # timings are assumed to be in milliseconds when reported
-        # but are gathered by time.perf_counter which is fractional seconds 🫠
-        # so each value is multiplied by 1000 at collection
-        self.start_time = time.perf_counter() * 1000
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        end_time = time.perf_counter() * 1000
-        elapsed_time = end_time - self.start_time
-        ServerTimingsGathered.timings_dict[self.name] = elapsed_time
-
-    @classmethod
-    def get_all_timings(cls):
-        return cls.timings_dict
 
 
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
@@ -318,8 +292,6 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         with timer("serialize"):
             serialized_data = ActivityLogSerializer(instance=page_of_data, many=True, context={"user": user}).data
 
-        timings = timer.get_all_timings()
-
         response = Response(
             status=status.HTTP_200_OK,
             data={
@@ -328,9 +300,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             },
         )
 
-        response.headers["Server-Timing"] = ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-        )
+        response.headers["Server-Timing"] = timer.to_header_string()
 
         return response
 

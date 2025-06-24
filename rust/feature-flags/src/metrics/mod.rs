@@ -1,2 +1,2 @@
-pub mod metrics_consts;
-pub mod metrics_utils;
+pub mod consts;
+pub mod utils;

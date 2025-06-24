@@ -18,7 +18,7 @@ export interface PlayerUpNextProps {
 
 export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element | null {
     const timeoutRef = useRef<any>()
-    const { endReached, playNextAnimationInterrupted } = useValues(sessionRecordingPlayerLogic)
+    const { endReached, playNextAnimationInterrupted, similarRecordingsCount } = useValues(sessionRecordingPlayerLogic)
     const { reportNextRecordingTriggered, setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
 
@@ -47,7 +47,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
     useEffect(() => {
         clearTimeout(timeoutRef.current)
 
-        if (endReached && nextSessionRecording?.id) {
+        if (endReached && nextSessionRecording?.id && similarRecordingsCount === 0) {
             setAnimate(true)
             setPlayNextAnimationInterrupted(false)
             timeoutRef.current = setTimeout(
@@ -60,7 +60,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         }
 
         return () => clearTimeout(timeoutRef.current)
-    }, [endReached, !!nextSessionRecording])
+    }, [endReached, !!nextSessionRecording, similarRecordingsCount])
 
     useEffect(() => {
         if (playNextAnimationInterrupted) {

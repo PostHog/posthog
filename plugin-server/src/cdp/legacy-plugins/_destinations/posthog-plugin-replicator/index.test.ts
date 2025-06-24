@@ -298,7 +298,7 @@ describe('Replicator: onEvent', () => {
                 fetch: fetchMock,
                 logger,
             } as any)
-            expect(logger.warn).toHaveBeenCalledWith('Skipping 1 event, rejected by localhost:8000: 400 Bad Request')
+            expect(logger.warn).toHaveBeenCalledWith('Skipping 1 event, rejected by localhost:8000: 400')
         })
 
         it('throws RetryError on 500s', async () => {
@@ -311,7 +311,7 @@ describe('Replicator: onEvent', () => {
                 } as any)
             ).rejects.toThrow(RetryError)
             expect(logger.error).toHaveBeenCalledWith(
-                'Failed to submit 1 event to localhost:8000 due to server error: 500 Bad Request'
+                'Failed to submit 1 event to localhost:8000 due to server error: 500'
             )
         })
     })

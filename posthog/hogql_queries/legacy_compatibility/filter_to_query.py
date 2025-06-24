@@ -63,7 +63,7 @@ def is_entity_variable(item: Any) -> bool:
     return isinstance(item, str) and item.startswith("{") and item.endswith("}")
 
 
-def clean_display(display: str):
+def clean_display(display: Optional[str]):
     if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
@@ -106,11 +106,12 @@ def hidden_legend_keys_to_breakdowns(hidden_legend_keys: dict | None) -> list[st
 def transform_legacy_hidden_legend_keys(hidden_legend_keys):
     transformed_keys = {}
     for key, value in hidden_legend_keys.items():
-        old_format_match = re.match(r"\w+\/.+\/\d+\/(.+)", str(key))
-        if old_format_match:
+        parts = str(key).split("/", 3)
+        if len(parts) == 4 and parts[2].isdigit():  # old format match
+            series_key = parts[3]
             # Don't override values for series if already set from a previously-seen old-format key
-            if old_format_match[1] not in transformed_keys:
-                transformed_keys[old_format_match[1]] = value
+            if series_key not in transformed_keys:
+                transformed_keys[series_key] = value
         else:
             transformed_keys[key] = value
     return transformed_keys
@@ -130,7 +131,7 @@ def legacy_entity_to_node(
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
     """
-    shared = {
+    shared: dict[str, Any] = {
         "name": entity.name,
         "custom_name": entity.custom_name,
     }
@@ -305,7 +306,7 @@ def _series(filter: dict, allow_variables: bool = False):
 
     # remove templates gone wrong
     if not allow_variables and filter.get("events") is not None:
-        filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
+        filter["events"] = [event for event in (filter.get("events") or []) if not (isinstance(event, str))]
 
     math_availability: MathAvailability = MathAvailability.Unavailable
     include_properties: bool = True
@@ -373,7 +374,7 @@ def _entities(filter: dict, allow_variables: bool = False):
 def _sampling_factor(filter: dict):
     if isinstance(filter.get("sampling_factor"), str):
         try:
-            return {"samplingFactor": float(filter.get("sampling_factor"))}
+            return {"samplingFactor": float(filter.get("sampling_factor"))}  # type: ignore
         except (ValueError, TypeError):
             return {}
     else:
@@ -538,7 +539,6 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                     else None
                 ),
                 period=filter.get("period"),
-                showMean=filter.get("show_mean"),
                 meanRetentionCalculation=filter.get("mean_retention_calculation")
                 or ("simple" if filter.get("show_mean") else "none" if filter.get("show_mean") is False else "simple"),
                 cumulative=filter.get("cumulative"),

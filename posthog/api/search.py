@@ -25,7 +25,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description", "filters", "query"],
+        "extra_fields": ["name", "description", "query"],
     },
     "dashboard": {
         "klass": Dashboard,

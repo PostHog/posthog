@@ -4,7 +4,7 @@
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
-    --scene-padding-bottom: var(--scene-padding);
+    --scene-padding-bottom: 4rem;
 
     display: flex;
     width: 100%;
@@ -19,7 +19,7 @@
     > main {
         flex: 1;
         min-width: 0;
-        overflow: auto;
+        overflow: hidden auto;
     }
 
     .BridgePage {
@@ -172,8 +172,8 @@
 
     position: relative;
     box-sizing: content-box;
-    flex: 0 0 var(--sidebar-width);
-    height: 100vh;
+    flex: 1 0 var(--sidebar-width);
+    height: 100%;
 
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
@@ -236,11 +236,10 @@
     flex-direction: column;
     align-items: stretch;
     width: var(--sidebar-width);
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
     font-size: 0.6875rem;
     white-space: nowrap;
-    background: var(--sidebar-background);
 
     // Extend the border into viewport overscroll
     border-right: min(1px, var(--sidebar-width)) solid var(--border-primary);
@@ -459,6 +458,10 @@
         .SidebarListItemAccordion[aria-expanded='true'] & {
             transform: rotate(90deg);
         }
+    }
+
+    .SidebarListItemAccordion__icon {
+        margin-right: 4px;
     }
 }
 

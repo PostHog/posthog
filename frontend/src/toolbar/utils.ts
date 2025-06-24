@@ -41,14 +41,19 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
             continue
         }
 
-        const selector = `[${cssEscape(name)}="${cssEscape(value)}"]`
-        if (querySelectorAllDeep(selector).length == 1) {
-            return selector
+        const escapedSelector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        const unescapedSelector = `[${name}="${value}"]`
+
+        if (querySelectorAllDeep(escapedSelector).length == 1) {
+            // if we return the _valid_ escaped CSS,
+            // the action matching in PostHog might not match it
+            // because it's not really CSS matching
+            return unescapedSelector
         }
     }
 
     try {
-        return finder(element, {
+        const foundSelector = finder(element, {
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
             attr: (name) => {
@@ -57,6 +62,7 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
                 return name.startsWith('data-')
             },
         })
+        return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
         console.warn('Error while trying to find a selector for element', element, error)
         return undefined
@@ -168,7 +174,10 @@ export function getAllClickTargets(
     const shadowElements = allElements
         .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
-        .reduce((a, b) => [...a, ...b], [])
+        .reduce((a, b) => {
+            a.push(...b)
+            return a
+        }, [] as HTMLElement[])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
         .map((e) => trimElement(e, targetSelector))
         .filter((e) => e)
@@ -409,4 +418,15 @@ export function getHeatMapHue(count: number, maxCount: number): number {
         return 60
     }
     return 60 - (count / maxCount) * 40
+}
+
+/*
+ * KLUDGE: e.g. [data-attr="session\.recording\.preview"] is valid CSS
+ * but our action matching doesn't support it
+ * in order to avoid trying to write a general purpose CSS unescaper
+ * we just remove the backslash in this specific pattern
+ * if it matches data-attr="bla\.blah\.blah"
+ */
+export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
+    return foundSelector.replace(/\\./g, '.')
 }

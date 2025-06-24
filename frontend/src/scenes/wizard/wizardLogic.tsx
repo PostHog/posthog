@@ -12,9 +12,9 @@ export interface WizardTokenResponseType {
 
 export const wizardLogic = kea<wizardLogicType>([
     path(['scenes', 'wizard', 'wizardLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions({
         setWizardHash: (wizardHash: string | null) => ({ wizardHash }),
         setView: (view: 'pending' | 'creating' | 'success' | 'invalid') => ({ view }),
@@ -31,7 +31,7 @@ export const wizardLogic = kea<wizardLogicType>([
                         })
                         actions.setView('success')
                         return response
-                    } catch (_) {
+                    } catch {
                         actions.setView('invalid')
 
                         return { success: false }

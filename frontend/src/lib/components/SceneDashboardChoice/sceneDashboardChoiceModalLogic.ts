@@ -26,11 +26,11 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     path((key) => ['lib', 'components', 'SceneDashboardChoice', 'sceneDashboardChoiceModalLogic', key || 'unknown']),
     props({} as SceneDashboardChoiceModalProps),
     key((props) => `${props.scene}`),
-    connect({
+    connect(() => ({
         logic: [eventUsageLogic],
         actions: [teamLogic, ['updateCurrentTeam'], userLogic, ['setUserScenePersonalisation']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], dashboardsModel, ['nameSortedDashboards']],
-    }),
+    })),
     actions({
         showSceneDashboardChoiceModal: () => true,
         closeSceneDashboardChoiceModal: () => true,

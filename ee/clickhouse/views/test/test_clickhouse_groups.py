@@ -2,7 +2,14 @@ from unittest import mock
 from uuid import UUID
 
 from freezegun.api import freeze_time
+from orjson import orjson
 
+from flaky import flaky
+
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.hogql.parser import parse_select
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import GroupTypeMapping, Person
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
@@ -162,6 +169,416 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 1,
             },
         )
+
+    @freeze_time("2021-05-02")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @flaky(max_runs=3, min_passes=1)
+    def test_group_property_crud_add_success(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"name": "Mr. Krabs"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:55",
+            properties={"name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"industry": "technology", "name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select properties
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group.group_type_index),
+                    "key": ast.Constant(value=group.group_key),
+                },
+            ),
+            self.team,
+        )
+        self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
+
+        mock_capture.assert_called_once_with(
+            distinct_id=str(self.team.uuid),
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$groupidentify",
+                "properties": {
+                    "$group_type": group_type_mapping.group_type,
+                    "$group_key": group.group_key,
+                    "$group_set": {"industry": "technology"},
+                },
+                "distinct_id": str(self.team.uuid),
+                "timestamp": mock.ANY,
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+
+    @freeze_time("2021-05-02")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @flaky(max_runs=3, min_passes=1)
+    def test_group_property_crud_update_success(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"industry": "technology", "name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select properties
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group.group_type_index),
+                    "key": ast.Constant(value=group.group_key),
+                },
+            ),
+            self.team,
+        )
+        # Check properties regardless of JSON key order
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0]), 1)
+        self.assertEqual(orjson.loads(response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
+
+        mock_capture.assert_called_once_with(
+            distinct_id=str(self.team.uuid),
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$groupidentify",
+                "properties": {
+                    "$group_type": group_type_mapping.group_type,
+                    "$group_key": group.group_key,
+                    "$group_set": {"industry": "technology"},
+                },
+                "distinct_id": str(self.team.uuid),
+                "timestamp": mock.ANY,
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_update_missing_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"value": "technology"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_update_invalid_group_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:0&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @freeze_time("2021-05-02")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @flaky(max_runs=3, min_passes=1)
+    def test_group_property_crud_delete_success(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": "industry"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "org:5",
+                "group_properties": {"name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
+        )
+
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select properties
+                from groups
+                where index = {index}
+                and key = {key}
+                """,
+                placeholders={
+                    "index": ast.Constant(value=group.group_type_index),
+                    "key": ast.Constant(value=group.group_key),
+                },
+            ),
+            self.team,
+        )
+        self.assertEqual(response.results, [('{"name": "Mr. Krabs"}',)])
+
+        mock_capture.assert_called_once_with(
+            distinct_id=str(self.team.uuid),
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$delete_group_property",
+                "properties": {
+                    "$group_type": group_type_mapping.group_type,
+                    "$group_key": group.group_key,
+                    "$group_unset": ["industry"],
+                },
+                "distinct_id": str(self.team.uuid),
+                "timestamp": mock.ANY,
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "deleted")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_delete_missing_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @freeze_time("2021-05-02")
+    def test_group_property_crud_delete_invalid_group_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:0&group_type_index=0",
+            {"$unset": "industry"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @freeze_time("2021-05-02")
+    def test_get_group_activities_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        # Triggers the entry
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=0",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["activity"], "update_property")
+        self.assertEqual(response.json()["results"][0]["scope"], "Group")
+        self.assertEqual(response.json()["results"][0]["item_id"], str(group.pk))
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
+        self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
+
+    @freeze_time("2021-05-02")
+    def test_get_group_activities_invalid_group(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:5",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        # Triggers the entry
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/activity?group_key=org:5&group_type_index=1",
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-10")
     @snapshot_clickhouse_queries
@@ -431,18 +848,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "group_type": "organization",
                     "name_singular": "organization!",
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
                     "group_type": "playlist",
                     "name_singular": None,
                     "name_plural": "playlists",
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
                     "group_type": "another",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -468,18 +891,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "group_type": "organization",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
                     "group_type": "playlist",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
                     "group_type": "another",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -559,18 +988,24 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "group_type": "organization",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 1,
                     "group_type": "playlist",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
                 {
                     "group_type_index": 2,
                     "group_type": "another",
                     "name_singular": None,
                     "name_plural": None,
+                    "detail_dashboard": None,
+                    "default_columns": None,
                 },
             ],
         )
@@ -588,6 +1023,65 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             disabled_response.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
+
+    def test_create_detail_dashboard_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
+            {"group_type_index": 0},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        group_type_mapping.refresh_from_db()
+        self.assertIsNotNone(group_type_mapping.detail_dashboard)
+
+    def test_create_detail_dashboard_duplicate(self):
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
+        group_type.detail_dashboard = dashboard
+        group_type.save()
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
+            {"group_type_index": 0},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_create_detail_dashboard_not_found(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
+            {"group_type_index": 1},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json().get("detail"), "Group type not found")
+
+    def test_set_default_columns_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/set_default_columns",
+            {"group_type_index": 0, "default_columns": ["$group_0", "$group_1"]},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        group_type_mapping.refresh_from_db()
+        self.assertEqual(group_type_mapping.default_columns, ["$group_0", "$group_1"])
+
+    def test_set_default_columns_not_found(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/set_default_columns",
+            {"group_type_index": 1, "default_columns": ["$group_0", "$group_1"]},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def _create_related_groups_data(self):
         GroupTypeMapping.objects.create(

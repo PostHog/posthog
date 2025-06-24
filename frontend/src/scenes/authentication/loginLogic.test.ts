@@ -11,11 +11,10 @@ describe('loginLogic', () => {
             // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
             initKea({ beforePlugins: [testUtilsPlugin] })
         })
-        it('should throw an exception on redirecting to a different origin', () => {
+        it('should ignore redirect attempt to a different origin', () => {
             router.actions.push(`${origin}/login?next=//google.com`)
-            expect(() => {
-                handleLoginRedirect()
-            }).toThrow()
+            handleLoginRedirect()
+            expect(router.values.location.pathname).toEqual('/')
         })
     })
 
@@ -37,8 +36,8 @@ describe('loginLogic', () => {
             ['javascript:something', '/'],
             ['/bla', '/bla'],
             [`${origin}/bla`, '/bla'],
-            [`http://some-other.origin/bla`, '/bla'],
-            ['//foo.bar', '//foo.bar'],
+            [`http://some-other.origin/bla`, '/'],
+            ['//foo.bar', '/'],
             ['/bla?haha', '/bla?haha'],
             ['/bla?haha#hoho', '/bla?haha#hoho'],
         ]

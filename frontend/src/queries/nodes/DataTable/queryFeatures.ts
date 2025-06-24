@@ -2,8 +2,12 @@ import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsTopCustomersQuery,
+    isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
     isTracesQuery,
@@ -20,7 +24,9 @@ export enum QueryFeature {
     eventNameFilter,
     eventPropertyFilters,
     personPropertyFilters,
+    groupPropertyFilters,
     personsSearch,
+    groupsSearch,
     savedEventsQueries,
     columnConfigurator,
     resultIsArrayOfArrays,
@@ -48,6 +54,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.testAccountFilters)
     }
 
+    if (isRevenueExampleDataWarehouseTablesQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+    }
+
     if (isEventsQuery(query)) {
         features.add(QueryFeature.eventActionsColumn)
         features.add(QueryFeature.eventNameFilter)
@@ -67,21 +79,34 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         }
     }
 
+    if (isGroupsQuery(query)) {
+        features.add(QueryFeature.groupPropertyFilters)
+        features.add(QueryFeature.groupsSearch)
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.columnConfigurator)
+    }
+
     if (
         isWebOverviewQuery(query) ||
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
-        isWebGoalsQuery(query)
+        isWebGoalsQuery(query) ||
+        isRevenueAnalyticsGrowthRateQuery(query) ||
+        isRevenueAnalyticsTopCustomersQuery(query)
     ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (isTracesQuery(query)) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.columnConfigurator)
     }
 
     return features

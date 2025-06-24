@@ -42,6 +42,7 @@ def create_example_inputs_schema():
             "required": True,
         },
         {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+        {"key": "number", "type": "number", "label": "Number", "required": False},
     ]
 
 
@@ -63,6 +64,7 @@ def create_example_inputs():
                 "event_url": "{f'{event.url}-test'}",
             },
         },
+        "number": {"value": 42},
     }
 
 
@@ -105,6 +107,14 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "type": "dictionary",
                     "key": "headers",
                     "label": "Headers",
+                    "required": False,
+                    "secret": False,
+                    "hidden": False,
+                },
+                {
+                    "type": "number",
+                    "key": "number",
+                    "label": "Number",
                     "required": False,
                     "secret": False,
                     "hidden": False,
@@ -184,6 +194,10 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                         ]
                     },
                     "order": 3,
+                },
+                "number": {
+                    "value": 42,
+                    "order": 4,
                 },
             }
         )
@@ -348,3 +362,51 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("bytecode") is None
         assert validated["A"].get("transpiled") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
+
+    def test_validate_inputs_with_secret_values(self):
+        inputs_schema = [
+            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+        ]
+
+        existing_secret_inputs = {
+            "secret_field": {"value": "EXISTING_SECRET_VALUE", "order": 1},
+        }
+
+        for inputs, expected_result in [
+            (
+                {
+                    "secret_field": {},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
+            (
+                {
+                    "secret_field": {"value": "NEW_SECRET_VALUE"},
+                },
+                {
+                    "secret_field": {"value": "NEW_SECRET_VALUE"},
+                },
+            ),
+            (
+                {
+                    "secret_field": {"secret": True},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
+        ]:
+            serializer = MappingsSerializer(
+                data={
+                    "inputs_schema": inputs_schema,
+                    "inputs": inputs,
+                },
+                context={"function_type": "destination", "encrypted_inputs": existing_secret_inputs},
+            )
+            serializer.is_valid(raise_exception=True)
+            validated = serializer.validated_data["inputs"]
+
+            values_only = {k: {"value": v["value"]} for k, v in validated.items()}
+            assert values_only == expected_result

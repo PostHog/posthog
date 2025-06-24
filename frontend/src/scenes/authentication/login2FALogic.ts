@@ -24,9 +24,9 @@ export enum LoginStep {
 
 export const login2FALogic = kea<login2FALogicType>([
     path(['scenes', 'authentication', 'login2FALogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         setLoginStep: (step: LoginStep) => ({ step }),

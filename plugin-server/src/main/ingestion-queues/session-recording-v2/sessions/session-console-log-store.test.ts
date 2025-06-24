@@ -1,5 +1,7 @@
 import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
-import { ClickHouseTimestamp, LogLevel } from '../../../../types'
+import { ClickHouseTimestamp } from '../../../../types'
+import { parseJSON } from '../../../../utils/json-parse'
+import { ConsoleLogLevel } from '../rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
@@ -25,7 +27,7 @@ describe('SessionConsoleLogStore', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-        store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2')
+        store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2', { messageLimit: 1000 })
     })
 
     it('should queue logs to kafka with correct data', async () => {
@@ -33,7 +35,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Info,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -43,7 +45,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 2,
                 message: 'Test warning message',
-                level: LogLevel.Warn,
+                level: ConsoleLogLevel.Warn,
                 log_source: 'session_replay',
                 log_source_id: 'different456',
                 instance_id: null,
@@ -53,7 +55,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test error message',
-                level: LogLevel.Error,
+                level: ConsoleLogLevel.Error,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -63,12 +65,13 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
 
         expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe('log_entries_v2')
         const queuedMessages = queuedMessage.messages
-        const parsedLogs = queuedMessages.map((msg) => JSON.parse(msg.value as string))
+        const parsedLogs = queuedMessages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedLogs).toMatchObject([
             {
@@ -111,6 +114,7 @@ describe('SessionConsoleLogStore', () => {
 
     it('should handle empty logs array', async () => {
         await store.storeSessionConsoleLogs([])
+        await store.flush()
         expect(mockProducer.queueMessages).not.toHaveBeenCalled()
     })
 
@@ -122,7 +126,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -131,7 +135,8 @@ describe('SessionConsoleLogStore', () => {
             },
         ]
 
-        await expect(store.storeSessionConsoleLogs(logs)).rejects.toThrow(error)
+        await store.storeSessionConsoleLogs(logs)
+        await expect(store.flush()).rejects.toThrow(error)
     })
 
     it('should preserve batch IDs when storing logs', async () => {
@@ -139,7 +144,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message 1',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session1',
                 instance_id: null,
@@ -149,7 +154,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message 2',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session2',
                 instance_id: null,
@@ -159,22 +164,23 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedLogs = queuedMessage.messages.map((msg) => JSON.parse(msg.value as string))
+        const parsedLogs = queuedMessage.messages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedLogs[0].batch_id).toBe('batch1')
         expect(parsedLogs[1].batch_id).toBe('batch2')
     })
 
     it('should not produce if topic is empty', async () => {
-        store = new SessionConsoleLogStore(mockProducer, '')
+        store = new SessionConsoleLogStore(mockProducer, '', { messageLimit: 1000 })
 
         const logs: ConsoleLogEntry[] = [
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -184,18 +190,19 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
         expect(mockProducer.queueMessages).not.toHaveBeenCalled()
     })
 
     it('should use custom topic when provided', async () => {
         const customTopic = 'custom_log_entries_topic'
-        store = new SessionConsoleLogStore(mockProducer, customTopic)
+        store = new SessionConsoleLogStore(mockProducer, customTopic, { messageLimit: 1000 })
 
         const logs: ConsoleLogEntry[] = [
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: LogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -205,6 +212,7 @@ describe('SessionConsoleLogStore', () => {
         ]
 
         await store.storeSessionConsoleLogs(logs)
+        await store.flush()
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe(customTopic)
@@ -229,7 +237,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 1,
                     message: 'Test log message',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'session123',
                     instance_id: null,
@@ -239,7 +247,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 2,
                     message: 'Another log message',
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     log_source: 'session_replay',
                     log_source_id: 'session456',
                     instance_id: null,
@@ -249,21 +257,23 @@ describe('SessionConsoleLogStore', () => {
             ]
 
             await store.storeSessionConsoleLogs(logs)
+            await store.flush()
             expect(SessionBatchMetrics.incrementConsoleLogsStored).toHaveBeenCalledWith(2)
         })
 
         it('should not increment metric for empty logs array', async () => {
             await store.storeSessionConsoleLogs([])
+            await store.flush()
             expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
         })
 
         it('should not increment metric when topic is empty', async () => {
-            store = new SessionConsoleLogStore(mockProducer, '')
+            store = new SessionConsoleLogStore(mockProducer, '', { messageLimit: 1000 })
             const logs: ConsoleLogEntry[] = [
                 {
                     team_id: 1,
                     message: 'Test log message',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'session123',
                     instance_id: null,
@@ -273,28 +283,91 @@ describe('SessionConsoleLogStore', () => {
             ]
 
             await store.storeSessionConsoleLogs(logs)
+            await store.flush()
             expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
         })
+    })
 
-        it('should not increment metric if producer fails', async () => {
-            const error = new Error('Kafka producer error')
-            mockProducer.queueMessages.mockRejectedValueOnce(error)
+    describe('message limit and sync behavior', () => {
+        let mockProducer: jest.Mocked<KafkaProducerWrapper>
+        let store: SessionConsoleLogStore
 
-            const logs: ConsoleLogEntry[] = [
-                {
-                    team_id: 1,
-                    message: 'Test log message',
-                    level: LogLevel.Info,
-                    log_source: 'session_replay',
-                    log_source_id: 'session123',
-                    instance_id: null,
-                    timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
-                    batch_id: 'batch123',
-                },
-            ]
+        beforeEach(() => {
+            mockProducer = {
+                queueMessages: jest.fn().mockResolvedValue(undefined),
+                flush: jest.fn().mockResolvedValue(undefined),
+            } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-            await expect(store.storeSessionConsoleLogs(logs)).rejects.toThrow(error)
-            expect(SessionBatchMetrics.incrementConsoleLogsStored).not.toHaveBeenCalled()
+            // Set message limit to 2 to make testing easier
+            store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2', { messageLimit: 2 })
+        })
+
+        const createTestLog = (id: string): ConsoleLogEntry => ({
+            team_id: 1,
+            message: `Test message ${id}`,
+            level: ConsoleLogLevel.Info,
+            log_source: 'session_replay',
+            log_source_id: `session${id}`,
+            instance_id: null,
+            timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
+            batch_id: `batch${id}`,
+        })
+
+        it('should sync when message limit is reached', async () => {
+            const log1 = createTestLog('1')
+            const log2 = createTestLog('2')
+
+            // First store call should not trigger sync
+            await store.storeSessionConsoleLogs([log1])
+            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+
+            // Second store call should trigger sync because limit is 2
+            await store.storeSessionConsoleLogs([log2])
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'log_entries_v2',
+                messages: [
+                    { key: 'session1', value: expect.any(String) },
+                    { key: 'session2', value: expect.any(String) },
+                ],
+            })
+        })
+
+        it('should handle batches larger than the limit', async () => {
+            const log1 = createTestLog('1')
+            const log2 = createTestLog('2')
+            const log3 = createTestLog('3')
+
+            // Store 3 logs at once
+            await store.storeSessionConsoleLogs([log1, log2, log3])
+
+            // Should trigger immediate sync due to exceeding limit
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'log_entries_v2',
+                messages: [
+                    { key: 'session1', value: expect.any(String) },
+                    { key: 'session2', value: expect.any(String) },
+                    { key: 'session3', value: expect.any(String) },
+                ],
+            })
+        })
+
+        it('should sync remaining messages on flush', async () => {
+            const log1 = createTestLog('1')
+
+            // Store one log (under limit)
+            await store.storeSessionConsoleLogs([log1])
+            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+
+            // Flush should sync remaining messages
+            await store.flush()
+            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith({
+                topic: 'log_entries_v2',
+                messages: [{ key: 'session1', value: expect.any(String) }],
+            })
+            expect(mockProducer.flush).toHaveBeenCalled()
         })
     })
 })

@@ -1,18 +1,21 @@
+import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
     SurveyAppearance,
     SurveyMatchType,
+    SurveyPosition,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveySchedule,
     SurveyType,
+    SurveyWidgetType,
 } from '~/types'
 
-export const SURVEY_EVENT_NAME = 'survey sent'
-export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 export const SURVEY_PAGE_SIZE = 100
+
+export const LINK_PAGE_SIZE = 100
 
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
@@ -21,6 +24,16 @@ export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.SingleChoice]: 'Single choice select',
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
+
+// Rating scale constants
+export const SURVEY_RATING_SCALE = {
+    EMOJI_3_POINT: 3,
+    LIKERT_5_POINT: 5,
+    LIKERT_7_POINT: 7,
+    NPS_10_POINT: 10,
+} as const
+
+export type SurveyRatingScaleValue = (typeof SURVEY_RATING_SCALE)[keyof typeof SURVEY_RATING_SCALE]
 
 // Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {
@@ -33,7 +46,7 @@ export const SurveyMatchTypeLabels = {
 }
 
 export const defaultSurveyAppearance = {
-    fontFamily: 'system-ui' as SurveyAppearance['fontFamily'],
+    fontFamily: 'inherit',
     backgroundColor: '#eeeded',
     submitButtonColor: 'black',
     submitButtonTextColor: 'white',
@@ -44,11 +57,21 @@ export const defaultSurveyAppearance = {
     whiteLabel: false,
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
-    position: 'right',
-    widgetType: 'tab' as const,
+    position: SurveyPosition.Right,
+    widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
-}
+    zIndex: '2147482647',
+    disabledButtonOpacity: '0.6',
+    maxWidth: '300px',
+    textSubtleColor: '#939393',
+    inputBackground: 'white',
+    boxPadding: '20px 24px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    borderRadius: '10px',
+    shuffleQuestions: false,
+    surveyPopupDelaySeconds: undefined,
+} as const satisfies SurveyAppearance
 
 export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {
@@ -87,7 +110,7 @@ export const defaultSurveyFieldValues = {
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 10,
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
                 buttonText: 'Submit',
@@ -154,6 +177,7 @@ export interface NewSurvey
         | 'response_sampling_interval'
         | 'response_sampling_limit'
         | 'schedule'
+        | 'enable_partial_responses'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -187,6 +211,7 @@ export const NEW_SURVEY: NewSurvey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    enable_partial_responses: true,
 }
 
 export enum SurveyTemplateType {
@@ -197,9 +222,14 @@ export enum SurveyTemplateType {
     CES = 'Customer effort score (CES)',
     CCR = 'Customer churn rate (CCR)',
     PMF = 'Product-market fit (PMF)',
+    ErrorTracking = 'Capture exceptions',
 }
 
-export const defaultSurveyTemplates = [
+type SurveyTemplate = Partial<Survey> & {
+    templateType: SurveyTemplateType
+}
+
+export const defaultSurveyTemplates: SurveyTemplate[] = [
     {
         type: SurveyType.Popover,
         templateType: SurveyTemplateType.OpenFeedback,
@@ -223,6 +253,7 @@ export const defaultSurveyTemplates = [
                 description: 'We are looking for feedback on our product and would love to hear from you!',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 buttonText: 'Schedule',
+                link: null,
             },
         ],
         appearance: {
@@ -240,7 +271,7 @@ export const defaultSurveyTemplates = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 10,
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
             },
@@ -269,13 +300,12 @@ export const defaultSurveyTemplates = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'emoji',
-                scale: 5,
+                scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
                 lowerBoundLabel: 'Very dissatisfied',
                 upperBoundLabel: 'Very satisfied',
             },
         ],
         description: 'Works best after a checkout or support flow.',
-        appearance: { ratingButtonColor: '#939393' },
     },
     {
         type: SurveyType.Popover,
@@ -287,7 +317,7 @@ export const defaultSurveyTemplates = [
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
-                scale: 7,
+                scale: SURVEY_RATING_SCALE.LIKERT_7_POINT,
                 lowerBoundLabel: 'Strongly disagree',
                 upperBoundLabel: 'Strongly agree',
             },
@@ -313,9 +343,32 @@ export const defaultSurveyTemplates = [
     },
 ]
 
+export const errorTrackingSurvey: SurveyTemplate = {
+    type: SurveyType.Popover,
+    templateType: SurveyTemplateType.ErrorTracking,
+    questions: [
+        {
+            type: SurveyQuestionType.Open,
+            question: 'Looks like something went wrong',
+            description: "We've captured the basics, but please tell us more to help us fix it!",
+            descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+        },
+    ],
+    conditions: {
+        url: '',
+        seenSurveyWaitPeriodInDays: 14,
+        actions: null,
+        events: { repeatedActivation: true, values: [{ name: '$exception' }] },
+    },
+    appearance: {
+        surveyPopupDelaySeconds: 2,
+    },
+    description: 'Ask users for context when they hit an exception.',
+}
+
 export const WEB_SAFE_FONTS = [
-    { value: 'system-ui', label: 'system-ui (default)' },
-    { value: 'inherit', label: 'inherit (uses the font family of your website)' },
+    { value: 'inherit', label: 'inherit (uses your website font)' },
+    { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
     { value: 'Tahoma', label: 'Tahoma' },
@@ -329,3 +382,50 @@ export const WEB_SAFE_FONTS = [
 export const NPS_DETRACTOR_LABEL = 'Detractors'
 export const NPS_PASSIVE_LABEL = 'Passives'
 export const NPS_PROMOTER_LABEL = 'Promoters'
+
+export const NPS_PROMOTER_VALUES = ['9', '10']
+export const NPS_PASSIVE_VALUES = ['7', '8']
+export const NPS_DETRACTOR_VALUES = ['0', '1', '2', '3', '4', '5', '6']
+
+export const QUESTION_TYPE_ICON_MAP = {
+    [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
+    [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
+    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted" />,
+    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
+    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
+}
+
+export const SURVEY_TYPE_LABEL_MAP = {
+    [SurveyType.API]: 'API',
+    [SurveyType.Widget]: 'Feedback Button',
+    [SurveyType.Popover]: 'Popover',
+    [SurveyType.FullScreen]: 'Full Screen',
+    [SurveyType.Email]: 'Email',
+}
+
+export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'
+
+export const SCALE_LABELS: Record<SurveyRatingScaleValue, string> = {
+    [SURVEY_RATING_SCALE.EMOJI_3_POINT]: '1 - 3',
+    [SURVEY_RATING_SCALE.LIKERT_5_POINT]: '1 - 5',
+    [SURVEY_RATING_SCALE.LIKERT_7_POINT]: '1 - 7',
+    [SURVEY_RATING_SCALE.NPS_10_POINT]: '0 - 10',
+}
+
+export const SCALE_OPTIONS = {
+    EMOJI: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.EMOJI_3_POINT], value: SURVEY_RATING_SCALE.EMOJI_3_POINT },
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
+    ],
+    NUMBER: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
+        {
+            label: `${SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_7_POINT]} (7 Point Likert Scale)`,
+            value: SURVEY_RATING_SCALE.LIKERT_7_POINT,
+        },
+        {
+            label: `${SCALE_LABELS[SURVEY_RATING_SCALE.NPS_10_POINT]} (Net Promoter Score)`,
+            value: SURVEY_RATING_SCALE.NPS_10_POINT,
+        },
+    ],
+}

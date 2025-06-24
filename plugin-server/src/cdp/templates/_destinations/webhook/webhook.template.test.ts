@@ -31,15 +31,11 @@ describe('webhook template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"value":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$lib_version":"1.0.0"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}}",
+              "body": "{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$lib_version":"1.0.0"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}",
               "headers": {
-                "value": {
-                  "Content-Type": "application/json",
-                },
+                "Content-Type": "application/json",
               },
-              "method": {
-                "value": "POST",
-              },
+              "method": "POST",
               "return_queue": "hog",
               "url": "https://example.com?v=1.0.0",
             }
@@ -63,7 +59,7 @@ describe('webhook template', () => {
         expect(response.error).toBeUndefined()
         expect(response.logs.filter((l) => l.level === 'info').map((l) => l.message)).toMatchInlineSnapshot(`
             [
-              "Request, https://example.com?v=, {"headers":{"value":{"Content-Type":"application/json"}},"body":{"value":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}},"method":{"value":"POST"}}",
+              "Request, https://example.com?v=, {"headers":{"Content-Type":"application/json"},"body":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"method":"POST"}",
             ]
         `)
 
@@ -76,6 +72,25 @@ describe('webhook template', () => {
         expect(response.logs.filter((l) => l.level === 'info').map((l) => l.message)).toMatchInlineSnapshot(`
             [
               "Response, 200, {"message":"Hello, world!"}",
+            ]
+        `)
+    })
+
+    it('should throw an error if the webhook fails', async () => {
+        let response = await tester.invoke({
+            url: 'https://example.com?v={event.properties.$lib_version}',
+            debug: true,
+        })
+
+        response = tester.invokeFetchResponse(response.invocation, {
+            response: { status: 400, headers: {} },
+            body: '{"message": "Bad Request"}',
+        })
+
+        expect(response.error).toMatchInlineSnapshot(`"Webhook failed with status 400: {'message': 'Bad Request'}"`)
+        expect(response.logs.filter((l) => l.level === 'error').map((l) => l.message)).toMatchInlineSnapshot(`
+            [
+              "Error executing function on event event-id: Error('Webhook failed with status 400: {\\'message\\': \\'Bad Request\\'}')",
             ]
         `)
     })

@@ -7,7 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -15,6 +15,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -27,11 +28,17 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
+import {
+    ActivityScope,
+    NotebookNodeType,
+    PersonsTabType,
+    PersonType,
+    ProductKey,
+    PropertyDefinitionType,
+} from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import { PersonDashboard } from './PersonDashboard'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -99,7 +106,6 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 
 export function PersonScene(): JSX.Element | null {
     const {
-        showCustomerSuccessDashboards,
         feedEnabled,
         person,
         personLoading,
@@ -117,12 +123,13 @@ export function PersonScene(): JSX.Element | null {
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     if (personError) {
         throw new Error(personError)
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
     const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
@@ -212,11 +219,12 @@ export function PersonScene(): JSX.Element | null {
                                 query={{
                                     kind: NodeKind.DataTableNode,
                                     full: true,
-                                    hiddenColumns: ['person'],
+                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
                                     source: {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),
                                         personId: person.id,
+                                        where: ["notEquals(event, '$exception')"],
                                         after: '-24h',
                                     },
                                 }}
@@ -233,7 +241,18 @@ export function PersonScene(): JSX.Element | null {
                                         <LemonBanner type="info">
                                             Session recordings are currently disabled for this {settingLevel}. To use
                                             this feature, please go to your{' '}
-                                            <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
+                                            <Link
+                                                to={`${urls.settings('project')}#recordings`}
+                                                onClick={() => {
+                                                    addProductIntentForCrossSell({
+                                                        from: ProductKey.PERSONS,
+                                                        to: ProductKey.SESSION_REPLAY,
+                                                        intent_context: ProductIntentContext.PERSON_VIEW_RECORDINGS,
+                                                    })
+                                                }}
+                                            >
+                                                project settings
+                                            </Link>{' '}
                                             and enable it.
                                         </LemonBanner>
                                     </div>
@@ -242,10 +261,32 @@ export function PersonScene(): JSX.Element | null {
                                     <SessionRecordingsPlaylist
                                         logicKey={`person-scene-${person.uuid}`}
                                         personUUID={person.uuid}
+                                        distinctIds={person.distinct_ids}
                                         updateSearchParams
                                     />
                                 </div>
                             </>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.EXCEPTIONS,
+                        label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
+                        content: (
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    full: true,
+                                    showEventFilter: false,
+                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        personId: person.id,
+                                        event: '$exception',
+                                        after: '-24h',
+                                    },
+                                }}
+                            />
                         ),
                     },
                     {
@@ -333,13 +374,6 @@ export function PersonScene(): JSX.Element | null {
                             />
                         ),
                     },
-                    showCustomerSuccessDashboards
-                        ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <PersonDashboard person={person} />,
-                          }
-                        : false,
                 ]}
             />
 

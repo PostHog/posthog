@@ -1,5 +1,5 @@
 import { hide } from '@floating-ui/react'
-import { IconBadge, IconEye, IconHide } from '@posthog/icons'
+import { IconBadge, IconDashboard, IconEye, IconGraph, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
@@ -19,10 +19,13 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
+import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { MaxContextOption, MaxDashboardContext, MaxInsightContext } from 'scenes/max/maxTypes'
 
+import { isCoreFilter } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,
@@ -54,7 +57,9 @@ export function PropertyStatusControl({
 }): JSX.Element {
     const definitionType = isProperty ? 'property' : 'event'
     const copy = {
-        verified: `Prioritize this ${definitionType} in filters and other selection components to signal to collaborators that this ${definitionType} should be used in favor of similar ${definitionType}s.`,
+        verified: `Prioritize this ${definitionType} in filters and other selection components to signal to collaborators that this ${definitionType} should be used in favor of similar ${
+            definitionType === 'property' ? 'properties' : `${definitionType}s`
+        }.`,
         visible: `${
             definitionType.charAt(0).toUpperCase() + definitionType.slice(1)
         } is available for use but has not been verified by the team.`,
@@ -120,6 +125,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isDataWarehousePersonProperty,
         isProperty,
         hasSentAs,
+        isVirtual,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -273,6 +279,22 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         </DefinitionPopover.Grid>
                     </>
                 ) : null}
+                {isVirtual ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title="Virtual"
+                                value={
+                                    <span className="text-xs">
+                                        Virtual properties are computed from other properties, and are not sent
+                                        directly.
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -334,11 +356,86 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
+    if (group.type === TaxonomicFilterGroupType.EventMetadata) {
+        const _definition = definition as PropertyDefinition
+        return (
+            <>
+                {sharedComponents}
+                <DefinitionPopover.Grid cols={2}>
+                    <DefinitionPopover.Card title="Type" value={_definition.property_type ?? '-'} />
+                </DefinitionPopover.Grid>
+                <LemonDivider className="DefinitionPopover my-4" />
+                <DefinitionPopover.Section>
+                    <DefinitionPopover.Card
+                        title="Sent as"
+                        value={<span className="text-xs font-mono">{_definition.id}</span>}
+                    />
+                </DefinitionPopover.Section>
+            </>
+        )
+    }
+    if (group.type === TaxonomicFilterGroupType.MaxAIContext) {
+        const _definition = definition as MaxContextOption
+        if (_definition.value !== 'current_page') {
+            return <></>
+        }
+        return (
+            <>
+                {sharedComponents}
+                {_definition.items?.dashboards && _definition.items.dashboards.length > 0 && (
+                    <DefinitionPopover.Section>
+                        <DefinitionPopover.Card
+                            title="Dashboard"
+                            value={
+                                <div className="flex flex-wrap gap-1">
+                                    {_definition.items.dashboards.map((dashboard: MaxDashboardContext) => (
+                                        <LemonTag
+                                            key={dashboard.id}
+                                            size="small"
+                                            icon={<IconDashboard />}
+                                            className="text-xs"
+                                        >
+                                            {dashboard.name || `Dashboard ${dashboard.id}`}
+                                        </LemonTag>
+                                    ))}
+                                </div>
+                            }
+                        />
+                    </DefinitionPopover.Section>
+                )}
+                {_definition.items?.insights && _definition.items.insights.length > 0 && (
+                    <>
+                        <LemonDivider className="DefinitionPopover my-4" />
+                        <DefinitionPopover.Section>
+                            <DefinitionPopover.Card
+                                title="Insights"
+                                value={
+                                    <div className="flex flex-wrap gap-1">
+                                        {_definition.items.insights.map((insight: MaxInsightContext) => (
+                                            <LemonTag
+                                                key={insight.id}
+                                                size="small"
+                                                icon={<IconGraph />}
+                                                className="text-xs"
+                                            >
+                                                {insight.name || `Insight ${insight.id}`}
+                                            </LemonTag>
+                                        ))}
+                                    </div>
+                                }
+                            />
+                        </DefinitionPopover.Section>
+                    </>
+                )}
+            </>
+        )
+    }
     if (isDataWarehouse) {
         const _definition = definition as DataWarehouseTableForInsight
         const columnOptions = Object.values(_definition.fields).map((column) => ({
             label: column.name + ' (' + column.type + ')',
             value: column.name,
+            type: column.type,
         }))
         const hogqlOption = { label: 'SQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
@@ -356,20 +453,49 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <div className="flex flex-col justify-between gap-4">
                     <DefinitionPopover.Section>
                         {dataWarehousePopoverFields.map(
-                            ({ key, label, allowHogQL, hogQLOnly, tableName }: DataWarehousePopoverField) => {
+                            ({
+                                key,
+                                label,
+                                description,
+                                allowHogQL,
+                                hogQLOnly,
+                                tableName,
+                                optional,
+                                type,
+                            }: DataWarehousePopoverField) => {
                                 const fieldValue = key in localDefinition ? localDefinition[key] : undefined
                                 const isHogQL = isUsingHogQLExpression(fieldValue)
 
                                 return (
                                     <Fragment key={key}>
                                         <label className="definition-popover-edit-form-label" htmlFor={key}>
-                                            <span className="label-text">{label}</span>
+                                            <span
+                                                className={cn('label-text', {
+                                                    'font-semibold': !optional,
+                                                })}
+                                            >
+                                                {label}
+                                                {!optional && <span className="text-muted">&nbsp;*</span>}
+                                            </span>
+                                            {description && (
+                                                <Tooltip title={description}>
+                                                    &nbsp;
+                                                    <IconInfo className="ml-1" />
+                                                </Tooltip>
+                                            )}
                                         </label>
                                         {!hogQLOnly && (
                                             <LemonSelect
+                                                fullWidth
+                                                allowClear={!!optional}
                                                 value={isHogQL ? '' : fieldValue}
-                                                options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
-                                                onChange={(value) => setLocalDefinition({ [key]: value })}
+                                                options={[
+                                                    ...columnOptions.filter((col) => !type || col.type === type),
+                                                    ...(allowHogQL ? [hogqlOption] : []),
+                                                ]}
+                                                onChange={(value: string | null) =>
+                                                    setLocalDefinition({ [key]: value })
+                                                }
                                             />
                                         )}
                                         {((allowHogQL && isHogQL) || hogQLOnly) && (
@@ -387,15 +513,15 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <div className="flex justify-end">
                         <LemonButton
                             onClick={() => {
-                                selectItem(group, itemValue ?? null, localDefinition)
+                                selectItem(group, itemValue ?? null, localDefinition, undefined)
                             }}
                             disabledReason={
                                 dataWarehousePopoverFields.every(
-                                    ({ key }: DataWarehousePopoverField) =>
-                                        key in localDefinition && localDefinition[key]
+                                    ({ key, optional }: DataWarehousePopoverField) =>
+                                        optional || (key in localDefinition && localDefinition[key])
                                 )
                                     ? null
-                                    : 'Field mappings must be specified'
+                                    : 'All required field mappings must be specified'
                             }
                             type="primary"
                         >

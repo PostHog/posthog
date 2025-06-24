@@ -1,10 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PreIngestionEvent } from '~/src/types'
+import { PreIngestionEvent } from '~/types'
 
 import { processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
+import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
@@ -30,7 +30,7 @@ export async function prepareEventStep(
             // NOTE: Whilst this is pre-production we want to make it as optional as possible
             // so we don't block the pipeline if it fails
             captureException(error)
-            status.error(error)
+            logger.error(error)
         }
     }
 
@@ -40,7 +40,8 @@ export async function prepareEventStep(
         team_id,
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
-        processPerson
+        processPerson,
+        runner.groupStoreForBatch
     )
     await Promise.all(tsParsingIngestionWarnings)
 

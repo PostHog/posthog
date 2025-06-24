@@ -1,13 +1,11 @@
 import typing
 from abc import ABC
-from datetime import timedelta
+from datetime import timedelta, datetime
 from math import ceil
 from typing import Optional, Union
-import posthoganalytics
 
 from django.conf import settings
 from django.core.cache import cache
-from django.utils.timezone import datetime
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql import ast
@@ -18,7 +16,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression, revenue_events_where_expr
+from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
 
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -27,6 +25,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     EventPropertyFilter,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsTableQuery,
     PersonPropertyFilter,
     SamplingRate,
@@ -34,28 +33,22 @@ from posthog.schema import (
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
-    RevenueTrackingConfig,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
 WebQueryNode = Union[
-    WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery, WebVitalsPathBreakdownQuery
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebExternalClicksTableQuery,
+    WebVitalsPathBreakdownQuery,
+    WebPageURLSearchQuery,
 ]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
-    do_currency_conversion: bool = False
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.do_currency_conversion = posthoganalytics.feature_enabled(
-            "web-analytics-revenue-tracking-conversion",
-            str(self.team.organization_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-        )
 
     @cached_property
     def query_date_range(self):
@@ -99,7 +92,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                 ast.CompareOperation(
                     left=ast.Field(chain=[field]),
                     right=self.query_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )
@@ -120,7 +113,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                 ast.CompareOperation(
                     left=ast.Field(chain=[field]),
                     right=self.query_compare_to_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )
@@ -189,19 +182,18 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def conversion_revenue_expr(self) -> ast.Expr:
-        config = (
-            RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
-            if self.team.revenue_tracking_config
-            else None
-        )
-
-        if not config:
+        if not self.team.revenue_analytics_config.events:
             return ast.Constant(value=None)
 
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             event_name = self.query.conversionGoal.customEventName
             revenue_property = next(
-                (event_item.revenueProperty for event_item in config.events if event_item.eventName == event_name), None
+                (
+                    event_item.revenueProperty
+                    for event_item in self.team.revenue_analytics_config.events
+                    if event_item.eventName == event_name
+                ),
+                None,
             )
 
             if not revenue_property:
@@ -231,10 +223,6 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             return ast.Constant(value=None)
 
     @cached_property
-    def revenue_sum_expression(self) -> ast.Expr:
-        return revenue_sum_expression(self.team.revenue_tracking_config, self.do_currency_conversion)
-
-    @cached_property
     def event_type_expr(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -250,11 +238,19 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_events_where_expr(self.team.revenue_tracking_config))
+            exprs.append(revenue_where_expr_for_events(self.team))
 
         return ast.Or(exprs=exprs)
 
-    def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
+    def period_aggregate(
+        self,
+        function_name: str,
+        column_name: str,
+        start: ast.Expr,
+        end: ast.Expr,
+        alias: Optional[str] = None,
+        params: Optional[list[ast.Expr]] = None,
+    ):
         expr = ast.Call(
             name=function_name + "If",
             params=params,
@@ -269,7 +265,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                             right=start,
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Lt,
+                            op=ast.CompareOperationOp.LtEq,
                             left=ast.Field(chain=["start_timestamp"]),
                             right=end,
                         ),
@@ -286,7 +282,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
-                "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
                 placeholders={
                     "date_from": self.query_date_range.previous_period_date_from_as_hogql()
                     if include_previous_period
@@ -303,7 +299,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         )
 
     def session_having(self, include_previous_period: Optional[bool] = None):
-        properties = [
+        properties: list[Union[ast.Expr, EventPropertyFilter]] = [
             parse_expr(
                 "min_timestamp >= {date_from}",
                 placeholders={
@@ -360,7 +356,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                     placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
                 ),
                 parse_expr(
-                    "events.timestamp < {date_to}",
+                    "events.timestamp <= {date_to}",
                     placeholders={"date_to": self.query_date_range.date_to_as_hogql()},
                 ),
             ],
@@ -479,6 +475,14 @@ WHERE
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
+
+    @cached_property
+    def events_session_property(self):
+        # we should delete this once SessionsV2JoinMode is always uuid, eventually we will always use $session_id_uuid
+        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
+            return parse_expr("events.$session_id_uuid")
+        else:
+            return parse_expr("events.$session_id")
 
 
 def _sample_rate_from_count(count: int) -> SamplingRate:

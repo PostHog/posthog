@@ -1,0 +1,24 @@
+{
+    "name": "@posthog/products-logs",
+    "scripts": {},
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "*",
+        "@types/react": "*",
+        "classnames": "*",
+        "clsx": "*",
+        "eslint": "*",
+        "jest": "*",
+        "fast-deep-equal": "*",
+        "kea": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "prettier": "*",
+        "react": "*",
+        "stylelint": "*",
+        "typescript": "*",
+        "use-debounce": "*",
+        "ansi-colors": "*",
+        "@posthog/products-error-tracking": "workspace:*"
+    }
+}

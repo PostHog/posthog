@@ -95,10 +95,11 @@ class MatrixManager:
 
     def reset_master(self):
         if self.matrix.is_complete is None:
+            if self.print_steps:
+                print(f"Simulating data...")
             self.matrix.simulate()
         master_team = self._prepare_master_team(ensure_blank_slate=True)
         self._save_analytics_data(master_team)
-        self._sleep_until_person_data_in_clickhouse(self.MASTER_TEAM_ID)
 
     @staticmethod
     def create_team(organization: Organization, **kwargs) -> Team:
@@ -123,12 +124,8 @@ class MatrixManager:
                 if self.print_steps:
                     print(f"Simulating data...")
                 self.matrix.simulate()
-            if self.print_steps:
-                print(f"Saving simulated data...")
             self._save_analytics_data(source_team)
         if self.use_pre_save:
-            if self.print_steps:
-                print(f"Copying simulated data from master team...")
             self._copy_analytics_data_from_master_team(team)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
@@ -146,6 +143,8 @@ class MatrixManager:
         print(f"Demo data ready for team ID {team.pk}.")
 
     def _save_analytics_data(self, data_team: Team):
+        if self.print_steps:
+            print(f"Saving simulated data...")
         sim_persons = self.matrix.people
         bulk_group_type_mappings = []
         if len(self.matrix.groups.keys()) + self.matrix.group_type_index_offset > 5:
@@ -179,6 +178,7 @@ class MatrixManager:
 
     @classmethod
     def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
+        print("Preparing master team...")
         master_team = Team.objects.filter(id=cls.MASTER_TEAM_ID).first()
         if master_team is None:
             master_team = cls._create_master_team()
@@ -214,6 +214,9 @@ class MatrixManager:
             COPY_PERSONS_BETWEEN_TEAMS,
         )
 
+        if self.print_steps:
+            print(f"Copying simulated data from master team...")
+
         copy_params = {
             "source_team_id": self.MASTER_TEAM_ID,
             "target_team_id": target_team.pk,
@@ -248,9 +251,11 @@ class MatrixManager:
             columns_to_rename={"id": "uuid"},
         )
         bulk_persons: dict[str, Person] = {}
+        person_fields = {f.name for f in Person._meta.get_fields()}
         for row in clickhouse_persons:
-            properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **row)
+            filtered_row = {k: v for k, v in row.items() if k in person_fields}
+            properties = json.loads(filtered_row.pop("properties", "{}"))
+            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **filtered_row)
         # This sets the pk in the bulk_persons dict so we can use them later
         Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
@@ -262,14 +267,16 @@ class MatrixManager:
             {"person_id": "person_uuid"},
         )
         bulk_person_distinct_ids = []
+        person_distinct_id_fields = {f.name for f in PersonDistinctId._meta.get_fields()}
         for row in clickhouse_distinct_ids:
             person_uuid = row.pop("person_uuid")
             try:
+                filtered_row = {k: v for k, v in row.items() if k in person_distinct_id_fields}
                 bulk_person_distinct_ids.append(
                     PersonDistinctId(
                         team_id=target_team_id,
                         person_id=bulk_persons[person_uuid].pk,
-                        **row,
+                        **filtered_row,
                     )
                 )
             except KeyError:
@@ -278,16 +285,22 @@ class MatrixManager:
             print(f"{pre_existing_id_count} IDS UNACCOUNTED FOR")
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
-        clickhouse_groups = query_with_columns(SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"])
+        clickhouse_groups = query_with_columns(
+            SELECT_GROUPS_OF_TEAM,
+            list_params,
+            ["team_id", "_timestamp", "_offset", "is_deleted"],
+        )
         bulk_groups = []
+        group_fields = {f.name for f in Group._meta.get_fields()}
         for row in clickhouse_groups:
-            group_properties = json.loads(row.pop("group_properties", "{}"))
+            filtered_row = {k: v for k, v in row.items() if k in group_fields}
+            group_properties = json.loads(filtered_row.pop("group_properties", "{}"))
             bulk_groups.append(
                 Group(
                     team_id=target_team_id,
                     version=0,
                     group_properties=group_properties,
-                    **row,
+                    **filtered_row,
                 )
             )
         try:
@@ -318,9 +331,6 @@ class MatrixManager:
                     person_id=str(subject.in_posthog_id),
                 )
             self._save_past_sim_events(team, subject.past_events)
-        # We only want to queue future events if there are any
-        if subject.future_events and self.matrix.end > self.matrix.now:
-            self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
     def _save_past_sim_events(team: Team, events: list[SimEvent]):
@@ -352,12 +362,6 @@ class MatrixManager:
             )
 
     @staticmethod
-    def _save_future_sim_events(team: Team, events: list[SimEvent]):
-        """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-
-        # TODO: This used the plugin server's Graphile Worker-based event buffer, but the event buffer is no more
-
-    @staticmethod
     def _save_sim_group(
         team: Team,
         type_index: Literal[0, 1, 2, 3, 4],
@@ -370,10 +374,7 @@ class MatrixManager:
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
     def _sleep_until_person_data_in_clickhouse(self, team_id: int):
-        from posthog.models.person.sql import (
-            GET_PERSON_COUNT_FOR_TEAM,
-            GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM,
-        )
+        from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
         for _ in range(120):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]

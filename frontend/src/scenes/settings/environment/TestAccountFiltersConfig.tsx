@@ -4,12 +4,13 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { getFilterLabel } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, type CohortType, PropertyOperator, type TeamPublicType, type TeamType } from '~/types'
 
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
@@ -56,6 +57,8 @@ function TestAccountFiltersConfig(): JSX.Element {
     const { setTeamDefault } = useActions(filterTestAccountsDefaultsLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { currentTeam, currentTeamLoading, testAccountFilterFrequentMistakes } = useValues(teamLogic)
+    const { filterTestAccounts } = useValues(revenueAnalyticsSettingsLogic)
+    const { updateFilterTestAccounts } = useActions(revenueAnalyticsSettingsLogic)
     const { cohortsById } = useValues(cohortsModel)
 
     const testAccountFilterWarningLabels = createTestAccountFilterWarningLabels(currentTeam, cohortsById)
@@ -128,6 +131,13 @@ function TestAccountFiltersConfig(): JSX.Element {
                 checked={!!currentTeam?.test_account_filters_default_checked}
                 disabled={currentTeamLoading}
                 label="Enable this filter on all new insights"
+                bordered
+            />
+            <LemonSwitch
+                onChange={updateFilterTestAccounts}
+                checked={filterTestAccounts}
+                disabled={currentTeamLoading}
+                label="Filter test accounts out of revenue analytics"
                 bordered
             />
         </div>

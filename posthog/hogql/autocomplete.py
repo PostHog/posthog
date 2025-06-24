@@ -198,8 +198,9 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
                         return resolve_fields_on_table(table, query)
 
         # Handle a base table
-        if context.database.has_table(table_name):
-            return context.database.get_table(table_name)
+        table_chain = [str(e) for e in join_expr.table.chain]
+        if context.database.has_table(table_chain):
+            return context.database.get_table_by_chain(table_chain)
     elif isinstance(join_expr.table, ast.SelectQuery):
         if join_expr.table.select_from is None:
             return None
@@ -372,7 +373,7 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = create_hogql_database(team_id=team.pk, team_arg=team, timings=timings)
+        database = create_hogql_database(team=team, timings=timings)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
     if query.sourceQuery:
@@ -617,13 +618,28 @@ def get_hogql_autocomplete(
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
                 # Handle table names
                 with timings.measure("table_name"):
+                    table_names = database.get_all_tables()
+                    posthog_table_names = database.get_posthog_tables()
+
                     if len(node.chain) == 1:
-                        table_names = database.get_all_tables()
                         extend_responses(
                             keys=table_names,
                             suggestions=response.suggestions,
                             kind=AutocompleteCompletionItemKind.FOLDER,
                             details=["Table"] * len(table_names),
+                        )
+                    elif node.chain[0] in posthog_table_names:
+                        pass
+                    else:
+                        node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
+                        node_chain = ".".join(node_chain_arr)
+                        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+
+                        extend_responses(
+                            keys=filtered_table_names,
+                            suggestions=response.suggestions,
+                            kind=AutocompleteCompletionItemKind.FOLDER,
+                            details=["Table"] * len(filtered_table_names),
                         )
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
                 if node.chain[0] == MATCH_ANY_CHARACTER or (

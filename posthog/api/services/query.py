@@ -1,3 +1,4 @@
+from posthog.schema_migrations.upgrade import upgrade
 import structlog
 from typing import Optional
 
@@ -43,9 +44,11 @@ def process_query_dict(
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
+    is_query_service: bool = False,
 ) -> dict | BaseModel:
-    model = QuerySchemaRoot.model_validate(query_json)
-    tag_queries(query=query_json)
+    upgraded_query_json = upgrade(query_json)
+    model = QuerySchemaRoot.model_validate(upgraded_query_json)
+    tag_queries(query=upgraded_query_json)
 
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
     variables_override = (
@@ -63,6 +66,7 @@ def process_query_dict(
         query_id=query_id,
         insight_id=insight_id,
         dashboard_id=dashboard_id,
+        is_query_service=is_query_service,
     )
 
 
@@ -97,6 +101,7 @@ def process_query_model(
                 query_id=query_id,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
+                is_query_service=is_query_service,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -123,7 +128,7 @@ def process_query_model(
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
-            database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
+            database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
         else:

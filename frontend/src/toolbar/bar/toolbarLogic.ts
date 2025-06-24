@@ -6,7 +6,7 @@ import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/uti
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
@@ -55,7 +55,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
-            heatmapLogic,
+            heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
                 'disableHeatmap',
@@ -300,6 +300,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
+            actions.disableInspect()
+            actions.disableHeatmap()
+            actions.hideButtonActions()
+
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
                 values.hedgehogActor?.setOnFire(1)
@@ -314,11 +318,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
                 values.hedgehogActor?.setAnimation('inspect')
-            } else {
-                actions.disableInspect()
-                actions.disableHeatmap()
-                actions.hideButtonActions()
-                actions.selectAction(null)
             }
         },
 

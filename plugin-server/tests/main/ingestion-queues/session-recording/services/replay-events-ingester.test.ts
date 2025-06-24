@@ -4,12 +4,12 @@ import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { TimestampFormat } from '../../../../../src/types'
-import { status } from '../../../../../src/utils/status'
+import { parseJSON } from '../../../../../src/utils/json-parse'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
-jest.mock('../../../../../src/utils/status')
+jest.mock('../../../../../src/utils/logger')
 
-import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
     source: string | null,
@@ -54,9 +54,8 @@ describe('replay events ingester', () => {
 
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_ingestion_warnings_test')
         const value = topicMessages[0].messages[0].value!
@@ -65,7 +64,7 @@ describe('replay events ingester', () => {
         expect(value.source).toEqual('plugin-server')
         expect(value.team_id).toEqual(0)
         expect(value.type).toEqual('replay_timestamp_too_far')
-        const details = JSON.parse(value.details)
+        const details = parseJSON(value.details)
         expect(details).toEqual(
             expect.objectContaining({
                 isValid: true,
@@ -79,10 +78,8 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage("mickey's fun house", ts))
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls[0]).toHaveLength(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         // call.value is a Buffer convert it to a string
@@ -114,9 +111,8 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage(null, ts))
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         const value = topicMessages[0].messages[0].value!
@@ -156,9 +152,8 @@ describe('replay events ingester', () => {
             })
         )
 
-        expect(jest.mocked(status.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-        const topicMessages = getParsedQueuedMessages()
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         const value = topicMessages[0].messages[0].value!

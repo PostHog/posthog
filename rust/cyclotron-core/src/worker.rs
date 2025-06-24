@@ -50,6 +50,7 @@ pub struct Worker {
     pub linger: Duration,           // Updates will be held at most this long
     pub max_buffered: usize,        // Updates will be flushed after this many are buffered
     pub max_bytes: usize, // Updates will be flushed after the vm_state and blob sizes combined exceed this
+    pub should_compress_vm_state: bool, // Compress vm_state when persisting to the DB?
 }
 
 impl Worker {
@@ -63,10 +64,13 @@ impl Worker {
             pool,
             running: Default::default(),
             heartbeat_window: worker_config.heartbeat_window(),
-            flush_batch: Default::default(),
+            flush_batch: Arc::new(Mutex::new(FlushBatch::new(
+                worker_config.should_compress_vm_state(),
+            ))),
             linger: worker_config.linger_time(),
             max_buffered: worker_config.max_updates_buffered(),
             max_bytes: worker_config.max_bytes_buffered(),
+            should_compress_vm_state: worker_config.should_compress_vm_state(),
         };
 
         tokio::spawn(flush_loop(
@@ -279,7 +283,7 @@ impl Worker {
         pending
             .get_mut(&job_id)
             .ok_or(JobError::UnknownJobId(job_id))?
-            .vm_state = Some(vm_state);
+            .vm_state = Some(vm_state); // conditional compression applied in ops/worker.rs flush_job()
         Ok(())
     }
 
@@ -370,15 +374,18 @@ struct FlushBatch {
     pub blobs_size: usize,
     // A running total of all vm_state bytes held in the batch
     pub vm_states_size: usize,
+    // Conditionally compress vm_state in write path?
+    pub should_compress_vm_state: bool,
 }
 
 impl FlushBatch {
-    pub fn new() -> Self {
+    pub fn new(should_compress_vm_state: bool) -> Self {
         Self {
             next_mandatory_flush: Utc::now(),
             pending: Default::default(),
             blobs_size: 0,
             vm_states_size: 0,
+            should_compress_vm_state,
         }
     }
 
@@ -418,7 +425,13 @@ impl FlushBatch {
         let mut results = Vec::new();
         for to_flush in self.pending.iter_mut() {
             to_flush.tries += 1;
-            let result = flush_job(&mut *txn, to_flush.job_id, &to_flush.update).await;
+            let result = flush_job(
+                &mut *txn,
+                to_flush.job_id,
+                &to_flush.update,
+                self.should_compress_vm_state,
+            )
+            .await;
             match result {
                 Ok(()) => {
                     results.push(Ok(()));
@@ -452,7 +465,7 @@ impl FlushBatch {
     // Take the current batch, replacing it in memory with an empty one. Used along with "merge"
     // to let us flush without holding the batch lock for the duration of the flush
     fn take(&mut self) -> Self {
-        std::mem::take(self)
+        std::mem::replace(self, FlushBatch::new(self.should_compress_vm_state))
     }
 
     // Combine two batches, setting the next mandatory flush to the earliest of the two
@@ -461,12 +474,6 @@ impl FlushBatch {
         self.blobs_size += other.blobs_size;
         self.vm_states_size += other.vm_states_size;
         self.next_mandatory_flush = self.next_mandatory_flush.min(other.next_mandatory_flush);
-    }
-}
-
-impl Default for FlushBatch {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -502,7 +509,7 @@ impl PendingUpdate {
 
     pub fn resolve(self, result: Result<(), JobError>) {
         // We do not care if someone is waiting for this result or not
-        let _ = self.tx.send(result);
+        let _unused = self.tx.send(result);
     }
 }
 
@@ -513,7 +520,7 @@ pub struct FlushHandle {
 impl FlushHandle {
     pub fn immediate(result: Result<(), JobError>) -> Self {
         let (tx, rx) = oneshot::channel();
-        let _ = tx.send(result);
+        let _unused = tx.send(result);
         Self { inner: rx }
     }
 }

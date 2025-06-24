@@ -19,7 +19,7 @@ import django.db.models.deletion
 # and then modify the migration from the below commented version to a safe non-blocking version
 
 
-# # ORIGINIAL migration
+# # ORIGINAL migration
 # class Migration(migrations.Migration):
 #     dependencies = [
 #         ("posthog", "0411_eventproperty_indexes"),

@@ -183,6 +183,12 @@ export class HedgehogActor {
                 },
             },
             {
+                keys: ['r', 'o', 'b', 'o', 'h', 'o', 'g'],
+                action: () => {
+                    this.hedgehogConfig.skin = 'robohog'
+                },
+            },
+            {
                 keys: [
                     'arrowup',
                     'arrowup',
@@ -384,17 +390,20 @@ export class HedgehogActor {
         }
     }
 
-    setRandomAnimation(): void {
+    setRandomAnimation(exclude: AnimationName[] = []): void {
         if (this.mainAnimation?.name !== 'stop') {
             this.setAnimation('stop')
         } else {
             let randomChoiceList = Object.keys(this.animations()).reduce((acc, key) => {
-                return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)] as AnimationName[]
+                const newItems = range(this.animations()[key].randomChance || 0).map(() => key as AnimationName)
+                acc.push(...newItems)
+                return acc
             }, [] as AnimationName[])
 
             randomChoiceList = this.hedgehogConfig.walking_enabled
                 ? randomChoiceList
                 : randomChoiceList.filter((x) => x !== 'walk')
+            randomChoiceList = randomChoiceList.filter((x) => !exclude.includes(x))
             this.setAnimation(sampleOne(randomChoiceList))
         }
     }
@@ -828,7 +837,7 @@ export class HedgehogActor {
                                     }px`,
                                     backgroundSize: (SPRITE_SIZE / SPRITE_SIZE) * X_FRAMES * 100 + '%',
                                     filter: imageFilter as any,
-                                    ...(this.mainAnimation.spriteInfo.style ?? {}),
+                                    ...this.mainAnimation.spriteInfo.style,
                                 }}
                             />
                         ) : null}
@@ -865,7 +874,7 @@ export class HedgehogActor {
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
                                     }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
-                                    ...(this.overlayAnimation.spriteInfo.style ?? {}),
+                                    ...this.overlayAnimation.spriteInfo.style,
                                 }}
                             />
                         ) : null}
@@ -1012,13 +1021,13 @@ export function MyHedgehogBuddy({
             fallbackPlacements={['bottom', 'left', 'right']}
             overflowHidden
             overlay={
-                <div className="flex flex-col flex-1 overflow-hidden max-w-140">
-                    <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
+                <div className="flex overflow-hidden flex-col flex-1 max-w-140">
+                    <ScrollableShadows className="overflow-y-auto flex-1" direction="vertical">
                         <div className="p-2">
                             <HedgehogOptions />
                         </div>
                     </ScrollableShadows>
-                    <div className="flex justify-end gap-2 p-2 border-t shrink-0">
+                    <div className="flex gap-2 justify-end p-2 border-t shrink-0">
                         <LemonButton type="secondary" status="danger" onClick={disappear}>
                             Good bye!
                         </LemonButton>
@@ -1039,7 +1048,7 @@ export function MyHedgehogBuddy({
                 hedgehogConfig={hedgehogConfig}
                 tooltip={
                     hedgehogConfig.party_mode_enabled ? (
-                        <div className="flex items-center justify-center p-2 whitespace-nowrap">
+                        <div className="flex justify-center items-center p-2 whitespace-nowrap">
                             <ProfilePicture user={user} size="md" showName />
                         </div>
                     ) : undefined
@@ -1083,7 +1092,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                         <ProfilePicture user={member.user} size="xl" showName />
                     </div>
 
-                    <div className="flex items-end gap-2 p-3 border-t">
+                    <div className="flex gap-2 items-end p-3 border-t">
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -1106,7 +1115,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                 onClick={onClick}
                 hedgehogConfig={memberHedgehogConfig}
                 tooltip={
-                    <div className="flex items-center justify-center p-2 whitespace-nowrap">
+                    <div className="flex justify-center items-center p-2 whitespace-nowrap">
                         <ProfilePicture user={member.user} size="md" showName />
                     </div>
                 }

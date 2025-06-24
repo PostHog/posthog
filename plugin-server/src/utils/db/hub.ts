@@ -9,7 +9,6 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
@@ -19,13 +18,12 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../../worker/ingestion/organization-manager'
-import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
+import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
-import { status } from '../status'
+import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
@@ -64,7 +62,7 @@ export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     capabilities: PluginServerCapabilities | null = null
 ): Promise<Hub> {
-    status.info('ℹ️', `Connecting to all services:`)
+    logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -73,10 +71,9 @@ export async function createHub(
     if (capabilities === null) {
         capabilities = getPluginServerCapabilities(serverConfig)
     }
-    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
-    status.info('🤔', `Connecting to ClickHouse...`)
+    logger.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
         // We prefer to run queries on the offline cluster.
         host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
@@ -94,29 +91,29 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    status.info('👍', `ClickHouse ready`)
+    logger.info('👍', `ClickHouse ready`)
 
-    status.info('🤔', `Connecting to Kafka...`)
+    logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
-    status.info('👍', `Kafka ready`)
+    logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
-    status.info('👍', `Postgres Router ready`)
+    logger.info('👍', `Postgres Router ready`)
 
-    status.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    status.info('👍', `Redis ready`)
+    logger.info('👍', `Redis ready`)
 
-    status.info('🤔', `Connecting to object storage...`)
+    logger.info('🤔', `Connecting to object storage...`)
 
     const objectStorage = getObjectStorage(serverConfig)
     if (objectStorage) {
-        status.info('👍', 'Object storage ready')
+        logger.info('👍', 'Object storage ready')
     } else {
-        status.warn('🪣', `Object storage could not be created`)
+        logger.warn('🪣', `Object storage could not be created`)
     }
 
     const db = new DB(
@@ -128,7 +125,6 @@ export async function createHub(
         serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(postgres)
-    const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
@@ -139,7 +135,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
+    const hub: Hub = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -160,7 +156,6 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
-        organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,
@@ -182,18 +177,21 @@ export async function createHub(
         cookielessManager,
     }
 
-    return {
-        ...hub,
-        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
-    }
+    // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
+    await hub.geoipService.get()
+
+    return hub
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
+    logger.info('💤', 'Closing hub...')
     if (!isTestEnv()) {
         await hub.appMetrics?.flush()
     }
+    logger.info('💤', 'Closing kafka, redis, postgres...')
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
@@ -202,25 +200,8 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         ;(hub as any).eventsProcessor = undefined
         ;(hub as any).appMetrics = undefined
     }
+    logger.info('💤', 'Hub closed!')
 }
-
-export type KafkaConfig = Pick<
-    PluginsServerConfig,
-    | 'KAFKA_HOSTS'
-    | 'KAFKA_PRODUCER_HOSTS'
-    | 'KAFKA_SECURITY_PROTOCOL'
-    | 'KAFKA_PRODUCER_SECURITY_PROTOCOL'
-    | 'KAFKA_CLIENT_ID'
-    | 'KAFKA_PRODUCER_CLIENT_ID'
-    | 'KAFKA_CLIENT_RACK'
-    | 'KAFKAJS_LOG_LEVEL'
-    | 'KAFKA_CLIENT_CERT_B64'
-    | 'KAFKA_CLIENT_CERT_KEY_B64'
-    | 'KAFKA_TRUSTED_CERT_B64'
-    | 'KAFKA_SASL_MECHANISM'
-    | 'KAFKA_SASL_USER'
-    | 'KAFKA_SASL_PASSWORD'
->
 
 export function createKafkaClient({
     KAFKA_HOSTS,
@@ -232,7 +213,7 @@ export function createKafkaClient({
     KAFKA_SASL_MECHANISM,
     KAFKA_SASL_USER,
     KAFKA_SASL_PASSWORD,
-}: KafkaConfig) {
+}: PluginsServerConfig) {
     let kafkaSsl: ConnectionOptions | boolean | undefined
     if (KAFKA_CLIENT_CERT_B64 && KAFKA_CLIENT_CERT_KEY_B64 && KAFKA_TRUSTED_CERT_B64) {
         kafkaSsl = {

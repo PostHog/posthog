@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { notebooksModel } from '~/models/notebooksModel'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, ProjectTreeRef } from '~/types'
 
 import { notebookLogic } from './Notebook/notebookLogic'
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
@@ -46,6 +46,11 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
                 },
             ],
+        ],
+
+        projectTreeRef: [
+            () => [(_, props: NotebookSceneLogicProps) => props.shortId],
+            (shortId): ProjectTreeRef | null => (shortId === 'new' ? null : { type: 'notebook', ref: String(shortId) }),
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [

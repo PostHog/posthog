@@ -23,10 +23,11 @@ export interface UniversalFilterButtonProps {
     children?: React.ReactNode
     filter: UniversalFilterValue
     disabledReason?: string
+    className?: string
 }
 
 export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilterButtonProps>(
-    function UniversalFilterButton({ onClick, onClose, filter }, ref): JSX.Element {
+    function UniversalFilterButton({ onClick, onClose, filter, className }, ref): JSX.Element {
         const closable = onClose !== undefined
 
         const isEditable = isEditableFilter(filter)
@@ -37,7 +38,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
             <div
                 ref={ref as any}
                 onClick={isEditable ? onClick : undefined}
-                className={clsx('UniversalFilterButton inline-flex items-center', {
+                className={clsx('UniversalFilterButton inline-flex items-center', className, {
                     'UniversalFilterButton--clickable': isEditable,
                     'UniversalFilterButton--closeable': closable,
                     'ph-no-capture': true,
@@ -60,7 +61,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     <PopoverReferenceContext.Provider value={null}>
                         <LemonButton
                             size="xsmall"
-                            icon={<IconX />}
+                            icon={<IconX className="w-3 h-3" />}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onClose()

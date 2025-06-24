@@ -148,6 +148,15 @@ export function EditableField({
         }
     }
 
+    const handleDoubleClick = (): void => {
+        if (!isEditing) {
+            guardAvailableFeature(paywallFeature, () => {
+                setLocalIsEditing(true)
+                onModeToggle?.('edit')
+            })
+        }
+    }
+
     return (
         <div
             className={clsx(
@@ -161,6 +170,7 @@ export function EditableField({
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
             ref={containerRef}
+            onDoubleClick={handleDoubleClick}
         >
             <div className="EditableField__highlight">
                 {isEditing ? (
@@ -201,7 +211,7 @@ export function EditableField({
                                 wrapperClassName="self-center py-px"
                             />
                         )}
-                        {(!mode || !!onModeToggle) && (
+                        {(!mode || !!onModeToggle) && !saveOnBlur && (
                             <div className="EditableField__actions">
                                 {markdown && (
                                     <Tooltip title="Markdown formatting support">

@@ -14,9 +14,9 @@ export interface ChangePasswordForm {
 
 export const changePasswordLogic = kea<changePasswordLogicType>([
     path(['scenes', 'me', 'settings', 'changePasswordLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     forms(({ values, actions }) => ({
         changePassword: {
             defaults: {} as unknown as ChangePasswordForm,

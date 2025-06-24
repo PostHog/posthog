@@ -1,4 +1,4 @@
-import { HogFunctionInvocationGlobals } from '~/src/cdp/types'
+import { HogFunctionInvocationGlobals } from '~/cdp/types'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './default.template'
@@ -35,6 +35,7 @@ describe('default.template.ts', () => {
                 elements_chain: '',
                 event: 'event-name',
                 properties: {
+                    $example_added_property: 'example',
                     test_property: 'test_value',
                 },
                 timestamp: '2024-01-01T00:00:00Z',

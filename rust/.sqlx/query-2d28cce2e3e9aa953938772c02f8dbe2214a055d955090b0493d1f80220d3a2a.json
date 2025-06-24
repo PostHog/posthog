@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE posthog_errortrackingassignmentrule\n                SET disabled_data = $1, updated_at = NOW()\n                WHERE id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d28cce2e3e9aa953938772c02f8dbe2214a055d955090b0493d1f80220d3a2a"
+}

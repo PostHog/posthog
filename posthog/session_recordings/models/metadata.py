@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime
 from typing import Optional, TypedDict, Union, Literal
 
@@ -38,6 +39,17 @@ class DecompressedRecordingData(TypedDict):
     snapshot_data_by_window_id: dict[WindowId, list[Union[SnapshotData, SessionRecordingEventSummary]]]
 
 
+@dataclasses.dataclass(frozen=True)
+class RecordingBlockListing:
+    start_time: datetime
+    block_first_timestamps: list[datetime]
+    block_last_timestamps: list[datetime]
+    block_urls: list[str]
+
+    def is_empty(self) -> bool:
+        return not self.block_urls
+
+
 class RecordingMetadata(TypedDict):
     distinct_id: str
     start_time: datetime
@@ -52,6 +64,9 @@ class RecordingMetadata(TypedDict):
     duration: int
     active_seconds: int
     snapshot_source: Literal["web", "mobile"]
+    block_first_timestamps: list[datetime]
+    block_last_timestamps: list[datetime]
+    block_urls: list[str]
 
 
 class RecordingMatchingEvents(TypedDict):

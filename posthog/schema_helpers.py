@@ -1,8 +1,7 @@
-import orjson
 from typing import Any, Literal, get_origin
 from pydantic import BaseModel, ValidationError, model_serializer
-from rest_framework.utils.encoders import JSONEncoder
 
+from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
 from posthog.schema import (
     ChartDisplayType,
     FunnelsQuery,
@@ -11,8 +10,25 @@ from posthog.schema import (
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
+    BaseMathType,
 )
 from posthog.types import InsightQueryNode
+
+
+def strip_version_recursive(d):
+    if not isinstance(d, dict):
+        return d
+
+    if "version" in d:
+        del d["version"]
+
+    for key, value in d.items():
+        if isinstance(value, dict):
+            d[key] = strip_version_recursive(value)
+        elif isinstance(value, list):
+            d[key] = [strip_version_recursive(item) if isinstance(item, dict) else item for item in value]
+
+    return d
 
 
 def to_dict(query: BaseModel) -> dict:
@@ -22,6 +38,9 @@ def to_dict(query: BaseModel) -> dict:
         @model_serializer(mode="wrap")
         def serialize_query(self, next_serializer):
             dumped = next_serializer(self)
+
+            # strip version
+            dumped = strip_version_recursive(dumped)
 
             ###
             # Our schema is generated with `Literal` fields for type, kind, etc. These
@@ -48,10 +67,13 @@ def to_dict(query: BaseModel) -> dict:
                     # Keep this in sync with the frontend side "cleanInsightQuery" function.
                     if name == "series":
                         # remove frontend-only props from series
-                        dumped["series"] = [
-                            {key: value for key, value in entity.items() if key != "custom_name"}
-                            for entity in dumped["series"]
-                        ]
+                        new_series_list = []
+                        for dumped_series, series in zip(dumped[name], self.series):
+                            new_series = {key: value for key, value in dumped_series.items() if key != "custom_name"}
+                            if isinstance(self, TrendsQuery) and series_should_be_set_to_dau(self.interval, series):
+                                new_series["math"] = BaseMathType.DAU
+                            new_series_list.append(new_series)
+                        dumped["series"] = new_series_list
                     elif name == insightFilterKey:
                         # Remove frontend-only props from insight filters
                         # Keep this in sync with frontend/src/scenes/insights/utils/queryUtils.ts `cleanInsightQuery` method
@@ -109,14 +131,6 @@ def to_dict(query: BaseModel) -> dict:
     instance_dict = query.model_dump(exclude_none=True, exclude_defaults=True)
 
     return instance_dict
-
-
-def to_json(obj: dict) -> bytes:
-    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
-    option = orjson.OPT_SORT_KEYS
-    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
-
-    return json_string
 
 
 def filter_key_for_query(node: InsightQueryNode) -> str:

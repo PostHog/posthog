@@ -3,6 +3,7 @@ import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -26,9 +27,11 @@ import { userLogic } from 'scenes/userLogic'
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
+    AccessControlLevel,
     ActivityScope,
     AvailableFeature,
     Breadcrumb,
@@ -49,6 +52,7 @@ import {
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
     ProductKey,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -80,7 +84,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     },
 })
 
-const NEW_FLAG: FeatureFlagType = {
+export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
     key: '',
@@ -102,7 +106,7 @@ const NEW_FLAG: FeatureFlagType = {
     surveys: null,
     performed_rollback: false,
     can_edit: true,
-    user_access_level: 'editor',
+    user_access_level: AccessControlLevel.Editor,
     tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
@@ -129,7 +133,9 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
-        : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+        : key.length > 400
+        ? 'Key must be 400 characters or less.'
+        : !key.match?.(/^[a-zA-Z0-9_-]+$/)
         ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
         : undefined
 }
@@ -138,8 +144,10 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
     if (!is_remote_configuration) {
         return undefined
     }
-
-    return payload === undefined ? 'Payload is required for remote configuration flags.' : undefined
+    if (payload === undefined || payload === '') {
+        return 'Payload is required for remote configuration flags.'
+    }
+    return undefined
 }
 
 export interface FeatureFlagLogicProps {
@@ -242,9 +250,23 @@ export const getRecordingFilterForFlagVariant = (
 }
 
 // This helper function removes the created_at, id, and created_by fields from a flag
+// and cleans the groups and super_groups by removing the sort_key field.
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
-    return cleanedFlag
+    return {
+        ...cleanedFlag,
+        filters: {
+            ...cleanedFlag.filters,
+            groups: cleanFilterGroups(cleanedFlag.filters?.groups || []),
+            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups || []),
+        },
+    }
+}
+
+// Strip out sort_key from groups before saving. The sort_key is here for React to be able to
+// render the release conditions in the correct order.
+function cleanFilterGroups(groups: FeatureFlagGroupType[]): FeatureFlagGroupType[] {
+    return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([
@@ -342,7 +364,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                actions.saveFeatureFlag(featureFlag)
+                if (featureFlag.id) {
+                    actions.saveFeatureFlag(featureFlag)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Feature Flags',
+                        callback: (folder) => actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: folder }),
+                    })
+                }
             },
         },
     })),
@@ -389,7 +418,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                    const variantsSet = new Set(multivariateOptions?.variants.map((variant) => variant.key))
+                    const groups = state.filters.groups.map((group) =>
+                        !group.variant || variantsSet.has(group.variant) ? group : { ...group, variant: null }
+                    )
+                    const oldPayloads = state.filters.payloads ?? {}
+                    const payloads: Record<string, JsonType> = {}
+                    for (const variantKey of Object.keys(oldPayloads)) {
+                        if (variantsSet.has(variantKey)) {
+                            payloads[variantKey] = oldPayloads[variantKey]
+                        }
+                    }
+                    return {
+                        ...state,
+                        filters: { ...state.filters, groups, payloads, multivariate: multivariateOptions },
+                    }
                 },
                 setRemoteConfigEnabled: (state, { enabled }) => {
                     if (!state) {
@@ -425,7 +468,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         filters: {
                             ...state.filters,
                             multivariate: {
-                                ...(state.filters.multivariate || {}),
+                                ...state.filters.multivariate,
                                 variants: [...variants, NEW_VARIANT],
                             },
                         },
@@ -688,7 +731,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             }
                         )
                     }
-
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
@@ -722,6 +765,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             }
                         )
                     }
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
 
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
@@ -899,6 +943,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (values.featureFlag.experiment_set) {
                     return await api.experiments.get(values.featureFlag.experiment_set[0])
                 }
+                return null
             },
         },
     })),
@@ -954,8 +999,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
-                callback: () => {
+                callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
+                    if (undo) {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    } else {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    }
                     // Load latest change so a backwards navigation shows the flag as deleted
                     actions.loadFeatureFlag()
                     router.actions.push(urls.featureFlags())
@@ -967,7 +1017,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 undo: true,
-                callback: () => {
+                callback: (undo) => {
+                    if (undo) {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    } else {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    }
                     actions.loadFeatureFlag()
                 },
             })
@@ -1148,11 +1203,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: FeatureFlagLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: id === 'link' || id === 'new' ? null : String(id) }),
+        ],
+
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.featureFlag, s.currentTeam],
-            (featureFlag, currentTeam): SidePanelSceneContext | null => {
-                // Only render the new access control on side panel if they have been migrated
-                return featureFlag?.id && currentTeam?.access_control_version === 'v2'
+            (s) => [s.featureFlag],
+            (featureFlag): SidePanelSceneContext | null => {
+                return featureFlag?.id
                     ? {
                           activity_scope: ActivityScope.FEATURE_FLAG,
                           activity_item_id: `${featureFlag.id}`,

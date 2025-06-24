@@ -12,6 +12,7 @@ from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
 from posthog.models.utils import sane_repr
+from posthog.schema import RevenueCurrencyPropertyConfig
 
 MathType = Literal[
     "total",
@@ -57,6 +58,7 @@ class Entity(PropertyMixin):
     custom_name: Optional[str]
     math: Optional[MathType]
     math_property: Optional[str]
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig]
     math_hogql: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
@@ -93,6 +95,7 @@ class Entity(PropertyMixin):
         self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
+        self.math_property_revenue_currency = data.get("math_property_revenue_currency")
         self.math_hogql = data.get("math_hogql")
         self.math_group_type_index = validate_group_type_index(
             "math_group_type_index", data.get("math_group_type_index")
@@ -117,6 +120,9 @@ class Entity(PropertyMixin):
             "custom_name": self.custom_name,
             "math": self.math,
             "math_property": self.math_property,
+            "math_property_revenue_currency": dict(self.math_property_revenue_currency)
+            if self.math_property_revenue_currency
+            else None,
             "math_hogql": self.math_hogql,
             "math_group_type_index": self.math_group_type_index,
             "properties": self.property_groups.to_dict(),
@@ -179,6 +185,7 @@ class Entity(PropertyMixin):
         "custom_name",
         "math",
         "math_property",
+        "math_property_revenue_currency",
         "math_hogql",
         "properties",
         "id_field",

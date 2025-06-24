@@ -12,6 +12,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
+    ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
@@ -38,6 +39,8 @@ class AvailableFeature(StrEnum):
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
     DATA_COLOR_THEMES = "data_color_themes"
+    API_QUERIES_CONCURRENCY = "api_queries_concurrency"
+    ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -302,13 +305,17 @@ class FlagRequestType(StrEnum):
     REMOTE_CONFIG = "remote-config"
 
 
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
+MAX_AI_TASK_QUEUE = "max-ai-task-queue"
 DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
-
+TEST_TASK_QUEUE = "test-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

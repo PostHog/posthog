@@ -9,7 +9,7 @@ from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointR
 from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 
-def get_resource(name: str, is_incremental: bool) -> EndpointResource:
+def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "brands": {
             "name": "brands",
@@ -19,9 +19,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_brands"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_brands"),
             "endpoint": {
                 "data_selector": "brands",
                 "path": "/api/v2/brands",
@@ -40,9 +40,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),
             "endpoint": {
                 "data_selector": "organizations",
                 "path": "/api/v2/organizations",
@@ -61,9 +61,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_groups"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_groups"),
             "endpoint": {
                 "data_selector": "groups",
                 "path": "/api/v2/groups",
@@ -84,9 +84,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_sla_policies"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_sla_policies"),
             "endpoint": {
                 "data_selector": "sla_policies",
                 "path": "/api/v2/slas/policies",
@@ -102,9 +102,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_users"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_users"),
             "endpoint": {
                 "data_selector": "users",
                 "path": "/api/v2/users",
@@ -128,9 +128,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_fields"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_fields"),
             "endpoint": {
                 "data_selector": "ticket_fields",
                 "path": "/api/v2/ticket_fields",
@@ -152,9 +152,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),
             "endpoint": {
                 "data_selector": "ticket_events",
                 "path": "/api/v2/incremental/ticket_events?start_time=0",
@@ -167,7 +167,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "start_time": {
                     #     "type": "incremental",
                     #     "cursor_path": "end_time",
-                    #     "initial_value": 0,  # type: ignore
+                    #     "initial_value": 0,
                     # },
                 },
             },
@@ -181,9 +181,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),
             "endpoint": {
                 "data_selector": "tickets",
                 "path": "/api/v2/incremental/tickets",
@@ -195,7 +195,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                         "cursor_path": "generated_timestamp",
                         "initial_value": 0,  # type: ignore
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -209,9 +209,9 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
-            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),  # type: ignore
+            "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),
             "endpoint": {
                 "data_selector": "ticket_metric_events",
                 "path": "/api/v2/incremental/ticket_metric_events?start_time=0",
@@ -224,7 +224,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "start_time": {
                     #     "type": "incremental",
                     #     "cursor_path": "end_time",
-                    #     "initial_value": 0,  # type: ignore
+                    #     "initial_value": 0,
                     # },
                 },
             },
@@ -290,7 +290,7 @@ def zendesk_source(
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
-    is_incremental: bool = False,
+    should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {
         "client": {
@@ -307,10 +307,10 @@ def zendesk_source(
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
         },
-        "resources": [get_resource(endpoint, is_incremental)],
+        "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
     yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)

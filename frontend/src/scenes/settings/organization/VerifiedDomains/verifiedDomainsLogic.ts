@@ -25,14 +25,14 @@ export const isSecureURL = (url: string): boolean => {
     try {
         const parsed = new URL(url)
         return parsed.protocol === 'https:'
-    } catch (_) {
+    } catch {
         return false
     }
 }
 
 export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     path(['scenes', 'organization', 'verifiedDomainsLogic']),
-    connect({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] }),
+    connect(() => ({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] })),
     actions({
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
         setAddModalShown: (shown: boolean) => ({ shown }),
@@ -88,7 +88,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
                 deleteVerifiedDomain: async (id: string) => {
                     await api.delete(`api/organizations/${values.currentOrganization?.id}/domains/${id}`)
-                    return [...values.verifiedDomains.filter((domain) => domain.id !== id)]
+                    return values.verifiedDomains.filter((domain) => domain.id !== id)
                 },
             },
         ],

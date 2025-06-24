@@ -30,6 +30,7 @@ export function TrendsSeries(): JSX.Element | null {
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.EventMetadata,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
@@ -91,6 +92,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.DataWarehouse,
                 ]}
                 hideDeleteBtn={series?.length === 1}
+                addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
             />
         </>
     )

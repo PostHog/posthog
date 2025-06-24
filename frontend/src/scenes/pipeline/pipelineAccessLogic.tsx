@@ -9,9 +9,9 @@ import { Destination, NewDestinationItemType, SiteApp, Transformation } from './
 
 export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
     path(['scenes', 'pipeline', 'pipelineAccessLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user', 'hasAvailableFeature']],
-    }),
+    })),
     selectors({
         // This is currently an organization level setting but might in the future be user level
         // it's better to add the permission checks everywhere now

@@ -1,5 +1,5 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -30,10 +30,10 @@ const EMPTY_INVITE: InviteRowState = {
 
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight']],
         actions: [router, ['locationChanged']],
-    }),
+    })),
     actions({
         showInviteModal: true,
         hideInviteModal: true,
@@ -65,6 +65,8 @@ export const inviteLogic = kea<inviteLogicType>([
                 },
             },
         ],
+    })),
+    lazyLoaders(({ values }) => ({
         invites: [
             [] as OrganizationInviteType[],
             {
@@ -162,7 +164,10 @@ export const inviteLogic = kea<inviteLogicType>([
             }
 
             if (inviteCount > 0) {
-                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                // We want to avoid this updating the team before the onboarding is finished
+                setTimeout(() => {
+                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                }, 1000)
             }
         },
     })),
@@ -172,8 +177,5 @@ export const inviteLogic = kea<inviteLogicType>([
                 actions.showInviteModal()
             }
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: [actions.loadInvites],
     })),
 ])

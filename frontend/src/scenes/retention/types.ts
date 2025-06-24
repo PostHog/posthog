@@ -2,6 +2,8 @@ import { Dayjs } from 'lib/dayjs'
 
 import { ActorType } from '~/types'
 
+export const NO_BREAKDOWN_VALUE = '$$__posthog_...__$$'
+
 export interface ProcessedRetentionValue {
     count: number
     percentage: number
@@ -11,10 +13,18 @@ export interface ProcessedRetentionValue {
 }
 
 export interface ProcessedRetentionPayload {
-    date: string
+    date: Dayjs
     label: string
     people_url: string
     values: ProcessedRetentionValue[]
+    breakdown_value?: string | number | null
+}
+
+export interface RetentionTableRow {
+    label: string
+    cohortSize: number
+    values: ProcessedRetentionValue[]
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionTrendPayload {
@@ -23,6 +33,7 @@ export interface RetentionTrendPayload {
     days: string[]
     labels: string[]
     index: number
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionTablePeoplePayload {

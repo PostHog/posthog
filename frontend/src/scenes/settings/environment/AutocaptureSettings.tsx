@@ -1,4 +1,4 @@
-import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
@@ -90,46 +90,6 @@ export function AutocaptureSettings(): JSX.Element {
                     bordered
                 />
             </div>
-        </>
-    )
-}
-
-export function ExceptionAutocaptureSettings(): JSX.Element {
-    const { userLoading } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-
-    return (
-        <>
-            <p>
-                Captures frontend exceptions thrown on a customers using `onError` and `onUnhandledRejection` listeners
-                in our web JavaScript SDK.
-            </p>
-            <p>
-                Autocapture is also available for our{' '}
-                <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
-                    Python SDK
-                </Link>
-                , where it can be configured directly in code.
-            </p>
-            <LemonSwitch
-                id="posthog-autocapture-exceptions-switch"
-                onChange={(checked) => {
-                    updateCurrentTeam({
-                        autocapture_exceptions_opt_in: checked,
-                    })
-                    reportAutocaptureExceptionsToggled(checked)
-                }}
-                checked={!!currentTeam?.autocapture_exceptions_opt_in}
-                disabled={userLoading}
-                label={
-                    <>
-                        Enable exception autocapture <LemonTag>ALPHA</LemonTag>
-                    </>
-                }
-                bordered
-            />
         </>
     )
 }

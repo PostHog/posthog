@@ -20,6 +20,7 @@ services:
             - feature-flags
         extra_hosts:
             - 'web:host-gateway'
+            - 'plugins:host-gateway'
     db:
         extends:
             file: docker-compose.base.yml
@@ -56,6 +57,9 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        environment:
+            - AWS_ACCESS_KEY_ID=object_storage_root_user
+            - AWS_SECRET_ACCESS_KEY=object_storage_root_password
         ports:
             - '8123:8123'
             - '8443:8443'
@@ -63,9 +67,6 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
-            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
-            # revert this when we upgrade clickhouse
-            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
@@ -139,7 +140,7 @@ services:
             - redis
             - kafka
 
-    # vector replay capture
+    # replay capture-rs
     replay-capture:
         extends:
             file: docker-compose.base.yml
@@ -161,7 +162,7 @@ services:
             file: docker-compose.base.yml
             service: livestream
         environment:
-            - JWT.TOKEN=${SECRET_KEY}
+            - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
         ports:
             - '8666:8080'
         volumes:
@@ -195,3 +196,19 @@ services:
                 condition: service_started
             db:
                 condition: service_healthy
+
+    otel-collector:
+        extends:
+            file: docker-compose.base.yml
+            service: otel-collector
+        depends_on:
+            - jaeger
+
+    jaeger:
+        extends:
+            file: docker-compose.base.yml
+            service: jaeger
+
+networks:
+    otel_network:
+        driver: bridge

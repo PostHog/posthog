@@ -17,6 +17,7 @@ import {
     personInitialAndUTMProperties,
     sanitizeString,
 } from './db/utils'
+import { parseJSON } from './json-parse'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
@@ -81,17 +82,17 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         ...rawEvent,
         timestamp: clickHouseTimestampToDateTime(rawEvent.timestamp),
         created_at: clickHouseTimestampToDateTime(rawEvent.created_at),
-        properties: rawEvent.properties ? JSON.parse(rawEvent.properties) : {},
+        properties: rawEvent.properties ? parseJSON(rawEvent.properties) : {},
         elements_chain: rawEvent.elements_chain ? chainToElements(rawEvent.elements_chain, rawEvent.team_id) : null,
         person_created_at: rawEvent.person_created_at
             ? clickHouseTimestampToDateTime(rawEvent.person_created_at)
             : null,
-        person_properties: rawEvent.person_properties ? JSON.parse(rawEvent.person_properties) : {},
-        group0_properties: rawEvent.group0_properties ? JSON.parse(rawEvent.group0_properties) : {},
-        group1_properties: rawEvent.group1_properties ? JSON.parse(rawEvent.group1_properties) : {},
-        group2_properties: rawEvent.group2_properties ? JSON.parse(rawEvent.group2_properties) : {},
-        group3_properties: rawEvent.group3_properties ? JSON.parse(rawEvent.group3_properties) : {},
-        group4_properties: rawEvent.group4_properties ? JSON.parse(rawEvent.group4_properties) : {},
+        person_properties: rawEvent.person_properties ? parseJSON(rawEvent.person_properties) : {},
+        group0_properties: rawEvent.group0_properties ? parseJSON(rawEvent.group0_properties) : {},
+        group1_properties: rawEvent.group1_properties ? parseJSON(rawEvent.group1_properties) : {},
+        group2_properties: rawEvent.group2_properties ? parseJSON(rawEvent.group2_properties) : {},
+        group3_properties: rawEvent.group3_properties ? parseJSON(rawEvent.group3_properties) : {},
+        group4_properties: rawEvent.group4_properties ? parseJSON(rawEvent.group4_properties) : {},
         group0_created_at: rawEvent.group0_created_at
             ? clickHouseTimestampToDateTime(rawEvent.group0_created_at)
             : null,
@@ -123,7 +124,7 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 // that we can keep to as a contract
 export function convertToPostIngestionEvent(event: RawKafkaEvent): PostIngestionEvent {
-    const properties = event.properties ? JSON.parse(event.properties) : {}
+    const properties = event.properties ? parseJSON(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
     }
@@ -141,7 +142,7 @@ export function convertToPostIngestionEvent(event: RawKafkaEvent): PostIngestion
         person_created_at: event.person_created_at
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
             : null,
-        person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
+        person_properties: event.person_properties ? parseJSON(event.person_properties) : {},
     }
 }
 
@@ -204,6 +205,10 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
 export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
+    if ('token' in event) {
+        event.token = sanitizeString(String(event.token))
+    }
+
     let properties = event.properties ?? {}
     if (event['$set']) {
         properties['$set'] = { ...properties['$set'], ...event['$set'] }
@@ -237,8 +242,8 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
 
 export function formPipelineEvent(message: Message): PipelineEvent {
     // TODO: inefficient to do this twice?
-    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+    const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+    const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
 
     // Track $set usage in events that aren't known to use it, before ingestion adds anything there
     if (

@@ -8,10 +8,11 @@ from posthog.hogql.errors import BaseHogQLError
 
 
 T = TypeVar("T")
+T_AST = TypeVar("T_AST", bound=AST)
 T_Expr = TypeVar("T_Expr", bound=Expr)
 
 
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> Expr:
+def clone_expr(expr: T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> T_AST:
     """Clone an expression node."""
     return CloningVisitor(
         clear_types=clear_types,
@@ -20,7 +21,7 @@ def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subq
     ).visit(expr)
 
 
-def clear_locations(expr: T_Expr) -> T_Expr:
+def clear_locations(expr: T_AST) -> T_AST:
     return CloningVisitor(clear_locations=True).visit(expr)
 
 
@@ -133,24 +134,24 @@ class TraversingVisitor(Visitor[None]):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.select_from)
         if node.ctes is not None:
-            for expr in list(node.ctes.values()):
-                self.visit(expr)
-        for expr in node.array_join_list or []:
-            self.visit(expr)
-        for expr in node.select or []:
-            self.visit(expr)
+            for expr0 in list(node.ctes.values()):
+                self.visit(expr0)
+        for expr1 in node.array_join_list or []:
+            self.visit(expr1)
+        for expr2 in node.select or []:
+            self.visit(expr2)
         self.visit(node.where)
         self.visit(node.prewhere)
         self.visit(node.having)
-        for expr in node.group_by or []:
-            self.visit(expr)
-        for expr in node.order_by or []:
-            self.visit(expr)
+        for expr3 in node.group_by or []:
+            self.visit(expr3)
+        for expr4 in node.order_by or []:
+            self.visit(expr4)
         self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
-        for expr in (node.window_exprs or {}).values():
-            self.visit(expr)
+        for expr5 in (node.window_exprs or {}).values():
+            self.visit(expr5)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.visit(node.initial_select_query)
@@ -167,14 +168,14 @@ class TraversingVisitor(Visitor[None]):
         pass
 
     def visit_select_query_type(self, node: ast.SelectQueryType):
-        for expr in node.tables.values():
-            self.visit(expr)
-        for expr in node.anonymous_tables:
-            self.visit(expr)
-        for expr in node.aliases.values():
-            self.visit(expr)
-        for expr in node.columns.values():
-            self.visit(expr)
+        for expr0 in node.tables.values():
+            self.visit(expr0)
+        for expr1 in node.anonymous_tables:
+            self.visit(expr1)
+        for expr2 in node.aliases.values():
+            self.visit(expr2)
+        for expr3 in node.columns.values():
+            self.visit(expr3)
 
     def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
         for type in node.types:
@@ -249,6 +250,9 @@ class TraversingVisitor(Visitor[None]):
         pass
 
     def visit_property_type(self, node: ast.PropertyType):
+        self.visit(node.field_type)
+
+    def visit_map_property_type(self, node: ast.PropertyType):
         self.visit(node.field_type)
 
     def visit_expression_field_type(self, node: ast.ExpressionFieldType):
@@ -788,4 +792,12 @@ class CloningVisitor(Visitor[Any]):
             n=self.visit(node.n),
             offset_value=self.visit(node.offset_value) if node.offset_value is not None else None,
             exprs=[self.visit(expr) for expr in node.exprs],
+        )
+
+    def visit_select_set_node(self, node: ast.SelectSetNode) -> ast.SelectSetNode:
+        return ast.SelectSetNode(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            set_operator=node.set_operator,
+            select_query=self.visit(node.select_query),
         )

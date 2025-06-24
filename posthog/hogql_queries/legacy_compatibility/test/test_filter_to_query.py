@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 import pytest
 
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
@@ -745,9 +745,9 @@ def test_base_insights(filter: dict):
     filter_to_query(filter)
 
 
-properties_0 = []
-properties_1 = [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}]
-properties_2 = [
+properties_0: list[Any] = []
+properties_1: list[Any] = [{"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"}]
+properties_2: list[Any] = [
     {"key": "account_id", "type": "event", "value": ["some_id"], "operator": "exact"},
     {
         "key": "$current_url",
@@ -756,10 +756,10 @@ properties_2 = [
         "operator": "not_icontains",
     },
 ]
-properties_3 = {}
-properties_4 = {"type": "AND", "values": []}
-properties_5 = {"type": "AND", "values": [{"type": "AND", "values": []}]}
-properties_6 = {
+properties_3: dict[str, Any] = {}
+properties_4: dict[str, Any] = {"type": "AND", "values": []}
+properties_5: dict[str, Any] = {"type": "AND", "values": [{"type": "AND", "values": []}]}
+properties_6: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -781,7 +781,7 @@ properties_6 = {
         }
     ],
 }
-properties_7 = {
+properties_7: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -800,7 +800,7 @@ properties_7 = {
         },
     ],
 }
-properties_8 = {
+properties_8: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -825,7 +825,7 @@ properties_8 = {
         },
     ],
 }
-properties_9 = {
+properties_9: dict[str, Any] = {
     "type": "AND",
     "values": [
         {
@@ -875,9 +875,9 @@ properties_9 = {
         {"type": "OR", "values": [{}]},
     ],
 }
-properties_10 = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
-properties_11 = [{"key": [498], "type": "cohort", "value": 498, "operator": None}]
-properties_12 = [
+properties_10: list[Any] = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
+properties_11: list[Any] = [{"key": [498], "type": "cohort", "value": 498, "operator": None}]
+properties_12: list[Any] = [
     {
         "key": "userId",
         "type": "event",
@@ -885,10 +885,10 @@ properties_12 = [
         "operator": "exact",
     }
 ]
-properties_13 = {"plan": "premium"}
-properties_14 = {"$current_url__icontains": "signin"}
+properties_13: dict[str, Any] = {"plan": "premium"}
+properties_14: dict[str, Any] = {"$current_url__icontains": "signin"}
 
-test_properties = [
+test_properties: list[Any] = [
     properties_0,
     properties_1,
     properties_2,
@@ -915,14 +915,14 @@ def test_base_properties(properties):
 
 class TestFilterToQuery(BaseTest):
     def test_base_trend(self):
-        filter = {}
+        filter: dict = {}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "TrendsQuery")
 
     def test_full_trend(self):
-        filter = {}
+        filter: dict[str, Any] = {}
 
         query = filter_to_query(filter)
 
@@ -932,42 +932,42 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_base_funnel(self):
-        filter = {"insight": "FUNNELS"}
+        filter: dict[str, Any] = {"insight": "FUNNELS"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "FunnelsQuery")
 
     def test_base_retention_query(self):
-        filter = {"insight": "RETENTION", "retention_type": "retention_first_time"}
+        filter: dict[str, Any] = {"insight": "RETENTION", "retention_type": "retention_first_time"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "RetentionQuery")
 
     def test_base_paths_query(self):
-        filter = {"insight": "PATHS", "step_limit": 2}
+        filter: dict[str, Any] = {"insight": "PATHS", "step_limit": 2}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "PathsQuery")
 
     def test_base_lifecycle_query(self):
-        filter = {"insight": "LIFECYCLE"}
+        filter: dict[str, Any] = {"insight": "LIFECYCLE"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "LifecycleQuery")
 
     def test_base_stickiness_query(self):
-        filter = {"insight": "STICKINESS"}
+        filter: dict[str, Any] = {"insight": "STICKINESS"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "StickinessQuery")
 
     def test_date_range(self):
-        filter = {"date_from": "-14d", "date_to": "-7d"}
+        filter: dict[str, Any] = {"date_from": "-14d", "date_to": "-7d"}
 
         query = filter_to_query(filter)
 
@@ -976,7 +976,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.dateRange.date_to, "-7d")
 
     def test_date_range_with_explict_date_setting(self):
-        filter = {"date_from": "-14d", "date_to": "-7d", "explicit_date": "on"}
+        filter: dict[str, Any] = {"date_from": "-14d", "date_to": "-7d", "explicit_date": "on"}
 
         query = filter_to_query(filter)
 
@@ -986,7 +986,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.dateRange.explicitDate, True)
 
     def test_interval(self):
-        filter = {"interval": "hour"}
+        filter: dict[str, Any] = {"interval": "hour"}
 
         query = filter_to_query(filter)
 
@@ -994,7 +994,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.interval, "hour")
 
     def test_series_default(self):
-        filter = {}
+        filter: dict[str, Any] = {}
 
         query = filter_to_query(filter)
 
@@ -1002,7 +1002,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.series, [])
 
     def test_series_custom(self):
-        filter = {
+        filter: dict[str, Any] = {
             "events": [{"id": "$pageview"}, {"id": "$pageview", "math": "dau"}],
             "actions": [{"id": 1}, {"id": 1, "math": "dau"}],
         }
@@ -1021,7 +1021,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_data_warehouse(self):
-        filter = {
+        filter: dict[str, Any] = {
             "data_warehouse": [
                 {
                     "id": "some_table",
@@ -1054,7 +1054,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_order(self):
-        filter = {
+        filter: dict[str, Any] = {
             "events": [
                 {"id": "$pageview", "order": 1},
                 {"id": "$pageview", "math": "dau", "order": 2},
@@ -1076,7 +1076,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_math(self):
-        filter = {
+        filter: dict[str, Any] = {
             "events": [
                 {"id": "$pageview", "math": "dau"},  # base math type
                 {
@@ -1135,7 +1135,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_properties(self):
-        filter = {
+        filter: dict[str, Any] = {
             "events": [
                 {"id": "$pageview", "properties": []},  # smoke test
                 {
@@ -1315,7 +1315,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_breakdown(self):
-        filter = {"breakdown_type": "event", "breakdown": "$browser"}
+        filter: dict[str, Any] = {"breakdown_type": "event", "breakdown": "$browser"}
 
         query = filter_to_query(filter)
 
@@ -1326,7 +1326,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_compare(self):
-        filter = {"compare": True, "compare_to": "-5w"}
+        filter: dict[str, Any] = {"compare": True, "compare_to": "-5w"}
 
         query = filter_to_query(filter)
 
@@ -1337,7 +1337,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_breakdown_converts_multi(self):
-        filter = {"breakdowns": [{"type": "event", "property": "$browser"}]}
+        filter: dict[str, Any] = {"breakdowns": [{"type": "event", "property": "$browser"}]}
 
         query = filter_to_query(filter)
 
@@ -1347,7 +1347,7 @@ class TestFilterToQuery(BaseTest):
             BreakdownFilter(breakdowns=[{"type": BreakdownType.EVENT, "property": "$browser"}]),
         )
 
-        filter = {
+        filter: dict[str, Any] = {
             "breakdowns": [
                 {"type": "event", "property": "$browser"},
                 {"type": "session", "property": "$session_duration"},
@@ -1368,7 +1368,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_breakdown_type_default(self):
-        filter = {"breakdown": "some_prop"}
+        filter: dict[str, Any] = {"breakdown": "some_prop"}
 
         query = filter_to_query(filter)
 
@@ -1379,7 +1379,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_trends_filter(self):
-        filter = {
+        filter: dict[str, Any] = {
             "smoothing_intervals": 2,
             "aggregation_axis_format": "duration_ms",
             "aggregation_axis_prefix": "pre",
@@ -1411,7 +1411,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_funnels_filter(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "FUNNELS",
             "funnel_viz_type": "steps",
             "funnel_window_interval_unit": "hour",
@@ -1492,7 +1492,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_retention_filter(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "RETENTION",
             "retention_type": "retention_first_time",
             # retention_reference="previous",
@@ -1532,14 +1532,13 @@ class TestFilterToQuery(BaseTest):
                     "custom_name": None,
                     "order": None,
                 },
-                showMean=True,
                 meanRetentionCalculation="simple",
                 cumulative=True,
             ),
         )
 
     def test_paths_filter(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "PATHS",
             "include_event_types": ["$pageview", "hogql"],
             "start_point": "http://localhost:8000/events",
@@ -1614,7 +1613,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_stickiness_filter(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "STICKINESS",
             "show_legend": True,
             "show_values_on_series": True,
@@ -1630,7 +1629,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_lifecycle_filter(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "LIFECYCLE",
             "shown_as": "Lifecycle",
             "show_values_on_series": True,
@@ -1649,7 +1648,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_multiple_breakdowns(self):
-        filter = {
+        filter: dict[str, Any] = {
             "breakdowns": [
                 {"type": "event", "property": "$url", "normalize_url": True},
                 {"type": "group", "property": "$os", "group_type_index": 0},
@@ -1673,7 +1672,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_funnels_multiple_breakdowns(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "FUNNELS",
             "breakdowns": [
                 {"type": "session", "property": "$session_duration"},
@@ -1692,7 +1691,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_funnels_multiple_breakdowns_no_breakdown_type(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "FUNNELS",
             "breakdowns": [
                 {"property": "prop"},
@@ -1711,7 +1710,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_funnels_use_first_time_for_user_math(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "FUNNELS",
             "events": [
                 {
@@ -1827,7 +1826,7 @@ class TestHiddenLegendKeysToBreakdowns(BaseTest):
 
 class TestDashboardTemplateConversion(BaseTest):
     def test_trend_series_with_variables(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "TRENDS",
             "events": ["{VARIABLE}"],
         }
@@ -1837,7 +1836,7 @@ class TestDashboardTemplateConversion(BaseTest):
         self.assertEqual(query.series, ["{VARIABLE}"])
 
     def test_funnel_series_with_variables(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "FUNNELS",
             "events": ["{VARIABLE1}", "{VARIABLE2}"],
         }
@@ -1847,7 +1846,7 @@ class TestDashboardTemplateConversion(BaseTest):
         self.assertEqual(query.series, ["{VARIABLE1}", "{VARIABLE2}"])
 
     def test_retention_entities_with_variables(self):
-        filter = {
+        filter: dict[str, Any] = {
             "insight": "RETENTION",
             "target_entity": "{VARIABLE1}",
             "returning_entity": "{VARIABLE2}",

@@ -1,10 +1,17 @@
-import { IconArrowLeft, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconCopy, IconPencil } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,16 +21,16 @@ import { userLogic } from 'scenes/userLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
+import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
-
 export const scene: SceneExport = {
     component: SharedMetrics,
     logic: sharedMetricsLogic,
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading, showLegacyBadge } = useValues(sharedMetricsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -35,7 +42,21 @@ export function SharedMetrics(): JSX.Element {
                 return (
                     <LemonTableLink
                         to={sharedMetric.id ? urls.experimentsSharedMetric(sharedMetric.id) : undefined}
-                        title={stringWithWBR(sharedMetric.name, 17)}
+                        title={
+                            <>
+                                {stringWithWBR(sharedMetric.name, 17)}
+                                {showLegacyBadge && isLegacySharedMetric(sharedMetric) && (
+                                    <Tooltip
+                                        title="This metric uses the legacy engine, so some features and improvements may be missing."
+                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
+                                    >
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </>
+                        }
                     />
                 )
             },
@@ -74,15 +95,26 @@ export function SharedMetrics(): JSX.Element {
             title: 'Actions',
             render: (_, sharedMetric) => {
                 return (
-                    <LemonButton
-                        className="max-w-72"
-                        type="secondary"
-                        size="xsmall"
-                        icon={<IconPencil />}
-                        onClick={() => {
-                            router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
-                        }}
-                    />
+                    <div className="flex gap-1">
+                        <LemonButton
+                            className="max-w-72"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconPencil />}
+                            onClick={() => {
+                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
+                            }}
+                        />
+                        <LemonButton
+                            className="max-w-72"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={() => {
+                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id, 'duplicate'))
+                            }}
+                        />
+                    </div>
                 )
             },
         },

@@ -42,7 +42,7 @@ export interface CodeEditorLogicProps {
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
     globals?: Record<string, any>
-    onError?: (error: string | null, isValidView: boolean) => void
+    onError?: (error: string | null) => void
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
 }
@@ -54,9 +54,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     actions({
         reloadMetadata: true,
     }),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     loaders(({ props }) => ({
         metadata: [
             null as null | [string, HogQLMetadataResponse],
@@ -138,7 +138,6 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         ],
     })),
     selectors({
-        isValidView: [(s) => [s.metadata], (metadata) => !!(metadata && metadata[1]?.isValidView)],
         hasErrors: [
             (s) => [s.modelMarkers],
             (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === 8 /* MarkerSeverity.Error */).length,
@@ -153,12 +152,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             },
         ],
     }),
-    subscriptions(({ props, values }) => ({
-        isValidView: (isValidView) => {
-            props.onError?.(values.error, isValidView)
-        },
+    subscriptions(({ props }) => ({
         error: (error) => {
-            props.onError?.(error, values.isValidView)
+            props.onError?.(error)
         },
         metadataLoading: (loading) => {
             props.onMetadataLoading?.(loading)

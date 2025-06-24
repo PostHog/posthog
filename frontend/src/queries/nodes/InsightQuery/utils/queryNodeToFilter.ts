@@ -19,6 +19,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isCalendarHeatmapQuery,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
@@ -102,8 +103,10 @@ export const seriesToActionsAndEvents = (
 export const hiddenLegendItemsToKeys = (
     hidden_items: number[] | string[] | undefined
 ): Record<string, boolean | undefined> | undefined =>
-    // @ts-expect-error
-    hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => ({ ...k, [b]: true }), {})
+    hidden_items?.reduce((k, b) => {
+        k[b] = true
+        return k
+    }, {} as Record<string, boolean | undefined>)
 
 export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
@@ -112,6 +115,7 @@ export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.PathsQuery]: InsightType.PATHS,
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
+    [NodeKind.CalendarHeatmapQuery]: InsightType.CALENDAR_HEATMAP,
 }
 
 const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
@@ -121,6 +125,7 @@ const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
@@ -209,6 +214,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.showValuesOnSeries
         delete queryCopy.trendsFilter?.yAxisScaleType
         delete queryCopy.trendsFilter?.showMultipleYAxes
+    } else if (isCalendarHeatmapQuery(queryCopy)) {
+        // skip, by now we don't have any properties to add
     } else if (isFunnelsQuery(queryCopy)) {
         camelCasedFunnelsProps.exclusions = queryCopy.funnelsFilter?.exclusions
             ? queryCopy.funnelsFilter.exclusions.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
@@ -251,15 +258,20 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedRetentionProps.returning_entity = queryCopy.retentionFilter?.returningEntity
         camelCasedRetentionProps.target_entity = queryCopy.retentionFilter?.targetEntity
         camelCasedRetentionProps.total_intervals = queryCopy.retentionFilter?.totalIntervals
-        camelCasedRetentionProps.show_mean = queryCopy.retentionFilter?.showMean
+        camelCasedRetentionProps.show_mean =
+            queryCopy.retentionFilter?.meanRetentionCalculation === 'simple'
+                ? true
+                : queryCopy.retentionFilter?.meanRetentionCalculation === 'none'
+                ? false
+                : undefined
         camelCasedRetentionProps.cumulative = queryCopy.retentionFilter?.cumulative
         delete queryCopy.retentionFilter?.retentionReference
         delete queryCopy.retentionFilter?.retentionType
         delete queryCopy.retentionFilter?.returningEntity
         delete queryCopy.retentionFilter?.targetEntity
         delete queryCopy.retentionFilter?.totalIntervals
-        delete queryCopy.retentionFilter?.showMean
         delete queryCopy.retentionFilter?.cumulative
+        delete queryCopy.retentionFilter?.meanRetentionCalculation
     } else if (isPathsQuery(queryCopy)) {
         camelCasedPathsProps.edge_limit = queryCopy.pathsFilter?.edgeLimit
         camelCasedPathsProps.paths_hogql_expression = queryCopy.pathsFilter?.pathsHogQLExpression

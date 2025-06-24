@@ -13,6 +13,8 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
@@ -70,8 +72,8 @@ export const activationLogic = kea<activationLogicType>([
             ['memberCount'],
             sidePanelStateLogic,
             ['modalMode'],
-            reverseProxyCheckerLogic,
-            ['hasReverseProxy'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             teamLogic,
@@ -84,6 +86,8 @@ export const activationLogic = kea<activationLogicType>([
             ['openSidePanel', 'closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
+            reverseProxyCheckerLogic,
+            ['loadHasReverseProxy'],
         ],
     })),
     actions({
@@ -132,7 +136,7 @@ export const activationLogic = kea<activationLogicType>([
                     const response = await api.get(url)
                     breakpoint()
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [url]: response.count,
                     }
                     return cache.apiCache[url]
@@ -163,17 +167,28 @@ export const activationLogic = kea<activationLogicType>([
                 ),
         ],
         hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.visible).length > 0],
+        showSaveInsightTask: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.SAVE_INSIGHT_TASK] === 'test',
+        ],
         tasks: [
-            (s) => [s.savedOnboardingTasks],
-            (savedOnboardingTasks) => {
-                const tasks: ActivationTaskType[] = ACTIVATION_TASKS.map((task) => ({
-                    ...task,
-                    skipped: task.canSkip && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED,
-                    completed: savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED,
-                    lockedReason: task.dependsOn?.find(
-                        (d) => savedOnboardingTasks[d.task] !== ActivationTaskStatus.COMPLETED
-                    )?.reason,
-                }))
+            (s) => [s.savedOnboardingTasks, s.showSaveInsightTask],
+            (savedOnboardingTasks, showSaveInsightTask) => {
+                const tasks: ActivationTaskType[] = ACTIVATION_TASKS.map((task) => {
+                    const title =
+                        task.id === ActivationTask.CreateFirstInsight && showSaveInsightTask
+                            ? 'Save an insight'
+                            : task.title
+                    return {
+                        ...task,
+                        skipped: task.canSkip && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED,
+                        completed: savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED,
+                        lockedReason: task.dependsOn?.find(
+                            (d) => savedOnboardingTasks[d.task] !== ActivationTaskStatus.COMPLETED
+                        )?.reason,
+                        title,
+                    }
+                })
 
                 return tasks
             },
@@ -318,7 +333,7 @@ export const activationLogic = kea<activationLogicType>([
 
             actions.updateCurrentTeam({
                 onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    ...values.currentTeam?.onboarding_tasks,
                     [id]: ActivationTaskStatus.SKIPPED,
                 },
             })
@@ -336,7 +351,7 @@ export const activationLogic = kea<activationLogicType>([
 
             actions.updateCurrentTeam({
                 onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    ...values.currentTeam?.onboarding_tasks,
                     [id]: ActivationTaskStatus.COMPLETED,
                 },
             })
@@ -370,6 +385,14 @@ export const activationLogic = kea<activationLogicType>([
                     .map((s) => s.key)
 
                 actions.setOpenSections(values.currentTeam.id, sectionsToOpen)
+            }
+
+            if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.SetUpReverseProxy]) {
+                actions.loadHasReverseProxy()
+            }
+
+            if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.TrackCustomEvents]) {
+                actions.loadCustomEvents({})
             }
         },
         loadCustomEventsSuccess: () => {
@@ -405,7 +428,6 @@ export const activationLogic = kea<activationLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        actions.loadCustomEvents({})
         actions.loadCurrentTeam() // TRICKY: Product intents are not available without loading the current team
 
         if (values.currentTeam) {
@@ -463,7 +485,7 @@ export enum ActivationSection {
 export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: ReactNode }> = {
     [ActivationSection.QuickStart]: {
         title: 'Get Started',
-        icon: <IconFeatures className="h-5 w-5 text-accent-primary" />,
+        icon: <IconFeatures className="h-5 w-5 text-accent" />,
     },
     [ActivationSection.ProductAnalytics]: {
         title: 'Product analytics',

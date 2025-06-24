@@ -161,17 +161,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): Record<string, DatabaseSchemaTable[]> => {
                 return dataWarehouseTables.reduce((acc: Record<string, DatabaseSchemaTable[]>, table) => {
-                    if (table.source) {
-                        if (!acc[table.source.source_type]) {
-                            acc[table.source.source_type] = []
-                        }
-                        acc[table.source.source_type].push(table)
-                    } else {
-                        if (!acc['S3']) {
-                            acc['S3'] = []
-                        }
-                        acc['S3'].push(table)
-                    }
+                    const group = table.source?.source_type ?? 'S3'
+                    acc[group] ??= []
+                    acc[group].push(table)
+
                     return acc
                 }, {})
             },
@@ -220,7 +213,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
             if (payload) {
-                router.actions.push(urls.dataWarehouseView(payload.id))
+                router.actions.push(urls.sqlEditor(undefined, payload.id))
             }
         },
         saveSchema: async () => {
@@ -285,13 +278,17 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: query,
                 }
+
                 const oldView = values.viewsMapById[values.editingView]
-                const newView: DatabaseSchemaViewTable & { types: string[][] } = {
-                    ...oldView,
-                    query: newViewQuery,
-                    types,
+                if (oldView.type === 'view') {
+                    // Should always be `view`, but assert at the TS level
+                    const newView: DatabaseSchemaViewTable & { types: string[][] } = {
+                        ...oldView,
+                        query: newViewQuery,
+                        types,
+                    }
+                    actions.updateDataWarehouseSavedQuery(newView)
                 }
-                actions.updateDataWarehouseSavedQuery(newView)
             }
         },
     })),

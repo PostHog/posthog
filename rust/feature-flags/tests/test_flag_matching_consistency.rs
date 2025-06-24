@@ -3,7 +3,7 @@ use std::sync::Arc;
 /// These tests are common between all libraries doing local evaluation of feature flags.
 /// This ensures there are no mismatches between implementations.
 use feature_flags::{
-    cohort::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
         flag_match_reason::FeatureFlagMatchReason,
         flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
@@ -119,9 +119,8 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
         let distinct_id = format!("distinct_id_{}", i);
 
         let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, reader, writer, cohort_cache, None, None)
+            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
                 .get_match(&flags[0], None, None)
-                .await
                 .unwrap();
 
         if *result {
@@ -1211,9 +1210,8 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         let distinct_id = format!("distinct_id_{}", i);
 
         let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, reader, writer, cohort_cache, None, None)
+            FeatureFlagMatcher::new(distinct_id, 1, 1, reader, writer, cohort_cache, None, None)
                 .get_match(&flags[0], None, None)
-                .await
                 .unwrap();
 
         if let Some(variant) = &result {

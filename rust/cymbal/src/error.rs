@@ -1,5 +1,8 @@
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
+use common_redis::CustomRedisError;
+use common_types::{CapturedEvent, ClickHouseEvent};
 use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
@@ -12,7 +15,24 @@ pub enum Error {
     UnhandledError(#[from] UnhandledError),
     #[error(transparent)]
     ResolutionError(#[from] FrameError),
+    #[error(transparent)]
+    EventError(#[from] EventError),
 }
+
+// An unhandled failure at some stage of the event pipeline, as
+// well as the index of the item in the input buffer that caused
+// the failure, so we can print the offset of problematic message
+#[derive(Debug)]
+pub struct PipelineFailure {
+    pub index: usize,
+    pub error: UnhandledError,
+}
+
+// The result of running the pipeline against a single message. Generally,
+// an error here indicates some expected/handled invalidity of the input,
+// like a missing token, or invalid timestamp. The pipeline converts a
+// vector of input items into a vector of these
+pub type PipelineResult = Result<ClickHouseEvent, EventError>;
 
 #[derive(Debug, Error)]
 pub enum UnhandledError {
@@ -30,6 +50,10 @@ pub enum UnhandledError {
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
+    #[error("Unhandled geoip error: {0}")]
+    GeoIpError(#[from] GeoIpError),
+    #[error("Unhandled redis error: {0}")]
+    RedisError(#[from] CustomRedisError),
     #[error("Unhandled error: {0}")]
     Other(String),
 }
@@ -100,7 +124,7 @@ pub enum JsResolveErr {
     NoSourcemapUploaded(String),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
@@ -108,10 +132,18 @@ pub enum EventError {
     NoProperties(Uuid),
     #[error("Invalid properties: {0}, serde error: {1}")]
     InvalidProperties(Uuid, String),
-    #[error("No exception list: {0}")]
-    NoExceptionList(Uuid),
     #[error("Empty exception list: {0}")]
     EmptyExceptionList(Uuid),
+    #[error("Invalid event timestamp: {0}, {1}")]
+    InvalidTimestamp(String, String),
+    #[error("No team for token: {0}")]
+    NoTeamForToken(String),
+    #[error("Suppressed issue: {0}")]
+    Suppressed(Uuid),
+    #[error("Could not deserialize event data: {1}")]
+    FailedToDeserialize(Box<CapturedEvent>, String),
+    #[error("Filtered by team id")]
+    FilteredByTeamId,
 }
 
 impl From<JsResolveErr> for Error {
@@ -119,12 +151,6 @@ impl From<JsResolveErr> for Error {
         FrameError::JavaScript(e).into()
     }
 }
-
-// impl From<sourcemap::Error> for JsResolveErr {
-//     fn from(e: sourcemap::Error) -> Self {
-//         JsResolveErr::InvalidSourceMap(e.to_string())
-//     }
-// }
 
 impl From<reqwest::Error> for JsResolveErr {
     fn from(e: reqwest::Error) -> Self {
@@ -154,5 +180,11 @@ impl From<reqwest::Error> for JsResolveErr {
 impl From<aws_sdk_s3::Error> for UnhandledError {
     fn from(e: aws_sdk_s3::Error) -> Self {
         UnhandledError::S3Error(Box::new(e))
+    }
+}
+
+impl From<(usize, UnhandledError)> for PipelineFailure {
+    fn from((index, error): (usize, UnhandledError)) -> Self {
+        PipelineFailure { index, error }
     }
 }

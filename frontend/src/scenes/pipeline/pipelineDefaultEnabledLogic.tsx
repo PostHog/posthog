@@ -33,10 +33,10 @@ export interface DefaultEnabledType {
 
 export const pipelineDefaultEnabledLogic = kea<pipelineDefaultEnabledLogicType>([
     path(['scenes', 'pipeline', 'pipelineDefaultEnabledLogic']),
-    connect({
+    connect(() => ({
         values: [pipelineTransformationsLogic, ['plugins', 'pluginConfigs']],
         actions: [pipelineTransformationsLogic, ['toggleEnabled']],
-    }),
+    })),
     selectors({
         pipelineDefaultEnabled: [
             (s) => [s.plugins, s.pluginConfigs],

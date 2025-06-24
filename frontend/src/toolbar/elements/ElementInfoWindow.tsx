@@ -93,7 +93,7 @@ export function ElementInfoWindow(): JSX.Element | null {
                 </div>
             ) : null}
             <div
-                className="overflow-auto rounded-lg border border-secondary"
+                className="overflow-auto rounded-lg border border-primary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight, maxHeight }}
             >

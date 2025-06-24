@@ -321,6 +321,44 @@
     --primitive-posthog-brand-yellow-saturation: 94%;
     --primitive-posthog-brand-yellow-lightness: 57%;
 
+    // Product specific colors
+    --product-data-pipeline-light: rgb(46 162 211);
+    --product-product-analytics-light: rgb(47 128 250);
+    --product-messaging-light: rgb(47 128 250);
+    --product-web-analytics-light: rgb(52 175 102);
+    --product-web-analytics-dark: rgb(54 196 111); // original color
+    --product-session-replay-light: rgb(235 162 18);
+    --product-session-replay-dark: rgb(247 165 1);
+    --product-heatmaps-light: rgb(220 152 16);
+    --product-heatmaps-dark: rgb(247 165 1);
+    --product-logs-light: rgb(214 37 123);
+    --product-feature-flags-light: rgb(48 171 198);
+    --product-experiments-light: rgb(182 42 217);
+    --product-error-tracking-light: rgb(211 148 24);
+    --product-error-tracking-dark: rgb(247 165 1);
+    --product-surveys-light: rgb(243 84 84);
+    --product-data-warehouse-light: rgb(133 103 255);
+    --product-max-ai-light: rgb(182 42 217);
+    --product-links-light: rgb(143 7 255);
+    --product-revenue-analytics-light: rgb(52 175 102);
+    --product-revenue-analytics-dark: rgb(54 196 111);
+    --product-user-interviews-light: rgb(0 140 255);
+    --product-dashboards-light: rgb(255 139 7);
+    --product-early-access-features-light: rgb(39 171 151);
+    --product-early-access-features-dark: rgb(53 213 189);
+
+    // Insight colors
+    --insight-funnel-light: rgb(47 128 250);
+    --insight-trends-light: rgb(247 165 1);
+    --insight-user-paths-light: rgb(30 179 152);
+    --insight-user-paths-dark: rgb(41 219 187);
+    --insight-retention-light: rgb(243 84 84);
+    --insight-stickiness-light: rgb(247 165 1);
+    --insight-lifecycle-light: rgb(48 171 198);
+    --insight-calendar-heatmap-light: rgb(12 39 146);
+    --insight-calendar-heatmap-dark: rgb(61 91 215);
+    --insight-sql-light: rgb(245 78 0);
+
     // Generic brand color assignments
     // Change these to change the brand colors
     // //////////////////////////////////////////////////////////
@@ -334,42 +372,42 @@
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
-    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(
+    --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        var(--primitive-posthog-brand-yellow-lightness)
+    );
+    --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
-    --accent-primary-active: hsl(
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 10%)
+    );
+    --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsla(
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 15%)
+    );
+    --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         var(--brand-primary-lightness),
-        10%
+        20%
     );
-    --accent-secondary: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness)
-    );
-    --accent-secondary-hover: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 10%)
-    );
-    --accent-secondary-active: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 15%)
-    );
-    --accent-secondary-highlight: hsla(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness),
+    --accent-highlight-secondary: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
         10%
     );
 
@@ -399,11 +437,15 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
     --bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
     --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
@@ -411,53 +453,36 @@
     // Highlights
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
 
-    /* highlight bg for primary blocks */
-
     // Info fills
     --bg-fill-info-secondary: var(--color-blue-100);
-
-    /* promonent bg for info blocks */
     --bg-fill-info-tertiary: var(--color-blue-50);
-
-    /* subtle bg for info blocks */
-
-    // Warning fills
     --bg-fill-warning-secondary: var(--color-yellow-100);
-
-    /* prominent bg for warning blocks */
     --bg-fill-warning-tertiary: var(--color-yellow-50);
-
-    /* subtle bg for warning blocks */
     --bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
-
-    /* highlight bg for warning blocks */
-
-    // Error fills
     --bg-fill-error-secondary: var(--color-red-100);
-
-    /* prominent bg for error blocks */
     --bg-fill-error-tertiary: var(--color-red-50);
-
-    /* subtle bg for error blocks */
     --bg-fill-error-highlight: color-mix(in oklab, var(--color-red-500) 10%, transparent);
-
-    /* highlight bg for error blocks */
-
-    // Success fills
     --bg-fill-success-secondary: var(--color-green-100);
-
-    /* promonent bg for success blocks */
     --bg-fill-success-tertiary: var(--color-green-50);
-
-    /* subtle bg for success blocks */
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
-    /* highlight bg for success blocks */
+    // Buttons
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
+    --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
+    --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
 
     // Inputs
     --bg-fill-input: var(--color-white);
     --bg-fill-switch: var(--primitive-neutral-cool-250);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
+
+    // Borders (Useful for single pixel backgrounds to mimic borders)
+    // //////////////////////////////////////////////////////////
+    --bg-border-primary: var(--primitive-3000-200);
+    --bg-border-secondary: var(--primitive-3000-400);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -465,6 +490,7 @@
     --text-primary-inverse: var(--primitive-neutral-100);
     --text-secondary: var(--primitive-neutral-750);
     --text-tertiary: var(--primitive-neutral-600);
+    --text-quaternary: var(--primitive-neutral-500);
     --text-success: var(--color-green-600);
     --text-warning: var(--color-yellow-700);
     --text-error: var(--color-red-600);
@@ -473,17 +499,9 @@
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --text-info-on-fill: var(--color-blue-800);
-
-    /* On-fill text for info */
     --text-warning-on-fill: var(--color-yellow-800);
-
-    /* On-fill text for warning */
     --text-error-on-fill: var(--color-red-800);
-
-    /* On-fill text for error */
     --text-success-on-fill: var(--color-green-800);
-
-    /* On-fill text for success */
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -492,14 +510,8 @@
     --border-secondary: var(--primitive-3000-400);
     --border-info: var(--color-blue-400);
     --border-warning: var(--color-yellow-400);
-
-    /* Border for warning */
     --border-error: var(--color-red-400);
-
-    /* Border for error */
     --border-success: var(--color-green-400);
-
-    /* Border for success */
 
     // Graph colors
     // //////////////////////////////////////////////////////////
@@ -527,7 +539,6 @@
         129 129 129 / 24%
     ); // Equivalent to --primitive-neutral-400 but with transparency, improve browser compatibility
 
-    // Breakpoint variables
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
     --breakpoint-sm: 576px;
@@ -560,6 +571,8 @@
     --font-sans: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
         'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-title: 'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-button: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
         'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono: 'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas',
         'Liberation Mono', monospace;
@@ -618,10 +631,13 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-resizer: 755;
-    --z-project-panel-layout: 1099;
-    --z-project-panel-overlay: 1098;
+    --z-layout-panel: 760;
+    --z-layout-panel-under: 759;
+    --z-layout-navbar-over: 757;
+    --z-layout-navbar: 756;
+    --z-layout-navbar-under: 755;
     --z-main-nav: 750;
+    --z-resizer: 701;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
     --z-mobile-nav-overlay: 600;
@@ -630,8 +646,15 @@
     --z-raised: 5;
 
     // Elements
+    --side-panel-bar-width: 3rem;
     --project-navbar-width: 250px;
+    --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
+    --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
+    --resizer-thickness: 8px;
+
+    // The space the panel is from the left edge of the screen on mobile
+    --panel-layout-mobile-offset: 40px;
 
     // Toasts
     // Update and override from react-toastify
@@ -814,42 +837,47 @@
 
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(
+    --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        var(--primitive-posthog-brand-orange-lightness)
+    );
+    --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
-    --accent-primary-active: hsl(
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 10%)
+    );
+    --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsla(
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 15%)
+    );
+
+    // Used for highlighting search results, and other subtle accent sitations
+    // Most prominent
+    --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         var(--brand-primary-lightness),
-        10%
+        20%
     );
-    --accent-secondary: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness)
-    );
-    --accent-secondary-hover: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 10%)
-    );
-    --accent-secondary-active: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 15%)
-    );
-    --accent-secondary-highlight: hsla(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness),
+
+    // Less prominent
+    --accent-highlight-secondary: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
         10%
     );
 
@@ -870,11 +898,15 @@
     --bg-fill-primary: var(--primitive-neutral-cool-900);
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
     --bg-fill-highlight-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
     --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
@@ -890,9 +922,17 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
+    --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
+    --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
     --bg-fill-input: var(--primitive-neutral-cool-850);
     --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-border-primary: var(--primitive-neutral-cool-800);
+    --bg-border-secondary: var(--primitive-neutral-cool-600);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
@@ -900,6 +940,7 @@
     --text-primary-inverse: var(--primitive-neutral-950);
     --text-secondary: var(--primitive-neutral-350);
     --text-tertiary: var(--primitive-neutral-400);
+    --text-quaternary: var(--primitive-neutral-500);
     --text-success: var(--color-green-400);
     --text-warning: var(--color-yellow-400);
     --text-error: var(--color-red-400);
@@ -921,7 +962,7 @@
     /* On-fill text for success */
 
     // Borders (dark mode)
-    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // Borders for surfaces/fills
     // //////////////////////////////////////////////////////////
     --border-primary: var(--primitive-neutral-cool-800);
     --border-secondary: var(--primitive-neutral-cool-600);
@@ -1009,7 +1050,7 @@
     }
 
     input[type='radio'] {
-        accent-color: var(--accent-primary);
+        accent-color: var(--accent);
     }
 
     input[type='search'] {
@@ -1063,6 +1104,29 @@
 
                 &:hover {
                     background: var(--muted-3000);
+                }
+            }
+        }
+
+        .show-scrollbar-on-hover {
+            scrollbar-color: transparent transparent;
+            scrollbar-width: thin;
+
+            &::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+
+            &::-webkit-scrollbar-track {
+                background: transparent;
+            }
+
+            &:hover {
+                scrollbar-color: var(--bg-fill-scroll-thumb) transparent;
+
+                &::-webkit-scrollbar-thumb {
+                    background: var(--bg-fill-scroll-thumb);
+                    border-radius: 8px;
                 }
             }
         }
@@ -1132,7 +1196,7 @@
 
             &:hover {
                 .text-link {
-                    color: var(--accent-primary) !important;
+                    color: var(--accent) !important;
                 }
             }
         }
@@ -1535,6 +1599,30 @@
 
     .animate-float {
         animation: float 3s infinite ease-in-out;
+    }
+
+    // Primitive classes
+
+    // Used for ui/dropdown-menu and ui/context-menu
+    .primitive-menu-content {
+        z-index: var(--z-popover);
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 8rem;
+        max-width: 200px;
+        max-height: calc(90vh - 100px);
+        overflow: hidden;
+        color: var(--text-primary);
+        background-color: var(--bg-surface-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-elevation-3000);
+    }
+
+    .primitive-menu-content-inner {
+        max-height: calc(90vh - 100px);
+        padding: var(--spacing);
     }
 
     // Highlight background blink

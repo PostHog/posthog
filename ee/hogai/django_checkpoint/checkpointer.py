@@ -256,6 +256,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         config: RunnableConfig,
         writes: Sequence[tuple[str, Any]],
         task_id: str,
+        task_path: str = "",
     ) -> None:
         """Store intermediate writes linked to a checkpoint.
 

@@ -1,13 +1,13 @@
 name: GitHub Codespaces image build
 
-# Run only on master branch. We could also build on branch but this seems like
-# an optimization that can be done as and when desired. The main use case we're
-# handling is creating and working off a branch from master, so it doesn't seem
-# like an immediate requirement to have branches as well.
+# Run only on master branch. We could also build on branch but this seems like
+# an optimization that can be done as and when desired. The main use case we're
+# handling is creating and working off a branch from master, so it doesn't seem
+# like an immediate requirement to have branches as well.
 #
 # NOTE: the job is setup to also push branch images as well, and using branch
-# and master as caching, so if we want to add the optimisation for branches we
-# can just remove the master branch restriction.
+# and master as caching, so if we want to add the optimisation for branches we
+# can just remove the master branch restriction.
 on:
     push:
         branches:
@@ -27,7 +27,7 @@ jobs:
         if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'codespaces-build')  }}
 
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   fetch-depth: 1
 
@@ -42,7 +42,7 @@ jobs:
             # for more details
             - name: Docker image metadata
               id: meta
-              uses: docker/metadata-action@v5
+              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
               with:
                   images: ghcr.io/${{ steps.lowercase.outputs.repository }}/codespaces
                   tags: |
@@ -54,7 +54,7 @@ jobs:
             # This creates a scope similar to the github cache action scoping
             - name: Docker cache-from/cache-to metadata
               id: meta-for-cache
-              uses: docker/metadata-action@v5
+              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
               with:
                   images: ghcr.io/${{ steps.lowercase.outputs.repository }}/codespaces
                   tags: |
@@ -62,20 +62,20 @@ jobs:
 
             # Install QEMU so we can target x86_64 (github codespaces)
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@v3
+              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
 
             - name: Login to GitHub Container Registry
-              uses: docker/login-action@v3
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build and push
-              uses: docker/build-push-action@v2
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
               with:
                   context: .
                   file: .devcontainer/Dockerfile

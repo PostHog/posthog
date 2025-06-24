@@ -10,17 +10,17 @@ from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, r
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
 
 
-def get_resource(name: str, is_incremental: bool) -> EndpointResource:
+def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "Organizations": {
             "name": "Organizations",
             "table_name": "organizations",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -31,10 +31,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -43,12 +43,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Accounts": {
             "name": "Accounts",
             "table_name": "accounts",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -60,10 +60,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -72,12 +72,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Users": {
             "name": "Users",
             "table_name": "users",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -88,10 +88,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -100,12 +100,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Conversations": {
             "name": "Conversations",
             "table_name": "conversations",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -116,10 +116,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -128,12 +128,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Notes": {
             "name": "Notes",
             "table_name": "notes",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -144,10 +144,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -156,12 +156,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Projects": {
             "name": "Projects",
             "table_name": "projects",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -172,10 +172,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -184,12 +184,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Tasks": {
             "name": "Tasks",
             "table_name": "tasks",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -200,10 +200,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -212,12 +212,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "NPS_Responses": {
             "name": "NPS_Responses",
             "table_name": "nps_responses",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -228,10 +228,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -240,12 +240,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Custom_Objects": {
             "name": "Custom_Objects",
             "table_name": "custom_objects",
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
             "endpoint": {
                 "data_selector": "results",
@@ -256,10 +256,10 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
-                    if is_incremental
+                    if should_use_incremental_field
                     else None,
                 },
             },
@@ -272,11 +272,11 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
 
 class VitallyPaginator(BasePaginator):
     _incremental_start_value: Any
-    _is_incremental: bool = False
+    _should_use_incremental_field: bool = False
 
-    def __init__(self, incremental_start_value: Any, is_incremental: bool) -> None:
+    def __init__(self, incremental_start_value: Any, should_use_incremental_field: bool) -> None:
         self._incremental_start_value = incremental_start_value
-        self._is_incremental = is_incremental
+        self._should_use_incremental_field = should_use_incremental_field
 
         super().__init__()
 
@@ -289,7 +289,7 @@ class VitallyPaginator(BasePaginator):
             self._has_next_page = False
             return
 
-        if self._is_incremental and self._incremental_start_value is not None:
+        if self._should_use_incremental_field and self._incremental_start_value is not None:
             updated_at_str = res["results"][0]["updatedAt"]
             updated_at = parser.parse(updated_at_str).timestamp()
             if isinstance(self._incremental_start_value, str):
@@ -332,7 +332,7 @@ def vitally_source(
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
-    is_incremental: bool = False,
+    should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {
         "client": {
@@ -343,19 +343,20 @@ def vitally_source(
                 "password": "",
             },
             "paginator": VitallyPaginator(
-                incremental_start_value=db_incremental_field_last_value, is_incremental=is_incremental
+                incremental_start_value=db_incremental_field_last_value,
+                should_use_incremental_field=should_use_incremental_field,
             ),
         },
         "resource_defaults": {
-            **({"primary_key": "id"} if is_incremental else {}),
+            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if is_incremental
+            if should_use_incremental_field
             else "replace",
         },
-        "resources": [get_resource(endpoint, is_incremental)],
+        "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
     yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)

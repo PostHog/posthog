@@ -3,8 +3,6 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from dateutil import parser
-from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch
 from dlt.sources import DltSource
@@ -15,17 +13,17 @@ from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    delete_all_temp_destination_tables,
+    delete_table,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSource,
-)
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.temporal.data_imports.row_tracking import setup_row_tracking
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from posthog.warehouse.types import IncrementalFieldType
 
 
 @dataclasses.dataclass
@@ -36,19 +34,15 @@ class ImportDataActivityInputs:
     run_id: str
     reset_pipeline: Optional[bool] = None
 
-
-def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
-    if value is None or value == "None" or field_type is None:
-        return None
-
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
-        return value
-
-    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
-        return parser.parse(value)
-
-    if field_type == IncrementalFieldType.Date:
-        return parser.parse(value).date()
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "run_id": self.run_id,
+            "reset_pipeline": self.reset_pipeline,
+        }
 
 
 def _trim_source_job_inputs(source: ExternalDataSource) -> None:
@@ -72,6 +66,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()
+        setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         model = ExternalDataJob.objects.prefetch_related(
             "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
@@ -109,17 +104,23 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         endpoints = [schema.name]
         processed_incremental_last_value = None
+        processed_incremental_earliest_value = None
 
         if reset_pipeline is not True:
-            processed_incremental_last_value = process_incremental_last_value(
+            processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
             )
+            processed_incremental_earliest_value = process_incremental_value(
+                schema.incremental_field_earliest_value,
+                schema.incremental_field_type,
+            )
 
-        if schema.is_incremental:
+        if schema.should_use_incremental_field:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
-        shutdown_monitor.raise_if_is_worker_shutdown()
+        if processed_incremental_earliest_value:
+            logger.debug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
         source: DltSource | SourceResponse
 
@@ -135,10 +136,14 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 api_key=stripe_secret_key,
                 account_id=account_id,
                 endpoint=schema.name,
-                team_id=inputs.team_id,
-                job_id=inputs.run_id,
-                is_incremental=schema.is_incremental,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_earliest_value=processed_incremental_earliest_value
+                if schema.should_use_incremental_field
+                else None,
+                logger=logger,
             )
 
             return _run(
@@ -168,6 +173,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 api_key=hubspot_access_code,
                 refresh_token=refresh_token,
                 endpoints=tuple(endpoints),
+                logger=logger,
             )
 
             return _run(
@@ -179,117 +185,196 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
             )
-        elif model.pipeline.source_type in [
-            ExternalDataSource.Type.POSTGRES,
-            ExternalDataSource.Type.MYSQL,
-            ExternalDataSource.Type.MSSQL,
-        ]:
-            from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
-            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
-            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
-
-            host = model.pipeline.job_inputs.get("host")
-            port = model.pipeline.job_inputs.get("port")
-            user = model.pipeline.job_inputs.get("user")
-            password = model.pipeline.job_inputs.get("password")
-            database = model.pipeline.job_inputs.get("database")
-            pg_schema = model.pipeline.job_inputs.get("schema")
-
-            using_ssh_tunnel = str(model.pipeline.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
-            ssh_tunnel_host = model.pipeline.job_inputs.get("ssh_tunnel_host")
-            ssh_tunnel_port = model.pipeline.job_inputs.get("ssh_tunnel_port")
-            ssh_tunnel_auth_type = model.pipeline.job_inputs.get("ssh_tunnel_auth_type")
-            ssh_tunnel_auth_type_username = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_username")
-            ssh_tunnel_auth_type_password = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_password")
-            ssh_tunnel_auth_type_passphrase = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_passphrase")
-            ssh_tunnel_auth_type_private_key = model.pipeline.job_inputs.get("ssh_tunnel_auth_type_private_key")
-
-            using_ssl = str(model.pipeline.job_inputs.get("using_ssl", True)) == "True"
-
-            ssh_tunnel = SSHTunnel(
-                enabled=using_ssh_tunnel,
-                host=ssh_tunnel_host,
-                port=ssh_tunnel_port,
-                auth_type=ssh_tunnel_auth_type,
-                username=ssh_tunnel_auth_type_username,
-                password=ssh_tunnel_auth_type_password,
-                passphrase=ssh_tunnel_auth_type_passphrase,
-                private_key=ssh_tunnel_auth_type_private_key,
+        elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
+            from posthog.temporal.data_imports.pipelines.postgres import (
+                PostgreSQLSourceConfig,
+                postgres_source,
             )
 
-            if ssh_tunnel.enabled:
-                with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            pg_config = PostgreSQLSourceConfig.from_dict(model.pipeline.job_inputs)
+
+            if pg_config.ssh_tunnel and pg_config.ssh_tunnel.enabled:
+                ssh_tunnel = SSHTunnel.from_config(pg_config.ssh_tunnel)
+                with ssh_tunnel.get_tunnel(pg_config.host, pg_config.port) as tunnel:
+                    # TODO: Move exception handling to SSHTunnel
                     if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
 
-                    if ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.POSTGRES:
-                        source = postgres_source(
-                            host=tunnel.local_bind_host,
-                            port=tunnel.local_bind_port,
-                            user=user,
-                            password=password,
-                            database=database,
-                            sslmode="prefer",
-                            schema=pg_schema,
-                            table_names=endpoints,
-                            is_incremental=schema.is_incremental,
-                            logger=logger,
-                            incremental_field=schema.sync_type_config.get("incremental_field")
-                            if schema.is_incremental
-                            else None,
-                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                            if schema.is_incremental
-                            else None,
-                            db_incremental_field_last_value=processed_incremental_last_value
-                            if schema.is_incremental
-                            else None,
-                            team_id=inputs.team_id,
-                        )
-                    elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MYSQL:
-                        source = mysql_source(
-                            host=tunnel.local_bind_host,
-                            port=int(tunnel.local_bind_port),
-                            user=user,
-                            password=password,
-                            database=database,
-                            using_ssl=using_ssl,
-                            schema=pg_schema,
-                            table_names=endpoints,
-                            is_incremental=schema.is_incremental,
-                            logger=logger,
-                            incremental_field=schema.sync_type_config.get("incremental_field")
-                            if schema.is_incremental
-                            else None,
-                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                            if schema.is_incremental
-                            else None,
-                            db_incremental_field_last_value=processed_incremental_last_value
-                            if schema.is_incremental
-                            else None,
-                        )
-                    else:
-                        source = sql_source_for_type(
-                            source_type=ExternalDataSource.Type(model.pipeline.source_type),
-                            host=tunnel.local_bind_host,
-                            port=tunnel.local_bind_port,
-                            user=user,
-                            password=password,
-                            database=database,
-                            sslmode="prefer",
-                            schema=pg_schema,
-                            table_names=endpoints,
-                            incremental_field=schema.sync_type_config.get("incremental_field")
-                            if schema.is_incremental
-                            else None,
-                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                            if schema.is_incremental
-                            else None,
-                            db_incremental_field_last_value=processed_incremental_last_value
-                            if schema.is_incremental
-                            else None,
-                            team_id=inputs.team_id,
-                            using_ssl=using_ssl,
-                        )
+                    source = postgres_source(
+                        host=tunnel.local_bind_host,
+                        port=tunnel.local_bind_port,
+                        user=pg_config.user,
+                        password=pg_config.password,
+                        database=pg_config.database,
+                        sslmode="prefer",
+                        schema=pg_config.schema,
+                        table_names=endpoints,
+                        should_use_incremental_field=schema.should_use_incremental_field,
+                        logger=logger,
+                        incremental_field=schema.sync_type_config.get("incremental_field")
+                        if schema.should_use_incremental_field
+                        else None,
+                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                        if schema.should_use_incremental_field
+                        else None,
+                        db_incremental_field_last_value=processed_incremental_last_value
+                        if schema.should_use_incremental_field
+                        else None,
+                        team_id=inputs.team_id,
+                    )
+
+                    return _run(
+                        job_inputs=job_inputs,
+                        source=source,
+                        logger=logger,
+                        inputs=inputs,
+                        schema=schema,
+                        reset_pipeline=reset_pipeline,
+                        shutdown_monitor=shutdown_monitor,
+                    )
+            else:
+                source = postgres_source(
+                    host=pg_config.host,
+                    port=pg_config.port,
+                    user=pg_config.user,
+                    password=pg_config.password,
+                    database=pg_config.database,
+                    sslmode="prefer",
+                    schema=pg_config.schema,
+                    table_names=endpoints,
+                    should_use_incremental_field=schema.should_use_incremental_field,
+                    logger=logger,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.should_use_incremental_field
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.should_use_incremental_field
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value
+                    if schema.should_use_incremental_field
+                    else None,
+                    team_id=inputs.team_id,
+                )
+                return _run(
+                    job_inputs=job_inputs,
+                    source=source,
+                    logger=logger,
+                    inputs=inputs,
+                    schema=schema,
+                    reset_pipeline=reset_pipeline,
+                    shutdown_monitor=shutdown_monitor,
+                )
+
+        elif model.pipeline.source_type == ExternalDataSource.Type.MYSQL:
+            from posthog.temporal.data_imports.pipelines.mysql import MySQLSourceConfig, mysql_source
+
+            mysql_config = MySQLSourceConfig.from_dict(model.pipeline.job_inputs)
+
+            if mysql_config.ssh_tunnel and mysql_config.ssh_tunnel.enabled:
+                ssh_tunnel = SSHTunnel.from_config(mysql_config.ssh_tunnel)
+                with ssh_tunnel.get_tunnel(mysql_config.host, mysql_config.port) as tunnel:
+                    # TODO: Move exception handling to SSHTunnel
+                    if tunnel is None:
+                        raise Exception("Can't open tunnel to SSH server")
+
+                    source = mysql_source(
+                        host=tunnel.local_bind_host,
+                        port=tunnel.local_bind_port,
+                        user=mysql_config.user,
+                        password=mysql_config.password,
+                        database=mysql_config.database,
+                        using_ssl=mysql_config.using_ssl,
+                        schema=mysql_config.schema,
+                        table_names=endpoints,
+                        should_use_incremental_field=schema.should_use_incremental_field,
+                        logger=logger,
+                        incremental_field=schema.sync_type_config.get("incremental_field")
+                        if schema.should_use_incremental_field
+                        else None,
+                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                        if schema.should_use_incremental_field
+                        else None,
+                        db_incremental_field_last_value=processed_incremental_last_value
+                        if schema.should_use_incremental_field
+                        else None,
+                    )
+
+                    return _run(
+                        job_inputs=job_inputs,
+                        source=source,
+                        logger=logger,
+                        inputs=inputs,
+                        schema=schema,
+                        reset_pipeline=reset_pipeline,
+                        shutdown_monitor=shutdown_monitor,
+                    )
+            else:
+                source = mysql_source(
+                    host=mysql_config.host,
+                    port=mysql_config.port,
+                    user=mysql_config.user,
+                    password=mysql_config.password,
+                    database=mysql_config.database,
+                    using_ssl=mysql_config.using_ssl,
+                    schema=mysql_config.schema,
+                    table_names=endpoints,
+                    should_use_incremental_field=schema.should_use_incremental_field,
+                    logger=logger,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.should_use_incremental_field
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.should_use_incremental_field
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value
+                    if schema.should_use_incremental_field
+                    else None,
+                )
+
+                return _run(
+                    job_inputs=job_inputs,
+                    source=source,
+                    logger=logger,
+                    inputs=inputs,
+                    schema=schema,
+                    reset_pipeline=reset_pipeline,
+                    shutdown_monitor=shutdown_monitor,
+                )
+
+        elif model.pipeline.source_type in [
+            ExternalDataSource.Type.MSSQL,
+        ]:
+            from posthog.temporal.data_imports.pipelines.mssql.mssql import MSSQLSourceConfig, mssql_source
+
+            mssql_config = MSSQLSourceConfig.from_dict(model.pipeline.job_inputs)
+
+            if mssql_config.ssh_tunnel and mssql_config.ssh_tunnel.enabled:
+                ssh_tunnel = SSHTunnel.from_config(mssql_config.ssh_tunnel)
+
+                with ssh_tunnel.get_tunnel(mssql_config.host, mssql_config.port) as tunnel:
+                    if tunnel is None:
+                        raise Exception("Can't open tunnel to SSH server")
+
+                    source = mssql_source(
+                        host=tunnel.local_bind_host,
+                        port=int(tunnel.local_bind_port),
+                        user=mssql_config.user,
+                        password=mssql_config.password,
+                        database=mssql_config.database,
+                        schema=mssql_config.schema,
+                        table_names=endpoints,
+                        should_use_incremental_field=schema.should_use_incremental_field,
+                        logger=logger,
+                        incremental_field=schema.sync_type_config.get("incremental_field")
+                        if schema.should_use_incremental_field
+                        else None,
+                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                        if schema.should_use_incremental_field
+                        else None,
+                        db_incremental_field_last_value=processed_incremental_last_value
+                        if schema.should_use_incremental_field
+                        else None,
+                    )
 
                     return _run(
                         job_inputs=job_inputs,
@@ -301,68 +386,26 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         shutdown_monitor=shutdown_monitor,
                     )
 
-            if ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.POSTGRES:
-                source = postgres_source(
-                    host=host,
-                    port=port,
-                    user=user,
-                    password=password,
-                    database=database,
-                    sslmode="prefer",
-                    schema=pg_schema,
-                    table_names=endpoints,
-                    is_incremental=schema.is_incremental,
-                    logger=logger,
-                    incremental_field=schema.sync_type_config.get("incremental_field")
-                    if schema.is_incremental
-                    else None,
-                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                    if schema.is_incremental
-                    else None,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                    team_id=inputs.team_id,
-                )
-            elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MYSQL:
-                source = mysql_source(
-                    host=host,
-                    port=int(port),
-                    user=user,
-                    password=password,
-                    database=database,
-                    using_ssl=using_ssl,
-                    schema=pg_schema,
-                    table_names=endpoints,
-                    is_incremental=schema.is_incremental,
-                    logger=logger,
-                    incremental_field=schema.sync_type_config.get("incremental_field")
-                    if schema.is_incremental
-                    else None,
-                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                    if schema.is_incremental
-                    else None,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                )
-            else:
-                source = sql_source_for_type(
-                    source_type=ExternalDataSource.Type(model.pipeline.source_type),
-                    host=host,
-                    port=port,
-                    user=user,
-                    password=password,
-                    database=database,
-                    sslmode="prefer",
-                    schema=pg_schema,
-                    table_names=endpoints,
-                    incremental_field=schema.sync_type_config.get("incremental_field")
-                    if schema.is_incremental
-                    else None,
-                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                    if schema.is_incremental
-                    else None,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                    team_id=inputs.team_id,
-                    using_ssl=using_ssl,
-                )
+            source = mssql_source(
+                host=mssql_config.host,
+                port=mssql_config.port,
+                user=mssql_config.user,
+                password=mssql_config.password,
+                database=mssql_config.database,
+                schema=mssql_config.schema,
+                table_names=endpoints,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                logger=logger,
+                incremental_field=schema.sync_type_config.get("incremental_field")
+                if schema.should_use_incremental_field
+                else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+            )
 
             return _run(
                 job_inputs=job_inputs,
@@ -375,40 +418,35 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
             from posthog.temporal.data_imports.pipelines.snowflake.snowflake import (
+                SnowflakeSourceConfig,
                 snowflake_source,
             )
 
-            account_id = model.pipeline.job_inputs.get("account_id")
-            database = model.pipeline.job_inputs.get("database")
-            warehouse = model.pipeline.job_inputs.get("warehouse")
-            sf_schema = model.pipeline.job_inputs.get("schema")
-            role = model.pipeline.job_inputs.get("role")
-
-            auth_type = model.pipeline.job_inputs.get("auth_type", "password")
-            auth_type_username = model.pipeline.job_inputs.get("user")
-            auth_type_password = model.pipeline.job_inputs.get("password")
-            auth_type_passphrase = model.pipeline.job_inputs.get("passphrase")
-            auth_type_private_key = model.pipeline.job_inputs.get("private_key")
+            snow_config = SnowflakeSourceConfig.from_dict(model.pipeline.job_inputs)
 
             source = snowflake_source(
-                account_id=account_id,
-                auth_type=auth_type,
-                user=auth_type_username,
-                password=auth_type_password,
-                private_key=auth_type_private_key,
-                passphrase=auth_type_passphrase,
-                database=database,
-                schema=sf_schema,
-                warehouse=warehouse,
-                role=role,
+                account_id=snow_config.account_id,
+                auth_type=snow_config.auth_type,
+                user=snow_config.user,
+                password=snow_config.password,
+                private_key=snow_config.private_key,
+                passphrase=snow_config.passphrase,
+                database=snow_config.database,
+                schema=snow_config.schema,
+                warehouse=snow_config.warehouse,
+                role=snow_config.role,
                 table_names=endpoints,
                 logger=logger,
-                is_incremental=schema.is_incremental,
-                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
-                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                if schema.is_incremental
+                should_use_incremental_field=schema.should_use_incremental_field,
+                incremental_field=schema.sync_type_config.get("incremental_field")
+                if schema.should_use_incremental_field
                 else None,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
@@ -441,10 +479,12 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
             salesforce_access_token = integration.access_token
 
-            if not salesforce_access_token:
-                salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token)
-
             salesforce_instance_url = integration.config.get("instance_url")
+
+            if not salesforce_access_token:
+                salesforce_access_token = salesforce_refresh_access_token(
+                    salesforce_refresh_token, salesforce_instance_url
+                )
 
             source = salesforce_source(
                 instance_url=salesforce_instance_url,
@@ -453,8 +493,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.is_incremental,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
@@ -477,8 +519,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.is_incremental,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
@@ -500,8 +544,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.is_incremental,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
@@ -514,20 +560,17 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            from posthog.temporal.data_imports.pipelines.bigquery.source import bigquery_source
-            from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source as sql_bigquery_source
-
-            dataset_id = model.pipeline.job_inputs.get("dataset_id")
-            project_id = model.pipeline.job_inputs.get("project_id")
-            private_key = model.pipeline.job_inputs.get("private_key")
-            private_key_id = model.pipeline.job_inputs.get("private_key_id")
-            client_email = model.pipeline.job_inputs.get("client_email")
-            token_uri = model.pipeline.job_inputs.get("token_uri")
-
-            temporary_dataset_id = model.pipeline.job_inputs.get("temporary_dataset_id")
-            using_temporary_dataset = (
-                model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
+            from posthog.temporal.data_imports.pipelines.bigquery import (
+                BigQuerySourceConfig,
+                bigquery_source,
             )
+
+            bq_config = BigQuerySourceConfig.from_dict(model.pipeline.job_inputs)
+
+            if not bq_config.private_key:
+                raise ValueError(f"Missing private key for BigQuery: '{model.id}'")
+
+            using_temporary_dataset = bq_config.using_temporary_dataset and bq_config.temporary_dataset_id is not None
 
             # Including the schema ID in table prefix ensures we only delete tables
             # from this schema, and that if we fail we will clean up any previous
@@ -539,64 +582,48 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             schema_id = inputs.schema_id.hex
             destination_table_prefix = f"__posthog_import_{schema_id}"
 
-            destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
-            destination_table = f"{project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+            destination_table_dataset_id = (
+                bq_config.temporary_dataset_id if using_temporary_dataset else bq_config.dataset_id
+            )
+            destination_table = f"{bq_config.project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
 
             delete_all_temp_destination_tables(
-                dataset_id=dataset_id,
+                dataset_id=bq_config.dataset_id,
                 table_prefix=destination_table_prefix,
-                project_id=project_id,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
+                project_id=bq_config.project_id,
+                dataset_project_id=bq_config.dataset_project_id,
+                private_key=bq_config.private_key,
+                private_key_id=bq_config.private_key_id,
+                client_email=bq_config.client_email,
+                token_uri=bq_config.token_uri,
                 logger=logger,
             )
 
             try:
-                if str(inputs.team_id) in settings.OLD_BIGQUERY_SOURCE_TEAM_IDS:
-                    source = sql_bigquery_source(
-                        dataset_id=dataset_id,
-                        project_id=project_id,
-                        private_key=private_key,
-                        private_key_id=private_key_id,
-                        client_email=client_email,
-                        token_uri=token_uri,
-                        table_name=schema.name,
-                        bq_destination_table_id=destination_table,
-                        incremental_field=schema.sync_type_config.get("incremental_field")
-                        if schema.is_incremental
-                        else None,
-                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                        if schema.is_incremental
-                        else None,
-                        db_incremental_field_last_value=processed_incremental_last_value
-                        if schema.is_incremental
-                        else None,
-                    )
-                else:
-                    source = bigquery_source(
-                        dataset_id=dataset_id,
-                        project_id=project_id,
-                        private_key=private_key,
-                        private_key_id=private_key_id,
-                        client_email=client_email,
-                        token_uri=token_uri,
-                        table_name=schema.name,
-                        is_incremental=schema.is_incremental,
-                        bq_destination_table_id=destination_table,
-                        incremental_field=schema.sync_type_config.get("incremental_field")
-                        if schema.is_incremental
-                        else None,
-                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                        if schema.is_incremental
-                        else None,
-                        db_incremental_field_last_value=processed_incremental_last_value
-                        if schema.is_incremental
-                        else None,
-                    )
+                source = bigquery_source(
+                    dataset_id=bq_config.dataset_id,
+                    project_id=bq_config.project_id,
+                    dataset_project_id=bq_config.dataset_project_id,
+                    private_key=bq_config.private_key,
+                    private_key_id=bq_config.private_key_id,
+                    client_email=bq_config.client_email,
+                    token_uri=bq_config.token_uri,
+                    table_name=schema.name,
+                    should_use_incremental_field=schema.should_use_incremental_field,
+                    logger=logger,
+                    bq_destination_table_id=destination_table,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.should_use_incremental_field
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.should_use_incremental_field
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value
+                    if schema.should_use_incremental_field
+                    else None,
+                )
 
-                _run(
+                return _run(
                     job_inputs=job_inputs,
                     source=source,
                     logger=logger,
@@ -609,11 +636,11 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 # Delete the destination table (if it exists) after we're done with it
                 delete_table(
                     table_id=destination_table,
-                    project_id=project_id,
-                    private_key=private_key,
-                    private_key_id=private_key_id,
-                    client_email=client_email,
-                    token_uri=token_uri,
+                    project_id=bq_config.project_id,
+                    private_key=bq_config.private_key,
+                    private_key_id=bq_config.private_key_id,
+                    client_email=bq_config.client_email,
+                    token_uri=bq_config.token_uri,
                 )
                 logger.info(f"Deleting bigquery temp destination table: {destination_table}")
         elif model.pipeline.source_type == ExternalDataSource.Type.CHARGEBEE:
@@ -627,8 +654,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.is_incremental,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
@@ -640,6 +669,86 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
             )
+        elif model.pipeline.source_type == ExternalDataSource.Type.GOOGLEADS:
+            from posthog.temporal.data_imports.pipelines.google_ads import (
+                GoogleAdsServiceAccountSourceConfig,
+                google_ads_source,
+            )
+
+            config = GoogleAdsServiceAccountSourceConfig.from_dict(
+                {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+            )
+            source = google_ads_source(
+                config,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                incremental_field=schema.sync_type_config.get("incremental_field")
+                if schema.should_use_incremental_field
+                else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+            )
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
+        elif model.pipeline.source_type == ExternalDataSource.Type.TEMPORALIO:
+            from posthog.temporal.data_imports.pipelines.temporalio.source import (
+                TemporalIOResource,
+                TemporalIOSourceConfig,
+                temporalio_source,
+            )
+
+            temporal_config = TemporalIOSourceConfig.from_dict(model.pipeline.job_inputs)
+            source = temporalio_source(
+                temporal_config,
+                TemporalIOResource(schema.name),
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+        elif model.pipeline.source_type == ExternalDataSource.Type.DOIT:
+            from posthog.temporal.data_imports.pipelines.doit.source import (
+                DoItSourceConfig,
+                doit_source,
+            )
+
+            doit_config = DoItSourceConfig.from_dict(model.pipeline.job_inputs)
+            source = doit_source(
+                doit_config,
+                schema.name,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
@@ -654,7 +763,7 @@ def _run(
     shutdown_monitor: ShutdownMonitor,
 ):
     pipeline = PipelineNonDLT(
-        source, logger, job_inputs.run_id, schema.is_incremental, reset_pipeline, shutdown_monitor
+        source, logger, job_inputs.run_id, schema.should_use_incremental_field, reset_pipeline, shutdown_monitor
     )
     pipeline.run()
     del pipeline

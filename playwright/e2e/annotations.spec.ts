@@ -3,11 +3,11 @@ import { expect, test } from '../utils/playwright-test-base'
 test.describe('Annotations', () => {
     test.beforeEach(async ({ page }) => {
         await page.goToMenuItem('datamanagement')
-        await page.click('[data-attr=data-management-annotations-tab]')
+        await page.goToMenuItem('annotations')
     })
 
     test('Annotations loaded', async ({ page }) => {
-        await expect(page.locator('text=Create your first annotation')).toBeVisible()
+        await expect(page.getByTestId('product-introduction-annotation')).toBeVisible()
         await expect(page.locator('[data-attr="product-introduction-docs-link"]')).toContainText('Learn more')
     })
 

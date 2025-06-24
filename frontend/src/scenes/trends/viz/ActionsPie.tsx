@@ -19,7 +19,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
 
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps } = useValues(insightLogic)
@@ -60,7 +60,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                     return formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
-                        cohorts.results,
+                        allCohorts.results,
                         formatPropertyValueForDisplay
                     )
                 }),

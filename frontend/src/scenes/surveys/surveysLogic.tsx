@@ -11,7 +11,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
 
@@ -102,6 +103,7 @@ export const surveysLogic = kea<surveysLogicType>([
         actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions({
+        setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
@@ -159,6 +161,7 @@ export const surveysLogic = kea<surveysLogicType>([
             },
             deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
+                deleteFromTree('survey', String(id))
                 return {
                     ...values.data,
                     surveys: deleteSurvey(values.data.surveys, id),
@@ -183,6 +186,12 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     reducers({
+        isAppearanceModalOpen: [
+            false,
+            {
+                setIsAppearanceModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
         tab: [
             SurveysTabs.Active as SurveysTabs,
             {
@@ -338,14 +347,9 @@ export const surveysLogic = kea<surveysLogicType>([
                 hasAvailableFeature(AvailableFeature.SURVEYS_ACTIONS),
         ],
         showSurveysDisabledBanner: [
-            (s) => [s.currentTeam, s.currentTeamLoading, s.data],
-            (currentTeam, currentTeamLoading, data) => {
-                return (
-                    !currentTeamLoading &&
-                    currentTeam &&
-                    !currentTeam.surveys_opt_in &&
-                    data.surveys.some((s: Survey) => s.start_date && !s.end_date && s.type !== SurveyType.API)
-                )
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return !currentTeam?.surveys_opt_in
             },
         ],
     }),

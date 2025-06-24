@@ -7,7 +7,6 @@ export DEBIAN_FRONTEND=noninteractive
 # this gets around needrestart command halting for user input
 export RESTART_MODE=l
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
-export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
@@ -92,8 +91,16 @@ then
     git checkout $latestReleaseTag
 elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then
-    echo "Pulling latest from current branch: $(git branch --show-current)"
-    git pull
+    echo "Fetching latest changes from origin"
+    git fetch origin
+    current_branch=$(git branch --show-current)
+    if [ -n "$current_branch" ]; then
+        echo "Updating branch '$current_branch' to latest from origin"
+        git reset --hard origin/$current_branch
+    else
+        echo "On detached HEAD: $(git rev-parse --short HEAD)"
+    fi
+    echo "Now on commit: $(git rev-parse --short HEAD)"
 elif [[ "$POSTHOG_APP_TAG" =~ ^[0-9a-f]{40}$ ]]
 then
     echo "Checking out specific commit hash: $POSTHOG_APP_TAG"
@@ -134,7 +141,6 @@ EOF
 envsubst > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
-SENTRY_DSN=$SENTRY_DSN
 DOMAIN=$DOMAIN
 EOF
 
@@ -145,7 +151,7 @@ rm -rf compose
 mkdir -p compose
 cat > compose/start <<EOF
 #!/bin/bash
-/compose/wait
+./compose/wait
 ./bin/migrate
 ./bin/docker-server
 EOF

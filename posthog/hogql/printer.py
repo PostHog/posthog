@@ -16,8 +16,9 @@ from posthog.hogql import ast
 from posthog.hogql.ast import StringType, Constant
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import (
-    MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
+    LimitContext,
+    get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -31,10 +32,12 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     escape_hogql_identifier,
     escape_hogql_string,
+    safe_identifier,
 )
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
+    SURVEY_FUNCTIONS,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,
@@ -49,6 +52,10 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.surveys.util import (
+    filter_survey_sent_events_by_unique_submission,
+    get_survey_response_clickhouse_query,
+)
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -60,6 +67,8 @@ from posthog.schema import (
     PropertyGroupsMode,
 )
 from posthog.settings import CLICKHOUSE_DATABASE
+
+CHANNEL_DEFINITION_DICT = f"{CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -119,8 +128,12 @@ def prepare_ast_for_printing(
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
+            # Passing both `team_id` and `team` because `team` is not always available in the context
             context.database = create_hogql_database(
-                context.team_id, context.modifiers, context.team, timings=context.timings
+                context.team_id,
+                modifiers=context.modifiers,
+                team=context.team,
+                timings=context.timings,
             )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
@@ -161,7 +174,7 @@ def prepare_ast_for_printing(
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
@@ -320,6 +333,12 @@ class _Printer(Visitor):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
+        is_last_query_in_union = (
+            part_of_select_union
+            and isinstance(self.stack[0], ast.SelectSetQuery)
+            and len(self.stack[0].subsequent_select_queries) > 0
+            and self.stack[0].subsequent_select_queries[-1].select_query == node
+        )
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -378,6 +397,9 @@ class _Printer(Visitor):
                         else:
                             # Non-unique hidden alias. Skip.
                             column = column.expr
+                    elif isinstance(column, ast.Call):
+                        column_alias = safe_identifier(print_prepared_ast(column, self.context, dialect="hogql"))
+                        column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]
@@ -426,16 +448,18 @@ class _Printer(Visitor):
 
         limit = node.limit
         if self.context.limit_top_select and is_top_level_query:
+            max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
-                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
+                    limit.value = min(limit.value, max_limit)
                 else:
                     limit = ast.Call(
                         name="min2",
-                        args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit],
+                        args=[ast.Constant(value=max_limit), limit],
                     )
             else:
-                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+                limit = ast.Constant(value=max_limit)
 
         if node.limit_by is not None:
             clauses.append(
@@ -449,7 +473,12 @@ class _Printer(Visitor):
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
 
-        if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
+        if (
+            self.context.output_format
+            and self.dialect == "clickhouse"
+            and is_top_level_query
+            and (not part_of_select_union or is_last_query_in_union)
+        ):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
         if node.settings is not None and self.dialect == "clickhouse":
@@ -503,7 +532,9 @@ class _Printer(Visitor):
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
-                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                    node.next_join
+                    or node.join_type == "JOIN"
+                    or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
             else:
@@ -559,7 +590,8 @@ class _Printer(Visitor):
 
         elif self.dialect == "hogql":
             join_strings.append(self.visit(node.table))
-
+            if node.alias is not None:
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
             raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
@@ -789,7 +821,14 @@ class _Printer(Visitor):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
+            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
+        ):
+            not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+        )
+        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
             not_nullable = True
 
         constant_lambda = None
@@ -818,8 +857,10 @@ class _Printer(Visitor):
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
             op = f"in({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.NotIn:
             op = f"notIn({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
             op = f"globalIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
@@ -856,6 +897,12 @@ class _Printer(Visitor):
             constant_lambda = lambda left_op, right_op: (
                 left_op <= right_op if left_op is not None and right_op is not None else False
             )
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.InCohort:
+            op = f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            op = f"{left} NOT IN COHORT {right}"
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
@@ -914,11 +961,6 @@ class _Printer(Visitor):
             # Only the left side is null. Return a value only if the right side doesn't matter.
             if value_if_both_sides_are_null == value_if_one_side_is_null:
                 return "1" if value_if_one_side_is_null is True else "0"
-
-        # "in" and "not in" return 0/1 when the right operator is null, so optimize if the left operand is not nullable
-        if node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn:
-            if not nullable_left or (isinstance(node.left, ast.Constant) and node.left.value is not None):
-                return op
 
         # No constants, so check for nulls in SQL
         if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:
@@ -1028,6 +1070,30 @@ class _Printer(Visitor):
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):
             return optimized_property_group_call
 
+        # Handle format strings in function names before checking function type
+        if func_meta := (
+            find_hogql_aggregation(node.name)
+            or find_hogql_function(node.name)
+            or find_hogql_posthog_function(node.name)
+        ):
+            if func_meta.using_placeholder_arguments:
+                # Check if using positional arguments (e.g. {0}, {1})
+                if func_meta.using_positional_arguments:
+                    # For positional arguments, pass the args as a dictionary
+                    arg_arr = [self.visit(arg) for arg in node.args]
+                    try:
+                        return func_meta.clickhouse_name.format(*arg_arr)
+                    except (KeyError, IndexError) as e:
+                        raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+                else:
+                    # Original sequential placeholder behavior
+                    placeholder_count = func_meta.clickhouse_name.count("{}")
+                    if len(node.args) != placeholder_count:
+                        raise QueryError(
+                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+                        )
+                    return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
             if len(node.args) != 2:
@@ -1074,10 +1140,17 @@ class _Printer(Visitor):
 
             params_part = f"({', '.join(params)})" if params is not None else ""
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
-            return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
         elif func_meta := find_hogql_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
@@ -1090,9 +1163,36 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                args_count = len(node.args) - func_meta.passthrough_suffix_args_count
+                node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
+                if node.name in SURVEY_FUNCTIONS:
+                    if node.name == "getSurveyResponse":
+                        question_index_obj = node_args[0]
+                        if not isinstance(question_index_obj, ast.Constant):
+                            raise QueryError("getSurveyResponse first argument must be a constant")
+                        if (
+                            not isinstance(question_index_obj.value, int | str)
+                            or not str(question_index_obj.value).lstrip("-").isdigit()
+                        ):
+                            raise QueryError("getSurveyResponse first argument must be a valid integer")
+                        second_arg = node_args[1] if len(node_args) > 1 else None
+                        third_arg = node_args[2] if len(node_args) > 2 else None
+                        question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
+                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                        return get_survey_response_clickhouse_query(
+                            int(question_index_obj.value), question_id, is_multiple_choice
+                        )
+
+                    elif node.name == "uniqueSurveySubmissionsFilter":
+                        survey_id = node_args[0]
+                        if not isinstance(survey_id, ast.Constant):
+                            raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+                        return filter_survey_sent_events_by_unique_submission(survey_id.value)
+
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
-                    for idx, arg in enumerate(node.args):
+                    for idx, arg in enumerate(node_args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
@@ -1102,7 +1202,7 @@ class _Printer(Visitor):
                             args.append(self.visit(arg))
                 elif node.name == "concat":
                     args = []
-                    for arg in node.args:
+                    for arg in node_args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
                                 args.append("''")
@@ -1121,10 +1221,30 @@ class _Printer(Visitor):
                         else:
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
-                    args = [self.visit(arg) for arg in node.args]
+                    args = [self.visit(arg) for arg in node_args]
 
+                # Some of these `isinstance` checks are here just to make our type system happy
+                # We have some guarantees in place to ensure that the arguments are string/constants anyway
+                # Here's to hoping Python's type system gets as smart as TS's one day
                 if func_meta.suffix_args:
-                    args += [self.visit(arg) for arg in func_meta.suffix_args]
+                    for suffix_arg in func_meta.suffix_args:
+                        if len(passthrough_suffix_args) > 0:
+                            if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
+                                )
+
+                            suffix_arg_args_values = [
+                                arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
+                            ]
+
+                            if isinstance(suffix_arg.value, str):
+                                suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                            else:
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
+                                )
+                        args.append(self.visit(suffix_arg))
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -1196,27 +1316,43 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif func_meta := find_hogql_posthog_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             args = [self.visit(arg) for arg in node.args]
 
-            if self.dialect in ("hogql", "clickhouse"):
+            if self.dialect == "clickhouse":
                 if node.name == "hogql_lookupDomainType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidMediumType":
-                    return (
-                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                    )
+                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "hogql_lookupOrganicSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
-                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
-                    return f"if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))))"
-            raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
+                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+
+                if "{}" in relevant_clickhouse_name:
+                    if len(args) != 1:
+                        raise QueryError(f"Function '{node.name}' requires exactly one argument")
+                    return relevant_clickhouse_name.format(args[0])
+
+                params = [self.visit(param) for param in node.params] if node.params is not None else None
+                params_part = f"({', '.join(params)})" if params is not None else ""
+                args_part = f"({', '.join(args)})"
+                return f"{relevant_clickhouse_name}{params_part}{args_part}"
+
+            # If hogql dialect, just keep it as is
+            return f"{node.name}({', '.join(args)})"
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
@@ -1492,8 +1628,10 @@ class _Printer(Visitor):
             if len(node.order_by) == 0:
                 raise ImpossibleASTError("ORDER BY must have at least one argument")
             strings.append("ORDER BY")
+            columns = []
             for expr in node.order_by:
-                strings.append(self.visit(expr))
+                columns.append(self.visit(expr))
+            strings.append(", ".join(columns))
 
         if node.frame_method is not None:
             if node.frame_method == "ROWS":
@@ -1504,26 +1642,68 @@ class _Printer(Visitor):
                 raise ImpossibleASTError(f"Invalid frame method {node.frame_method}")
             if node.frame_start and node.frame_end is None:
                 strings.append(self.visit(node.frame_start))
-
             elif node.frame_start is not None and node.frame_end is not None:
                 strings.append("BETWEEN")
                 strings.append(self.visit(node.frame_start))
                 strings.append("AND")
                 strings.append(self.visit(node.frame_end))
-
             else:
                 raise ImpossibleASTError("Frame start and end must be specified together")
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
         identifier = self._print_identifier(node.name)
-        exprs = ", ".join(self.visit(expr) for expr in node.exprs or [])
-        args = "(" + (", ".join(self.visit(arg) for arg in node.args or [])) + ")" if node.args else ""
-        if node.over_expr or node.over_identifier:
-            over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        exprs = [self.visit(expr) for expr in node.exprs or []]
+        cloned_node = cast(ast.WindowFunction, clone_expr(node))
+
+        # For compatibility with postgresql syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
+        if identifier in ("lag", "lead"):
+            identifier = f"{identifier}InFrame"
+            # Wrap the first expression (value) and third expression (default) in toNullable()
+            # The second expression (offset) must remain a non-nullable integer
+            if len(exprs) > 0:
+                exprs[0] = f"toNullable({exprs[0]})"  # value
+            # If there's no window frame specified, add the default one
+            if not cloned_node.over_expr and not cloned_node.over_identifier:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+            # If there's an over_identifier, we need to extract the new window expr just for this function
+            elif cloned_node.over_identifier:
+                # Find the last select query to look up the window definition
+                last_select = self._last_select()
+                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
+                    base_window = last_select.window_exprs[cloned_node.over_identifier]
+                    # Create a new window expr based on the referenced one
+                    cloned_node.over_expr = ast.WindowExpr(
+                        partition_by=base_window.partition_by,
+                        order_by=base_window.order_by,
+                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
+                        frame_start=base_window.frame_start
+                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                        frame_end=base_window.frame_end
+                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+                    )
+                    cloned_node.over_identifier = None
+            # If there's an ORDER BY but no frame, add the default frame
+            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+
+        # Handle any additional function arguments
+        args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
+
+        if cloned_node.over_expr or cloned_node.over_identifier:
+            over = (
+                f"({self.visit(cloned_node.over_expr)})"
+                if cloned_node.over_expr
+                else self._print_identifier(cloned_node.over_identifier)
+            )
         else:
             over = "()"
-        return f"{identifier}({exprs}){args} OVER {over}"
+
+        # Handle the case where we have both regular expressions and function arguments
+        if cloned_node.args:
+            return f"{identifier}({', '.join(exprs)}){args} OVER {over}"
+        else:
+            return f"{identifier}({', '.join(exprs)}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         if node.frame_type == "PRECEDING":
@@ -1593,7 +1773,9 @@ class _Printer(Visitor):
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date) -> str:
+    def _print_escaped_string(
+        self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
+    ) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
@@ -1609,6 +1791,8 @@ class _Printer(Visitor):
         )
 
     def _get_timezone(self) -> str:
+        if self.context.modifiers.convertToProjectTimezone is False:
+            return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:
@@ -1652,3 +1836,16 @@ class _Printer(Visitor):
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None
+
+    def _create_default_window_frame(self, node: ast.WindowFunction):
+        # For lag/lead functions, we need to order by the first argument by default
+        order_by: Optional[list[ast.OrderExpr]] = None
+        if node.exprs is not None and len(node.exprs) > 0:
+            order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
+
+        return ast.WindowExpr(
+            order_by=order_by,
+            frame_method="ROWS",
+            frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+            frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+        )

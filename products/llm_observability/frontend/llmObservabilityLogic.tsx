@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -6,6 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +20,7 @@ import {
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
+    InsightShortId,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -45,7 +47,7 @@ export interface QueryTile {
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
 
-    connect({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] }),
+    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -53,6 +55,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
+        setTracesQuery: (query: DataTableNode) => ({ query }),
+        refreshAllDashboardItems: true,
+        setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
     }),
 
     reducers({
@@ -96,6 +101,30 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 setGenerationsQuery: (_, { query }) => query,
             },
         ],
+
+        tracesQueryOverride: [
+            null as DataTableNode | null,
+            {
+                setTracesQuery: (_, { query }) => query,
+            },
+        ],
+
+        refreshStatus: [
+            {} as Record<string, { loading?: boolean; timer?: Date }>,
+            {
+                setRefreshStatus: (state, { tileId, loading }) => ({
+                    ...state,
+                    [tileId]: loading ? { loading: true, timer: new Date() } : state[tileId],
+                }),
+                refreshAllDashboardItems: () => ({}),
+            },
+        ],
+        newestRefreshed: [
+            null as Date | null,
+            {
+                setRefreshStatus: (state, { loading }) => (!loading ? new Date() : state),
+            },
+        ],
     }),
 
     loaders({
@@ -128,6 +157,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     return 'traces'
                 } else if (sceneKey === 'llmObservabilityUsers') {
                     return 'users'
+                } else if (sceneKey === 'llmObservabilityPlayground') {
+                    return 'playground'
                 }
                 return 'dashboard'
             },
@@ -154,7 +185,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                     context: {
-                        groupTypeLabel: 'traces',
+                        insightProps: {
+                            dashboardItemId: `new-traces-query`,
+                        },
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
                                 // NOTE: This assumes the chart is day-by-day
@@ -191,6 +224,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
+                    context: {
+                        insightProps: {
+                            dashboardItemId: `new-generations-query`,
+                        },
+                    },
                 },
                 {
                     title: 'Total cost (USD)',
@@ -217,7 +255,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     context: {
                         groupTypeLabel: 'traces',
                         onDataPointClick: () => {
-                            router.actions.push(urls.llmObservabilityTraces(), router.values.searchParams)
+                            router.actions.push(urls.llmObservabilityTraces(), {
+                                ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
+                            })
                         },
                     },
                 },
@@ -253,6 +296,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
+                    context: {
+                        insightProps: {
+                            dashboardItemId: `new-cost-per-user-query`,
+                        },
+                    },
                 },
                 {
                     title: 'Cost by model (USD)',
@@ -286,6 +334,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: ({ breakdown }) => {
                             router.actions.push(urls.llmObservabilityTraces(), {
                                 ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
                                 filters: [
                                     ...(router.values.searchParams.filters || []),
                                     {
@@ -316,6 +367,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                     context: {
                         groupTypeLabel: 'generations',
+                        insightProps: {
+                            dashboardItemId: `new-generation-calls-query`,
+                        },
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
                                 const dayStart = dayjs(series.day).startOf('day')
@@ -357,6 +411,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     },
                     context: {
                         groupTypeLabel: 'generations',
+                        insightProps: {
+                            dashboardItemId: `new-generation-latency-by-model-query`,
+                        },
                         onDataPointClick: (series) => {
                             if (typeof series.day === 'string') {
                                 const dayStart = dayjs(series.day).startOf('day')
@@ -407,6 +464,9 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         onDataPointClick: (series) => {
                             router.actions.push(urls.llmObservabilityGenerations(), {
                                 ...router.values.searchParams,
+                                // Use same date range as dashboard to ensure we'll see the same data after click
+                                date_from: dashboardDateFilter.dateFrom,
+                                date_to: dashboardDateFilter.dateTo,
                                 filters: [
                                     ...(router.values.searchParams.filters || []),
                                     {
@@ -424,6 +484,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         ],
 
         tracesQuery: [
+            (s) => [s.tracesQueryOverride, s.defaultTracesQuery],
+            (override, defQuery) => override || defQuery,
+        ],
+        defaultTracesQuery: [
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
@@ -441,13 +505,14 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
                 },
-                columns: ['id', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
+                columns: ['id', 'traceName', 'person', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,
                 showTestAccountFilters: true,
                 showExport: true,
                 showOpenEditorButton: false,
+                showColumnConfigurator: false,
                 showPropertyFilter: [
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
@@ -473,7 +538,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 source: {
                     kind: NodeKind.EventsQuery,
                     select: [
-                        '*',
                         'uuid',
                         'properties.$ai_trace_id',
                         'person',
@@ -568,6 +632,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showColumnConfigurator: true,
             }),
         ],
+        isRefreshing: [
+            (s) => [s.refreshStatus],
+            (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
+        ],
     }),
 
     urlToAction(({ actions, values }) => {
@@ -594,6 +662,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 
@@ -625,4 +694,33 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()
     }),
+
+    listeners(({ actions, values }) => ({
+        refreshAllDashboardItems: async () => {
+            // Set loading state for all tiles
+            values.tiles.forEach((_, index) => {
+                actions.setRefreshStatus(`tile-${index}`, true)
+            })
+
+            try {
+                // Refresh all tiles in parallel
+                values.tiles.map((tile, index) => {
+                    const insightProps = {
+                        dashboardItemId: tile.context?.insightProps?.dashboardItemId as InsightShortId,
+                    }
+                    const mountedInsightDataLogic = insightDataLogic.findMounted(insightProps)
+                    if (mountedInsightDataLogic) {
+                        mountedInsightDataLogic.actions.loadData('force_blocking')
+                    }
+                    actions.setRefreshStatus(`tile-${index}`, false)
+                })
+            } catch (error) {
+                console.error('Error refreshing dashboard items:', error)
+                // Clear loading states on error
+                values.tiles.forEach((_, index) => {
+                    actions.setRefreshStatus(`tile-${index}`, false)
+                })
+            }
+        },
+    })),
 ])

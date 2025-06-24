@@ -47,7 +47,7 @@
 
         .PlayerSeekbar__currentbar {
             z-index: 3;
-            background-color: var(--accent-primary);
+            background-color: var(--accent);
             border-radius: var(--bar-height) 0 0 var(--bar-height);
         }
 
@@ -76,7 +76,7 @@
             width: var(--thumb-size);
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
-            background-color: var(--accent-primary);
+            background-color: var(--accent);
             border: 2px solid var(--bg-surface-primary);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
@@ -99,7 +99,7 @@
             .PlayerSeekBarPreview__tooltip__content {
                 display: inline-block;
                 padding: 0.1rem;
-                margin-bottom: 0.5rem;
+                margin-bottom: 3.5rem;
                 font-size: 0.8rem;
                 font-weight: 600;
                 color: #fff;
@@ -136,7 +136,7 @@
         }
 
         &--primary {
-            --tick-color: var(--accent-primary);
+            --tick-color: var(--accent);
         }
 
         .PlayerSeekbarTick__line {
@@ -147,36 +147,6 @@
             background-color: var(--tick-color);
             border-radius: 2px;
             opacity: 0.5;
-        }
-
-        .PlayerSeekbarTick__info {
-            position: absolute;
-            bottom: 100%;
-            max-width: 20rem;
-            padding: 0.25rem 0.5rem;
-            margin-bottom: 0.25rem;
-            font-size: 0.8rem;
-            color: #fff;
-            white-space: nowrap;
-            visibility: hidden;
-            background-color: var(--tick-color);
-            border-radius: var(--radius);
-            opacity: 0;
-            transition: opacity 150ms ease-in-out;
-            transform: translateX(-50%);
-        }
-
-        &:hover {
-            --tick-width: 5px;
-
-            .PlayerSeekbarTick__info {
-                visibility: visible;
-                opacity: 1;
-            }
-
-            .PlayerSeekbarTick__line {
-                opacity: 1;
-            }
         }
     }
 }

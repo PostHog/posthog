@@ -220,6 +220,20 @@ def generate_random_token_personal() -> str:
     return "phx_" + generate_random_token(35)  # "x" standing for nothing in particular
 
 
+def generate_random_token_secret() -> str:
+    # Similar to personal API keys, but for retrieving feature flag definitions for local evaluation.
+    return "phs_" + generate_random_token(35)  # "s" standing for "secret"
+
+
+def mask_key_value(value: str) -> str:
+    """Turn 'phx_123456abcd' into 'phx_...abcd'."""
+    if len(value) < 16:
+        # If the token is less than 16 characters, mask the whole token.
+        # This should never happen, but want to be safe.
+        return "********"
+    return f"{value[:4]}...{value[-4:]}"
+
+
 def int_to_base(number: int, base: int) -> str:
     if base > 62:
         raise ValueError("Cannot convert integer to base above 62")
@@ -356,3 +370,109 @@ def validate_rate_limit(value):
             "%(value)s is not a valid rate limit format. Use formats like '5/s', '10/min', '2/hour', '1/day'.",
             params={"value": value},
         )
+
+
+class RootTeamQuerySet(models.QuerySet):
+    def filter(self, *args, **kwargs):
+        from posthog.models.team import Team
+        from django.db.models import Q, Subquery
+
+        # TODO: Handle team as a an object as well
+
+        if "team_id" in kwargs:
+            team_id = kwargs.pop("team_id")
+            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                team_id=team_id, team__parent_team_id__isnull=True
+            )
+            return super().filter(team_filter, *args, **kwargs)
+        return super().filter(*args, **kwargs)
+
+
+class RootTeamManager(models.Manager):
+    def get_queryset(self):
+        return RootTeamQuerySet(self.model, using=self._db)
+
+    def filter(self, *args, **kwargs):
+        return self.get_queryset().filter(*args, **kwargs)
+
+
+class RootTeamMixin(models.Model):
+    """
+    This ensures that when the related team has a parent team, the model will use the parent team instead.
+    This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
+    """
+
+    # Set the default manager - any models that inherit from this mixin and set a custom
+    # manager (e.g. `objects = CustomManager()`) will override this, so that custom manager
+    # should inherit from RootTeamManager.
+    objects = RootTeamManager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
+            self.team = self.team.parent_team  # type: ignore
+        super().save(*args, **kwargs)
+
+
+def convert_funnel_query(legacy_metric):
+    # Extract and simplify series
+    series = []
+    for step in legacy_metric["funnels_query"]["series"]:
+        step_copy = {}
+        for key, value in step.items():
+            if key != "name":  # Skip the name field
+                step_copy[key] = value
+        series.append(step_copy)
+
+    new_metric = {"kind": "ExperimentMetric", "series": series, "metric_type": "funnel"}
+    if name := legacy_metric.get("name"):
+        new_metric["name"] = name
+
+    return new_metric
+
+
+def convert_trends_query(legacy_metric):
+    source = legacy_metric["count_query"]["series"][0].copy()
+
+    # Remove math_property_type if it exists
+    if "math_property_type" in source:
+        del source["math_property_type"]
+
+    # Remove name if there's no math field
+    if "math" not in source and "name" in source:
+        del source["name"]
+
+    new_metric = {"kind": "ExperimentMetric", "source": source, "metric_type": "mean"}
+
+    if name := legacy_metric.get("name"):
+        new_metric["name"] = name
+
+    return new_metric
+
+
+"""
+Converts the old JSON structure to the new format.
+Transformation rules:
+1. ExperimentFunnelsQuery -> ExperimentMetric with metric_type "funnel"
+    - Remove name fields from series items (except when needed)
+2. ExperimentTrendsQuery -> ExperimentMetric with metric_type "mean"
+    - Remove math_property_type
+    - Remove name if there's no math field
+"""
+
+
+def convert_legacy_metric(metric):
+    if metric.get("kind") == "ExperimentMetric":
+        return metric  # Already new format
+    if metric.get("kind") == "ExperimentFunnelsQuery":
+        return convert_funnel_query(metric)
+    if metric.get("kind") == "ExperimentTrendsQuery":
+        return convert_trends_query(metric)
+    raise ValueError(f"Unknown metric kind: {metric.get('kind')}")
+
+
+def convert_legacy_metrics(metrics):
+    return [convert_legacy_metric(m) for m in (metrics or [])]

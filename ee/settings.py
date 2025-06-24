@@ -73,17 +73,27 @@ PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
 HOOK_HOG_FUNCTION_TEAMS = get_from_env("HOOK_HOG_FUNCTION_TEAMS", "", type_cast=str)
 
 # Assistant
-LANGFUSE_PUBLIC_KEY = get_from_env("LANGFUSE_PUBLIC_KEY", "", type_cast=str)
-LANGFUSE_SECRET_KEY = get_from_env("LANGFUSE_SECRET_KEY", "", type_cast=str)
-LANGFUSE_HOST = get_from_env("LANGFUSE_HOST", "https://us.cloud.langfuse.com", type_cast=str)
-
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
+MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
+GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
+
+MAILJET_PUBLIC_KEY = get_from_env("MAILJET_PUBLIC_KEY", "", type_cast=str)
+MAILJET_SECRET_KEY = get_from_env("MAILJET_SECRET_KEY", "", type_cast=str)
 
 SQS_QUEUES = {
     "usage_reports": {
-        "url": os.getenv("SQS_USAGE_REPORT_QUEUE_URL", ""),
-        "region": os.getenv("SQS_REGION", "us-east-1"),
+        "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
+        "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
         "type": "usage_reports",
-    }
+    },
+    "billing": {
+        "url": get_from_env("SQS_BILLING_QUEUE_URL", optional=True),
+        "region": get_from_env("SQS_BILLING_REGION", "us-east-1", optional=True),
+        "type": "billing",
+    },
 }
+
+AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
+AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)

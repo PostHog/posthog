@@ -1,18 +1,20 @@
 use std::collections::HashMap;
 
+use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha512};
 
 use crate::{
     error::UnhandledError,
-    langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
+    fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
+    langs::{custom::CustomFrame, js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
     symbol_store::Catalog,
 };
 
 pub mod records;
+pub mod releases;
 pub mod resolver;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
@@ -29,6 +31,8 @@ pub enum RawFrame {
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
+    #[serde(rename = "custom")]
+    Custom(CustomFrame),
 }
 
 impl RawFrame {
@@ -38,8 +42,11 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
-            RawFrame::JavaScriptNode(frame) => (Ok(frame.into()), "javascript"),
+            RawFrame::JavaScriptNode(frame) => {
+                (frame.resolve(team_id, catalog).await, "javascript")
+            }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
+            RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
         };
 
         // The raw id of the frame is set after it's resolved
@@ -63,7 +70,11 @@ impl RawFrame {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(_) => None, // Node.js frames don't have symbol sets
-            RawFrame::Python(_) => None,         // Python frames don't have symbol sets
+            // TODO - python frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
+            // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
+            // which we'd then use to do a join on the releases table to get release information)
+            RawFrame::Python(_) => None,
+            RawFrame::Custom(_) => None,
         }
     }
 
@@ -72,6 +83,7 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
+            RawFrame::Custom(raw) => raw.frame_id(),
         }
     }
 }
@@ -80,15 +92,20 @@ impl RawFrame {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Frame {
     // Properties used in processing
-    pub raw_id: String,                  // The raw frame id this was resolved from
-    pub mangled_name: String,            // Mangled name of the function
-    pub line: Option<u32>,               // Line the function is define on, if known
-    pub column: Option<u32>,             // Column the function is defined on, if known
-    pub source: Option<String>,          // Generally, the file the function is defined in
-    pub in_app: bool,                    // We hard-require clients to tell us this?
-    pub resolved_name: Option<String>,   // The name of the function, after symbolification
-    pub lang: String,                    // The language of the frame. Always known (I guess?)
-    pub resolved: bool,                  // Did we manage to resolve the frame?
+    pub raw_id: String,       // The raw frame id this was resolved from
+    pub mangled_name: String, // Mangled name of the function
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>, // Line the function is define on, if known
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>, // Column the function is defined on, if known
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>, // Generally, the file the function is defined in
+    pub in_app: bool,         // We hard-require clients to tell us this?
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_name: Option<String>, // The name of the function, after symbolification
+    pub lang: String,         // The language of the frame. Always known (I guess?)
+    pub resolved: bool,       // Did we manage to resolve the frame?
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
 
     // Random extra/internal data we want to tag onto frames, e.g. the raw input. For debugging
@@ -100,6 +117,8 @@ pub struct Frame {
     // use in the frontend
     #[serde(skip)]
     pub context: Option<Context>,
+    #[serde(skip)]
+    pub release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -111,37 +130,54 @@ pub struct Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ContextLine {
-    number: u32,
-    line: String,
+    pub number: u32,
+    pub line: String,
 }
 
-impl Frame {
-    pub fn include_in_fingerprint(&self, h: &mut Sha512) {
+impl FingerprintComponent for Frame {
+    fn update(&self, fp: &mut FingerprintBuilder) {
+        let get_part = |s: &str, p: Vec<&str>| FingerprintRecordPart::Frame {
+            raw_id: s.to_string(),
+            pieces: p.into_iter().map(String::from).collect(),
+        };
+
+        let mut included_pieces = Vec::new();
         if let Some(resolved) = &self.resolved_name {
-            h.update(resolved.as_bytes());
+            fp.update(resolved.as_bytes());
+            included_pieces.push("Resolved function name");
             if let Some(s) = self.source.as_ref() {
-                h.update(s.as_bytes())
+                fp.update(s.as_bytes());
+                included_pieces.push("Source file name");
             }
+            fp.add_part(get_part(&self.raw_id, included_pieces));
             return;
         }
 
-        h.update(self.mangled_name.as_bytes());
+        fp.update(self.mangled_name.as_bytes());
+        included_pieces.push("Mangled function name");
 
         if let Some(source) = &self.source {
-            h.update(source.as_bytes());
+            fp.update(source.as_bytes());
+            included_pieces.push("Source file name");
         }
 
         if let Some(line) = self.line {
-            h.update(line.to_string().as_bytes());
+            fp.update(line.to_string().as_bytes());
+            included_pieces.push("Line number");
         }
 
         if let Some(column) = self.column {
-            h.update(column.to_string().as_bytes());
+            fp.update(column.to_string().as_bytes());
+            included_pieces.push("Column number");
         }
 
-        h.update(self.lang.as_bytes());
+        fp.update(self.lang.as_bytes());
+        included_pieces.push("Language");
+        fp.add_part(get_part(&self.raw_id, included_pieces));
     }
+}
 
+impl Frame {
     pub fn add_junk<T>(&mut self, key: impl ToString, val: T) -> Result<(), serde_json::Error>
     where
         T: Serialize,
@@ -235,5 +271,32 @@ impl std::fmt::Display for Frame {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::frames::RawFrame;
+
+    #[test]
+    fn ensure_custom_frames_work() {
+        let data = r#"
+            {
+            "function": "Task.Supervised.invoke_mfa/2",
+            "module": "Task.Supervised",
+            "filename": "lib/task/supervised.ex",
+            "resolved": false,
+            "in_app": true,
+            "lineno": 105,
+            "platform": "custom",
+            "lang": "elixir"
+            }
+            "#;
+
+        let frame: RawFrame = serde_json::from_str(data).unwrap();
+        match frame {
+            RawFrame::Custom(_) => {}
+            _ => panic!("Expected a custom frame"),
+        }
     }
 }

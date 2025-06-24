@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest
 class TestInsightVariable(APIBaseTest):
     def test_create_insight_variable(self):
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/insight_variables/", data={"name": "Test 1", "type": "String"}
+            f"/api/environments/{self.team.pk}/insight_variables/", data={"name": "Test 1", "type": "String"}
         )
 
         assert response.status_code == 201
@@ -23,7 +23,7 @@ class TestInsightVariable(APIBaseTest):
         InsightVariable.objects.create(team=self.team, name="Test 1", code_name="test_1")
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/insight_variables/", data={"name": "Test 1", "type": "String"}
+            f"/api/environments/{self.team.pk}/insight_variables/", data={"name": "Test 1", "type": "String"}
         )
 
         assert response.status_code == 400
@@ -35,7 +35,7 @@ class TestInsightVariable(APIBaseTest):
     def test_delete_insight_variable(self):
         variable = InsightVariable.objects.create(team=self.team, name="Test Delete", type="String")
 
-        response = self.client.delete(f"/api/projects/{self.team.pk}/insight_variables/{variable.id}/")
+        response = self.client.delete(f"/api/environments/{self.team.pk}/insight_variables/{variable.id}/")
         assert response.status_code == 204
 
         # Verify the variable was deleted

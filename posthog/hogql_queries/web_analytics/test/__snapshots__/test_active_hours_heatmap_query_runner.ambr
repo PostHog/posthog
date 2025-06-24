@@ -1,0 +1,152 @@
+# serializer version: 1
+# name: TestWebActiveHoursHeatMapQueryRunner.test_all_time_range
+  '''
+  
+  SELECT timestamp
+  from events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+  order by timestamp
+  limit 1
+  '''
+# ---
+# name: TestWebActiveHoursHeatMapQueryRunner.test_all_time_range.1
+  '''
+  SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
+         toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
+         uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS total
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), 1, and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-20 23:59:59', 'UTC'))))))
+  GROUP BY day,
+           hour
+  ORDER BY day ASC, hour ASC
+  LIMIT 168 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestWebActiveHoursHeatMapQueryRunner.test_basic_active_hours
+  '''
+  SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
+         toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
+         uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS total
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), 1, and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-04 23:59:59', 'UTC'))))))
+  GROUP BY day,
+           hour
+  ORDER BY day ASC, hour ASC
+  LIMIT 168 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestWebActiveHoursHeatMapQueryRunner.test_no_crash_when_no_data
+  '''
+  SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
+         toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
+         uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS total
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), 1, and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))))
+  GROUP BY day,
+           hour
+  ORDER BY day ASC, hour ASC
+  LIMIT 168 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestWebActiveHoursHeatMapQueryRunner.test_no_data
+  '''
+  SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
+         toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
+         uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS total
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), 1, and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))))
+  GROUP BY day,
+           hour
+  ORDER BY day ASC, hour ASC
+  LIMIT 168 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestWebActiveHoursHeatMapQueryRunner.test_with_properties
+  '''
+  SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
+         toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
+         uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS total
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))))
+  GROUP BY day,
+           hour
+  ORDER BY day ASC, hour ASC
+  LIMIT 168 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---

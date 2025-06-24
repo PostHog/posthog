@@ -2,6 +2,7 @@
 name = "capture"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [lints]
 workspace = true
@@ -15,10 +16,11 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
-governor = { workspace = true }
 health = { path = "../common/health" }
 common-alloc = { path = "../common/alloc" }
+common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
+limiters = { path = "../common/limiters" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
@@ -46,6 +48,7 @@ uuid = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
+lz-str = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }

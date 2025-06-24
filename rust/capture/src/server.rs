@@ -1,21 +1,21 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
+use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
-use time::Duration;
+use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
 
 use crate::config::CaptureMode;
 use crate::config::Config;
 
-use crate::limiters::overflow::OverflowLimiter;
-use crate::limiters::redis::{
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::{
     QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
 };
 
-use crate::limiters::token_dropper::TokenDropper;
-use crate::redis::RedisClient;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
@@ -23,6 +23,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
+use limiters::token_dropper::TokenDropper;
 
 async fn create_sink(
     config: &Config,
@@ -32,7 +33,7 @@ async fn create_sink(
     if config.print_sink {
         // Print sink is only used for local debug, don't allow a container with it to run on prod
         liveness
-            .register("print_sink".to_string(), Duration::seconds(30))
+            .register("print_sink".to_string(), Duration::from_secs(30))
             .await
             .report_status(ComponentStatus::Unhealthy)
             .await;
@@ -40,7 +41,7 @@ async fn create_sink(
         Ok(Box::new(PrintSink {}))
     } else {
         let sink_liveness = liveness
-            .register("rdkafka".to_string(), Duration::seconds(30))
+            .register("rdkafka".to_string(), Duration::from_secs(30))
             .await;
 
         let partition = match config.overflow_enabled {
@@ -49,14 +50,17 @@ async fn create_sink(
                 let partition = OverflowLimiter::new(
                     config.overflow_per_second_limit,
                     config.overflow_burst_limit,
-                    config.overflow_forced_keys.clone(),
+                    config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                    config.overflow_preserve_partition_locality,
                 );
+
                 if config.export_prometheus {
                     let partition = partition.clone();
                     tokio::spawn(async move {
                         partition.report_metrics().await;
                     });
                 }
+
                 {
                     // Ensure that the rate limiter state does not grow unbounded
                     let partition = partition.clone();
@@ -71,11 +75,12 @@ async fn create_sink(
         let replay_overflow_limiter = match config.capture_mode {
             CaptureMode::Recordings => Some(
                 RedisLimiter::new(
-                    Duration::seconds(5),
+                    Duration::from_secs(5),
                     redis_client.clone(),
                     OVERFLOW_LIMITER_CACHE_KEY.to_string(),
                     config.redis_key_prefix.clone(),
                     QuotaResource::Replay,
+                    ServiceName::Capture,
                 )
                 .expect("failed to start replay overflow limiter"),
             ),
@@ -93,7 +98,7 @@ async fn create_sink(
 
         if config.s3_fallback_enabled {
             let sink_liveness = liveness
-                .register("s3".to_string(), Duration::seconds(30))
+                .register("s3".to_string(), Duration::from_secs(30))
                 .await;
 
             let s3_sink = S3Sink::new(
@@ -132,7 +137,7 @@ where
     );
 
     let billing_limiter = RedisLimiter::new(
-        Duration::seconds(5),
+        Duration::from_secs(5),
         redis_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         config.redis_key_prefix.clone(),
@@ -140,11 +145,12 @@ where
             CaptureMode::Events => QuotaResource::Events,
             CaptureMode::Recordings => QuotaResource::Recordings,
         },
+        ServiceName::Capture,
     )
     .expect("failed to create billing limiter");
 
     let token_dropper = config
-        .dropped_keys
+        .drop_events_by_token_distinct_id
         .clone()
         .map(|k| TokenDropper::new(&k))
         .unwrap_or_default();
@@ -174,10 +180,19 @@ where
         config.capture_mode,
         config.concurrency_limit,
         event_max_bytes,
+        config.enable_historical_rerouting,
+        config.historical_rerouting_threshold_days,
+        config.historical_tokens_keys,
+        config.is_mirror_deploy,
     );
 
     // run our app with hyper
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!(
+        "config: is_mirror_deploy == {:?} ; log_level == {:?}",
+        config.is_mirror_deploy,
+        config.log_level
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

@@ -4,7 +4,6 @@
 # It relies on the container image built by 'container-images-ci.yml'.
 #
 name: E2E CI Playwright
-
 on:
     pull_request:
 
@@ -16,14 +15,14 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
             shouldRun: ${{ steps.changes.outputs.shouldRun }}
         steps:
             # For pull requests it's not necessary to check out the code
-            - uses: dorny/paths-filter@v2
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: changes
               with:
                   filters: |
@@ -52,7 +51,8 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: ubuntu-latest
+        # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -64,7 +64,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
             - name: Build the Docker image with Depot
               if: needs.changes.outputs.shouldRun == 'true'
               # Build the container image in preparation for the E2E tests
@@ -73,6 +73,7 @@ jobs:
               with:
                   save: true
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
     playwright:
         name: Playwright E2E tests
@@ -85,15 +86,15 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
@@ -103,7 +104,7 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v4
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
               if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache
               with:
@@ -135,11 +136,11 @@ jobs:
 
             - name: Install Depot CLI
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: depot/setup-action@v1
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
             - name: Get Docker image cached in Depot
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: depot/pull-action@v1
+              uses: depot/pull-action@8a922bdade29cf5facf3a13020cccd3b7a8127c2 # v1
               with:
                   build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
@@ -191,7 +192,7 @@ jobs:
               # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@v1.2.1
+              uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
               timeout-minutes: 3
               with:
                   verbose: true
@@ -201,19 +202,27 @@ jobs:
             - name: Playwright run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              run: pnpm --filter=@posthog/playwright test
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive report
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: playwright-report
                   path: playwright/playwright-report/
                   retention-days: 30
               if: ${{ failure() }}
+
+            - name: Archive screenshots
+              if: always()
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              with:
+                  name: playwright-screenshots
+                  path: playwright/test-results
+                  retention-days: 30
 
     capture-run-time:
         name: Capture run time
@@ -250,3 +259,15 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.shouldRun == 'true'
+        needs: [capture-run-time] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

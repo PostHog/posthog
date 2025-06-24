@@ -30,3 +30,6 @@ posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
 # Paul owns testing infrastructure
 cypress/** @pauldambra
 playwright/** @pauldambra
+
+# Revenue Analytics team owns revenue analytics stuff
+products/revenue_analytics/** @PostHog/revenue-analytics

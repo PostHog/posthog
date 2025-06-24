@@ -1,22 +1,25 @@
 import dataclasses
+from typing import Any
 
 import temporalio.converter
 from asgiref.sync import async_to_sync
-from django.conf import settings
+from django.conf import settings as django_settings
 from temporalio.client import Client, TLSConfig
+from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
 
 
 async def connect(
-    host,
-    port,
-    namespace,
-    server_root_ca_cert=None,
-    client_cert=None,
-    client_key=None,
-    runtime=None,
-):
+    host: str,
+    port: int | str,
+    namespace: str,
+    server_root_ca_cert: str | None = None,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    runtime: Runtime | None = None,
+    settings: Any | None = django_settings,
+) -> Client:
     tls: TLSConfig | bool = False
     if server_root_ca_cert and client_cert and client_key:
         tls = TLSConfig(
@@ -32,7 +35,9 @@ async def connect(
         data_converter=dataclasses.replace(
             temporalio.converter.default(),
             payload_codec=EncryptionCodec(settings=settings),
-        ),
+        )
+        if settings is not None
+        else temporalio.converter.default(),
     )
     return client
 
@@ -41,12 +46,12 @@ async def connect(
 async def sync_connect() -> Client:
     """Synchronous connect to Temporal and return a Client."""
     client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
+        django_settings.TEMPORAL_HOST,
+        django_settings.TEMPORAL_PORT,
+        django_settings.TEMPORAL_NAMESPACE,
+        django_settings.TEMPORAL_CLIENT_ROOT_CA,
+        django_settings.TEMPORAL_CLIENT_CERT,
+        django_settings.TEMPORAL_CLIENT_KEY,
     )
     return client
 
@@ -54,11 +59,11 @@ async def sync_connect() -> Client:
 async def async_connect() -> Client:
     """Asynchronous connect to Temporal and return a Client."""
     client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
+        django_settings.TEMPORAL_HOST,
+        django_settings.TEMPORAL_PORT,
+        django_settings.TEMPORAL_NAMESPACE,
+        django_settings.TEMPORAL_CLIENT_ROOT_CA,
+        django_settings.TEMPORAL_CLIENT_CERT,
+        django_settings.TEMPORAL_CLIENT_KEY,
     )
     return client

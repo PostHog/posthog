@@ -6,18 +6,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
-import IconHTTP from 'public/hedgehog/running-hog.png'
-import IconS3 from 'public/services/aws-s3.png'
-import IconBigQuery from 'public/services/bigquery.png'
-import IconPostgres from 'public/services/postgres.png'
-import IconRedshift from 'public/services/redshift.png'
-import IconSnowflake from 'public/services/snowflake.png'
 import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
-    BatchExportRun,
-    BatchExportService,
     LogEntryLevel,
     PipelineNodeTab,
     PipelineStage,
@@ -25,7 +17,6 @@ import {
     PluginType,
 } from '~/types'
 
-import { hogFunctionUrl } from './hogfunctions/urls'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PluginImage, PluginImageSize } from './PipelinePluginImage'
 import {
@@ -58,7 +49,7 @@ const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     'https://github.com/PostHog/timestamp-parser-plugin',
     'https://github.com/PostHog/user-agent-plugin',
 ]
-export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set([...PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR])
+export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set(PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR)
 
 const GLOBAL_EXPORT_PLUGINS = [
     // export apps
@@ -118,17 +109,13 @@ type RenderAppProps = {
     imageSize?: PluginImageSize
 }
 
-export function getBatchExportUrl(service: BatchExportService['type']): string {
-    return `https://posthog.com/docs/cdp/batch-exports/${service.toLowerCase()}`
-}
-
 export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.Element {
     if (!plugin) {
         return <LemonSkeleton className="w-15 h-15" />
     }
 
     return (
-        <div className="flex items-center gap-4">
+        <div className="flex gap-4 items-center">
             <Tooltip
                 title={
                     <>
@@ -154,43 +141,6 @@ export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.
     )
 }
 
-export function RenderBatchExportIcon({
-    type,
-    size = 'small',
-}: {
-    type: BatchExportService['type']
-    size?: 'small' | 'medium'
-}): JSX.Element {
-    const icon = {
-        BigQuery: IconBigQuery,
-        Postgres: IconPostgres,
-        Redshift: IconRedshift,
-        S3: IconS3,
-        Snowflake: IconSnowflake,
-        HTTP: IconHTTP,
-    }[type]
-
-    const sizePx = size === 'small' ? 30 : 60
-
-    return (
-        <div className="flex items-center gap-4">
-            <Tooltip
-                title={
-                    <>
-                        {type}
-                        <br />
-                        Click to view docs
-                    </>
-                }
-            >
-                <Link to={getBatchExportUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
-                </Link>
-            </Tooltip>
-        </div>
-    )
-}
-
 export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
     let color: string | undefined
     switch (level) {
@@ -201,7 +151,7 @@ export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
             color = 'text-text-3000'
             break
         case 'INFO':
-            color = 'text-accent-primary'
+            color = 'text-accent'
             break
         case 'WARNING':
         case 'WARN':
@@ -262,7 +212,9 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
     return []
 }
 
-export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
+export function usePipelineNodeMenuCommonItems(
+    node: Transformation | SiteApp | ImportApp | Destination
+): LemonMenuItem[] {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
@@ -271,7 +223,7 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
             label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
             to:
                 'hog_function' in node && node.hog_function
-                    ? hogFunctionUrl(node.hog_function.type, node.hog_function.id)
+                    ? urls.hogFunction(node.hog_function.id)
                     : urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
         },
         {
@@ -296,7 +248,7 @@ export async function loadPluginsFromUrl(url: string): Promise<Record<number, Pl
     return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
 }
 
-export function pipelinePluginBackedNodeMenuCommonItems(
+export function usePipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,
     loadPluginConfigs: any,
@@ -315,7 +267,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                 }),
             disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
         },
-        ...pipelineNodeMenuCommonItems(node),
+        ...usePipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
                   {
@@ -346,8 +298,4 @@ export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: b
         return false
     }
     return true
-}
-
-export function isRunInProgress(run: BatchExportRun): boolean {
-    return ['Running', 'Starting'].includes(run.status)
 }

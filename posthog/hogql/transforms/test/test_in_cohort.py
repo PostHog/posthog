@@ -87,6 +87,31 @@ class TestInCohort(BaseTest):
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_in_cohort_deleted(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="my cohort",
+            is_static=True,
+        )
+        cohort.deleted = True
+        cohort.save()
+
+        Cohort.objects.create(
+            team=self.team,
+            name="my cohort",
+            is_static=True,
+        )
+
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
+            self.team,
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
+            pretty=False,
+        )
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_in_cohort_error(self):
         with self.assertRaises(QueryError) as e:

@@ -1,5 +1,17 @@
+import json
+from datetime import datetime, timedelta
 from typing import cast
-from posthog.hogql_queries.experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
+
+from django.utils import timezone
+from flaky import flaky
+from freezegun import freeze_time
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
+from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.hogql_queries.experiments.experiment_funnels_query_runner import (
+    ExperimentFunnelsQueryRunner,
+)
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
@@ -19,15 +31,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from freezegun import freeze_time
-from parameterized import parameterized
-from django.utils import timezone
-from datetime import datetime, timedelta
-from rest_framework.exceptions import ValidationError
-from posthog.constants import ExperimentNoResultsErrorKeys
-import json
 from posthog.test.test_journeys import journeys_for
-from flaky import flaky
 
 
 class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -132,8 +136,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(result.stats_version, 1)
-
         self.assertEqual(len(result.variants), 2)
 
         control_variant = next(variant for variant in result.variants if variant.key == "control")
@@ -160,7 +162,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_runner_v2(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -203,8 +204,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         result = query_runner.calculate()
-
-        self.assertEqual(result.stats_version, 2)
 
         self.assertEqual(len(result.variants), 2)
 

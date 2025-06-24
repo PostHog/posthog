@@ -50,10 +50,10 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                         onClick={() => setVisible(!visible)}
                         onClose={onRemove}
                         title={`${filter.regex} is mapped to ${filter.alias}`}
-                        className={clsx({ 'border border-accent-primary': isInvalidRegex })}
+                        className={clsx({ 'border border-accent': isInvalidRegex })}
                     >
                         <span className="inline-flex items-center">
-                            <span className="font-mono text-accent-primary text-xs">{filter.regex ?? '(Empty)'}</span>
+                            <span className="font-mono text-accent text-xs">{filter.regex ?? '(Empty)'}</span>
                             <IconArrowCircleRight className="mx-2" />
                             <span className="font-mono text-xs">{parseAliasToReadable(filter.alias ?? '(Empty)')}</span>
                         </span>
@@ -77,7 +77,7 @@ export const parseAliasToReadable = (alias: string): JSX.Element[] => {
         if ((part.startsWith('<') && part.endsWith('>')) || part.startsWith(':')) {
             return (
                 <span key={index}>
-                    <span className="rounded bg-accent-primary-highlight px-1">{part}</span>
+                    <span className="rounded bg-accent-highlight-secondary px-1">{part}</span>
                     <span>{includeSlash ? '/' : ''}</span>
                 </span>
             )

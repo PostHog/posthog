@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
+import { parseJSON } from '../../../../utils/json-parse'
 import { SessionMetadataStore } from './session-metadata-store'
 
 describe('SessionMetadataStore', () => {
@@ -13,7 +14,7 @@ describe('SessionMetadataStore', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-        store = new SessionMetadataStore(mockProducer)
+        store = new SessionMetadataStore(mockProducer, 'clickhouse_session_replay_events_v2_test_test')
     })
 
     it('should queue events to kafka with correct data', async () => {
@@ -24,6 +25,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 100,
+                eventCount: 25,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=0-99',
@@ -47,6 +49,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user2',
                 batchId: 'batch123',
                 blockLength: 150,
+                eventCount: 15,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:01.500Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:03.500Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=100-249',
@@ -70,6 +73,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 200,
+                eventCount: 35,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:03.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:05.000Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=250-449',
@@ -95,7 +99,7 @@ describe('SessionMetadataStore', () => {
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe('clickhouse_session_replay_events_v2_test_test')
         const queuedMessages = queuedMessage.messages
-        const parsedEvents = queuedMessages.map((msg) => JSON.parse(msg.value as string))
+        const parsedEvents = queuedMessages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedEvents).toMatchObject([
             {
@@ -120,6 +124,7 @@ describe('SessionMetadataStore', () => {
                 message_count: 50,
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
+                event_count: 25,
             },
             {
                 uuid: expect.any(String),
@@ -143,6 +148,7 @@ describe('SessionMetadataStore', () => {
                 message_count: 30,
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
+                event_count: 15,
             },
             {
                 uuid: expect.any(String),
@@ -166,6 +172,7 @@ describe('SessionMetadataStore', () => {
                 message_count: 70,
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
+                event_count: 35,
             },
         ])
 
@@ -201,6 +208,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 100,
+                eventCount: 10,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: null,
@@ -231,6 +239,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch123',
                 blockLength: 100,
+                eventCount: 8,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: null,
@@ -253,7 +262,8 @@ describe('SessionMetadataStore', () => {
         await store.storeSessionBlocks(blocks)
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedEvent = JSON.parse(queuedMessage.messages[0].value as string)
+        const parsedEvent = parseJSON(queuedMessage.messages[0].value as string)
+        expect(parsedEvent.event_count).toBe(8)
         expect(parsedEvent.block_url).toBeNull()
         expect(parsedEvent.distinct_id).toBe('user1')
         expect(parsedEvent.first_url).toBe('https://example.com')
@@ -280,6 +290,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch1',
                 blockLength: 100,
+                eventCount: 12,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: 's3://bucket/file1',
@@ -303,6 +314,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user2',
                 batchId: 'batch2',
                 blockLength: 200,
+                eventCount: 18,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:03.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:05.000Z'),
                 blockUrl: 's3://bucket/file2',
@@ -325,13 +337,14 @@ describe('SessionMetadataStore', () => {
         await store.storeSessionBlocks(blocks)
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedEvents = queuedMessage.messages.map((msg) => JSON.parse(msg.value as string))
+        const parsedEvents = queuedMessage.messages.map((msg) => parseJSON(msg.value as string))
 
         expect(parsedEvents[0].batch_id).toBe('batch1')
         expect(parsedEvents[1].batch_id).toBe('batch2')
         expect(parsedEvents[0]).toMatchObject({
             first_url: 'https://example.com',
             urls: ['https://example.com'],
+            event_count: 12,
             click_count: 1,
             keypress_count: 2,
             mouse_activity_count: 3,
@@ -347,6 +360,7 @@ describe('SessionMetadataStore', () => {
         expect(parsedEvents[1]).toMatchObject({
             first_url: 'https://example.com/other',
             urls: ['https://example.com/other'],
+            event_count: 18,
             click_count: 4,
             keypress_count: 5,
             mouse_activity_count: 6,
@@ -373,6 +387,7 @@ describe('SessionMetadataStore', () => {
                 distinctId: 'user1',
                 batchId: 'batch1',
                 blockLength: 100,
+                eventCount: 15,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: 's3://bucket/file1',
@@ -395,5 +410,45 @@ describe('SessionMetadataStore', () => {
         await expect(store.storeSessionBlocks(blocks)).rejects.toThrow(error)
         expect(mockProducer.queueMessages).toHaveBeenCalled()
         expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('should use the provided kafka topic name', async () => {
+        const customTopic = 'custom_topic_name'
+        const customStore = new SessionMetadataStore(mockProducer, customTopic)
+
+        const blocks = [
+            {
+                sessionId: 'session1',
+                teamId: 1,
+                distinctId: 'user1',
+                batchId: 'batch1',
+                blockLength: 100,
+                eventCount: 15,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                blockUrl: 's3://bucket/file1',
+                firstUrl: 'https://example.com',
+                urls: ['https://example.com'],
+                clickCount: 3,
+                keypressCount: 7,
+                mouseActivityCount: 12,
+                activeMilliseconds: 1000,
+                consoleLogCount: 1,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+                size: 512,
+                messageCount: 25,
+                snapshotSource: 'web',
+                snapshotLibrary: 'rrweb@1.0.0',
+            },
+        ]
+
+        await customStore.storeSessionBlocks(blocks)
+
+        expect(mockProducer.queueMessages).toHaveBeenCalledWith(
+            expect.objectContaining({
+                topic: customTopic,
+            })
+        )
     })
 })

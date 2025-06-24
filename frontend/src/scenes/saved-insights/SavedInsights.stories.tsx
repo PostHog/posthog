@@ -27,7 +27,7 @@ const meta: Meta = {
                     insightsJson.results.slice(0, 6).map((result, i) => ({
                         // Keep size of response in check
                         ...result,
-                        filters: insights[i % insights.length].filters,
+                        query: insights[i % insights.length].query,
                         result: insights[i % insights.length].result,
                     }))
                 ),

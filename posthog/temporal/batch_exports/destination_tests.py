@@ -204,6 +204,7 @@ class S3EnsureBucketTestStep(DestinationTestStep):
             aws_secret_access_key=self.aws_secret_access_key,
             endpoint_url=self.endpoint_url,
         ) as client:
+            assert self.bucket_name is not None
             try:
                 await client.head_bucket(Bucket=self.bucket_name)
             except ClientError as err:
@@ -278,6 +279,11 @@ class BigQueryProjectTestStep(DestinationTestStep):
     This test could not be broken into two as the project not existing and us not
     having permissions to access it looks the same from our perspective.
 
+    Permissions could be granted at the project level, or at the dataset level.
+    To account for this, we check that the project exists by listing projects
+    (`list_projects` call) and by listing datasets (with `list_datasets`) and
+    inspecting the project associated with each dataset.
+
     Attributes:
         project_id: ID of the BigQuery project we are checking.
         service_account_info: Service account credentials used to access the
@@ -320,6 +326,11 @@ class BigQueryProjectTestStep(DestinationTestStep):
         projects = {p.project_id for p in client.list_projects()}
 
         if self.project_id in projects:
+            return DestinationTestStepResult(status=Status.PASSED)
+
+        dataset_projects = {d.project for d in client.list_datasets()}
+
+        if self.project_id in dataset_projects:
             return DestinationTestStepResult(status=Status.PASSED)
         else:
             return DestinationTestStepResult(
@@ -547,7 +558,10 @@ def try_load_private_key(
     private_key: str | None = None, private_key_passphrase: str | None = None
 ) -> tuple[bytes | None, DestinationTestStepResult | None]:
     """Attempt to load a private key, return a failed result if an error occurs."""
-    from posthog.temporal.batch_exports.snowflake_batch_export import InvalidPrivateKeyError, load_private_key
+    from posthog.temporal.batch_exports.snowflake_batch_export import (
+        InvalidPrivateKeyError,
+        load_private_key,
+    )
 
     if private_key is None:
         return (None, None)
@@ -606,7 +620,11 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import snowflake.connector
-        from snowflake.connector.errors import DatabaseError, InterfaceError, OperationalError
+        from snowflake.connector.errors import (
+            DatabaseError,
+            InterfaceError,
+            OperationalError,
+        )
 
         private_key, result = try_load_private_key(self.private_key, self.private_key_passphrase)
         if result is not None:
@@ -793,20 +811,117 @@ class SnowflakeDatabaseTestStep(DestinationTestStep):
             warehouse=self.warehouse,
         )
 
-        with connection.cursor() as cursor:
-            try:
+        with connection:
+            with connection.cursor() as cursor:
+                try:
+                    _ = cursor.execute(f'USE DATABASE "{self.database}"')
+                except ProgrammingError as err:
+                    if err.msg is not None and "Object does not exist" in err.msg:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"The configured database '{self.database}' does not exist or we are missing 'USAGE' permissions on it.",
+                        )
+                    else:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"Could not use Snowflake database '{self.database}'. Received error: {err}.",
+                        )
+
+        return DestinationTestStepResult(
+            status=Status.PASSED,
+        )
+
+
+class SnowflakeSchemaTestStep(DestinationTestStep):
+    """Test whether we can use the configured Snowflake schema.
+
+    Attributes:
+        account: Snowflake account ID.
+        user: Username used to authenticate in Snowflake.
+        role: Role to assume in Snowflake.
+        password: If using password authentication, the password for the user.
+        private_key: If using key authentication, the private key for the user.
+        private_key_passphrase: The passphrase for the private key, if any.
+        warehouse: The Snowflake warehouse containing the database.
+        database: The Snowflake database containing the schema.
+        schema: The Snowflake schema we are evaluating.
+    """
+
+    name = "Verify Snowflake schema"
+    description = "Verify the configured Snowflake schema exists and we have the necessary permissions to use it."
+
+    def __init__(
+        self,
+        account: str | None = None,
+        user: str | None = None,
+        role: str | None = None,
+        password: str | None = None,
+        private_key: str | None = None,
+        private_key_passphrase: str | None = None,
+        warehouse: str | None = None,
+        database: str | None = None,
+        schema: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.account = account
+        self.user = user
+        self.role = role
+        self.password = password
+        self.private_key = private_key
+        self.private_key_passphrase = private_key_passphrase
+        self.warehouse = warehouse
+        self.database = database
+        self.schema = schema
+
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if (
+            self.account is None
+            or self.user is None
+            or (self.private_key is None and self.password is None)
+            or self.warehouse is None
+            or self.database is None
+            or self.schema is None
+        ):
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
+        """Internal method with execution logic for test step."""
+        import snowflake.connector
+        from snowflake.connector.errors import ProgrammingError
+
+        private_key, result = try_load_private_key(self.private_key, self.private_key_passphrase)
+        if result is not None:
+            return result
+
+        connection = await asyncio.to_thread(
+            snowflake.connector.connect,
+            user=self.user,
+            password=self.password,
+            account=self.account,
+            private_key=private_key,
+            role=self.role,
+            warehouse=self.warehouse,
+        )
+
+        with connection:
+            with connection.cursor() as cursor:
                 _ = cursor.execute(f'USE DATABASE "{self.database}"')
-            except ProgrammingError as err:
-                if err.msg is not None and "Object does not exist" in err.msg:
-                    return DestinationTestStepResult(
-                        status=Status.FAILED,
-                        message=f"The configured database '{self.database}' does not exist or we are missing 'USAGE' permissions on it.",
-                    )
-                else:
-                    return DestinationTestStepResult(
-                        status=Status.FAILED,
-                        message=f"Could not use Snowflake database '{self.warehouse}'. Received error: {err}.",
-                    )
+
+                try:
+                    _ = cursor.execute(f'USE SCHEMA "{self.schema}"')
+                except ProgrammingError as err:
+                    if err.msg is not None and "Object does not exist" in err.msg:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"The configured schema '{self.schema}' does not exist or we are missing 'USAGE' permissions on it.",
+                        )
+                    else:
+                        return DestinationTestStepResult(
+                            status=Status.FAILED,
+                            message=f"Could not use Snowflake schema '{self.schema}'. Received error: {err}.",
+                        )
 
         return DestinationTestStepResult(
             status=Status.PASSED,
@@ -876,6 +991,17 @@ class SnowflakeDestinationTest(DestinationTest):
                 private_key_passphrase=self.private_key_passphrase,
                 warehouse=self.warehouse,
                 database=self.database,
+            ),
+            SnowflakeSchemaTestStep(
+                account=self.account,
+                user=self.user,
+                role=self.role,
+                password=self.password,
+                private_key=self.private_key,
+                private_key_passphrase=self.private_key_passphrase,
+                warehouse=self.warehouse,
+                database=self.database,
+                schema=self.schema,
             ),
         ]
 

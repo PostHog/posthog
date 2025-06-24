@@ -12,11 +12,14 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    Table,
     ExpressionField,
     FieldTraverser,
     StringDatabaseField,
     StringJSONDatabaseField,
+    TableGroup,
 )
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
@@ -45,7 +48,7 @@ class TestResolver(BaseTest):
         )
 
     def setUp(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(team=self.team)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -280,14 +283,22 @@ class TestResolver(BaseTest):
         node = self._select(
             "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
         )
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        constraint = cast(ast.SelectQuery, node).select_from.next_join.constraint
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node, ast.SelectQuery)
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
+        constraint = node.select_from.next_join.constraint
         assert constraint.constraint_type == "USING"
         assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
 
         node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node, ast.SelectQuery)
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join, ast.JoinExpr)
+        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
+        assert node.select_from.next_join.constraint.constraint_type == "USING"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -381,18 +392,22 @@ class TestResolver(BaseTest):
 
     def test_lambda_parent_scope(self):
         # does not raise
-        node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) from events")
+        node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) as am from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # found a type
-        lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
+        lambda_type: ast.SelectQueryType = cast(
+            ast.SelectQueryType, cast(ast.Call, cast(ast.Alias, node.select[1]).expr).args[0].type
+        )
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
-        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
+        assert isinstance(lambda_type.parent, ast.SelectQueryType)
+        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp", "am"])
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
         self.database.events.fields["person"] = FieldTraverser(chain=["poe"])
+        assert isinstance(self.database.events.fields["poe"], Table)
         self.database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
         self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
             chain=["..", "pdi", "person", "created_at"]
@@ -420,18 +435,23 @@ class TestResolver(BaseTest):
 
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        table_node = cast(ast.SelectQuery, node).select_from.table
+        assert isinstance(node, ast.SelectQuery)
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node.select_from, ast.JoinExpr)
+        table_node = node.select_from.table
+        assert table_node is not None
         expected = ast.SelectQuery(
             select=[ast.Alias(hidden=True, alias="event", expr=ast.Field(chain=["event"]))],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         )
-        assert clone_expr(table_node, clear_types=True) == expected
+        assert cast(ast.SelectQuery, clone_expr(table_node, clear_types=True)) == expected
 
     def test_visit_hogqlx_tag_alias(self):
         node = self._select("select event from <HogQLQuery query='select event from events' /> a")
-        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        assert cast(ast.SelectQuery, node).select_from.alias == "a"
+        assert isinstance(node, ast.SelectQuery)
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert node.select_from.alias == "a"
 
     def test_visit_hogqlx_tag_source(self):
         query = """
@@ -473,6 +493,35 @@ class TestResolver(BaseTest):
             ],
         )
         assert clone_expr(node, clear_types=True) == expected
+
+    def test_visit_hogqlx_explain_csp_report(self):
+        node = self._select(
+            "select <ExplainCSPReport properties={{'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'}} />"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="ExplainCSPReport"),
+                        ast.Constant(value="properties"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value="__hx_tag"),
+                                ast.Constant(value="__hx_obj"),
+                                ast.Constant(value="violated_directive"),
+                                ast.Constant(value="script-src"),
+                                ast.Constant(value="original_policy"),
+                                ast.Constant(value="script-src https://example.com"),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        actual = clone_expr(node, clear_types=True)
+        assert actual == expected, f"\nExpected:\n{expected}\n\nActual:\n{actual}"
 
     def test_visit_hogqlx_sparkline(self):
         node = self._select("select <Sparkline data={[1,2,3]} />")
@@ -622,10 +671,24 @@ class TestResolver(BaseTest):
             assert selected.type == ast.DateTimeType(nullable=False)
 
     def test_recording_button_tag(self):
-        node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
+        node: ast.SelectQuery = self._select(
+            "select <RecordingButton sessionId={'12345'} recordingStatus={'active'} />"
+        )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        node2 = self._select("select recording_button('12345')")
+        node2 = self._select("select recording_button('12345', 'active')")
+        node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
+        assert node == node2
+
+    def test_explain_csp_report_tag(self):
+        node: ast.SelectQuery = self._select(
+            "select <ExplainCSPReport properties={{'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'}} />"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        node2 = self._select(
+            "select explain_csp_report({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})"
+        )
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
 
@@ -696,3 +759,22 @@ class TestResolver(BaseTest):
         ):
             node: ast.SelectQuery = self._select(query)
             resolve_types(node, context, dialect="clickhouse")
+
+    def test_nested_table_name(self):
+        table_group = TableGroup(tables={"events": EventsTable()})
+        self.database.__setattr__("nested", table_group)
+        query = "SELECT * FROM nested.events"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_deeply_nested_table_name(self):
+        table_group = TableGroup(
+            tables={
+                "events": TableGroup(
+                    tables={"some": TableGroup(tables={"other": TableGroup(tables={"table": EventsTable()})})}
+                )
+            }
+        )
+
+        self.database.__setattr__("nested", table_group)
+        query = "SELECT * FROM nested.events.some.other.table"
+        resolve_types(self._select(query), self.context, dialect="hogql")

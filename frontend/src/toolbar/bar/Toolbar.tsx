@@ -2,6 +2,7 @@ import './Toolbar.scss'
 
 import {
     IconBolt,
+    IconCheck,
     IconCursorClick,
     IconDay,
     IconLive,
@@ -10,17 +11,21 @@ import {
     IconPieChart,
     IconQuestion,
     IconSearch,
+    IconStethoscope,
     IconTestTube,
     IconToggle,
     IconX,
 } from '@posthog/icons'
+import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { useEffect, useRef } from 'react'
+import { PostHog } from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -37,9 +42,109 @@ import { ToolbarButton } from './ToolbarButton'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
+function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
+    return (
+        <div className="flex w-full justify-between items-center">
+            <div>{label}: </div>
+            <div>{value ? <IconCheck /> : <IconX />}</div>
+        </div>
+    )
+}
+
+function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surveysCount: number): LemonMenuItem {
+    const isAutocaptureEnabled = posthog?.autocapture?.isEnabled
+
+    return {
+        icon: <IconStethoscope />,
+        label: 'Debug info',
+        items: [
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>version: </div>
+                        <div>{posthog?.version || 'posthog not available'}</div>
+                    </div>
+                ),
+            },
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>api host: </div>
+                        <div>{posthog?.config.api_host}</div>
+                    </div>
+                ),
+            },
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>ui host: </div>
+                        <div>{posthog?.config.ui_host || 'not set'}</div>
+                    </div>
+                ),
+            },
+            { label: <EnabledStatusItem label="autocapture" value={!!isAutocaptureEnabled} /> },
+            {
+                label: (
+                    <EnabledStatusItem
+                        label="rageclicks"
+                        value={!!(isAutocaptureEnabled && posthog?.config.rageclick)}
+                    />
+                ),
+            },
+            {
+                label: (
+                    <EnabledStatusItem
+                        label="dead clicks"
+                        value={!!posthog?.deadClicksAutocapture?.lazyLoadedDeadClicksAutocapture}
+                    />
+                ),
+            },
+            { label: <EnabledStatusItem label="heatmaps" value={!!posthog?.heatmaps?.isEnabled} /> },
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>surveys: </div>
+                        <div>
+                            {loadingSurveys ? <Spinner /> : <LemonBadge.Number showZero={true} count={surveysCount} />}
+                        </div>
+                    </div>
+                ),
+            },
+            { label: <EnabledStatusItem label="session recording" value={!!posthog?.sessionRecording?.started} /> },
+            {
+                label: (
+                    <div className="flex w-full justify-between items-center">
+                        <div>session recording status: </div>
+                        <div>{posthog?.sessionRecording?.status || 'unknown'}</div>
+                    </div>
+                ),
+            },
+            {
+                label: (
+                    <div className="flex w-full items-center">
+                        <Link to={posthog?.get_session_replay_url()} target="_blank">
+                            View current session recording
+                        </Link>
+                    </div>
+                ),
+            },
+        ],
+    }
+}
+
 function MoreMenu(): JSX.Element {
-    const { hedgehogMode, theme } = useValues(toolbarLogic)
+    const { hedgehogMode, theme, posthog } = useValues(toolbarLogic)
     const { setHedgehogMode, toggleTheme, setVisibleMenu } = useActions(toolbarLogic)
+
+    const [loadingSurveys, setLoadingSurveys] = useState(true)
+    const [surveysCount, setSurveysCount] = useState(0)
+
+    useEffect(() => {
+        posthog?.surveys?.getSurveys((surveys) => {
+            setSurveysCount(surveys.length)
+            setLoadingSurveys(false)
+        }, false)
+    }, [posthog])
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
@@ -73,6 +178,7 @@ function MoreMenu(): JSX.Element {
                         label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                         onClick: () => toggleTheme(),
                     },
+                    postHogDebugInfo(posthog, loadingSurveys, surveysCount),
                     {
                         icon: <IconQuestion />,
                         label: 'Help',

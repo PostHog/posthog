@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '~/src/kafka/producer'
+import { TopicMessage } from '~/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -14,7 +14,7 @@ import {
     RawPerson,
     TimestampFormat,
 } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
 import { captureException } from '../posthog'
 
@@ -44,12 +44,12 @@ export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000,
-    sendToSentry = true
+    sendException = true
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
-        status.warn('⌛', message, ctx)
-        if (sendToSentry) {
+        logger.warn('⌛', message, ctx)
+        if (sendException) {
             captureException(message, ctx ? { extra: ctx } : undefined)
         }
     }, timeout)
@@ -103,6 +103,11 @@ export const eventToPersonProperties = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
 
     ...campaignParams,
 ])

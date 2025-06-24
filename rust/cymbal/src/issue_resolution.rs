@@ -1,11 +1,16 @@
 use std::fmt::Display;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
-use sqlx::postgres::any::AnyConnectionBackend;
+
+use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
+use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
+use crate::teams::TeamManager;
+use crate::types::FingerprintedErrProps;
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
@@ -40,17 +45,19 @@ pub enum IssueStatus {
     Suppressed,
 }
 
-impl Issue {
-    pub fn new(team_id: i32, name: String, description: String) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            team_id,
-            status: IssueStatus::Active,
-            name: Some(name),
-            description: Some(description),
+impl IssueStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            IssueStatus::Archived => "Archived",
+            IssueStatus::Active => "Active",
+            IssueStatus::Resolved => "Resolved",
+            IssueStatus::PendingRelease => "Pending Release",
+            IssueStatus::Suppressed => "Suppressed",
         }
     }
+}
 
+impl Issue {
     pub async fn load_by_fingerprint<'c, E>(
         executor: E,
         team_id: i32,
@@ -62,6 +69,8 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
+            -- the "eligible_for_assignment!" forces sqlx to assume not null, which is correct in this case, but
+            -- generally a risky override of sqlx's normal type checking
             SELECT i.id, i.team_id, i.status, i.name, i.description
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
@@ -99,48 +108,47 @@ impl Issue {
         Ok(res)
     }
 
-    pub async fn insert<'c, E>(&self, executor: E) -> Result<bool, UnhandledError>
+    pub async fn insert_new<'c, E>(
+        team_id: i32,
+        name: String,
+        description: String,
+        executor: E,
+    ) -> Result<Issue, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let did_insert = sqlx::query_scalar!(
+        let issue = Self {
+            id: Uuid::now_v7(),
+            team_id,
+            status: IssueStatus::Active,
+            name: Some(name),
+            description: Some(description),
+        };
+
+        sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
             VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (id) DO NOTHING
-            RETURNING (xmax = 0) AS was_inserted
             "#,
-            self.id,
-            self.team_id,
-            self.status.to_string(),
-            self.name,
-            self.description
+            issue.id,
+            issue.team_id,
+            issue.status.to_string(),
+            issue.name,
+            issue.description
         )
-        .fetch_one(executor)
-        .await?
-        // TODO - I'm fairly sure the Option here is a bug in sqlx, so the unwrap will
-        // never be hit, but nonetheless I'm not 100% sure the "no rows" case actually
-        // means the insert was not done.
-        .unwrap_or(false);
+        .execute(executor)
+        .await?;
 
-        if did_insert {
-            metrics::counter!(ISSUE_CREATED).increment(1);
-        }
-
-        Ok(did_insert)
+        Ok(issue)
     }
 
-    pub async fn maybe_reopen<'c, E>(
-        &self,
-        executor: E,
-        context: &AppContext,
-    ) -> Result<(), UnhandledError>
+    pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         // If this issue is already active, or permanently suppressed, we don't need to do anything
         if matches!(self.status, IssueStatus::Active | IssueStatus::Suppressed) {
-            return Ok(());
+            return Ok(false);
         }
 
         let res = sqlx::query_scalar!(
@@ -155,14 +163,34 @@ impl Issue {
         .fetch_all(executor)
         .await?;
 
-        // If we actually updated a row
-        if !res.is_empty() {
+        let reopened = !res.is_empty();
+        if reopened {
             metrics::counter!(ISSUE_REOPENED).increment(1);
             capture_issue_reopened(self.team_id, self.id);
-            send_issue_reopened_alert(context, self).await?;
         }
 
-        Ok(())
+        Ok(reopened)
+    }
+
+    pub async fn get_assignments<'c, E>(
+        &self,
+        executor: E,
+    ) -> Result<Vec<Assignment>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let assignments = sqlx::query_as!(
+            Assignment,
+            r#"
+            SELECT id, issue_id, user_id, user_group_id, role_id, created_at FROM posthog_errortrackingissueassignment
+            WHERE issue_id = $1
+            "#,
+            self.id
+        )
+        .fetch_all(executor)
+        .await?;
+
+        Ok(assignments)
     }
 }
 
@@ -205,7 +233,7 @@ impl IssueFingerprintOverride {
             r#"
             INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
             VALUES ($1, $2, $3, $4, 0, $5, NOW())
-            ON CONFLICT (team_id, fingerprint) DO NOTHING
+            ON CONFLICT (team_id, fingerprint) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
@@ -213,26 +241,36 @@ impl IssueFingerprintOverride {
             issue.id,
             fingerprint,
             first_seen
-        ).fetch_one(executor).await?;
+        ).fetch_one(executor).await.expect("Got at least one row back");
 
         Ok(res)
     }
 }
 
 pub async fn resolve_issue(
-    context: &AppContext,
+    context: Arc<AppContext>,
     team_id: i32,
-    fingerprint: &str,
     name: String,
     description: String,
     event_timestamp: DateTime<Utc>,
+    event_properties: FingerprintedErrProps,
 ) -> Result<Issue, UnhandledError> {
     let mut conn = context.pool.acquire().await?;
-
     // Fast path - just fetch the issue directly, and then reopen it if needed
-    let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, fingerprint).await?;
-    if let Some(issue) = existing_issue {
-        issue.maybe_reopen(&mut *conn, context).await?;
+    let existing_issue =
+        Issue::load_by_fingerprint(&mut *conn, team_id, &event_properties.fingerprint.value)
+            .await?;
+    if let Some(mut issue) = existing_issue {
+        if issue.maybe_reopen(&mut *conn).await? {
+            let assignment = process_assignment(
+                &mut conn,
+                &context.team_manager,
+                &issue,
+                event_properties.clone(),
+            )
+            .await?;
+            send_issue_reopened_alert(&context, &issue, assignment).await?;
+        }
         return Ok(issue);
     }
 
@@ -241,17 +279,21 @@ pub async fn resolve_issue(
     // beat us to creating this new issue). Then, possibly reopen the issue.
 
     // Start a transaction, so we can roll it back on override insert failure
-    conn.begin().await?;
+    let mut txn = conn.begin().await?;
     // Insert a new issue
-    let issue = Issue::new(team_id, name.to_string(), description.to_string());
-    // We don't actually care if we insert the issue here or not - conflicts aren't possible at
-    // this stage.
-    issue.insert(&mut *conn).await?;
+    let issue = Issue::insert_new(
+        team_id,
+        name.to_string(),
+        description.to_string(),
+        &mut *txn,
+    )
+    .await?;
+
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *conn,
+        &mut *txn,
         team_id,
-        fingerprint,
+        &event_properties.fingerprint.value,
         &issue,
         event_timestamp,
     )
@@ -261,44 +303,84 @@ pub async fn resolve_issue(
     // saving both the issue and the override. Otherwise, rollback the transaction, and
     // use the retrieved issue override.
     let was_created = issue_override.issue_id == issue.id;
+    let mut issue = issue;
     if !was_created {
-        conn.rollback().await?;
-    } else {
-        send_issue_created_alert(context, &issue).await?;
-        conn.commit().await?;
-        capture_issue_created(team_id, issue_override.issue_id);
-    }
+        txn.rollback().await?;
+        // Replace the attempt issue with the existing one
+        issue = Issue::load(&mut *conn, team_id, issue_override.id)
+            .await?
+            .unwrap_or(issue);
 
-    // This being None is /almost/ impossible, unless between the transaction above finishing and
-    // this point, someone merged the issue and deleted the old one, but if that happens,
-    // we don't care about this reopen failing (since this issue is irrelevant anyway). IT would be
-    // more efficient to fetch the entire Issue struct above along with the fingerprint, but we're
-    // in the slow path anyway, so one extra DB hit is not a big deal.
-    if let Some(issue) = Issue::load(&mut *conn, team_id, issue_override.issue_id).await? {
-        issue.maybe_reopen(&mut *conn, context).await?;
-    }
+        // Since we just loaded an issue, check if it needs to be reopened
+        if issue.maybe_reopen(&mut *conn).await? {
+            let assignment = process_assignment(
+                &mut conn,
+                &context.team_manager,
+                &issue,
+                event_properties.clone(),
+            )
+            .await?;
+            send_issue_reopened_alert(&context, &issue, assignment).await?;
+        }
+    } else {
+        metrics::counter!(ISSUE_CREATED).increment(1);
+        let assignment = process_assignment(
+            &mut txn,
+            &context.team_manager,
+            &issue,
+            event_properties.clone(),
+        )
+        .await?;
+        send_issue_created_alert(&context, &issue, assignment).await?;
+        txn.commit().await?;
+        capture_issue_created(team_id, issue_override.issue_id);
+    };
 
     Ok(issue)
+}
+
+pub async fn process_assignment(
+    conn: &mut PgConnection,
+    team_manager: &TeamManager,
+    issue: &Issue,
+    props: FingerprintedErrProps,
+) -> Result<Option<Assignment>, UnhandledError> {
+    let new_assignment = if let Some(new) = props.fingerprint.assignment.clone() {
+        Some(new)
+    } else {
+        try_assignment_rules(conn, team_manager, issue.clone(), props.to_output(issue.id)).await?
+    };
+
+    let assignment = if let Some(new_assignment) = new_assignment {
+        Some(new_assignment.apply(&mut *conn, issue.id).await?)
+    } else {
+        issue.get_assignments(&mut *conn).await?.first().cloned()
+    };
+
+    Ok(assignment)
 }
 
 async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
+    assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_created", issue).await
+    send_internal_event(context, "$error_tracking_issue_created", issue, assignment).await
 }
 
 async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
+    assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_reopened", issue).await
+    send_internal_event(context, "$error_tracking_issue_reopened", issue, assignment).await
 }
 
 async fn send_internal_event(
     context: &AppContext,
     event: &str,
     issue: &Issue,
+    new_assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
     event
@@ -307,6 +389,16 @@ async fn send_internal_event(
     event
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
+    event.insert_prop("status", issue.status.as_str())?;
+
+    if let Some(assignment) = new_assignment {
+        let assignee = Assignee::try_from(&assignment)?;
+        let stringified_assignee = serde_json::to_string(&assignee)?;
+
+        event
+            .insert_prop("assignee", stringified_assignee)
+            .expect("Strings are serializable");
+    }
 
     send_iter_to_kafka(
         &context.immediate_producer,
@@ -351,11 +443,18 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::sanitize_string;
+    use crate::{assignment_rules::Assignee, sanitize_string};
 
     #[test]
     fn it_replaces_null_characters() {
         let content = sanitize_string("\u{0000} is not valid JSON".to_string());
         assert_eq!(content, "� is not valid JSON");
+    }
+
+    #[test]
+    fn it_correctly_orders_stringified_assignee_keys() {
+        let assignee = Assignee::User(1234);
+        let stringified_assignee = serde_json::to_string(&assignee).unwrap();
+        assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
     }
 }

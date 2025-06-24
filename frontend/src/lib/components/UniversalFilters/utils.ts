@@ -1,8 +1,10 @@
 import {
     ActionFilter,
+    EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
     LogEntryPropertyFilter,
+    PropertyFilterType,
     RecordingPropertyFilter,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
@@ -19,6 +21,9 @@ export function isEntityFilter(filter: UniversalFilterValue): filter is ActionFi
 }
 export function isEventFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'events'
+}
+export function isEventPropertyFilter(filter: UniversalFilterValue): filter is EventPropertyFilter {
+    return filter.type === PropertyFilterType.Event
 }
 export function isActionFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'actions'

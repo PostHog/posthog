@@ -1,16 +1,15 @@
 import './Playlist.scss'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { range } from 'lib/utils'
-import posthog from 'posthog-js'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { AiFilter } from 'scenes/session-recordings/components/AiFilter/AiFilter'
 
 import { SessionRecordingType } from '~/types'
 
@@ -55,6 +54,7 @@ export type PlaylistProps = {
     'data-attr'?: string
     activeItemId?: string
     isCollapsed?: boolean
+    filterContent?: ReactNode | (({ activeItem }: { activeItem: SessionRecordingType | null }) => JSX.Element) | null
 }
 
 export function Playlist({
@@ -74,7 +74,11 @@ export function Playlist({
     onSelect,
     onChangeSections,
     'data-attr': dataAttr,
+    filterContent,
 }: PlaylistProps): JSX.Element {
+    const { isFiltersExpanded } = useValues(playlistLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         ?.find((s) => s.items.length > 0)?.items[0]
@@ -88,9 +92,6 @@ export function Playlist({
         0: 'small',
         750: 'medium',
     })
-
-    const { isExpanded } = useValues(playlistLogic)
-    const { setIsExpanded } = useActions(playlistLogic)
 
     const onChangeActiveItem = (item: SessionRecordingType): void => {
         setControlledActiveItemId(item.id)
@@ -142,23 +143,6 @@ export function Playlist({
 
     return (
         <>
-            <div
-                className={clsx(`w-full mb-8`, {
-                    hidden: !isExpanded,
-                })}
-            >
-                <div className="flex justify-end">
-                    <LemonButton
-                        icon={<IconX />}
-                        onClick={() => {
-                            setIsExpanded(false)
-                            posthog.capture('ai_filter_close')
-                        }}
-                    />
-                </div>
-                <AiFilter isExpanded={isExpanded} />
-            </div>
-
             <div
                 className={clsx('flex flex-col w-full gap-2 h-full', {
                     'xl:flex-row': true,
@@ -238,22 +222,30 @@ export function Playlist({
                         </div>
                     </div>
                 </div>
-                <div
-                    className={clsx(
-                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
-                        {
-                            'Playlist--wide': size !== 'small',
-                            'Playlist--embedded': embedded,
-                        }
+                {(featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] !== 'new' ||
+                    (featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' && !isFiltersExpanded)) && (
+                    <div
+                        className={clsx(
+                            'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
+                            {
+                                'Playlist--wide': size !== 'small',
+                                'Playlist--embedded': embedded,
+                            }
+                        )}
+                    >
+                        {content && (
+                            <div className="Playlist__main h-full">
+                                {' '}
+                                {typeof content === 'function' ? content({ activeItem }) : content}
+                            </div>
+                        )}
+                    </div>
+                )}
+                {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' &&
+                    isFiltersExpanded &&
+                    filterContent && (
+                        <div className="bg-surface-primary border rounded-md p-2 w-full">{filterContent}</div>
                     )}
-                >
-                    {content && (
-                        <div className="Playlist__main h-full">
-                            {' '}
-                            {typeof content === 'function' ? content({ activeItem }) : content}
-                        </div>
-                    )}
-                </div>
             </div>
         </>
     )

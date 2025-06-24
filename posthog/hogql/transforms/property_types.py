@@ -1,4 +1,4 @@
-from typing import Literal, cast
+from typing import Literal, cast, Optional
 
 from django.db.models.functions.comparison import Coalesce
 
@@ -125,6 +125,14 @@ class PropertyFinder(TraversingVisitor):
                             if self.group_properties.get(group_id) is None:
                                 self.group_properties[group_id] = set()
                             self.group_properties[group_id].add(property_name)
+                    elif isinstance(table_type, ast.LazyTableType):
+                        global_group_id: Optional[int] = (
+                            self.context.globals.get("group_id") if self.context.globals else None
+                        )
+                        if isinstance(global_group_id, int):
+                            if self.group_properties.get(global_group_id) is None:
+                                self.group_properties[global_group_id] = set()
+                            self.group_properties[global_group_id].add(property_name)
                 if table_name == "events":
                     if (
                         isinstance(node.field_type.table_type, ast.VirtualTableType)
@@ -209,6 +217,15 @@ class PropertySwapper(CloningVisitor):
                             if f"{group_id}_{property_name}" in self.group_properties:
                                 return self._convert_string_property_to_type(
                                     node, "group", f"{group_id}_{property_name}"
+                                )
+                    elif isinstance(table_type, ast.LazyTableType):
+                        global_group_id: Optional[int] = (
+                            self.context.globals.get("group_id") if self.context.globals else None
+                        )
+                        if isinstance(global_group_id, int):
+                            if f"{global_group_id}_{property_name}" in self.group_properties:
+                                return self._convert_string_property_to_type(
+                                    node, "group", f"{global_group_id}_{property_name}"
                                 )
                 if table_name == "events":
                     if property_name in self.event_properties:

@@ -3,30 +3,52 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_database::get_pool;
+use common_geoip::GeoIpClient;
+use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use tokio::net::TcpListener;
 
-use crate::client::database::get_pool;
-use crate::client::geoip::GeoIpClient;
-use crate::client::redis::RedisClient;
-use crate::cohort::cohort_cache_manager::CohortCacheManager;
+use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
+use crate::db_monitor::DatabasePoolMonitor;
 use crate::router;
+use common_cookieless::CookielessManager;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let redis_client = match RedisClient::new(config.redis_url.clone()) {
+    // Create separate Redis clients for reading and writing
+    let redis_reader_client = match RedisClient::new(config.get_redis_reader_url().to_string()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
-            tracing::error!("Failed to create Redis client: {}", e);
+            tracing::error!(
+                "Failed to create Redis reader client for URL {}: {}",
+                config.get_redis_reader_url(),
+                e
+            );
             return;
         }
     };
 
-    // TODO - we should have a dedicated URL for both this and the writer – the reader will read
-    // from the replica, and the writer will write to the main database.
+    let _redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::error!(
+                "Failed to create Redis writer client for URL {}: {}",
+                config.get_redis_writer_url(),
+                e
+            );
+            return;
+        }
+    };
+
+    // For backwards compatibility, use the reader client as the primary Redis client
+    // for services that don't distinguish between reads and writes yet
+    let redis_client = redis_reader_client.clone();
+
     let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
         Ok(client) => {
             tracing::info!("Successfully created read Postgres client");
@@ -62,10 +84,14 @@ where
             }
         };
 
-    let geoip_service = match GeoIpClient::new(&config) {
+    let geoip_service = match GeoIpClient::new(config.get_maxmind_db_path()) {
         Ok(service) => Arc::new(service),
         Err(e) => {
-            tracing::error!("Failed to create GeoIP service: {}", e);
+            tracing::error!(
+                "Failed to create GeoIP service with DB path {}: {}",
+                config.get_maxmind_db_path().display(),
+                e
+            );
             return;
         }
     };
@@ -84,7 +110,33 @@ where
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
+    // Start database pool monitoring
+    let db_monitor = DatabasePoolMonitor::new(reader.clone(), writer.clone());
+    tokio::spawn(async move {
+        db_monitor.start_monitoring().await;
+    });
+
+    let billing_limiter = match RedisLimiter::new(
+        Duration::from_secs(5),
+        redis_client.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::FeatureFlags,
+        ServiceName::FeatureFlags,
+    ) {
+        Ok(limiter) => limiter,
+        Err(e) => {
+            tracing::error!("Failed to create billing limiter: {}", e);
+            return;
+        }
+    };
+
     // You can decide which client to pass to the router, or pass both if needed
+    let cookieless_manager = Arc::new(CookielessManager::new(
+        config.get_cookieless_config(),
+        redis_client.clone(),
+    ));
+
     let app = router::router(
         redis_client,
         reader,
@@ -92,6 +144,8 @@ where
         cohort_cache,
         geoip_service,
         health,
+        billing_limiter,
+        cookieless_manager,
         config,
     );
 

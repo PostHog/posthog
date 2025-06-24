@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
 
@@ -89,7 +89,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                             )
-                        } catch (e) {
+                        } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return an empty array below
                         }
                     }
@@ -102,6 +102,28 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 },
             ],
             (crumbs): Breadcrumb[] => crumbs,
+            { equalityCheck: objectsEqual },
+        ],
+        projectTreeRef: [
+            () => [
+                // Similar logic to the breadcrumbs above. This is used to find the object in the project tree.
+                (state, props): ProjectTreeRef | null => {
+                    const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+                    if (activeSceneLogic && 'projectTreeRef' in activeSceneLogic.selectors) {
+                        try {
+                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            return activeSceneLogic.selectors.projectTreeRef(
+                                state,
+                                activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            )
+                        } catch {
+                            // If the breadcrumb selector fails, we'll just ignore it and return null below
+                        }
+                    }
+                    return null
+                },
+            ],
+            (ref: ProjectTreeRef | null): ProjectTreeRef | null => ref,
             { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [

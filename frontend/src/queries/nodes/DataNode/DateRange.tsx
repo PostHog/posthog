@@ -31,14 +31,13 @@ export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributio
     if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
         return (
             <DateFilter
-                size="medium"
                 dateFrom={query.filters?.dateRange?.date_from ?? undefined}
                 dateTo={query.filters?.dateRange?.date_to ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {
                     const newQuery: Q = {
                         ...query,
                         filters: {
-                            ...(query.filters ?? {}),
+                            ...query.filters,
                             dateRange: {
                                 date_from: changedDateFrom ?? undefined,
                                 date_to: changedDateTo ?? undefined,

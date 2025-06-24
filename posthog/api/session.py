@@ -28,6 +28,7 @@ class SessionViewSet(
 ):
     scope_object = "query"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    scope_object_read_actions = ["property_definitions", "values"]
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:

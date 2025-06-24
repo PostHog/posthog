@@ -19,7 +19,6 @@ from posthog.utils import (
     dict_from_cursor_fetchall,
     get_helm_info_env,
     get_plugin_server_job_queues,
-    get_plugin_server_version,
     get_redis_info,
     get_redis_queue_depth,
     is_plugin_server_alive,
@@ -65,13 +64,6 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 "key": "plugin_sever_alive",
                 "metric": "Plugin server alive",
                 "value": is_plugin_server_alive(),
-            }
-        )
-        metrics.append(
-            {
-                "key": "plugin_sever_version",
-                "metric": "Plugin server version",
-                "value": get_plugin_server_version() or "unknown",
             }
         )
 

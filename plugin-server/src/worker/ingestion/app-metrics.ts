@@ -1,13 +1,12 @@
-import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 
 export interface AppMetricIdentifier {
@@ -152,7 +151,7 @@ export class AppMetrics {
     }
 
     async flush(): Promise<void> {
-        status.debug('🚽', `Flushing app metrics`)
+        logger.debug('🚽', `Flushing app metrics`)
         const startTime = Date.now()
         this.lastFlushTime = startTime
         if (Object.keys(this.queuedData).length === 0) {
@@ -164,7 +163,7 @@ export class AppMetrics {
         this.queueSize = 0
         this.queuedData = {}
 
-        const messages: Message[] = Object.values(queue).map((value) => ({
+        const messages: TopicMessage['messages'] = Object.values(queue).map((value) => ({
             value: JSON.stringify({
                 timestamp: castTimestampOrNow(DateTime.fromMillis(value.lastTimestamp), TimestampFormat.ClickHouse),
                 team_id: value.metric.teamId,
@@ -186,7 +185,7 @@ export class AppMetrics {
             topic: KAFKA_APP_METRICS,
             messages: messages,
         })
-        status.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
+        logger.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }
 
     _metricErrorParameters(errorWithContext: ErrorWithContext): Partial<AppMetric> {
@@ -217,7 +216,7 @@ export class AppMetrics {
             }
         } catch (err) {
             captureException(err)
-            status.warn('⚠️', 'Failed to serialize error for app metrics. Not reporting this error.', err)
+            logger.warn('⚠️', 'Failed to serialize error for app metrics. Not reporting this error.', err)
             return {}
         }
     }

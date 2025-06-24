@@ -26,21 +26,30 @@ function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { retentionFilter, trendSeries, incompletenessOffsetFromEnd, aggregationGroupTypeIndex } = useValues(
-        retentionGraphLogic(insightProps)
-    )
+    const {
+        hasValidBreakdown,
+        retentionFilter,
+        filteredTrendSeries,
+        incompletenessOffsetFromEnd,
+        aggregationGroupTypeIndex,
+        shouldShowMeanPerBreakdown,
+    } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
-    if (trendSeries.length === 0) {
-        return null
+    if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
+        return (
+            <p className="w-full m-0 text-center text-sm text-gray-500">
+                Select a breakdown to see the retention graph
+            </p>
+        )
     }
 
-    return trendSeries ? (
+    return filteredTrendSeries ? (
         <LineGraph
             data-attr="trend-line-graph"
             type={displayTypeToGraphType(retentionFilter?.display || ChartDisplayType.ActionsLineGraph)}
-            datasets={trendSeries as GraphDataset[]}
-            labels={(trendSeries[0] && trendSeries[0].labels) || []}
+            datasets={filteredTrendSeries as GraphDataset[]}
+            labels={(filteredTrendSeries[0] && filteredTrendSeries[0].labels) || []}
             isInProgress={incompletenessOffsetFromEnd < 0}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
@@ -52,6 +61,11 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             tooltip={{
                 rowCutoff: 11, // 11 time units is hardcoded into retention insights
                 renderSeries: function _renderCohortPrefix(value) {
+                    // If we're showing mean values per breakdown, show the breakdown value directly
+                    if (shouldShowMeanPerBreakdown) {
+                        return <>{value}</>
+                    }
+                    // Otherwise prefix with "Cohort" for normal cohort view
                     return <>Cohort {value}</>
                 },
                 showHeader: false,
@@ -60,6 +74,11 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
                 },
             }}
             onClick={(payload) => {
+                // Only open the modal if we're not showing mean values (which don't map to specific cohorts)
+                if (shouldShowMeanPerBreakdown) {
+                    return
+                }
+
                 const { points } = payload
                 const rowIndex = points.clickedPointNotLine
                     ? points.pointsIntersectingClick[0].dataset.index

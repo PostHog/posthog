@@ -22,8 +22,11 @@ export const formatAggregationAxisValue = (
     value: number | string
 ): string => {
     value = Number(value)
-    const decimalPlaces =
+    const maxDecimalPlaces =
         (trendsFilter as TrendsFilter)?.decimalPlaces ?? (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
+    const minDecimalPlaces =
+        (trendsFilter as TrendsFilter)?.minDecimalPlaces ??
+        (trendsFilter as Partial<TrendsFilterType>)?.min_decimal_places
     const aggregationAxisFormat =
         (trendsFilter as TrendsFilter)?.aggregationAxisFormat ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
@@ -33,7 +36,7 @@ export const formatAggregationAxisValue = (
     const aggregationAxisPostfix =
         (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
-    let formattedValue = humanFriendlyNumber(value, decimalPlaces)
+    let formattedValue = humanFriendlyNumber(value, maxDecimalPlaces, minDecimalPlaces)
     if (aggregationAxisFormat) {
         switch (aggregationAxisFormat) {
             case 'duration':

@@ -33,6 +33,7 @@ class SetupWizardTests(APITestCase):
         assert response.data["project_api_key"] == "test-key"
         assert response.data["host"] == "http://localhost:8010"
 
+    @patch("posthog.api.wizard.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.OpenAI")
     def test_query_endpoint_requires_hash_header(self, mock_openai):
         response = self.client.post(
@@ -45,11 +46,12 @@ class SetupWizardTests(APITestCase):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    @patch("posthog.api.wizard.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.OpenAI")
     def test_query_endpoint_rate_limit(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
         # Simulate an OpenAI response with JSON {"foo": "bar"}
-        mock_openai_instance.beta.chat.completions.parse.return_value = MagicMock(
+        mock_openai_instance.chat.completions.create.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=json.dumps({"foo": "bar"})))]
         )
 
@@ -74,6 +76,7 @@ class SetupWizardTests(APITestCase):
         )
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
+    @patch("posthog.api.wizard.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.OpenAI")
     def test_query_endpoint_invalid_hash(self, mock_openai):
         response = self.client.post(
@@ -86,12 +89,14 @@ class SetupWizardTests(APITestCase):
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    @patch("posthog.api.wizard.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.OpenAI")
     def test_query_endpoint(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
-        mock_openai_instance.beta.chat.completions.parse.return_value = MagicMock(
+        mock_openai_instance.chat.completions.create.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=json.dumps({"foo": "bar"})))]
         )
+
         response = self.client.post(
             self.query_url,
             data=json.dumps(
@@ -101,6 +106,7 @@ class SetupWizardTests(APITestCase):
             HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
         )
         assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"data": {"foo": "bar"}}
 
     def tearDown(self):
         super().tearDown()

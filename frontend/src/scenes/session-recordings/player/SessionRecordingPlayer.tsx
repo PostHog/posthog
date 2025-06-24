@@ -3,13 +3,16 @@ import './SessionRecordingPlayer.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { BuilderHog2 } from 'lib/components/hedgehogs'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useMemo, useRef } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/PlayerFrameCommentOverlay'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -21,6 +24,7 @@ import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
+import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
@@ -39,7 +43,7 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
     return PLAYBACK_SPEEDS.map((x, i) => ({ key: `${i}`, value: x })).reduce(
-        (acc, x) => ({ ...acc, [x.key]: { action: () => action(x.value) } }),
+        (acc, x) => Object.assign(acc, { [x.key]: { action: () => action(x.value) } }),
         {}
     )
 }
@@ -86,17 +90,46 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setSpeed,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataLogic(logicProps))
+    const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, isCommenting } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { setPlayNextAnimationInterrupted, setIsCommenting } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+
+    useEffect(
+        () => {
+            if (isLikelyPastTTL) {
+                posthog.capture('session loaded past ttl', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionRecordingData?.start,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isLikelyPastTTL]
+    )
+
+    useEffect(
+        () => {
+            if (isRecentAndInvalid) {
+                posthog.capture('session loaded recent and invalid', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionRecordingData?.start,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isRecentAndInvalid]
+    )
 
     useKeyboardHotkeys(
         {
             f: {
                 action: () => setIsFullScreen(!isFullScreen),
+            },
+            c: {
+                action: () => setIsCommenting(!isCommenting),
             },
             space: {
                 action: () => togglePlayPause(),
@@ -195,6 +228,26 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                             Reload
                                         </LemonButton>
                                     </div>
+                                ) : isLikelyPastTTL ? (
+                                    <div
+                                        className="flex flex-1 flex-col items-center justify-center"
+                                        data-attr="session-recording-player-past-ttl"
+                                    >
+                                        <SleepingHog height={200} />
+                                        <h1>This recording is no longer available</h1>
+                                        <p>
+                                            We store session recordings for a limited time, and this one has expired and
+                                            been deleted.
+                                        </p>
+                                        <div className="text-right">
+                                            <LemonButton
+                                                type="secondary"
+                                                to="https://posthog.com/docs/session-replay/data-retention"
+                                            >
+                                                Learn more about data retention
+                                            </LemonButton>
+                                        </div>
+                                    </div>
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
@@ -207,6 +260,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                             >
                                                 <PlayerFrame />
                                                 <PlayerFrameOverlay />
+                                                <FlaggedFeature flag="annotations-recording-scope" match={true}>
+                                                    <PlayerFrameCommentOverlay />
+                                                </FlaggedFeature>
                                             </div>
                                             <PlayerController />
                                         </div>
@@ -219,6 +275,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     )}
                 </FloatingContainerContext.Provider>
             </div>
+            <SessionRecordingNextConfirmation />
         </BindLogic>
     )
 }

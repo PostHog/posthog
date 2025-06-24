@@ -5,8 +5,8 @@ import type { outputPaneLogicType } from './outputPaneLogicType'
 export enum OutputTab {
     Results = 'results',
     Visualization = 'visualization',
-    Info = 'info',
-    Lineage = 'lineage',
+    Variables = 'variables',
+    Materialization = 'materialization',
 }
 
 export const outputPaneLogic = kea<outputPaneLogicType>([

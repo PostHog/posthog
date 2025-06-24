@@ -10,10 +10,10 @@ import type { notebookPanelLogicType } from './notebookPanelLogicType'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelStateLogic, ['sidePanelOpen', 'selectedTab'], featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
-    }),
+    })),
     actions({
         selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
             id,

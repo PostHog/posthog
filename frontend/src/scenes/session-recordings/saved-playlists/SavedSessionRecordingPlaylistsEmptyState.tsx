@@ -16,15 +16,15 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
     ) : (
         <div className="flex items-center justify-center">
             <div className="max-w-248 mt-12 flex flex-col items-center">
-                <h2 className="text-xl">There are no playlists that match these filters</h2>
-                <p className="text-secondary">Once you create a playlist, it will show up here.</p>
+                <h2 className="text-xl">There are no collections that match these filters</h2>
+                <p className="text-secondary">Once you create a collection, it will show up here.</p>
                 <LemonButton
                     type="primary"
                     data-attr="add-session-playlist-button-empty-state"
                     icon={<IconPlus />}
-                    onClick={() => void createPlaylist({}, true)}
+                    onClick={() => void createPlaylist({ type: 'collection' }, true)}
                 >
-                    New playlist
+                    New collection
                 </LemonButton>
             </div>
         </div>

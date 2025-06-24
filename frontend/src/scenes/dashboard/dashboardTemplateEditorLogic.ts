@@ -11,7 +11,7 @@ import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditor
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
-    connect({ logic: [dashboardTemplatesLogic], values: [featureFlagLogic, ['featureFlags']] }),
+    connect(() => ({ logic: [dashboardTemplatesLogic], values: [featureFlagLogic, ['featureFlags']] })),
     actions({
         setEditorValue: (value: string) => ({ value }),
         setDashboardTemplate: (dashboardTemplate: DashboardTemplateEditorType) => ({

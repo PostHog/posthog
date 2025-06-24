@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { BillingType } from '~/types'
+import { BillingPlan, BillingType } from '~/types'
 
 export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
@@ -11,6 +11,7 @@ export const billingJson: BillingType = {
         current_period_end: dayjs('2024-04-07T22:54:32Z'),
         interval: 'month',
     },
+    billing_plan: BillingPlan.Paid,
     current_total_amount_usd: '403.07',
     current_total_amount_usd_after_discount: '403.07',
     products: [
@@ -331,6 +332,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.4423939206,
             projected_usage: 7000000,
             projected_amount_usd: '960.00',
+            projected_amount_usd_with_limit: '960.00',
             unit: 'event',
             addons: [
                 {
@@ -1270,6 +1272,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.16022,
             projected_usage: 50000,
             projected_amount_usd: '775.00',
+            projected_amount_usd_with_limit: '775.00',
             unit: 'recording',
             addons: [],
             contact_support: false,
@@ -1710,15 +1713,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'multiple_environments',
-                            name: 'Multi-environment support',
-                            description:
-                                'Test flags in local development or staging by using the same flag key across PostHog projects.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
                             key: 'feature_flags_data_retention',
                             name: 'Data retention',
                             description: 'Keep a historical record of your data.',
@@ -1803,6 +1797,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: 'request',
             addons: [],
             contact_support: false,
@@ -1907,15 +1902,6 @@ export const billingJson: BillingType = {
                     },
                     icon_key: null,
                     type: 'primary',
-                },
-                {
-                    key: 'multiple_environments',
-                    name: 'Multi-environment support',
-                    description:
-                        'Test flags in local development or staging by using the same flag key across PostHog projects.',
-                    images: null,
-                    icon_key: 'IconStack',
-                    type: 'secondary',
                 },
                 {
                     key: 'user_opt_in',
@@ -2276,6 +2262,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: 'survey response',
             addons: [],
             contact_support: false,
@@ -2574,6 +2561,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: null,
             addons: [],
             contact_support: false,
@@ -2647,7 +2635,7 @@ export const billingJson: BillingType = {
                 {
                     plan_key: 'free-20230117',
                     product_key: 'platform_and_support',
-                    name: 'Totally free',
+                    name: 'Free',
                     description: 'SSO, permission management, and support.',
                     image_url: 'https://posthog.com/images/product/product-icons/platform.svg',
                     docs_url: 'https://posthog.com/docs',
@@ -2676,8 +2664,17 @@ export const billingJson: BillingType = {
                             key: 'organizations_projects',
                             name: 'Projects',
                             description:
-                                'Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.',
+                                'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
                             unit: 'project',
+                            limit: 1,
+                            note: null,
+                        },
+                        {
+                            key: 'environments',
+                            name: 'Environments',
+                            description:
+                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
+                            unit: 'environment',
                             limit: 1,
                             note: null,
                         },
@@ -2752,8 +2749,17 @@ export const billingJson: BillingType = {
                             key: 'organizations_projects',
                             name: 'Projects',
                             description:
-                                'Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.',
+                                'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
                             unit: 'projects',
+                            limit: 2,
+                            note: null,
+                        },
+                        {
+                            key: 'environments',
+                            name: 'Environments',
+                            description:
+                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
+                            unit: 'environment',
                             limit: 2,
                             note: null,
                         },
@@ -2838,7 +2844,16 @@ export const billingJson: BillingType = {
                             key: 'organizations_projects',
                             name: 'Projects',
                             description:
-                                'Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.',
+                                'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
+                            unit: null,
+                            limit: null,
+                            note: 'Unlimited',
+                        },
+                        {
+                            key: 'environments',
+                            name: 'Environments',
+                            description:
+                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
                             unit: null,
                             limit: null,
                             note: 'Unlimited',
@@ -3052,6 +3067,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: null,
             addons: [
                 {
@@ -3091,7 +3107,16 @@ export const billingJson: BillingType = {
                                     key: 'organizations_projects',
                                     name: 'Projects',
                                     description:
-                                        'Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.',
+                                        'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
+                                    unit: null,
+                                    limit: null,
+                                    note: 'Unlimited',
+                                },
+                                {
+                                    key: 'environments',
+                                    name: 'Environments',
+                                    description:
+                                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
                                     unit: null,
                                     limit: null,
                                     note: 'Unlimited',
@@ -3329,10 +3354,19 @@ export const billingJson: BillingType = {
                             key: 'organizations_projects',
                             name: 'Projects',
                             description:
-                                'Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.',
+                                'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
                             images: null,
                             icon_key: null,
                             type: null,
+                        },
+                        {
+                            key: 'environments',
+                            name: 'Environments',
+                            description:
+                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
+                            unit: null,
+                            limit: null,
+                            note: 'Unlimited',
                         },
                         {
                             key: 'support_response_time',
@@ -3396,10 +3430,19 @@ export const billingJson: BillingType = {
                     key: 'organizations_projects',
                     name: 'Projects',
                     description:
-                        'Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.',
+                        'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
                     images: null,
                     icon_key: null,
                     type: null,
+                },
+                {
+                    key: 'environments',
+                    name: 'Environments',
+                    description:
+                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
+                    unit: null,
+                    limit: null,
+                    note: 'Unlimited',
                 },
                 {
                     key: 'social_sso',
@@ -3608,4 +3651,8 @@ export const billingJson: BillingType = {
     stripe_portal_url:
         'https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVJR3VyemlvMDZzRzdiQXZrc1AxSjNXZk1BellP0100ZsforDQG',
     subscription_level: 'paid',
+    account_owner: {
+        name: 'Simon Fisher',
+        email: 'simon@posthog.com',
+    },
 }

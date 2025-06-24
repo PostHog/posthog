@@ -2,8 +2,8 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Properties, RetryError } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
-import type { Response } from '~/src/utils/fetch'
-
+import { parseJSON } from '../../../../utils/json-parse'
+import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface EventSink {
@@ -23,7 +23,7 @@ export const parseEventSinkConfig = (config: SalesforcePluginConfig): EventToSin
     let eventMapping: EventToSinkMapping | null = null
     if (config.eventEndpointMapping?.length > 0) {
         try {
-            eventMapping = JSON.parse(config.eventEndpointMapping) as EventToSinkMapping
+            eventMapping = parseJSON(config.eventEndpointMapping) as EventToSinkMapping
         } catch (e) {
             throw new Error('eventEndpointMapping must be an empty string or contain valid JSON!')
         }
@@ -244,7 +244,7 @@ function configToMatchingEvents(config: SalesforcePluginConfig): string[] {
     if (config.eventsToInclude) {
         return config.eventsToInclude.split(',').map((e: string) => e.trim())
     } else {
-        return Object.keys(JSON.parse(config.eventEndpointMapping)).map((e: string) => e.trim())
+        return Object.keys(parseJSON(config.eventEndpointMapping)).map((e: string) => e.trim())
     }
     return []
 }
@@ -263,7 +263,7 @@ export async function onEvent(event: ProcessedPluginEvent, meta: SalesforceMeta)
     await sendEventToSalesforce(event, meta, await getToken(meta))
 }
 
-function statusOk(res: Response, logger: SalesforceMeta['logger']): boolean {
+function statusOk(res: FetchResponse, logger: SalesforceMeta['logger']): boolean {
     logger.debug('testing response for whether it is "ok". has status: ', res.status, ' debug: ', JSON.stringify(res))
     return String(res.status)[0] === '2'
 }

@@ -42,7 +42,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         setEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
         updateEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
     }),
-    connect({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
     reducers({
         urlTriggerConfig: [
             null as SessionReplayUrlTriggerConfig[] | null,

@@ -101,75 +101,75 @@ class SQSProducer:
             logger.exception(f"Error sending message: {e}")
             return None
 
-    def send_message_batch(self, messages, delay_seconds=0):
-        """
-        Send multiple messages to the SQS queue in a single batch.
+    # def send_message_batch(self, messages, delay_seconds=0):
+    #     """
+    #     Send multiple messages to the SQS queue in a single batch.
 
-        Args:
-            messages (list): List of message dicts to send
-            delay_seconds (int, optional): Default delay for messages (0-900)
+    #     Args:
+    #         messages (list): List of message dicts to send
+    #         delay_seconds (int, optional): Default delay for messages (0-900)
 
-        Returns:
-            dict: Response from SQS containing successful and failed messages
-        """
-        # Check if we have messages to send
-        if not messages:
-            logger.warning("No messages to send in batch")
-            return None
+    #     Returns:
+    #         dict: Response from SQS containing successful and failed messages
+    #     """
+    #     # Check if we have messages to send
+    #     if not messages:
+    #         logger.warning("No messages to send in batch")
+    #         return None
 
-        # Prepare batch entries (maximum 10 per API call)
-        entries = []
-        for i, msg in enumerate(messages[:10]):
-            # Generate an ID for this message in the batch
-            entry_id = f"msg-{i}-{uuid.uuid4()}"
+    #     # Prepare batch entries (maximum 10 per API call)
+    #     entries = []
+    #     for i, msg in enumerate(messages[:10]):
+    #         # Generate an ID for this message in the batch
+    #         entry_id = f"msg-{i}-{uuid.uuid4()}"
 
-            # Get message body
-            body = msg.get("body", {})
-            if isinstance(body, dict):
-                body = json.dumps(body)
+    #         # Get message body
+    #         body = msg.get("body", {})
+    #         if isinstance(body, dict):
+    #             body = json.dumps(body)
 
-            # Create entry for this message
-            entry = {"Id": entry_id, "MessageBody": body, "DelaySeconds": msg.get("delay_seconds", delay_seconds)}
+    #         # Create entry for this message
+    #         entry = {"Id": entry_id, "MessageBody": body, "DelaySeconds": msg.get("delay_seconds", delay_seconds)}
 
-            # Add message attributes if provided
-            attributes = msg.get("attributes")
-            if attributes:
-                formatted_attributes = self._format_message_attributes(attributes)
-                if formatted_attributes:
-                    entry["MessageAttributes"] = formatted_attributes
+    #         # Add message attributes if provided
+    #         attributes = msg.get("attributes")
+    #         if attributes:
+    #             formatted_attributes = self._format_message_attributes(attributes)
+    #             if formatted_attributes:
+    #                 entry["MessageAttributes"] = formatted_attributes
 
-            # For FIFO queues, add required parameters
-            group_id = msg.get("group_id")
-            if group_id:
-                entry["MessageGroupId"] = group_id
+    #         # For FIFO queues, add required parameters
+    #         group_id = msg.get("group_id")
+    #         if group_id:
+    #             entry["MessageGroupId"] = group_id
 
-                # Get or generate deduplication ID
-                dedup_id = msg.get("deduplication_id")
-                if not dedup_id:
-                    dedup_id = str(uuid.uuid4())
+    #             # Get or generate deduplication ID
+    #             dedup_id = msg.get("deduplication_id")
+    #             if not dedup_id:
+    #                 dedup_id = str(uuid.uuid4())
 
-                entry["MessageDeduplicationId"] = dedup_id
+    #             entry["MessageDeduplicationId"] = dedup_id
 
-            entries.append(entry)
+    #         entries.append(entry)
 
-        try:
-            response = self.sqs.send_message_batch(QueueUrl=self.queue_url, Entries=entries)
+    #     try:
+    #         response = self.sqs.send_message_batch(QueueUrl=self.queue_url, Entries=entries)
 
-            # Log successful and failed messages
-            successful = response.get("Successful", [])
-            failed = response.get("Failed", [])
+    #         # Log successful and failed messages
+    #         successful = response.get("Successful", [])
+    #         failed = response.get("Failed", [])
 
-            if successful:
-                logger.info(f"Successfully sent {len(successful)} messages in batch")
+    #         if successful:
+    #             logger.info(f"Successfully sent {len(successful)} messages in batch")
 
-            if failed:
-                logger.error(f"Failed to send {len(failed)} messages in batch: {failed}")
+    #         if failed:
+    #             logger.error(f"Failed to send {len(failed)} messages in batch: {failed}")
 
-            return response
+    #         return response
 
-        except ClientError as e:
-            logger.exception(f"Error sending message batch: {e}")
-            return None
+    #     except ClientError as e:
+    #         logger.exception(f"Error sending message batch: {e}")
+    #         return None
 
     def _format_message_attributes(self, attributes):
         """

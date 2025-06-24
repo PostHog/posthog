@@ -130,13 +130,13 @@
             }
 
             &.Backlink--selected {
-                border-color: var(--accent-primary);
+                border-color: var(--accent);
             }
 
             &.Backlink--active {
                 color: var(--white);
-                background: var(--accent-primary);
-                border: 1px solid var(--accent-primary);
+                background: var(--accent);
+                border: 1px solid var(--accent);
 
                 & .Backlink__label,
                 & svg {
@@ -153,6 +153,40 @@
             a {
                 cursor: text;
             }
+        }
+
+        .NotebookLatex {
+            font-size: 1.1em;
+            line-height: 1.5;
+            text-align: center;
+
+            &[data-display='true'] {
+                display: block;
+                margin: 1.5em 0;
+                font-size: 1.2em;
+                text-align: center;
+            }
+
+            &[data-display='false'] {
+                display: inline;
+                vertical-align: middle;
+            }
+
+            // Style for the MathJax rendered content
+            .MathJax {
+                font-size: 1.1em;
+            }
+        }
+
+        .NotebookLatex mjx-container {
+            padding: 1em 0;
+        }
+
+        .NotebookLatex mjx-container,
+        .NotebookLatex svg {
+            display: block;
+            margin-right: auto;
+            margin-left: auto;
         }
     }
 
@@ -292,7 +326,7 @@
             inset: 0;
             z-index: -1;
             content: '';
-            background: var(--accent-primary);
+            background: var(--accent);
             opacity: var(--notebook-comment-background-opacity);
         }
     }

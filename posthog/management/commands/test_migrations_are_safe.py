@@ -1,5 +1,7 @@
+import os
 import re
 import sys
+import select
 from typing import Optional
 
 from django.core.management import call_command
@@ -31,20 +33,44 @@ def validate_migration_sql(sql) -> bool:
             table_name = re.findall(r"CREATE TABLE \"([a-z_]+)\"", operation_sql)[0]
             tables_created_so_far.append(table_name)
 
-            if '"id" serial' in operation_sql:
+            if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
                 print(
-                    f"\n\n\033[91mFound a new table with an int32 id. Please use an int64 id or use UUIDModel instead.\nSource: `{operation_sql}`"
+                    f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
                 )
                 return True
 
         if (
-            re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
-            and "CREATE TABLE" not in operation_sql
-            and "ADD CONSTRAINT" not in operation_sql
+            "ALTER TABLE" in operation_sql  # Only check ALTER TABLE operations
+            and re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
             and "-- not-null-ignore" not in operation_sql
             # Ignore for brand-new tables
             and (table_being_altered not in tables_created_so_far or table_being_altered not in new_tables)
         ):
+            # Check if this is adding a column with a constant default (safe in PostgreSQL 11+)
+            if "ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql:
+                # Extract the default value to check if it's a constant
+                # Match DEFAULT followed by either a quoted string or unquoted value until NOT NULL or end of significant tokens
+                default_match = re.search(
+                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))\s+(?:NOT\s+NULL|;|$)", operation_sql, re.I
+                )
+                if default_match:
+                    default_value = default_match.group(1).strip()
+                    # Check if it's a constant (string literal, number, boolean, or simple constant like NOW())
+                    if (
+                        (default_value.startswith("'") and default_value.endswith("'"))  # String literal
+                        or re.match(r"^-?\d+(\.\d+)?$", default_value)  # Number
+                        or default_value.upper() in ["TRUE", "FALSE", "NULL"]  # Boolean/NULL
+                        or default_value.upper()
+                        in [
+                            "NOW()",
+                            "CURRENT_TIMESTAMP",
+                            "CURRENT_DATE",
+                            "CURRENT_TIME",
+                        ]  # Functions marked as stable in postgres
+                    ):
+                        # This is safe - adding a column with a constant default doesn't require table rewrite in PostgreSQL 11+
+                        continue
+
             print(
                 f"\n\n\033[91mFound a non-null field or default added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field.\nSource: `{operation_sql}`"
             )
@@ -122,10 +148,18 @@ class Command(BaseCommand):
             except (IndexError, CommandError):
                 pass
 
-        migrations = sys.stdin.readlines()
+        # Wait for stdin with 1 second timeout
+        if select.select([sys.stdin], [], [], 1)[0]:
+            migrations = sys.stdin.readlines()
+        else:
+            if os.getenv("CI"):
+                print("\n\n\033[91mNo migrations provided in CI - this is likely a mistake")
+                sys.exit(1)
+            print("No stdin detected, using default migrations - only useful for testing purposes.")
+            migrations = []
 
         if not migrations:
-            migrations = ["posthog/migrations/0339_add_session_recording_storage_version.py"]
+            migrations = ["posthog/migrations/0770_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
 
         if len(migrations) > 1:
             print(

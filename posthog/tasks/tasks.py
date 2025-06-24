@@ -1,9 +1,8 @@
 import time
 from typing import Optional
 from uuid import UUID
-import posthoganalytics
-from sentry_sdk import capture_exception
 
+import posthoganalytics
 import requests
 from celery import shared_task
 from django.conf import settings
@@ -13,12 +12,13 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
-from posthog.ph_client import get_ph_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
@@ -65,23 +65,26 @@ def process_query_task(
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
-    api_query_personal_key: bool,
+    is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
     """
     Kick off query
     Once complete save results to redis
     """
-    with get_api_personal_rate_limiter().run(is_api=api_query_personal_key, team_id=team_id, task_id=query_id):
-        from posthog.clickhouse.client import execute_process_query
+    from posthog.clickhouse.client import execute_process_query
 
-        execute_process_query(
-            team_id=team_id,
-            user_id=user_id,
-            query_id=query_id,
-            query_json=query_json,
-            limit_context=limit_context,
-        )
+    if is_query_service:
+        tag_queries(chargeable=1)
+
+    execute_process_query(
+        team_id=team_id,
+        user_id=user_id,
+        query_id=query_id,
+        query_json=query_json,
+        limit_context=limit_context,
+        is_query_service=is_query_service,
+    )
 
 
 @shared_task(ignore_result=True)
@@ -307,69 +310,6 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 
 @shared_task(ignore_result=True)
-def graphile_worker_queue_size() -> None:
-    from django.db import connections
-    from statshog.defaults.django import statsd
-
-    connection = connections["graphile"] if "graphile" in connections else connections["default"]
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-        SELECT count(*)
-        FROM graphile_worker.jobs
-        WHERE (jobs.locked_at is null or jobs.locked_at < (now() - INTERVAL '4 hours'))
-        AND run_at <= now()
-        AND attempts < max_attempts
-        """
-        )
-
-        queue_size = cursor.fetchone()[0]
-        statsd.gauge("graphile_worker_queue_size", queue_size)
-
-        # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
-        # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
-        # Jobs not yet eligible for execution are filtered out with run_at <= now()
-        cursor.execute(
-            """
-        SELECT task_identifier, count(*) as c, EXTRACT(EPOCH FROM MIN(run_at)) as oldest FROM graphile_worker.jobs
-        WHERE attempts < max_attempts
-        AND run_at <= now()
-        GROUP BY task_identifier
-        """
-        )
-
-        seen_task_identifier = set()
-        with pushed_metrics_registry("celery_graphile_worker_queue_size") as registry:
-            processing_lag_gauge = Gauge(
-                "posthog_celery_graphile_lag_seconds",
-                "Oldest scheduled run on pending Graphile jobs per task identifier, zero if queue empty.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            waiting_jobs_gauge = Gauge(
-                "posthog_celery_graphile_waiting_jobs",
-                "Number of Graphile jobs in the queue, per task identifier.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            for task_identifier, count, oldest in cursor.fetchall():
-                seen_task_identifier.add(task_identifier)
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(count)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - float(oldest))
-                statsd.gauge(
-                    "graphile_waiting_jobs",
-                    count,
-                    tags={"task_identifier": task_identifier},
-                )
-
-            # The query will not return rows for empty queues, creating missing points.
-            # Let's emit updates for known queues even if they are empty.
-            for task_identifier in KNOWN_CELERY_TASK_IDENTIFIERS - seen_task_identifier:
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(0)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(0)
-
-
-@shared_task(ignore_result=True)
 def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 
@@ -564,19 +504,11 @@ def clean_stale_partials() -> None:
 
 
 @shared_task(ignore_result=True)
-def monitoring_check_clickhouse_schema_drift() -> None:
-    from posthog.tasks.check_clickhouse_schema_drift import (
-        check_clickhouse_schema_drift,
-    )
-
-    check_clickhouse_schema_drift()
-
-
-@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
     enqueue_cohorts_to_calculate(parallel_count)
+    reset_stuck_cohorts()
 
 
 class Polling:
@@ -668,13 +600,6 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
-def validate_proxy_domains() -> None:
-    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
-
-    validate_proxy_domains()
-
-
-@shared_task(ignore_result=True)
 def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
@@ -720,7 +645,7 @@ def calculate_decide_usage() -> None:
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
-    ph_client = get_ph_client()
+    ph_client = get_regional_ph_client()
 
     if ph_client:
         capture_decide_usage_for_all_teams(ph_client)
@@ -840,18 +765,6 @@ def send_org_usage_reports() -> None:
 
 
 @shared_task(ignore_result=True)
-def run_quota_limiting() -> None:
-    try:
-        from ee.billing.quota_limiting import update_all_orgs_billing_quotas
-
-        update_all_orgs_billing_quotas()
-    except ImportError:
-        pass
-    except Exception as e:
-        capture_exception(e)
-
-
-@shared_task(ignore_result=True)
 def schedule_all_subscriptions() -> None:
     try:
         from ee.tasks.subscriptions import (
@@ -904,11 +817,21 @@ def ee_persist_finished_recordings() -> None:
         persist_finished_recordings()
 
 
+@shared_task(ignore_result=True)
+def ee_persist_finished_recordings_v2() -> None:
+    try:
+        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
+    except ImportError:
+        pass
+    else:
+        persist_finished_recordings_v2()
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
 )
-def ee_count_items_in_playlists() -> None:
+def count_items_in_playlists() -> None:
     try:
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             enqueue_recordings_that_match_playlist_filters,
@@ -921,10 +844,7 @@ def ee_count_items_in_playlists() -> None:
 
 
 @shared_task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
-    try:
-        from posthog.tasks.warehouse import capture_external_data_rows_synced
-    except ImportError:
-        pass
-    else:
-        capture_external_data_rows_synced()
+def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
+    from posthog.tasks.environments_rollback import environments_rollback_migration
+
+    environments_rollback_migration(organization_id, environment_mappings, user_id)

@@ -372,7 +372,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         done_ranges: list[DateRange] = details.done_ranges
 
         model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
 
         data_interval_start = (

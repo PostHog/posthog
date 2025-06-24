@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
-import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
-import { captureException } from '../../../utils/posthog'
-import { status } from '../../../utils/status'
+import { parseJSON } from '../../../utils/json-parse'
+import { logger } from '../../../utils/logger'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
@@ -58,49 +58,6 @@ export const maxDefined = (...args: (number | undefined)[]): number | undefined 
 }
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
-
-export const queryWatermarkOffsets = (
-    kafkaConsumer: KafkaConsumer | undefined,
-    topic: string,
-    partition: number,
-    timeout = 10000
-): Promise<[number, number]> => {
-    return new Promise<[number, number]>((resolve, reject) => {
-        if (!kafkaConsumer) {
-            return reject('Not connected')
-        }
-
-        kafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, (err, offsets) => {
-            if (err) {
-                captureException(err)
-                status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                return reject(err)
-            }
-
-            resolve([partition, offsets.highOffset])
-        })
-    })
-}
-
-export const getPartitionsForTopic = (
-    kafkaConsumer: KafkaConsumer | undefined,
-    topic: string
-): Promise<PartitionMetadata[]> => {
-    return new Promise<PartitionMetadata[]>((resolve, reject) => {
-        if (!kafkaConsumer) {
-            return reject('Not connected')
-        }
-        kafkaConsumer.getMetadata({ topic }, (err, meta) => {
-            if (err) {
-                captureException(err)
-                status.error('🔥', 'Failed to get partition metadata', err)
-                return reject(err)
-            }
-
-            return resolve(meta.topics.find((x) => x.name === topic)?.partitions ?? [])
-        })
-    })
-}
 
 export const getLagMultiplier = (lag: number, threshold = 1000000) => {
     if (lag < threshold) {
@@ -164,7 +121,7 @@ function parseVersion(libVersion: string | undefined): LibVersion | undefined {
               }
             : undefined
     } catch (e) {
-        status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
+        logger.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
         return undefined
     }
 }
@@ -182,7 +139,7 @@ export const parseKafkaMessage = async (
             })
             .inc()
 
-        status.warn('⚠️', 'invalid_message', {
+        logger.warn('⚠️', 'invalid_message', {
             reason,
             partition: message.partition,
             offset: message.offset,
@@ -251,8 +208,8 @@ export const parseKafkaMessage = async (
     }
 
     try {
-        messagePayload = JSON.parse(messageUnzipped.toString())
-        event = JSON.parse(messagePayload.data)
+        messagePayload = parseJSON(messageUnzipped.toString())
+        event = parseJSON(messagePayload.data)
     } catch (error) {
         return dropMessage('invalid_json', { error, team_id: teamIdWithConfig.teamId })
     }

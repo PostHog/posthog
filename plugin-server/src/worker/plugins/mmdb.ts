@@ -14,7 +14,7 @@ import {
 import { Hub, PluginAttachmentDB } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { isTestEnv } from '../../utils/env-utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { delay } from '../../utils/utils'
 
 enum MMDBFileStatus {
@@ -44,7 +44,7 @@ async function decompressAndOpenMmdb(brotliContents: Buffer, filename: string): 
             if (error) {
                 reject(error)
             } else {
-                status.info(
+                logger.info(
                     '🪗',
                     `Decompressed ${filename} from ${prettyBytes(brotliContents.byteLength)} into ${prettyBytes(
                         result.byteLength
@@ -65,12 +65,12 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
     const { db } = hub
 
     // TODO: use local GeoLite2 on container at share/GeoLite2-City.mmdb instead of downloading it each time
-    status.info('⏳', 'Downloading GeoLite2 database from PostHog servers...')
+    logger.info('⏳', 'Downloading GeoLite2 database from PostHog servers...')
     const response = await fetch(MMDB_ENDPOINT, { compress: false })
     const contentType = response.headers.get('content-type')
     const filename = response.headers.get('content-disposition')!.match(/filename="(.+)"/)![1]
     const brotliContents = await response.buffer()
-    status.info('✅', `Downloaded ${filename} of ${prettyBytes(brotliContents.byteLength)}`)
+    logger.info('✅', `Downloaded ${filename} of ${prettyBytes(brotliContents.byteLength)}`)
 
     // Insert new attachment
     const newAttachmentResults = await db.postgres.query<PluginAttachmentDB>(
@@ -92,7 +92,7 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
         [MMDB_ATTACHMENT_KEY, newAttachmentResults.rows[0].id],
         'deleteGeoIpAttachment'
     )
-    status.info('💾', `Saved ${filename} into the database`)
+    logger.info('💾', `Saved ${filename} into the database`)
 
     return await decompressAndOpenMmdb(brotliContents, filename)
 }
@@ -101,7 +101,7 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
 async function distributableFetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel | null> {
     let fetchingStatus = await getMmdbStatus(hub)
     if (fetchingStatus === MMDBFileStatus.Unavailable) {
-        status.info(
+        logger.info(
             '☹️',
             'MMDB fetch and insert for GeoIP capabilities is currently unavailable in this PostHog instance - IP location data may be stale or unavailable'
         )
@@ -130,7 +130,7 @@ async function distributableFetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderMod
             'distributableFetchAndInsertFreshMmdb',
             120
         )
-        status.error('❌', 'An error occurred during MMDB fetch and insert:', e)
+        logger.error('❌', 'An error occurred during MMDB fetch and insert:', e)
         return null
     }
 }
@@ -140,7 +140,7 @@ async function backgroundInjectFreshMmdb(hub: Hub): Promise<void> {
     const mmdb = await distributableFetchAndInsertFreshMmdb(hub)
     if (mmdb) {
         hub.mmdb = mmdb
-        status.info('💉', `Injected fresh ${MMDB_ATTACHMENT_KEY}`)
+        logger.info('💉', `Injected fresh ${MMDB_ATTACHMENT_KEY}`)
     }
 }
 
@@ -164,14 +164,14 @@ export async function prepareMmdb(hub: Hub, onlyBackground = false): Promise<Rea
         'fetchGeoIpAttachment'
     )
     if (!readResults.rowCount) {
-        status.info('⬇️', `Fetching ${MMDB_ATTACHMENT_KEY} for the first time`)
+        logger.info('⬇️', `Fetching ${MMDB_ATTACHMENT_KEY} for the first time`)
         if (onlyBackground) {
             await backgroundInjectFreshMmdb(hub)
             return true
         } else {
             const mmdb = await distributableFetchAndInsertFreshMmdb(hub)
             if (!mmdb) {
-                status.warn('🤒', 'Because of MMDB unavailability, GeoIP plugins will fail in this PostHog instance')
+                logger.warn('🤒', 'Because of MMDB unavailability, GeoIP plugins will fail in this PostHog instance')
             }
             return mmdb
         }
@@ -189,7 +189,7 @@ export async function prepareMmdb(hub: Hub, onlyBackground = false): Promise<Rea
     }
     const mmdbAge = Math.round(-DateTime.fromISO(mmdbDateStringMatch[0]).diffNow().as('days'))
     if (mmdbAge > MMDB_STALE_AGE_DAYS) {
-        status.info(
+        logger.info(
             '🔁',
             `${MMDB_ATTACHMENT_KEY} is ${mmdbAge} ${
                 mmdbAge === 1 ? 'day' : 'days'
@@ -212,11 +212,11 @@ export async function prepareMmdb(hub: Hub, onlyBackground = false): Promise<Rea
 
 /** Check for MMDB staleness every 4 hours, if needed perform a no-interruption update. */
 export async function performMmdbStalenessCheck(hub: Hub): Promise<void> {
-    status.info('⏲', 'Performing periodic MMDB staleness check...')
+    logger.info('⏲', 'Performing periodic MMDB staleness check...')
     const wasUpdatePerformed = await prepareMmdb(hub, true)
     if (wasUpdatePerformed) {
-        status.info('✅', 'MMDB staleness check completed, update performed')
+        logger.info('✅', 'MMDB staleness check completed, update performed')
     } else {
-        status.info('❎', 'MMDB staleness check completed, no update was needed')
+        logger.info('❎', 'MMDB staleness check completed, no update was needed')
     }
 }

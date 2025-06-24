@@ -21,7 +21,7 @@ import { resetTestDatabase } from '../helpers/sql'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from '../helpers/sqlMock'
 
 jest.mock('../../src/utils/db/sql')
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 jest.mock('../../src/utils/db/error')
 jest.mock('../../src/worker/plugins/loadPlugin', () => {
     const { loadPlugin } = jest.requireActual('../../src/worker/plugins/loadPlugin')
@@ -33,7 +33,7 @@ describe('plugins', () => {
     let hub: Hub
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         console.warn = jest.fn() as any
         await resetTestDatabase()
     })
@@ -76,15 +76,15 @@ describe('plugins', () => {
                 contents: pluginAttachment1.contents,
             },
         })
-        expect(pluginConfig.instance).toBeDefined()
+        expect(pluginConfig.instance).toBeTruthy()
         const instance = pluginConfig.instance!
 
-        expect(instance.getPluginMethod('composeWebhook')).toBeDefined()
-        expect(instance.getPluginMethod('getSettings')).toBeDefined()
-        expect(instance.getPluginMethod('onEvent')).toBeDefined()
-        expect(instance.getPluginMethod('processEvent')).toBeDefined()
-        expect(instance.getPluginMethod('setupPlugin')).toBeDefined()
-        expect(instance.getPluginMethod('teardownPlugin')).toBeDefined()
+        expect(instance.getPluginMethod('composeWebhook')).toBeTruthy()
+        expect(instance.getPluginMethod('getSettings')).toBeTruthy()
+        expect(instance.getPluginMethod('onEvent')).toBeTruthy()
+        expect(instance.getPluginMethod('processEvent')).toBeTruthy()
+        expect(instance.getPluginMethod('setupPlugin')).toBeTruthy()
+        expect(instance.getPluginMethod('teardownPlugin')).toBeTruthy()
 
         // async loading of capabilities
         expect(setPluginCapabilities).toHaveBeenCalled()
@@ -132,8 +132,8 @@ describe('plugins', () => {
         expect(pluginConfigTeam1.plugin).toEqual(plugin)
         expect(pluginConfigTeam2.plugin).toEqual(plugin)
 
-        expect(pluginConfigTeam1.instance).toBeDefined()
-        expect(pluginConfigTeam2.instance).toBeDefined()
+        expect(pluginConfigTeam1.instance).toBeTruthy()
+        expect(pluginConfigTeam2.instance).toBeTruthy()
 
         expect(pluginConfigTeam1.instance).toEqual(pluginConfigTeam2.instance)
     })

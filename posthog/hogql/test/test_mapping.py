@@ -13,6 +13,10 @@ from posthog.hogql.functions.mapping import (
     HogQLFunctionMeta,
     HOGQL_CLICKHOUSE_FUNCTIONS,
 )
+from datetime import datetime, UTC
+from freezegun import freeze_time
+from posthog.hogql.query import execute_hogql_query
+from datetime import date
 
 
 class TestMappings(BaseTest):
@@ -88,3 +92,154 @@ class TestMappings(BaseTest):
             "clickhouse",
         )
         assert "overloadSuccess" in ast
+
+    @freeze_time("2023-01-01T12:00:00Z")
+    def test_postgres_functions(self):
+        response = execute_hogql_query(
+            """
+            WITH
+            date_functions AS (
+                SELECT
+                    now() as current_time,
+                    date_trunc('hour', toDateTime('2023-01-01 13:45:32')) as truncated_hour,
+                    date_trunc('day', toDateTime('2023-01-01 13:45:32')) as truncated_day,
+                    date_trunc('month', toDateTime('2023-01-01 13:45:32')) as truncated_month,
+                    date_trunc('quarter', toDateTime('2023-01-01 13:45:32')) as truncated_quarter,
+                    date_trunc('year', toDateTime('2023-01-01 13:45:32')) as truncated_year,
+                    toDateTime('2023-01-01 00:00:00') + make_interval(1, 2, 3, 4, 5, 6) as interval_result,
+                    make_timestamp(2023, 1, 1, 12, 34, 56) as timestamp_result,
+                    make_timestamptz(2023, 1, 1, 12, 34, 56, 'UTC') as timestamptz_result,
+                    timezone('UTC', toDateTime('2023-01-01 13:45:32')) as timezone_result,
+                    toYear(toDateTime('2023-01-01 13:45:32')) as date_part_year,
+                    toMonth(toDateTime('2023-01-01 13:45:32')) as date_part_month,
+                    toDayOfMonth(toDateTime('2023-01-01 13:45:32')) as date_part_day,
+                    toHour(toDateTime('2023-01-01 13:45:32')) as date_part_hour,
+                    to_timestamp(1672579532) as to_timestamp_result,
+                    to_char(toDateTime('2023-01-01 13:45:32'), '%Y-%m-%d') as to_char_result,
+                    make_date(2023, 1, 1) as make_date_result,
+                    current_timestamp() as current_timestamp_result,
+                    current_date() as current_date_result,
+                    date_add(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1)) as date_add_result,
+                    date_subtract(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1)) as date_sub_result,
+                    date_diff('hour', toDateTime('2023-01-01 13:45:32'), toDateTime('2023-01-01 14:45:32')) as date_diff_result,
+                    to_date('2023-01-01') as to_date_result
+            ),
+            string_functions AS (
+                SELECT
+                    ascii('A') as ascii_result,
+                    repeat('pg', 3) as repeat_result,
+                    initcap('hello world') as initcap_result,
+                    left('hello', 2) as left_result,
+                    right('hello', 2) as right_result,
+                    lpad('hi', 5, 'xy') as lpad_result,
+                    rpad('hi', 5, 'xy') as rpad_result,
+                    ltrim('  hello  ') as ltrim_result,
+                    rtrim('  hello  ') as rtrim_result,
+                    btrim('  hello  ') as btrim_result,
+                    split_part('abc.def.ghi', '.', 2) as split_part_result
+            ),
+            window_functions AS (
+                SELECT
+                    value,
+                    lag(value) OVER (ORDER BY value) as lag_result,
+                    lead(value) OVER (ORDER BY value) as lead_result,
+                    lag(value, 2) OVER (ORDER BY value) as lag_2_result,
+                    lead(value, 2) OVER (ORDER BY value) as lead_2_result,
+                    lag(value, 1, 9) OVER (ORDER BY value) as lag_default_result,
+                    lead(value, 1, 9) OVER (ORDER BY value) as lead_default_result
+                FROM
+                    (SELECT arrayJoin([1,2,3,4,5]) as value)
+            ),
+            aggregate_functions AS (
+                SELECT
+                    array_agg(value) as array_agg_result,
+                    json_agg(value) as json_agg_result,
+                    string_agg(toString(value), ',') as string_agg_result,
+                    every(value > 0) as every_result
+                FROM
+                    (SELECT arrayJoin([1,2,3,4,5]) as value)
+            ),
+            aggregate_functions_null as (
+                SELECT
+                    array_agg(value) as array_agg_null_result,
+                    json_agg(value) as json_agg_null_result,
+                    string_agg(toString(value), ',') as string_agg_null_result,
+                    every(value > 0) as every_null_result
+                FROM
+                    (SELECT arrayJoin([NULL]) as value)
+            )
+            SELECT
+                date_functions.*,
+                string_functions.*,
+                window_functions.*,
+                aggregate_functions.*,
+                aggregate_functions_null.*
+            FROM
+                date_functions,
+                string_functions,
+                window_functions,
+                aggregate_functions,
+                aggregate_functions_null
+            """,
+            self.team,
+        )
+
+        # Convert results to a dictionary for easier assertions
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Date function assertions
+        self.assertEqual(result_dict["truncated_hour"], datetime(2023, 1, 1, 13, 0, tzinfo=UTC))
+        self.assertEqual(result_dict["truncated_day"], datetime(2023, 1, 1, 0, 0, tzinfo=UTC))
+        self.assertEqual(result_dict["truncated_month"], date(2023, 1, 1))
+        self.assertEqual(result_dict["truncated_quarter"], date(2023, 1, 1))
+        self.assertEqual(result_dict["truncated_year"], date(2023, 1, 1))
+        self.assertEqual(result_dict["interval_result"], datetime(2024, 3, 4, 4, 5, 6, tzinfo=UTC))
+        self.assertEqual(result_dict["timestamp_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
+        self.assertEqual(result_dict["timestamptz_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
+        self.assertEqual(result_dict["timezone_result"], datetime(2023, 1, 1, 13, 45, 32, tzinfo=UTC))
+        self.assertEqual(result_dict["date_part_year"], 2023)
+        self.assertEqual(result_dict["date_part_month"], 1)
+        self.assertEqual(result_dict["date_part_day"], 1)
+        self.assertEqual(result_dict["date_part_hour"], 13)
+        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32))
+        self.assertEqual(result_dict["to_char_result"], "2023-01-01")
+        self.assertEqual(result_dict["make_date_result"], date(2023, 1, 1))
+        self.assertEqual(result_dict["date_add_result"], datetime(2023, 1, 1, 14, 45, 32, tzinfo=UTC))
+        self.assertEqual(result_dict["date_sub_result"], datetime(2023, 1, 1, 12, 45, 32, tzinfo=UTC))
+        self.assertEqual(result_dict["date_diff_result"], 1)
+        self.assertEqual(result_dict["to_date_result"], date(2023, 1, 1))
+
+        # String function assertions
+        self.assertEqual(result_dict["ascii_result"], 65)
+        self.assertEqual(result_dict["repeat_result"], "pgpgpg")
+        self.assertEqual(result_dict["initcap_result"], "Hello World")
+        self.assertEqual(result_dict["left_result"], "he")
+        self.assertEqual(result_dict["right_result"], "lo")
+        self.assertEqual(result_dict["lpad_result"], "xyxhi")
+        self.assertEqual(result_dict["rpad_result"], "hixyx")
+        self.assertEqual(result_dict["ltrim_result"], "hello  ")
+        self.assertEqual(result_dict["rtrim_result"], "  hello")
+        self.assertEqual(result_dict["btrim_result"], "hello")
+        self.assertEqual(result_dict["split_part_result"], "def")
+
+        # Window function assertions
+        self.assertIsNone(result_dict["lag_result"])  # First row has no lag
+        self.assertEqual(result_dict["lead_result"], 2)  # First row leads to 2
+        self.assertIsNone(result_dict["lag_2_result"])  # First row has no lag 2
+        self.assertEqual(result_dict["lead_2_result"], 3)  # First row leads 2 to 3
+        self.assertEqual(result_dict["lag_default_result"], 9)  # First row lag with default
+        self.assertEqual(result_dict["lead_default_result"], 2)  # First row lead with default
+
+        # Aggregate function assertions
+        self.assertEqual(result_dict["array_agg_result"], [1, 2, 3, 4, 5])
+        self.assertEqual(result_dict["json_agg_result"], "[1,2,3,4,5]")
+        self.assertEqual(result_dict["string_agg_result"], "1,2,3,4,5")
+        self.assertTrue(result_dict["every_result"])  # All values > 0
+
+        # Aggregate function assertions for NULL values
+        self.assertEqual(result_dict["array_agg_null_result"], None)
+        self.assertEqual(result_dict["json_agg_null_result"], None)
+        self.assertEqual(result_dict["string_agg_null_result"], None)
+        self.assertFalse(result_dict["every_null_result"])  # No values > 0

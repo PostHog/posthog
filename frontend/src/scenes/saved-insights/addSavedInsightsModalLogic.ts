@@ -19,10 +19,10 @@ export const INSIGHTS_PER_PAGE = 30
 
 export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     path(['scenes', 'saved-insights', 'addSavedInsightsModalLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
         logic: [eventUsageLogic],
-    }),
+    })),
     actions({
         setModalFilters: (filters: Partial<SavedInsightFilters>, merge: boolean = true, debounce: boolean = true) => ({
             filters,

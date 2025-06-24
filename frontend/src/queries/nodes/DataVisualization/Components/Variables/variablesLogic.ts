@@ -1,7 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
@@ -20,6 +18,9 @@ export interface VariablesLogicProps {
     dashboardId?: DashboardType['id']
 
     queryInput?: string
+    sourceQuery?: DataVisualizationNode
+    setQuery?: (query: DataVisualizationNode) => void
+    onUpdate?: (query: DataVisualizationNode) => void
 }
 
 const convertValueToCorrectType = (value: string, type: VariableType): number | string | boolean => {
@@ -38,21 +39,16 @@ export const variablesLogic = kea<variablesLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variablesLogic']),
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
-        values: [
-            dataVisualizationLogic,
-            ['query'],
-            variableDataLogic,
-            ['variables', 'variablesLoading'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-    }),
+        values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
+    })),
     actions(({ values }) => ({
         addVariable: (variable: HogQLVariable) => ({ variable }),
+        _addVariable: (variable: HogQLVariable) => ({ variable }),
         addVariables: (variables: HogQLVariable[]) => ({ variables }),
         removeVariable: (variableId: string) => ({ variableId }),
+        _removeVariable: (variableId: string) => ({ variableId }),
         updateVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
             value,
@@ -63,9 +59,25 @@ export const variablesLogic = kea<variablesLogicType>([
         updateSourceQuery: true,
         resetVariables: true,
     })),
-    propsChanged(({ props, actions }, oldProps) => {
+    propsChanged(({ props, actions, values }, oldProps) => {
         if (oldProps.queryInput !== props.queryInput) {
             actions.setEditorQuery(props.queryInput ?? '')
+        }
+
+        if (props.sourceQuery) {
+            const variables = Object.values(props.sourceQuery?.source.variables ?? {})
+
+            if (variables.length) {
+                variables.forEach((variable) => {
+                    actions._addVariable(variable)
+                })
+            }
+
+            values.internalSelectedVariables.forEach((variable) => {
+                if (!variables.map((n) => n.variableId).includes(variable.variableId)) {
+                    actions._removeVariable(variable.variableId)
+                }
+            })
         }
     }),
     reducers({
@@ -79,8 +91,15 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     return [...state, { ...variable }]
                 },
+                _addVariable: (state, { variable }) => {
+                    if (state.find((n) => variable.variableId === n.variableId)) {
+                        return state
+                    }
+
+                    return [...state, { ...variable }]
+                },
                 addVariables: (_state, { variables }) => {
-                    return [...variables.map((n) => ({ ...n }))]
+                    return variables.map((n) => ({ ...n }))
                 },
                 updateVariableValue: (state, { variableId, value, isNull, allVariables }) => {
                     const variableIndex = state.findIndex((n) => n.variableId === variableId)
@@ -109,6 +128,15 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     return stateCopy
                 },
+                _removeVariable: (state, { variableId }) => {
+                    const stateCopy = [...state]
+                    const index = stateCopy.findIndex((n) => n.variableId === variableId)
+                    if (index >= 0) {
+                        stateCopy.splice(index, 1)
+                    }
+
+                    return stateCopy
+                },
                 resetVariables: () => {
                     return []
                 },
@@ -118,7 +146,6 @@ export const variablesLogic = kea<variablesLogicType>([
             '' as string,
             {
                 setEditorQuery: (_, { query }) => query,
-                setQuery: (_, { node }) => node.source.query,
             },
         ],
     }),
@@ -163,16 +190,16 @@ export const variablesLogic = kea<variablesLogicType>([
             actions.updateSourceQuery()
         },
         updateSourceQuery: () => {
-            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+            if (!props.sourceQuery?.source) {
                 return
             }
 
             const variables = values.internalSelectedVariables
 
             const query: DataVisualizationNode = {
-                ...values.query,
+                ...props.sourceQuery,
                 source: {
-                    ...values.query.source,
+                    ...props.sourceQuery?.source,
                     variables: variables.reduce((acc, cur) => {
                         if (cur.variableId) {
                             acc[cur.variableId] = {
@@ -187,16 +214,18 @@ export const variablesLogic = kea<variablesLogicType>([
                     }, {} as Record<string, HogQLVariable>),
                 },
             }
-            const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, values.query.source)
+            const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, props.sourceQuery?.source)
+
             if (!queryVarsHaveChanged) {
                 return
             }
 
-            actions.setQuery(query)
+            props.setQuery?.(query)
 
             if (props.readOnly) {
                 // Refresh the data manaully via dataNodeLogic when in insight view mode
-                actions.loadData(true, undefined, query.source)
+                // actions.loadData(true, undefined, query.source)
+                props.onUpdate?.(query)
             }
         },
     })),
@@ -224,25 +253,8 @@ export const variablesLogic = kea<variablesLogicType>([
                 }
             })
         },
-        query: (query: DataVisualizationNode) => {
-            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                return
-            }
-
-            const variables = Object.values(query.source.variables ?? {})
-
-            if (variables.length) {
-                variables.forEach((variable) => {
-                    actions.addVariable(variable)
-                })
-            }
-        },
     })),
-    afterMount(({ actions, values }) => {
-        if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-            return
-        }
-
+    afterMount(({ actions }) => {
         actions.getVariables()
     }),
 ])

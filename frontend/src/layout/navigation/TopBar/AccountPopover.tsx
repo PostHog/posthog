@@ -1,8 +1,10 @@
 import './AccountPopover.scss'
 
 import {
+    IconCake,
     IconCheckCircle,
     IconConfetti,
+    IconCopy,
     IconFeatures,
     IconGear,
     IconLeave,
@@ -12,15 +14,18 @@ import {
     IconServer,
     IconShieldLock,
 } from '@posthog/icons'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
@@ -30,6 +35,7 @@ import {
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { getTreeItemsGames } from '~/products'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
@@ -62,7 +68,7 @@ function AccountInfo(): JSX.Element {
     return (
         <div className="AccountInfo">
             <LemonButton
-                to={urls.settings('user')}
+                to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
                 onClick={closeAccountPopover}
                 data-attr="top-menu-item-me"
                 fullWidth
@@ -105,6 +111,36 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
             <div className="grow">
                 <span className="font-medium">{organization.name}</span>
                 <AccessLevelIndicator organization={organization} />
+            </div>
+        </LemonButton>
+    )
+}
+
+function AccountOwner({ name, email }: { name: string; email: string }): JSX.Element {
+    const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
+
+    return (
+        <LemonButton
+            onClick={() => {
+                void copyToClipboard(email, 'email')
+                reportAccountOwnerClicked({ name, email })
+            }}
+            fullWidth
+            sideIcon={<IconCopy />}
+            tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
+        >
+            <div className="flex items-center gap-2 grow">
+                <ProfilePicture
+                    user={{
+                        first_name: name,
+                        email: email,
+                    }}
+                    size="md"
+                />
+                <div>
+                    <div className="font-medium truncate">{name}</div>
+                    <div className="text-sm text-muted truncate">{email}</div>
+                </div>
             </div>
         </LemonButton>
     )
@@ -215,6 +251,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <>
@@ -227,7 +264,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={
-                            featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD]
+                            featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
                                 ? urls.organizationBillingSection('overview')
                                 : urls.organizationBilling()
                         }
@@ -235,10 +272,16 @@ export function AccountPopoverOverlay(): JSX.Element {
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >
-                        {featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD] ? 'Billing & Usage' : 'Billing'}
+                        {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
+                {billing?.account_owner?.email && billing?.account_owner?.name && (
+                    <>
+                        <h5 className="flex items-center mt-2">YOUR POSTHOG HUMAN</h5>
+                        <AccountOwner name={billing.account_owner.name} email={billing.account_owner.email} />
+                    </>
+                )}
             </AccountPopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                 <AccountPopoverSection title="Other organizations">
@@ -272,6 +315,24 @@ export function AccountPopoverOverlay(): JSX.Element {
                 </LemonButton>
                 <FeaturePreviewsButton />
             </AccountPopoverSection>
+            {featureFlags[FEATURE_FLAGS.GAME_CENTER] ? (
+                <AccountPopoverSection>
+                    <LemonSelect
+                        options={getTreeItemsGames().map((game) => ({ label: game.path, value: game.href || '' }))}
+                        value=""
+                        renderButtonContent={() => 'Games'}
+                        onChange={(value) => {
+                            router.actions.push(String(value))
+                            closeAccountPopover()
+                        }}
+                        dropdownPlacement="right-start"
+                        dropdownMatchSelectWidth={false}
+                        fullWidth
+                        icon={<IconCake />}
+                        type="tertiary"
+                    />
+                </AccountPopoverSection>
+            ) : null}
             {user?.is_staff && (
                 <AccountPopoverSection>
                     <DjangoAdmin />

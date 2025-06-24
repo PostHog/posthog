@@ -10,6 +10,7 @@ import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
@@ -17,12 +18,15 @@ import {
     LANGUAGE_CODE_TO_NAME,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
     GeographyTab,
+    ProductTab,
     TileId,
     webAnalyticsLogic,
     webStatsBreakdownToPropertyName,
@@ -43,19 +47,21 @@ import {
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
+import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
+import { pageReportsLogic } from '../pageReportsLogic'
 
-const toUtcOffsetFormat = (value: number): string => {
+export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
         return 'UTC'
     }
 
-    const integerPart = Math.floor(value)
-    const sign = integerPart > 0 ? '+' : '-'
+    const sign = value > 0 ? '+' : '-'
+    const integerPart = Math.abs(Math.trunc(value))
 
     // India has half-hour offsets, and Australia has 45-minute offsets, why?
-    const decimalPart = value - integerPart
+    const decimalPart = Math.abs(value) - integerPart
     const decimalPartAsMinutes = decimalPart * 60
     const formattedMinutes = decimalPartAsMinutes > 0 ? `:${decimalPartAsMinutes}` : ''
 
@@ -184,6 +190,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Timezone</>
         case WebStatsBreakdown.Language:
             return <>Language</>
+        case WebStatsBreakdown.FrustrationMetrics:
+            return <>URL</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
         default:
@@ -202,7 +210,8 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
         case WebStatsBreakdown.InitialPage:
-        case WebStatsBreakdown.Page: {
+        case WebStatsBreakdown.Page:
+        case WebStatsBreakdown.FrustrationMetrics: {
             if (typeof value !== 'string') {
                 return <>{value}</>
             }
@@ -376,6 +385,21 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
+        rage_clicks: {
+            renderTitle: SortableCell('Rage Clicks', WebAnalyticsOrderByFields.RageClicks),
+            render: VariationCell(),
+            align: 'right',
+        },
+        dead_clicks: {
+            renderTitle: SortableCell('Dead Clicks', WebAnalyticsOrderByFields.DeadClicks),
+            render: VariationCell(),
+            align: 'right',
+        },
+        errors: {
+            renderTitle: SortableCell('Errors', WebAnalyticsOrderByFields.Errors),
+            render: VariationCell(),
+            align: 'right',
+        },
         converting_users: {
             renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
@@ -400,6 +424,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
+                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
                     </div>
                 )
             },
@@ -455,16 +480,7 @@ export const WebStatsTrendTile = ({
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
                         <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone
-                            interval={interval}
-                            onIntervalChange={setInterval}
-                            options={[
-                                { value: 'hour', label: 'Hour' },
-                                { value: 'day', label: 'Day' },
-                                { value: 'week', label: 'Week' },
-                                { value: 'month', label: 'Month' },
-                            ]}
-                        />
+                        <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
                     </div>
                 </div>
             )}
@@ -484,6 +500,7 @@ export const WebStatsTableTile = ({
     tileId: TileId
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -493,9 +510,14 @@ export const WebStatsTableTile = ({
                 return
             }
 
+            if (productTab === ProductTab.PAGE_REPORTS) {
+                lemonToast.info('Filters are not yet supported in this tile')
+                return
+            }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key]
+        [togglePropertyFilter, type, key, productTab]
     )
 
     const context = useMemo((): QueryContext => {
@@ -561,6 +583,11 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
                 return breakdownValue[1]
             }
             break
+        case WebStatsBreakdown.FrustrationMetrics:
+            if (typeof breakdownValue === 'string') {
+                return breakdownValue
+            }
+            break
     }
 
     if (breakdownValue === null) {
@@ -576,6 +603,7 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
 export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { actions, actionsLoading } = useValues(actionsModel)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     if (actionsLoading) {
         return null
@@ -600,7 +628,19 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     return (
         <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
-                <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
+                <LemonButton
+                    to={urls.actions()}
+                    onClick={() => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.WEB_ANALYTICS,
+                            to: ProductKey.ACTIONS,
+                            intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                        })
+                    }}
+                    sideIcon={<IconOpenInNew />}
+                    type="secondary"
+                    size="small"
+                >
                     Manage actions
                 </LemonButton>
             </div>
@@ -613,20 +653,25 @@ export const WebExternalClicksTile = ({
     query,
     insightProps,
 }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
-    const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
+    const { productTab, shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
+
+    const isPageReportsPage = productTab === ProductTab.PAGE_REPORTS
+
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            <div className="flex flex-row items-center justify-end m-2 mr-4">
-                <div className="flex flex-row items-center deprecated-space-x-2">
-                    <LemonSwitch
-                        label="Strip query parameters"
-                        checked={shouldStripQueryParams}
-                        onChange={setShouldStripQueryParams}
-                        className="h-full"
-                    />
+            {!isPageReportsPage && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center deprecated-space-x-2">
+                        <LemonSwitch
+                            label="Strip query parameters"
+                            checked={shouldStripQueryParams}
+                            onChange={setShouldStripQueryParams}
+                            className="h-full"
+                        />
+                    </div>
                 </div>
-            </div>
+            )}
             <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
         </div>
     )
@@ -673,7 +718,23 @@ export const WebQuery = ({
     control?: JSX.Element
     tileId: TileId
 }): JSX.Element => {
+    const { productTab, shouldStripQueryParams: stripQueryParamsDashboard } = useValues(webAnalyticsLogic)
+    const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
+
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+        // Handle Frustrating Pages tile specifically, which uses WebStatsTableQuery but is not wrapped by a WebAnalyticsTabTile
+        if (query.source.breakdownBy === WebStatsBreakdown.FrustrationMetrics) {
+            return (
+                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                    <Query
+                        query={query}
+                        readOnly={true}
+                        context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+                    />
+                </div>
+            )
+        }
+
         return (
             <WebStatsTableTile
                 query={query}
@@ -686,7 +747,17 @@ export const WebQuery = ({
     }
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebExternalClicksTableQuery) {
-        return <WebExternalClicksTile query={query} insightProps={insightProps} />
+        const effectiveStripQueryParams =
+            productTab === ProductTab.PAGE_REPORTS ? stripQueryParamsPageReports : stripQueryParamsDashboard
+
+        const adjustedQuery = {
+            ...query,
+            source: {
+                ...query.source,
+                stripQueryParams: effectiveStripQueryParams,
+            },
+        }
+        return <WebExternalClicksTile query={adjustedQuery} insightProps={insightProps} />
     }
 
     if (query.kind === NodeKind.InsightVizNode) {

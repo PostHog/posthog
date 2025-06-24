@@ -67,6 +67,14 @@
             "kind": "percentage",
             "previous": 10,
             "value": 9.921511959952788
+        },
+        {
+            "changeFromPreviousPct": 23.4,
+            "isIncreaseBad": true,
+            "key": "revenue",
+            "kind": "currency",
+            "previous": 10000,
+            "value": 12345.67
         }
     ],
     "samplingRate": {

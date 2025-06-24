@@ -1,7 +1,6 @@
 import json
 from typing import Union, cast
 
-import sentry_sdk
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -64,9 +63,6 @@ class Breakdown:
         self.timings = timings
         self.modifiers = modifiers
         self.limit_context = limit_context
-
-        if self.enabled:
-            sentry_sdk.set_tag("breakdown_enabled", True)
 
     @property
     def enabled(self) -> bool:
@@ -374,7 +370,7 @@ class Breakdown:
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
-        if breakdown_type == "hogql":
+        if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(parse_expr(cast(str, value))))
 
         properties_chain = get_properties_chain(

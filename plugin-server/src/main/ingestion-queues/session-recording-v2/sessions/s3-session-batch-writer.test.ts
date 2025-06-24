@@ -4,7 +4,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
-jest.mock('../../../../utils/status')
+jest.mock('../../../../utils/logger')
 
 jest.setTimeout(1000)
 

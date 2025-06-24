@@ -1,7 +1,6 @@
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
@@ -16,6 +15,7 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
+    HogQLQuery,
     InsightVizNode,
     Node,
     NodeKind,
@@ -26,6 +26,7 @@ import {
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
     AnyPartialFilterType,
@@ -115,10 +116,7 @@ export function extractObjectDiffKeys(
                     changedKeys['changed_events_length'] = oldValue?.length
                 } else {
                     events.forEach((event, idx) => {
-                        changedKeys = {
-                            ...changedKeys,
-                            ...extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`),
-                        }
+                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`))
                     })
                 }
             } else if (key === 'actions') {
@@ -127,10 +125,7 @@ export function extractObjectDiffKeys(
                     changedKeys['changed_actions_length'] = oldValue.length
                 } else {
                     actions.forEach((action, idx) => {
-                        changedKeys = {
-                            ...changedKeys,
-                            ...extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`),
-                        }
+                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`))
                     })
                 }
             } else {
@@ -177,7 +172,7 @@ export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeE
 }
 
 export function formatAggregationValue(
-    property: string | undefined,
+    property: string | undefined | null,
     propertyValue: number | null,
     renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
     formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
@@ -277,6 +272,18 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
+export function getCohortNameFromId(
+    cohortId: string | number | null | undefined,
+    cohorts: CohortType[] | null | undefined
+): string {
+    // :TRICKY: Different endpoints represent the all users cohort breakdown differently
+    if (cohortId === 'all' || cohortId === 0) {
+        return 'All Users'
+    }
+
+    return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
+}
+
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
@@ -315,12 +322,7 @@ export function formatBreakdownLabel(
     }
 
     if (breakdownFilter?.breakdown_type === 'cohort') {
-        // :TRICKY: Different endpoints represent the all users cohort breakdown differently
-        if (breakdown_value === 0 || breakdown_value === 'all') {
-            return 'All Users'
-        }
-
-        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
+        return getCohortNameFromId(breakdown_value, cohorts)
     }
 
     if (typeof breakdown_value == 'number') {
@@ -333,10 +335,10 @@ export function formatBreakdownLabel(
     }
 
     // stringified numbers
-    if (!Number.isNaN(Number(breakdown_value))) {
+    if (breakdown_value && /^\d+$/.test(breakdown_value)) {
         const numericValue =
             Number.isInteger(Number(breakdown_value)) && !Number.isSafeInteger(Number(breakdown_value))
-                ? BigInt(breakdown_value!)
+                ? BigInt(breakdown_value)
                 : Number(breakdown_value)
         return formatNumericBreakdownLabel(
             numericValue,
@@ -364,6 +366,16 @@ export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
     return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
 }
 
+export function sortCohorts(
+    cohortIdA: string | number | null | undefined,
+    cohortIdB: string | number | null | undefined,
+    cohorts: CohortType[] | null | undefined
+): number {
+    const nameA = getCohortNameFromId(cohortIdA, cohorts)
+    const nameB = getCohortNameFromId(cohortIdB, cohorts)
+    return nameA.localeCompare(nameB)
+}
+
 export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
 }
@@ -386,7 +398,8 @@ export const INSIGHT_TYPE_URLS = {
     PATHS: urls.insightNew({ type: InsightType.PATHS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
-    SQL: urls.insightNew({ query: examples.DataVisualization }),
+    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    CALENDAR_HEATMAP: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -460,7 +473,11 @@ export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | Fu
 
 export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
     const payload = {
-        series: Number.isInteger(dataset.action?.order) ? dataset.action?.order : 'formula',
+        series: Number.isInteger(dataset.action?.order)
+            ? dataset.action?.order
+            : dataset.seriesIndex > 0
+            ? `formula${dataset.seriesIndex + 1}`
+            : 'formula',
         breakdown_value: dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }
@@ -570,18 +587,9 @@ export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
     return queryLength > 1024 * 1024
 }
 
-function parseAndMigrateQuery<T>(query: string): T | null {
+function parseQuery<T>(query: string): T | null {
     try {
-        const parsedQuery = JSON.parse(query)
-        // We made a database migration to support weighted and simple mean in retention tables.
-        // To do this we created a new column meanRetentionCalculation and deprecated showMean.
-        // This ensures older URLs are parsed correctly.
-        const retentionFilter = parsedQuery?.source?.retentionFilter
-        if (retentionFilter && 'showMean' in retentionFilter && typeof retentionFilter.showMean === 'boolean') {
-            retentionFilter.meanRetentionCalculation = retentionFilter.showMean ? 'simple' : 'none'
-            delete retentionFilter.showMean
-        }
-        return parsedQuery
+        return JSON.parse(query)
     } catch (e) {
         console.error('Error parsing query', e)
         return null
@@ -591,7 +599,7 @@ function parseAndMigrateQuery<T>(query: string): T | null {
 export function parseDraftQueryFromLocalStorage(
     query: string
 ): { query: Node<Record<string, any>>; timestamp: number } | null {
-    return parseAndMigrateQuery(query)
+    return parseQuery(query)
 }
 
 export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
@@ -599,7 +607,7 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    return parseAndMigrateQuery(query)
+    return parseQuery(query)
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

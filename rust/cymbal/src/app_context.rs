@@ -1,10 +1,13 @@
 use aws_config::{BehaviorVersion, Region};
+use common_geoip::GeoIpClient;
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer,
     kafka_producer::{create_kafka_producer, KafkaContext},
     transaction::TransactionalProducer,
 };
+use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
@@ -24,7 +27,13 @@ use crate::{
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
     },
+    teams::TeamManager,
 };
+
+pub enum FilterMode {
+    In,
+    Out,
+}
 
 pub struct AppContext {
     pub health_registry: HealthRegistry,
@@ -36,6 +45,13 @@ pub struct AppContext {
     pub catalog: Catalog,
     pub resolver: Resolver,
     pub config: Config,
+    pub geoip_client: GeoIpClient,
+
+    pub team_manager: TeamManager,
+    pub billing_limiter: RedisLimiter,
+
+    pub filtered_teams: Vec<i32>,
+    pub filter_mode: FilterMode,
 }
 
 impl AppContext {
@@ -55,7 +71,7 @@ impl AppContext {
         let transactional_producer = TransactionalProducer::with_context(
             &config.kafka,
             &Uuid::now_v7().to_string(),
-            Duration::from_secs(30),
+            Duration::from_secs(10),
             KafkaContext::from(kafka_transactional_liveness),
         )?;
 
@@ -120,6 +136,37 @@ impl AppContext {
         let catalog = Catalog::new(limited_layer);
         let resolver = Resolver::new(config);
 
+        let team_manager = TeamManager::new(config);
+
+        let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
+
+        let redis_client = RedisClient::new(config.redis_url.clone())?;
+        let redis_client = Arc::new(redis_client);
+
+        // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,
+        // which we don't want to put into the UnhandledError enum since it basically means "any error"
+        let billing_limiter = RedisLimiter::new(
+            Duration::from_secs(30),
+            redis_client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None, // The QUOTA_LIMITER_CACHE_KEY already has the full prefix
+            QuotaResource::Exceptions,
+            ServiceName::Cymbal,
+        )
+        .expect("Redis billing limiter construction succeeds");
+
+        let filtered_teams = config
+            .filtered_teams
+            .split(",")
+            .filter(|s| !s.is_empty())
+            .map(|tid| tid.parse().expect("Filtered team id's must be i32s"))
+            .collect();
+        let filter_mode = match config.filter_mode.to_lowercase().as_str() {
+            "in" => FilterMode::In,
+            "out" => FilterMode::Out,
+            _ => panic!("Invalid filter mode"),
+        };
+
         Ok(Self {
             health_registry,
             worker_liveness,
@@ -130,6 +177,11 @@ impl AppContext {
             catalog,
             resolver,
             config: config.clone(),
+            team_manager,
+            geoip_client,
+            billing_limiter,
+            filtered_teams,
+            filter_mode,
         })
     }
 }

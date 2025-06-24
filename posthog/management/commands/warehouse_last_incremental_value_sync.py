@@ -4,7 +4,6 @@ from django.conf import settings
 
 import dlt
 import dlt.common
-import dlt.common.pipeline
 import dlt.common.configuration.resolve
 
 from dlt.common.configuration.specs.base_configuration import (
@@ -24,8 +23,8 @@ def _resolve_single_provider_value(
     provider: ConfigProvider,
     key: str,
     hint: type[Any],
-    pipeline_name: str | None = None,  # type: ignore
-    config_section: str | None = None,  # type: ignore
+    pipeline_name: str | None = None,
+    config_section: str | None = None,
     explicit_sections: tuple[str, ...] = (),
     embedded_sections: tuple[str, ...] = (),
 ) -> tuple[Optional[Any], list[LookupTrace]]:
@@ -119,7 +118,7 @@ class Command(BaseCommand):
             pipeline.sync_destination()
 
             try:
-                sources = pipeline.state["sources"]  # type: ignore
+                sources = pipeline.state["sources"]
                 resource = sources[next(iter(sources.keys()))]
                 resources = resource["resources"]
                 tables = resources[next(iter(resources.keys()))]
@@ -132,10 +131,10 @@ class Command(BaseCommand):
                 continue
 
             try:
-                schema.update_incremental_field_last_value(last_incremental_value)
+                schema.update_incremental_field_value(last_incremental_value)
             except Exception as e:
                 print(  # noqa: T201
-                    f"Cant update_incremental_field_last_value for schema: {schema.pk}. With last_incremental_value={last_incremental_value}. ERROR: {e}"
+                    f"Cant update_incremental_field_value for schema: {schema.pk}. With last_incremental_value={last_incremental_value}. ERROR: {e}"
                 )
                 pipeline.drop()
                 continue

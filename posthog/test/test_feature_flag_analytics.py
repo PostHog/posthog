@@ -661,8 +661,11 @@ class TestEnrichedAnalytics(BaseTest):
         self.assertEqual(f3.has_enriched_analytics, False)
         self.assertEqual(f4.has_enriched_analytics, False)
 
+        # now try deleting a usage dashboard. It should not delete the feature flag
+        assert f1.usage_dashboard is not None
         self.assertEqual(f1.usage_dashboard.name, "Generated Dashboard: test_flag Usage")
         self.assertEqual(f2.usage_dashboard, None)
+        assert f3.usage_dashboard is not None
         self.assertEqual(f3.usage_dashboard.name, "Generated Dashboard: beta-feature2 Usage")
         self.assertEqual(f4.usage_dashboard, None)
 

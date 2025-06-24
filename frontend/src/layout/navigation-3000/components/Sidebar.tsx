@@ -34,7 +34,6 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
         sidebarOverslideDirection: overslideDirection,
         isSearchShown,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
-    const { beginResize } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
     const { contents } = useValues(navbarItem.logic)
 
     return (
@@ -65,14 +64,6 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                         <React.Fragment key={category.key}>{category.modalContent}</React.Fragment>
                     ))}
             </div>
-            <div
-                className="Sidebar3000__slider"
-                onMouseDown={(e) => {
-                    if (e.button === 0) {
-                        beginResize()
-                    }
-                }}
-            />
             {sidebarOverlay && (
                 <SidebarOverlay {...sidebarOverlayProps} isOpen={sidebarOverlayProps?.isOpen && isShown} width={width}>
                     {sidebarOverlay}
@@ -102,8 +93,9 @@ function SidebarSearchBar({
     const isLoading = contents.some((item) => item.loading)
 
     return (
-        <div className="h-10">
+        <div className="h-8 m-1.5">
             <LemonInput
+                className="rounded-md border border-border"
                 inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}

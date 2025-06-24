@@ -14,7 +14,7 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
     actions({
         selectFeatureFlag: (flag: FeatureFlagBasicType) => ({ flag }),
     }),
-    connect({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
     reducers({
         selectedFlag: [
             null as FeatureFlagBasicType | null,

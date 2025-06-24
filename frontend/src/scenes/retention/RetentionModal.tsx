@@ -4,7 +4,6 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -27,7 +26,7 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery } = useValues(
+    const { aggregationTargetLabel, selectedInterval, exploreUrl, insightEventsQueryUrl, actorsQuery } = useValues(
         retentionModalLogic(insightProps)
     )
     const { theme } = useValues(retentionModalLogic(insightProps))
@@ -84,22 +83,37 @@ export function RetentionModal(): JSX.Element | null {
                             </LemonButton>
                         )}
                     </div>
-                    {exploreUrl && (
-                        <LemonButton
-                            type="primary"
-                            to={exploreUrl}
-                            data-attr="person-modal-new-insight"
-                            onClick={() => {
-                                closeModal()
-                            }}
-                        >
-                            Explore
-                        </LemonButton>
-                    )}
+                    <div className="flex gap-2">
+                        {insightEventsQueryUrl && (
+                            <LemonButton
+                                type="secondary"
+                                to={insightEventsQueryUrl}
+                                data-attr="person-modal-view-events"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                                targetBlank
+                            >
+                                View events
+                            </LemonButton>
+                        )}
+                        {exploreUrl && (
+                            <LemonButton
+                                type="primary"
+                                to={exploreUrl}
+                                data-attr="person-modal-new-insight"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                            >
+                                Open as new insight
+                            </LemonButton>
+                        )}
+                    </div>
                 </div>
             }
             width={isEmpty ? undefined : '90%'}
-            title={`${dayjs.utc(row.date).format('MMMM D, YYYY')} Cohort`}
+            title={`${row.date.format('MMMM D, YYYY')} Cohort`}
         >
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
@@ -126,7 +140,7 @@ export function RetentionModal(): JSX.Element | null {
                                     {row.values?.map((data: any, index: number) => {
                                         return (
                                             <th key={index}>
-                                                <div>{results[index].label}</div>
+                                                <div>{data.label}</div>
                                                 <div>
                                                     {data.count}
                                                     &nbsp;

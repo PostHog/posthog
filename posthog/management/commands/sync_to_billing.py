@@ -1,11 +1,11 @@
 from django.core.management.base import BaseCommand
 
 from posthog.models import Organization
-from posthog.tasks.sync_to_billing import sync_to_billing
+from posthog.tasks.sync_billing import sync_members_to_billing
 
 
 class Command(BaseCommand):
-    help = "Run a sync to billing"
+    help = "Run a sync to send to billing"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -39,9 +39,9 @@ class Command(BaseCommand):
 
         for index, organization in enumerate(organizations):
             if run_async:
-                sync_to_billing.delay(organization.id)
+                sync_members_to_billing.delay(organization.id)
             else:
-                sync_to_billing(organization.id)
+                sync_members_to_billing(organization.id)
 
                 if index % 50 == 0:
                     print(f"Processed {index} organizations out of {len(organizations)}")  # noqa T201

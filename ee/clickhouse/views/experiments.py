@@ -1,5 +1,7 @@
-from typing import Any
+from enum import Enum
+from typing import Any, Literal
 
+from django.db.models import Q, QuerySet
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -7,15 +9,23 @@ from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.clickhouse.views.experiment_saved_metrics import (
+    ExperimentToSavedMetricSerializer,
+)
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+)
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team.team import Team
 from posthog.schema import ExperimentEventExposureConfig
 
 
@@ -29,6 +39,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
     saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Experiment
@@ -49,6 +60,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "saved_metrics_ids",
             "filters",
             "archived",
+            "deleted",
             "created_by",
             "created_at",
             "updated_at",
@@ -57,6 +69,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "_create_in_folder",
+            "conclusion",
+            "conclusion_comment",
         ]
         read_only_fields = [
             "id",
@@ -141,9 +156,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
-        if feature_flag.experiment_set.exists():
-            raise ValidationError("Feature flag is already associated with an experiment.")
-
         variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
 
         if len(variants) and len(variants) > 1:
@@ -168,6 +180,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 raise ValidationError("Invalid exposure criteria")
 
         return exposure_criteria
+
+    def validate(self, data):
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        # Only validate if both dates are present
+        if start_date and end_date and start_date >= end_date:
+            raise ValidationError("End date must be after start date")
+
+        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
@@ -211,14 +233,17 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "holdout_groups": holdout_groups,
             }
 
+            feature_flag_data = {
+                "key": feature_flag_key,
+                "name": f"Feature Flag for Experiment {validated_data['name']}",
+                "filters": feature_flag_filters,
+                "active": not is_draft,
+                "creation_context": "experiments",
+            }
+            if validated_data.get("_create_in_folder") is not None:
+                feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
             feature_flag_serializer = FeatureFlagSerializer(
-                data={
-                    "key": feature_flag_key,
-                    "name": f"Feature Flag for Experiment {validated_data['name']}",
-                    "filters": feature_flag_filters,
-                    "active": not is_draft,
-                    "creation_context": "experiments",
-                },
+                data=feature_flag_data,
                 context=self.context,
             )
 
@@ -226,7 +251,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
             feature_flag = feature_flag_serializer.save()
 
         if not validated_data.get("stats_config"):
-            validated_data["stats_config"] = {"version": 2}
+            # Get organization's default stats method setting
+            team = Team.objects.get(id=self.context["team_id"])
+            default_method = team.organization.default_experiment_stats_method
+            validated_data["stats_config"] = {"method": default_method}
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
@@ -300,12 +328,15 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "filters",
             "parameters",
             "archived",
+            "deleted",
             "secondary_metrics",
             "holdout",
             "exposure_criteria",
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "conclusion",
+            "conclusion_comment",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -393,13 +424,67 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
-class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment"
+class ExperimentStatus(str, Enum):
+    DRAFT = "draft"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    ALL = "all"
+
+
+class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
         "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
     ).all()
     ordering = "-created_at"
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        """Override to filter out deleted experiments and apply filters."""
+        queryset = queryset.exclude(deleted=True)
+
+        # Only apply filters for list view, not detail view
+        if self.action == "list":
+            # filtering by status
+            status = self.request.query_params.get("status")
+            if status:
+                try:
+                    status_enum = ExperimentStatus(status.lower())
+                except ValueError:
+                    status_enum = None
+
+                if status_enum and status_enum != ExperimentStatus.ALL:
+                    if status_enum == ExperimentStatus.DRAFT:
+                        queryset = queryset.filter(start_date__isnull=True)
+                    elif status_enum == ExperimentStatus.RUNNING:
+                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
+                    elif status_enum == ExperimentStatus.COMPLETE:
+                        queryset = queryset.filter(end_date__isnull=False)
+
+            # filtering by creator id
+            created_by_id = self.request.query_params.get("created_by_id")
+            if created_by_id:
+                queryset = queryset.filter(created_by_id=created_by_id)
+
+            # archived
+            archived = self.request.query_params.get("archived")
+            if archived is not None:
+                archived_bool = archived.lower() == "true"
+                queryset = queryset.filter(archived=archived_bool)
+            else:
+                queryset = queryset.filter(archived=False)
+
+        # search by name
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search))
+
+        # Ordering
+        order = self.request.query_params.get("order")
+        if order:
+            queryset = queryset.order_by(order)
+
+        return queryset
 
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation

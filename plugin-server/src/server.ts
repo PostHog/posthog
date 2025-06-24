@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
@@ -9,10 +8,14 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
-import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-plugins-worker.consumer'
-import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
+import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
+import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
+import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpProcessedEventsConsumer } from './cdp/consumers/cdp-processed-events.consumer'
+import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -21,27 +24,23 @@ import {
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
-import {
-    startAsyncOnEventHandlerConsumer,
-    startAsyncWebhooksHandlerConsumer,
-} from './main/ingestion-queues/on-event-handler-consumer'
+import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
-import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
+import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
+import { logger } from './utils/logger'
 import { getObjectStorage } from './utils/object_storage'
-import { shutdown as posthogShutdown } from './utils/posthog'
+import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
-import { status } from './utils/status'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
-import { initPlugins as _initPlugins, reloadPlugins } from './worker/tasks'
-import { populatePluginCapabilities } from './worker/vm/lazy'
+import { initPlugins as _initPlugins } from './worker/tasks'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -70,8 +69,6 @@ export class PluginServer {
             ...defaultConfig,
             ...config,
         }
-
-        status.updatePrompt(this.config.PLUGIN_SERVER_MODE)
 
         this.expressApp = express()
         this.expressApp.use(express.json())
@@ -118,7 +115,6 @@ export class PluginServer {
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
                     { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
                     { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
-                    { topic: 'exceptions_ingestion', group_id: 'exceptions_ingestion' },
                 ]
 
                 for (const consumerOption of consumersOptions) {
@@ -138,15 +134,6 @@ export class PluginServer {
                     const consumer = new IngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
-                })
-            }
-
-            if (capabilities.processAsyncOnEventHandlers) {
-                serviceLoaders.push(async () => {
-                    await initPlugins()
-                    return startAsyncOnEventHandlerConsumer({
-                        hub: hub,
-                    })
                 })
             }
 
@@ -170,7 +157,6 @@ export class PluginServer {
                         id: 'session-recordings-blob',
                         onShutdown: async () => await ingester.stop(),
                         healthcheck: () => ingester.isHealthy() ?? false,
-                        batchConsumer: ingester.batchConsumer,
                     }
                 })
             }
@@ -194,16 +180,9 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(
-                        this.config,
-                        false,
-                        postgres,
-                        batchConsumerFactory,
-                        producer
-                    )
+                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -212,16 +191,9 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(
-                        this.config,
-                        true,
-                        postgres,
-                        batchConsumerFactory,
-                        producer
-                    )
+                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -229,7 +201,7 @@ export class PluginServer {
 
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpProcessedEventsConsumer(hub)
+                    const consumer = new CdpEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -243,98 +215,92 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpLegacyOnEvent) {
+                serviceLoaders.push(async () => {
+                    await initPlugins()
+                    const consumer = new CdpLegacyEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
                     await initPlugins()
                     const api = new CdpApi(hub)
-                    await api.start()
                     this.expressApp.use('/', api.router())
+                    await api.start()
                     return api.service
                 })
             }
 
             if (capabilities.cdpCyclotronWorker) {
-                if (!hub.CYCLOTRON_DATABASE_URL) {
-                    status.error('💥', 'Cyclotron database URL not set.')
-                } else {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronWorker(hub)
-                        await worker.start()
-                        return worker.service
-                    })
-
-                    if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
-                        serviceLoaders.push(async () => {
-                            const workerFetch = new CdpCyclotronWorkerFetch(hub)
-                            await workerFetch.start()
-                            return workerFetch.service
-                        })
-                    }
-                }
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorker(hub)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             if (capabilities.cdpCyclotronWorkerPlugins) {
                 await initPlugins()
-                if (!hub.CYCLOTRON_DATABASE_URL) {
-                    status.error('💥', 'Cyclotron database URL not set.')
-                } else {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronWorkerPlugins(hub)
-                        await worker.start()
-                        return worker.service
-                    })
-                }
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerPlugins(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerFetch) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerFetch(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerHogFlow) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerHogFlow(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            // The service commands is always created
+            serviceLoaders.push(async () => {
+                const serverCommands = new ServerCommands(hub)
+                this.expressApp.use('/', serverCommands.router())
+                await serverCommands.start()
+                return serverCommands.service
+            })
+
+            if (capabilities.cdpCyclotronWorkerSegment) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerSegment(hub)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
             this.services.push(...readyServices)
-
-            this.pubsub = new PubSub(this.hub, {
-                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    status.info('⚡', 'Reloading plugins!')
-                    await reloadPlugins(hub)
-                },
-                'reset-available-product-features-cache': (message) => {
-                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
-                },
-                'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
-                    if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
-                    }
-                },
-            })
-
-            await this.pubsub.start()
 
             setupCommonRoutes(this.expressApp, this.services)
 
             if (!isTestEnv()) {
                 // We don't run http server in test env currently
                 this.httpServer = this.expressApp.listen(this.config.HTTP_SERVER_PORT, () => {
-                    status.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
+                    logger.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
                 })
             }
 
-            // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
-            // Ideally we would also join all the other background tasks as well to ensure we stop the
-            // server if we hit any errors and don't end up with zombie instances, but I'll leave that
-            // refactoring for another time. Note that we have the liveness health checks already, so in K8s
-            // cases zombies should be reaped anyway, albeit not in the most efficient way.
-
-            this.services.forEach((service) => {
-                service.batchConsumer?.join().catch(async (error) => {
-                    status.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
-                    await this.stop(error)
-                })
-            })
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
-            status.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
+            logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
-            Sentry.captureException(error)
-            status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
-            void Sentry.flush().catch(() => null) // Flush Sentry in the background
-            status.error('💥', 'Exception while starting server, shutting down!', { error })
+            captureException(error)
+            logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
+            logger.error('💥', 'Exception while starting server, shutting down!', { error })
             await this.stop(error)
         }
     }
@@ -343,17 +309,19 @@ export class PluginServer {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
             process.on(signal, async () => {
                 // This makes async exit possible with the process waiting until jobs are closed
-                status.info('👋', `process handling ${signal} event. Stopping...`)
+                logger.info('👋', `process handling ${signal} event. Stopping...`)
                 await this.stop()
             })
         }
 
-        process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-            status.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
+        process.on('unhandledRejection', (error: Error | any) => {
+            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
-            Sentry.captureException(error, {
+            captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
             })
+
+            void this.stop(error)
         })
 
         process.on('uncaughtException', async (error: Error) => {
@@ -363,32 +331,37 @@ export class PluginServer {
 
     async stop(error?: Error): Promise<void> {
         if (error) {
-            status.error('🤮', `Shutting down due to error`, { error: error.stack })
+            logger.error('🤮', `Shutting down due to error`, { error: error.stack })
         }
         if (this.stopping) {
-            status.info('🚨', 'Stop called but already stopping...')
+            logger.info('🚨', 'Stop called but already stopping...')
             return
         }
 
         this.stopping = true
 
-        status.info('💤', ' Shutting down gracefully...')
+        logger.info('💤', ' Shutting down gracefully...')
 
         this.httpServer?.close()
         Object.values(schedule.scheduledJobs).forEach((job) => {
             job.cancel()
         })
 
+        logger.info('💤', ' Shutting down services...')
         await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
 
         if (this.hub) {
+            logger.info('💤', ' Shutting down plugins...')
             // Wait *up to* 5 seconds to shut down VMs.
             await Promise.race([teardownPlugins(this.hub), delay(5000)])
 
+            logger.info('💤', ' Shutting down kafka producer...')
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
             await closeHub(this.hub)
         }
+
+        logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
     }

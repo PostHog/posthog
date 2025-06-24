@@ -18,7 +18,7 @@ export const setupFeatureFlags = (overrides: Record<string, any> = {}): void => 
         })
     )
 
-    cy.intercept('**/decide/*', (req) =>
+    cy.intercept('**/flags/*', (req) =>
         req.reply(
             decideResponse({
                 ...overrides,

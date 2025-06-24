@@ -16,6 +16,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     ActionsNode,
     CohortPropertyFilter,
+    HogQLPropertyFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -1341,6 +1342,100 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_lifecycle_virtual_person_property_hogql_filter(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$referring_domain": "https://www.google.com"},
+            )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    interval=IntervalType.DAY,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                HogQLPropertyFilter(key="person.$virt_initial_channel_type = 'Organic Search'")
+                            ],
+                        )
+                    ],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_virtual_person_property_filter(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$referring_domain": "https://www.google.com"},
+            )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    interval=IntervalType.DAY,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="$virt_initial_channel_type",
+                                    value="Organic Search",
+                                    operator=PropertyOperator.EXACT,
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
     def test_lifecycle_trends_distinct_id_repeat(self):
         with freeze_time("2020-01-12T12:00:00Z"):
             _create_person(
@@ -1894,6 +1989,39 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).calculate()
         assert response.results[0]["data"] == [2, 0, 0, 0]  # new
         assert response.results[2]["data"] == [0, 0, 0, 0]  # resurrecting
+
+    def test_dormant_on_dst(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create a user who is active on 2025-03-09 but goes dormant on 2025-03-10 (DST change day)
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2025-03-09T12:00:00Z",
+                    ],
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2025-03-09T00:00:00Z", date_to="2025-03-12T00:00:00Z"),
+                interval=IntervalType.DAY,
+                series=[EventsNode(event="$pageview")],
+            ),
+        ).calculate()
+
+        assert response.results[0]["status"] == "new"
+        assert response.results[0]["data"] == [0, 1, 0, 0]
+        assert response.results[0]["days"] == ["2025-03-08", "2025-03-09", "2025-03-10", "2025-03-11"]
+
+        assert response.results[3]["status"] == "dormant"
+        assert response.results[3]["data"] == [0, 0, -1, 0]
 
     def test_dashboard_breakdown_filter_does_not_update_breakdown_filter(self):
         query_runner = self._create_query_runner(

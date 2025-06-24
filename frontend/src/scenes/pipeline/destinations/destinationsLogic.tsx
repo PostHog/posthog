@@ -6,6 +6,8 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { shouldShowHogFunction } from 'scenes/hog-functions/list/hogFunctionsListLogic'
+import { hogFunctionTypeToPipelineStage } from 'scenes/hog-functions/misc/urls'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -20,8 +22,6 @@ import {
     PluginType,
 } from '~/types'
 
-import { shouldShowHogFunction } from '../hogfunctions/list/hogFunctionListLogic'
-import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
@@ -153,9 +153,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {} as Record<string, BatchExportConfiguration>,
             {
                 loadBatchExports: async () => {
-                    const results = await api.loadPaginatedResults<BatchExportConfiguration>(
-                        `api/projects/${values.currentProjectId}/batch_exports`
-                    )
+                    const response = await api.batchExports.list()
+                    const results = response.results
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
                 toggleNodeBatchExport: async ({ destination, enabled }) => {
@@ -190,7 +189,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    return (await api.hogFunctions.list({ types: destinationTypes })).results
+                    return (
+                        await api.hogFunctions.list({
+                            types: destinationTypes,
+                        })
+                    ).results
                 },
                 saveTransformationsOrder: async ({ newOrders }) => {
                     const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {

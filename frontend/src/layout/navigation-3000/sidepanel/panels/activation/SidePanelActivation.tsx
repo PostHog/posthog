@@ -58,7 +58,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                 {hasHiddenSections && (
                     <div className="w-full">
                         <button
-                            className="px-4 py-2 flex items-center justify-between w-full"
+                            className="px-4 py-2 flex items-center justify-between w-full cursor-pointer"
                             onClick={() => toggleShowHiddenSections()}
                             role="button"
                             aria-expanded={showHiddenSections}
@@ -87,15 +87,21 @@ export const SidePanelActivation = (): JSX.Element | null => {
     )
 }
 
-export const SidePanelActivationIcon = ({ className }: { className?: LemonIconProps['className'] }): JSX.Element => {
+export const SidePanelActivationIcon = ({
+    className,
+    size = 20,
+}: {
+    className?: LemonIconProps['className']
+    size?: number
+}): JSX.Element => {
     const { activeTasks, completionPercent } = useValues(activationLogic)
 
     return (
         <LemonProgressCircle
             progress={completionPercent / 100}
             strokePercentage={0.15}
-            size={20}
-            className={clsx(activeTasks.length > 0 ? 'text-accent-primary' : 'text-muted-alt', className)}
+            size={size}
+            className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-muted-alt', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
@@ -203,7 +209,7 @@ const ActivationTask = ({
                     // Handle popup blocked case
                     window.location.href = url
                 }
-            } catch (e) {
+            } catch {
                 // Fallback to regular navigation
                 window.location.href = url
             }

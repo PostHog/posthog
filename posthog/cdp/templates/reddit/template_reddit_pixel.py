@@ -19,11 +19,11 @@ common_inputs = [
 
 template_reddit_pixel: HogFunctionTemplate = HogFunctionTemplate(
     free=False,
-    status="beta",
+    status="alpha",
     type="site_destination",
     id="template-reddit-pixel",
     name="Reddit Pixel",
-    description="Track how many Reddit users interact with your website.",
+    description="Track how many Reddit users interact with your website. Note that this destination will set third-party cookies.",
     icon_url="/static/services/reddit.png",
     category=["Advertisement"],
     hog="""

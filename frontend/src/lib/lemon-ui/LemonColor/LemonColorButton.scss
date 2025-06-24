@@ -1,0 +1,10 @@
+.LemonColorButton .LemonButton__chrome {
+    gap: 4px;
+    padding-right: 6px !important;
+    padding-left: 6px !important;
+}
+
+.LemonColorButton.LemonButton--small .LemonButton__chrome {
+    padding-right: 8px !important;
+    padding-left: 8px !important;
+}

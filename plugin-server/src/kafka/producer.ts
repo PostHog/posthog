@@ -8,13 +8,13 @@ import {
     NumberNullUndefined,
     ProducerGlobalConfig,
 } from 'node-rdkafka'
+import { hostname } from 'os'
 import { Counter, Summary } from 'prom-client'
 
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
-import { getSpan } from '../utils/sentry'
-import { status } from '../utils/status'
-import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv } from './config'
+import { logger } from '../utils/logger'
+import { getKafkaConfigFromEnv, KafkaConfigTarget } from './config'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -35,48 +35,52 @@ export type TopicMessage = {
     messages: {
         value: string | Buffer | null
         key?: MessageKey
+        headers?: Record<string, string>
     }[]
 }
 
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    public producer: HighLevelProducer
+    private producer: HighLevelProducer
 
-    static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
+    static async create(config: PluginsServerConfig, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
 
         const producerConfig: ProducerGlobalConfig = {
             // Defaults that could be overridden by env vars
+            'client.id': hostname(),
+            'client.rack': config.KAFKA_CLIENT_RACK,
+            'metadata.broker.list': 'kafka:9092',
             'linger.ms': 20,
+            log_level: 4, // WARN as the default
             'batch.size': 8 * 1024 * 1024,
             'queue.buffering.max.messages': 100_000,
             'compression.codec': 'snappy',
             'enable.idempotence': true,
-            ...getProducerConfigFromEnv(),
-            ...createRdConnectionConfigFromEnvVars(config, mode),
+            ...getKafkaConfigFromEnv(mode),
             dr_cb: true,
         }
 
-        status.info('📝', 'librdkafka producer config', { config: producerConfig })
+        logger.info('📝', 'librdkafka producer config', { config: producerConfig })
 
         const producer = new HighLevelProducer(producerConfig)
 
         producer.on('event.log', function (log) {
-            status.info('📝', 'librdkafka log', { log: log })
+            logger.info('📝', 'librdkafka log', { log: log })
         })
 
         producer.on('event.error', function (err) {
-            status.error('📝', 'librdkafka error', { log: err })
+            logger.error('📝', 'librdkafka error', { log: err })
         })
 
         await new Promise((resolve, reject) =>
             producer.connect(undefined, (error, data) => {
                 if (error) {
-                    status.error('⚠️', 'connect_error', { error: error })
+                    logger.error('⚠️', 'connect_error', { error: error })
                     reject(error)
                 } else {
-                    status.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
+                    logger.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
                     resolve(data)
                 }
             })
@@ -98,13 +102,18 @@ export class KafkaProducerWrapper {
         value: MessageValue
         key: MessageKey
         topic: string
-        headers?: MessageHeader[]
+        headers?: Record<string, string>
     }): Promise<void> {
         try {
             const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
-            const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
-            status.debug('📤', 'Producing message', { topic: topic })
+            logger.debug('📤', 'Producing message', { topic: topic })
+
+            // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
+            const kafkaHeaders: MessageHeader[] =
+                Object.entries(headers ?? {}).map(([key, value]) => ({
+                    [key]: value,
+                })) ?? []
 
             const result = await new Promise((resolve, reject) => {
                 this.producer.produce(
@@ -113,20 +122,19 @@ export class KafkaProducerWrapper {
                     value,
                     key,
                     Date.now(),
-                    headers ?? [],
+                    kafkaHeaders,
                     (error: any, offset: NumberNullUndefined) => {
                         return error ? reject(error) : resolve(offset)
                     }
                 )
             })
 
-            produceSpan?.finish()
             kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
-            status.debug('📤', 'Produced message', { topic: topic, offset: result })
+            logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
-            status.error('⚠️', 'kafka_produce_error', {
+            logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
             })
@@ -158,6 +166,7 @@ export class KafkaProducerWrapper {
                             topic: record.topic,
                             key: message.key ? Buffer.from(message.key) : null,
                             value: message.value ? Buffer.from(message.value) : null,
+                            headers: message.headers,
                         })
                     )
                 )
@@ -166,11 +175,11 @@ export class KafkaProducerWrapper {
     }
 
     public async flush() {
-        status.debug('📤', 'flushing_producer')
+        logger.debug('📤', 'flushing_producer')
 
         return await new Promise((resolve, reject) =>
             this.producer.flush(10000, (error) => {
-                status.debug('📤', 'flushed_producer')
+                logger.debug('📤', 'flushed_producer')
                 if (error) {
                     reject(error)
                 } else {
@@ -181,12 +190,13 @@ export class KafkaProducerWrapper {
     }
 
     public async disconnect(): Promise<void> {
+        logger.info('🔌', 'Disconnecting producer. Flushing...')
         await this.flush()
 
-        status.info('🔌', 'Disconnecting producer')
+        logger.info('🔌', 'Disconnecting producer. Disconnecting...')
         await new Promise<ClientMetrics>((resolve, reject) =>
             this.producer.disconnect((error: any, data: ClientMetrics) => {
-                status.info('🔌', 'Disconnected producer')
+                logger.info('🔌', 'Disconnected producer')
                 if (error) {
                     reject(error)
                 } else {

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
+from django.urls import reverse
 
 from posthog.models import FeatureFlag
 
@@ -21,7 +22,7 @@ class FeatureFlagAdmin(admin.ModelAdmin):
     @admin.display(description="Team")
     def team_link(self, flag: FeatureFlag):
         return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}</a>',
-            flag.team.pk,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[flag.team.pk]),
             flag.team.name,
         )

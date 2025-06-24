@@ -87,6 +87,7 @@ export function PersonsModal({
         isModalOpen,
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
+        insightEventsQueryUrl,
         exploreUrl,
         actorsQuery,
     } = useValues(logic)
@@ -109,6 +110,8 @@ export function PersonsModal({
         return title
     }, [title, actorLabel.plural])
 
+    const hasGroups = actors.some((actor) => isGroupType(actor))
+
     return (
         <>
             <LemonModal
@@ -125,12 +128,14 @@ export function PersonsModal({
                     <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-4 py-2">
-                    {actorsResponse && !!missingActorsCount && (
+                    {actorsResponse && !!missingActorsCount && !hasGroups && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
                     <LemonInput
                         type="search"
-                        placeholder="Search for persons by email, name, or ID"
+                        placeholder={
+                            hasGroups ? 'Search for groups by name or ID' : 'Search for persons by email, name, or ID'
+                        }
                         fullWidth
                         value={searchTerm}
                         onChange={setSearchTerm}
@@ -285,18 +290,34 @@ export function PersonsModal({
                                 </LemonButton>
                             )}
                         </div>
-                        {exploreUrl && (
-                            <LemonButton
-                                type="primary"
-                                to={exploreUrl}
-                                data-attr="person-modal-new-insight"
-                                onClick={() => {
-                                    closeModal()
-                                }}
-                            >
-                                Explore
-                            </LemonButton>
-                        )}
+                        <div className="flex gap-2">
+                            {insightEventsQueryUrl && (
+                                <LemonButton
+                                    type="secondary"
+                                    to={insightEventsQueryUrl}
+                                    data-attr="person-modal-view-events"
+                                    onClick={() => {
+                                        closeModal()
+                                    }}
+                                    targetBlank
+                                >
+                                    View events
+                                </LemonButton>
+                            )}
+
+                            {exploreUrl && (
+                                <LemonButton
+                                    type="primary"
+                                    to={exploreUrl}
+                                    data-attr="person-modal-new-insight"
+                                    onClick={() => {
+                                        closeModal()
+                                    }}
+                                >
+                                    Open as new insight
+                                </LemonButton>
+                            )}
+                        </div>
                     </div>
                 </LemonModal.Footer>
             </LemonModal>
@@ -358,7 +379,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {actor.distinct_ids?.[0] && (
                                 <CopyToClipboardInline
                                     explicitValue={actor.distinct_ids[0]}
-                                    iconStyle={{ color: 'var(--accent-primary)' }}
+                                    iconStyle={{ color: 'var(--accent)' }}
                                     iconPosition="end"
                                     className="text-xs text-secondary"
                                 >

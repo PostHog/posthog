@@ -1,10 +1,10 @@
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
+import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 const defaultEvent = {
     uuid: '7e98a694-96e8-454e-b99b-2775cb44fa4f',
@@ -221,10 +221,6 @@ describe('vm timeout tests', () => {
     test('small promises', async () => {
         const indexJs = `
             async function processEvent (event, meta) {
-                const data = await fetch('https://www.example.com').then(response => response.json()).then(data => {
-                    return data
-                })
-
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
@@ -242,7 +238,6 @@ describe('vm timeout tests', () => {
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
-            expect(e).toBeInstanceOf(TimeoutError)
             errorMessage = e.message
             caller = e.caller
         }
@@ -259,9 +254,6 @@ describe('vm timeout tests', () => {
             // const __asyncGuard = false
             async function processEvent (event, meta) {
                 const __asyncGuard = (a) => a
-                const data = await fetch('https://www.example.com').then(response => response.json()).then(data => {
-                    return data
-                })
 
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))

@@ -66,10 +66,17 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         } else if (tooltip) {
             tooltipContent = <span>{tooltip}</span>
         }
+
+        const ButtonHtmlComponent = onChange ? 'button' : 'div'
+
         let buttonComponent = (
-            <button
+            <ButtonHtmlComponent
                 id={id}
-                className="LemonSwitch__button"
+                className={`LemonSwitch__button ${
+                    sliderColorOverrideChecked || sliderColorOverrideUnchecked
+                        ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
+                        : ''
+                }`}
                 type="button"
                 role="switch"
                 onClick={() => {
@@ -84,15 +91,8 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 disabled={disabled}
                 {...conditionalProps}
             >
-                <div
-                    className={`LemonSwitch__slider ${
-                        sliderColorOverrideChecked || sliderColorOverrideUnchecked
-                            ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
-                            : ''
-                    }`}
-                />
                 <div className="LemonSwitch__handle">{handleContent}</div>
-            </button>
+            </ButtonHtmlComponent>
         )
         if (tooltipContent) {
             buttonComponent = (

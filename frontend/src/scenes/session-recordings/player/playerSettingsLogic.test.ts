@@ -1,17 +1,17 @@
 import { expectLogic } from 'kea-test-utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerSettingsLogic } from './playerSettingsLogic'
 
 describe('playerSettingsLogic', () => {
     let logic: ReturnType<typeof playerSettingsLogic.build>
-    let eventLogic: ReturnType<typeof eventUsageLogic.build>
+    let eventLogic: ReturnType<typeof sessionRecordingEventUsageLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        eventLogic = eventUsageLogic()
+        eventLogic = sessionRecordingEventUsageLogic()
         eventLogic.mount()
         logic = playerSettingsLogic()
         logic.mount()

@@ -3,17 +3,20 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, FilterLogicalOperator, ReplayTabs } from '~/types'
+import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
@@ -25,8 +28,9 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionChanged } = useValues(logic)
-    const { submitAction, deleteAction } = useActions(logic)
+    const { submitAction, deleteAction, setActionValue } = useActions(logic)
     const { tags } = useValues(tagsModel)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -126,6 +130,13 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                             ],
                                         },
                                     })}
+                                    onClick={() => {
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.ACTIONS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                        })
+                                    }}
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="action-view-recordings"
                                 >
@@ -139,7 +150,17 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     type="primary"
                                     htmlType="submit"
                                     loading={actionLoading}
-                                    onClick={submitAction}
+                                    onClick={() =>
+                                        id
+                                            ? submitAction()
+                                            : openSaveToModal({
+                                                  callback: (folder) => {
+                                                      setActionValue('_create_in_folder', folder)
+                                                      submitAction()
+                                                  },
+                                                  defaultFolder: 'Unfiled/Insights',
+                                              })
+                                    }
                                     disabledReason={!actionChanged && !id ? 'No changes to save' : undefined}
                                 >
                                     Save
@@ -153,7 +174,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     <h2 className="subtitle">Match groups</h2>
                     <p>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.
-                        <Link to="https://posthog.com/docs/product-analytics/retention" target="_blank">
+                        <Link to="https://posthog.com/docs/data/actions" target="_blank">
                             <IconInfo className="ml-1 text-secondary text-xl" />
                         </Link>
                     </p>

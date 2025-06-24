@@ -1,13 +1,13 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 
 
 def tagify(tag: str):
     return tag.strip().lower()
 
 
-class Tag(UUIDModel):
+class Tag(UUIDModel, RootTeamMixin):
     name = models.CharField(max_length=255)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 

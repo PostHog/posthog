@@ -98,7 +98,6 @@ class HedgeboxMatrix(Matrix):
 
     def set_project_up(self, team, user):
         super().set_project_up(team, user)
-        team.project.product_description = "Dropbox for hedgehogs. We're a file sharing and collaboration platform. Free for limited personal use, with paid plans available."
         team.autocapture_web_vitals_opt_in = True
 
         # Actions
@@ -168,10 +167,6 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
-        team.revenue_tracking_config = {
-            "events": [{"eventName": EVENT_PAID_BILL, "revenueProperty": "amount_usd"}],
-            "baseCurrency": "USD",
-        }
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(

@@ -2,15 +2,19 @@ import './DashboardItems.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { urls } from 'scenes/urls'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
@@ -28,6 +32,9 @@ export function DashboardItems(): JSX.Element {
         canEditDashboard,
         itemsLoading,
         temporaryVariables,
+        temporaryBreakdownColors,
+        dataColorThemeId,
+        noCache,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -40,6 +47,9 @@ export function DashboardItems(): JSX.Element {
         setDashboardMode,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
+    const { push } = useActions(router)
+    const { nameSortedDashboards } = useValues(dashboardsModel)
+    const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -154,6 +164,10 @@ export function DashboardItems(): JSX.Element {
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
+                                    // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
+                                    breakdownColorOverride={temporaryBreakdownColors}
+                                    dataColorThemeId={dataColorThemeId}
+                                    noCache={noCache}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
@@ -164,7 +178,66 @@ export function DashboardItems(): JSX.Element {
                                 <TextCard
                                     key={tile.id}
                                     textTile={tile}
-                                    duplicate={() => duplicateTile(tile)}
+                                    moreButtonOverlay={
+                                        <>
+                                            <LemonButton
+                                                fullWidth
+                                                onClick={() =>
+                                                    dashboard?.id &&
+                                                    push(urls.dashboardTextTile(dashboard?.id, tile.id))
+                                                }
+                                                data-attr="edit-text"
+                                            >
+                                                Edit text
+                                            </LemonButton>
+
+                                            {commonTileProps.moveToDashboard && (
+                                                <LemonButtonWithDropdown
+                                                    disabledReason={
+                                                        otherDashboards.length > 0 ? undefined : 'No other dashboards'
+                                                    }
+                                                    dropdown={{
+                                                        overlay: otherDashboards.map((otherDashboard) => (
+                                                            <LemonButton
+                                                                key={otherDashboard.id}
+                                                                onClick={() => {
+                                                                    commonTileProps.moveToDashboard(otherDashboard)
+                                                                }}
+                                                                fullWidth
+                                                            >
+                                                                {otherDashboard.name || <i>Untitled</i>}
+                                                            </LemonButton>
+                                                        )),
+                                                        placement: 'right-start',
+                                                        fallbackPlacements: ['left-start'],
+                                                        actionable: true,
+                                                        closeParentPopoverOnClickInside: true,
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Move to
+                                                </LemonButtonWithDropdown>
+                                            )}
+                                            <LemonButton
+                                                onClick={() => duplicateTile(tile)}
+                                                fullWidth
+                                                data-attr="duplicate-text-from-dashboard"
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonDivider />
+                                            {commonTileProps.removeFromDashboard && (
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() => commonTileProps.removeFromDashboard()}
+                                                    fullWidth
+                                                    data-attr="remove-text-tile-from-dashboard"
+                                                >
+                                                    Delete
+                                                </LemonButton>
+                                            )}
+                                        </>
+                                    }
                                     {...commonTileProps}
                                 />
                             )

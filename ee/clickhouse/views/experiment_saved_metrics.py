@@ -8,7 +8,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from posthog.schema import ExperimentFunnelsQuery, ExperimentMetric, ExperimentQuery, ExperimentTrendsQuery
+from posthog.schema import (
+    ExperimentFunnelMetric,
+    ExperimentFunnelsQuery,
+    ExperimentMeanMetric,
+    ExperimentMetricType,
+    ExperimentTrendsQuery,
+)
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -68,7 +74,14 @@ class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.Mod
         # pydantic models are used to validate the query
         try:
             if metric_query["kind"] == "ExperimentMetric":
-                ExperimentQuery(kind="ExperimentQuery", metric=ExperimentMetric(**metric_query))
+                if "metric_type" not in metric_query:
+                    raise ValidationError("ExperimentMetric requires a metric_type")
+                if metric_query["metric_type"] == ExperimentMetricType.MEAN:
+                    ExperimentMeanMetric(**metric_query)
+                elif metric_query["metric_type"] == ExperimentMetricType.FUNNEL:
+                    ExperimentFunnelMetric(**metric_query)
+                else:
+                    raise ValidationError("ExperimentMetric metric_type must be 'mean' or 'funnel'")
             elif metric_query["kind"] == "ExperimentTrendsQuery":
                 ExperimentTrendsQuery(**metric_query)
             elif metric_query["kind"] == "ExperimentFunnelsQuery":

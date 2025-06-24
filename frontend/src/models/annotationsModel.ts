@@ -31,7 +31,7 @@ export function serializeAnnotation(annotation: AnnotationType): RawAnnotationTy
 
 export const annotationsModel = kea<annotationsModelType>([
     path(['models', 'annotationsModel']),
-    connect({ values: [teamLogic, ['currentTeam', 'timezone']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam', 'timezone']] })),
     actions({
         deleteAnnotation: (annotation: AnnotationType) => ({ annotation }),
         loadAnnotationsNext: () => true,

@@ -1,11 +1,23 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getProducedKafkaMessagesForTopic } from '../helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { PluginServer } from '../../src/server'
-import { Hub, LogLevel, PluginLogEntrySource, PluginLogEntryType, PluginServerMode } from '../../src/types'
+import {
+    Hub,
+    LogLevel,
+    PluginLogEntrySource,
+    PluginLogEntryType,
+    PluginServerMode,
+    ProjectId,
+    Team,
+} from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { MeasuringPersonsStoreForBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
 import { resetTestDatabase } from '../helpers/sql'
+import { v4 } from 'uuid'
+import { BatchWritingGroupStoreForBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
 
 jest.setTimeout(10000)
 
@@ -18,6 +30,26 @@ const defaultEvent: PluginEvent = {
     now: new Date().toISOString(),
     event: 'default event',
     properties: { key: 'value' },
+}
+
+const team: Team = {
+    id: 2,
+    api_token: 'api_token',
+    person_processing_opt_out: null,
+    project_id: 2 as ProjectId,
+    organization_id: '2',
+    uuid: v4(),
+    name: '2',
+    anonymize_ips: true,
+    slack_incoming_webhook: 'slack_incoming_webhook',
+    session_recording_opt_in: true,
+    heatmaps_opt_in: null,
+    ingested_event: true,
+    person_display_name_properties: null,
+    test_account_filters: null,
+    cookieless_server_hash_mode: null,
+    timezone: 'UTC',
+    available_features: [],
 }
 
 describe('teardown', () => {
@@ -37,7 +69,16 @@ describe('teardown', () => {
     })
 
     const processEvent = async (hub: Hub, event: PluginEvent) => {
-        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const result = await new EventPipelineRunner(
+            hub,
+            event,
+            null,
+            [],
+            personsStoreForBatch,
+            groupStoreForBatch
+        ).runEventPipeline(event, team)
         const resultEvent = result.args[0]
         return resultEvent
     }
@@ -45,14 +86,14 @@ describe('teardown', () => {
     it('teardown code runs when stopping', async () => {
         const server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
-            LOG_LEVEL: LogLevel.Log,
+            LOG_LEVEL: LogLevel.Info,
         })
         await server.start()
 
         await processEvent(server.hub!, defaultEvent)
         await server.stop()
 
-        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
+        const logEntries = mockProducerObserver.getProducedKafkaMessagesForTopic('plugin_log_entries_test')
 
         const systemErrors = logEntries.filter(
             (logEntry) =>
@@ -72,12 +113,12 @@ describe('teardown', () => {
     it('no need to tear down if plugin was never setup', async () => {
         const server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
-            LOG_LEVEL: LogLevel.Log,
+            LOG_LEVEL: LogLevel.Info,
         })
         await server.start()
         await server.stop()
 
-        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
+        const logEntries = mockProducerObserver.getProducedKafkaMessagesForTopic('plugin_log_entries_test')
 
         // verify the teardownPlugin code runs -- since we're reading from
         // ClickHouse, we need to give it a bit of time to have consumed from

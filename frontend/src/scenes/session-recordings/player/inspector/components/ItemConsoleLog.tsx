@@ -19,7 +19,7 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
                         'rounded-lg px-1 mx-2 text-white text-xs font-semibold',
                         item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                         item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
-                        item.highlightColor === 'primary' && `bg-fill-accent-primary-highlight`
+                        item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
                     )}
                 >
                     {item.data.count}

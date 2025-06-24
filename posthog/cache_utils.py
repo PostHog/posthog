@@ -17,7 +17,7 @@ R = TypeVar("R")
 CacheKey = tuple[tuple[Any, ...], frozenset[tuple[Any, Any]]]
 
 
-@dataclass(slots=True)
+@dataclass()
 class CachedFunction(Generic[P, R]):
     _fn: Callable[P, R]
     _cache_time: timedelta

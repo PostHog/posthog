@@ -20,6 +20,13 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-03-10',
+        testOptions: {
+            // Needs a slightly larger width to push the rendered scene away from breakpoint boundary
+            viewport: {
+                width: 1300,
+                height: 720,
+            },
+        },
     },
     decorators: [
         mswDecorator({
@@ -75,6 +82,7 @@ export const BillingWithCreditCTA = (): JSX.Element => {
         get: {
             '/api/billing/': {
                 ...billingJson,
+                account_owner: null,
             },
             '/api/billing/credits/overview': {
                 status: 'none',

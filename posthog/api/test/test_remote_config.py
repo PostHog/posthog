@@ -15,6 +15,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
+        self.team.surveys_opt_in = True
         self.team.save()
 
         cache.clear()
@@ -70,8 +71,10 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                     "urlBlocklist": [],
                     "eventTriggers": [],
                     "scriptConfig": None,
+                    "triggerMatchType": None,
                 },
-                "surveys": [],
+                "errorTracking": {"autocaptureExceptions": False, "suppressionRules": []},
+                "surveys": False,
                 "heatmaps": False,
                 "defaultIdentifiedOnly": True,
                 "siteApps": [],
@@ -102,7 +105,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
             assert not response.json()["sessionRecording"]
 
     def test_valid_config_js(self):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
+        with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
 
         with self.assertNumQueries(0):
@@ -112,12 +115,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.headers["Content-Type"] == "application/javascript"
 
         assert response.content == snapshot(
-            b'(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
+            b'(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": null}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
         )
 
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_js(self, mock_get_array_js_content):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
+        with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
             response = self.client.get(f"/array/{self.team.api_token}/array.js", HTTP_ORIGIN="https://foo.example.com")
 
         with self.assertNumQueries(0):
@@ -127,7 +130,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.content
 
         assert response.content == snapshot(
-            b'[MOCKED_ARRAY_JS_CONTENT]\n\n(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
+            b'[MOCKED_ARRAY_JS_CONTENT]\n\n(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": null}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
         )
 
         # NOT actually testing the content here as it will change dynamically

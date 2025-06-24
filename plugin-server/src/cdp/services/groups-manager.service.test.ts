@@ -13,7 +13,7 @@ describe('Groups Manager', () => {
         postgres: {
             query: jest.fn(),
         },
-        organizationManager: {
+        teamManager: {
             hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
         },
     }
@@ -189,6 +189,51 @@ describe('Groups Manager', () => {
                     "url": "http://localhost:8000/projects/1/groups/1/id-1",
                   },
                 }
+            `)
+        })
+
+        it('handles invalid group properties', async () => {
+            const globals = createHogExecutionGlobals({
+                groups: undefined,
+                event: {
+                    properties: { $groups: { GroupA: { i: 'did', not: 'read', the: 'docs' }, GroupB: 'id-2' } },
+                } as any,
+            })
+            await groupsManager.enrichGroups([globals])
+
+            expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
+            // Validate that only the correct ID values were used
+            expect(mockHub.postgres.query.mock.calls).toMatchInlineSnapshot(`
+                [
+                  [
+                    3,
+                    "SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)",
+                    [
+                      [
+                        1,
+                      ],
+                    ],
+                    "fetchGroupTypes",
+                  ],
+                  [
+                    3,
+                    "SELECT team_id, group_type_index, group_key, group_properties
+                            FROM posthog_group
+                            WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)",
+                    [
+                      [
+                        1,
+                      ],
+                      [
+                        1,
+                      ],
+                      [
+                        "id-2",
+                      ],
+                    ],
+                    "fetchGroups",
+                  ],
+                ]
             `)
         })
     })

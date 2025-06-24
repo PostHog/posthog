@@ -4,8 +4,8 @@ from typing import Any, Literal, Optional, cast
 
 import pytest
 from django.test import override_settings
+from unittest.mock import patch
 
-from posthog import settings
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
@@ -16,6 +16,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.models.team.team import WeekStartDay
@@ -516,10 +517,6 @@ class TestPrinter(BaseTest):
             )
 
     def test_property_groups_person_properties(self):
-        # we can't use `override_settings` here, as the initial setting check is done at module initialize time
-        if not settings.USE_PERSON_PROPERTIES_MAP_CUSTOM:
-            pytest.xfail("person_properties_map_custom not enabled")
-
         context = HogQLContext(
             team_id=self.team.pk,
             modifiers=HogQLQueryModifiers(
@@ -601,20 +598,20 @@ class TestPrinter(BaseTest):
         # Comparing against a (non-empty) string value lets us avoid checking if the key exists or not, and lets us use
         # the bloom filter indices on both keys and values to optimize the comparison operation.
         self._test_property_group_comparison(
-            "properties.key = 'value'",
-            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            "properties.key = 'value' as eq",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s) AS eq",
             {"hogql_val_0": "key", "hogql_val_1": "value"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
-            "'value' = properties.key",
-            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            "'value' = properties.key as eq",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s) AS eq",
             {"hogql_val_0": "key", "hogql_val_1": "value"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
-            "equals(properties.key, 'value')",
-            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            "equals(properties.key, 'value') as eq",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s) AS eq",
             {"hogql_val_0": "key", "hogql_val_1": "value"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
@@ -664,14 +661,14 @@ class TestPrinter(BaseTest):
         # not. We can still utilize the bloom filter index on keys, but the empty string isn't stored in the bloom
         # filter so it won't be used here.
         self._test_property_group_comparison(
-            "properties.key = ''",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
+            "properties.key = '' as eq",
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)) AS eq",
             {"hogql_val_0": "key", "hogql_val_1": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
         self._test_property_group_comparison(
-            "equals(properties.key, '')",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
+            "equals(properties.key, '') as eq",
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)) AS eq",
             {"hogql_val_0": "key", "hogql_val_1": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
@@ -680,20 +677,20 @@ class TestPrinter(BaseTest):
         # NOT NULL comparisons should check to see if the key exists within the map (and should use the bloom filter to
         # optimize the check), but do not need to load the values subcolumn.
         self._test_property_group_comparison(
-            "properties.key is not null",
-            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            "properties.key is not null as p",
+            "has(events.properties_group_custom, %(hogql_val_0)s) AS p",
             {"hogql_val_0": "key"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
         self._test_property_group_comparison(
-            "properties.key != null",
-            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            "properties.key != null as p",
+            "has(events.properties_group_custom, %(hogql_val_0)s) AS p",
             {"hogql_val_0": "key"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
         self._test_property_group_comparison(
-            "isNotNull(properties.key)",
-            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            "isNotNull(properties.key) as p",
+            "has(events.properties_group_custom, %(hogql_val_0)s) AS p",
             {"hogql_val_0": "key"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
@@ -701,25 +698,25 @@ class TestPrinter(BaseTest):
         # NULL comparisons don't really benefit from the bloom filter index like NOT NULL comparisons do, but like
         # above, only need to check the keys subcolumn and not the values subcolumn.
         self._test_property_group_comparison(
-            "properties.key is null",
-            "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+            "properties.key is null as p",
+            "not(has(events.properties_group_custom, %(hogql_val_0)s)) AS p",
             {"hogql_val_0": "key"},
         )
         self._test_property_group_comparison(
-            "properties.key = null",
-            "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+            "properties.key = null as p",
+            "not(has(events.properties_group_custom, %(hogql_val_0)s)) AS p",
             {"hogql_val_0": "key"},
         )
         self._test_property_group_comparison(
-            "isNull(properties.key)",
-            "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+            "isNull(properties.key) as p",
+            "not(has(events.properties_group_custom, %(hogql_val_0)s)) AS p",
             {"hogql_val_0": "key"},
         )
 
     def test_property_groups_optimized_has(self) -> None:
         self._test_property_group_comparison(
-            "JSONHas(properties, 'key')",
-            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            "JSONHas(properties, 'key') as j",
+            "has(events.properties_group_custom, %(hogql_val_0)s) AS j",
             {"hogql_val_0": "key"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
@@ -729,8 +726,8 @@ class TestPrinter(BaseTest):
 
         with materialized("events", "key"):
             self._test_property_group_comparison(
-                "JSONHas(properties, 'key')",
-                "has(events.properties_group_custom, %(hogql_val_0)s)",
+                "JSONHas(properties, 'key') as j",
+                "has(events.properties_group_custom, %(hogql_val_0)s) AS j",
                 {"hogql_val_0": "key"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             )
@@ -837,6 +834,7 @@ class TestPrinter(BaseTest):
 
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
+
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
@@ -845,7 +843,9 @@ class TestPrinter(BaseTest):
             self._expr("toUUID('470f9b15-ff43-402a-af9f-2ed7c526a6cf')", context),
             "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)",
         )
-        self.assertEqual(self._expr("toDecimal('3.14', 2)", context), "toDecimal64OrNull(%(hogql_val_6)s, 2)")
+        self.assertEqual(
+            self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
+        )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
     def test_expr_parse_errors(self):
@@ -1283,11 +1283,11 @@ class TestPrinter(BaseTest):
                 "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
-                "ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
+                "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
                 "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -1309,11 +1309,11 @@ class TestPrinter(BaseTest):
                 "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
-                "ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
+                "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
                 "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -1331,10 +1331,10 @@ class TestPrinter(BaseTest):
             self.assertEqual(
                 expected,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
-                f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
+                f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -1350,29 +1350,29 @@ class TestPrinter(BaseTest):
             self.assertEqual(
                 expected,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
-                f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
+                f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
     def test_count_distinct(self):
         self.assertEqual(
-            self._select("SELECT count(distinct event) FROM events"),
-            f"SELECT count(DISTINCT events.event) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            self._select("SELECT count(distinct event) as count FROM events"),
+            f"SELECT count(DISTINCT events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_count_star(self):
         self.assertEqual(
-            self._select("SELECT count(*) FROM events"),
-            f"SELECT count(*) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            self._select("SELECT count(*) as count FROM events"),
+            f"SELECT count(*) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_count_if_distinct(self):
         self.assertEqual(
-            self._select("SELECT countIf(distinct event, event like '%a%') FROM events"),
-            f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            self._select("SELECT countIf(distinct event, event like '%a%') as count FROM events"),
+            f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_print_timezone(self):
@@ -1385,10 +1385,10 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             self._select(
-                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02'), toDateTime('2020-02-02 12:25') FROM events",
+                "SELECT now() as a, toDateTime(timestamp) as b, toDate(test_date) as c, toDateTime('2020-02-02') as d, toDateTime('2020-02-02 12:25') as e FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date), toDateTime(%(hogql_val_3)s, %(hogql_val_4)s), parseDateTime64BestEffort(%(hogql_val_5)s, 6, %(hogql_val_6)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDate(events.test_date) AS c, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS d, parseDateTime64BestEffort(%(hogql_val_5)s, 6, %(hogql_val_6)s) AS e FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -1409,10 +1409,10 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select(
-                "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
+                "SELECT now() as a, toDateTime(timestamp) as b, toDateTime('2020-02-02') as c FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS c FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -1443,6 +1443,44 @@ class TestPrinter(BaseTest):
                 "SELECT distinct_id, min(timestamp) over win1 as timestamp FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             ),
             f"SELECT events.distinct_id AS distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_postgres_compatible_lag_and_lead_functions(self):
+        # Simple example without ROWS
+        self.assertEqual(
+            self._select("SELECT distinct_id, lag(timestamp) OVER (ORDER BY timestamp) FROM events"),
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+        self.assertEqual(
+            self._select("SELECT distinct_id, lead(timestamp) OVER (ORDER BY timestamp) FROM events"),
+            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+        # Example with ROWS specified
+        self.assertEqual(
+            self._select(
+                "SELECT distinct_id, lag(timestamp) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events"
+            ),
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+        self.assertEqual(
+            self._select(
+                "SELECT distinct_id, lead(timestamp) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events"
+            ),
+            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+        # Example with named windows
+        self.assertEqual(
+            self._select(
+                "SELECT distinct_id, lag(timestamp) over win1 as prev_ts FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp)"
+            ),
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_2)s) ASC) LIMIT 50000",
+        )
+        # Example with multiple named windows, to make sure we don't add ROWS BETWEEN for non lag/lead functions
+        self.assertEqual(
+            self._select(
+                "SELECT distinct_id, lag(timestamp) over win1 as prev_ts, min(timestamp) over win1 as min_ts FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp)"
+            ),
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts, min(toTimeZone(events.timestamp, %(hogql_val_2)s)) OVER win1 AS min_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_3)s) ASC) LIMIT 50000",
         )
 
     def test_window_functions_with_window(self):
@@ -1476,8 +1514,8 @@ class TestPrinter(BaseTest):
     def test_to_start_of_week_gets_mode(self):
         # It's important we use ints and not WeekStartDay here, because it's the former that's actually in the DB
         default_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, None))
-        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, 0))  # 0 == WeekStartDay.SUNDAY
-        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, 1))  # 1 == WeekStartDay.MONDAY
+        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY))
+        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY))
 
         self.assertEqual(
             self._expr("toStartOfWeek(timestamp)", default_week_context),  # Sunday is the default
@@ -1498,47 +1536,47 @@ class TestPrinter(BaseTest):
 
     def test_functions_expecting_datetime_arg(self):
         self.assertEqual(
-            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
-            f"tumble(assumeNotNull(toDateTime(toDateTime(%(hogql_val_0)s, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1')) as t"),
+            f"tumble(assumeNotNull(toDateTime(toDateTime(%(hogql_val_0)s, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t",
         )
         self.assertEqual(
-            self._expr("tumble(now(), toIntervalDay('1'))"),
-            f"tumble(toDateTime(now64(6, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s))",
+            self._expr("tumble(now(), toIntervalDay('1')) as t"),
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) AS t",
         )
         self.assertEqual(
-            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1'))"),
-            f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s))",
+            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1')) as t"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s)) AS t",
         )
         self.assertEqual(
-            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1'))"),
-            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffort(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1')) as t"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffort(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t",
         )
         self.assertEqual(
-            self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),
-            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            self._select("SELECT tumble(timestamp, toIntervalDay('1')) as t FROM events"),
+            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) AS t FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_field_nullable_equals(self):
         generated_sql_statements1 = self._select(
             "SELECT "
-            "start_time = toStartOfMonth(now()), "
-            "1 = 1, "
-            "click_count = 1, "
-            "1 = click_count, "
-            "click_count = keypress_count, "
-            "click_count = null, "
-            "null = click_count "
+            "start_time = toStartOfMonth(now()) as a, "
+            "1 = 1 as b, "
+            "click_count = 1 as c, "
+            "1 = click_count as d, "
+            "click_count = keypress_count as e, "
+            "click_count = null as f, "
+            "null = click_count as g "
             "FROM session_replay_events"
         )
         generated_sql_statements2 = self._select(
             "SELECT "
-            "equals(start_time, toStartOfMonth(now())), "
-            "equals(1, 1), "
-            "equals(click_count, 1), "
-            "equals(1, click_count), "
-            "equals(click_count, keypress_count), "
-            "equals(click_count, null), "
-            "equals(null, click_count) "
+            "equals(start_time, toStartOfMonth(now())) as a, "
+            "equals(1, 1) as b, "
+            "equals(click_count, 1) as c, "
+            "equals(1, click_count) as d, "
+            "equals(click_count, keypress_count) as e, "
+            "equals(click_count, null) as f, "
+            "equals(null, click_count) as g "
             "FROM session_replay_events"
         )
         assert generated_sql_statements1 == generated_sql_statements2
@@ -1547,32 +1585,32 @@ class TestPrinter(BaseTest):
             # start_time = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
             f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
             # 1 = 1
-            f"1, "
+            f"1 AS b, "
             # click_count = 1
-            f"ifNull(equals(session_replay_events.click_count, 1), 0), "
+            f"ifNull(equals(session_replay_events.click_count, 1), 0) AS c, "
             # 1 = click_count
-            f"ifNull(equals(1, session_replay_events.click_count), 0), "
+            f"ifNull(equals(1, session_replay_events.click_count), 0) AS d, "
             # click_count = keypress_count
-            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)), "
+            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)) AS e, "
             # click_count = null
-            f"isNull(session_replay_events.click_count), "
+            f"isNull(session_replay_events.click_count) AS f, "
             # null = click_count
-            f"isNull(session_replay_events.click_count) "
+            f"isNull(session_replay_events.click_count) AS g "
             # ...
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_field_nullable_not_equals(self):
         generated_sql1 = self._select(
-            "SELECT start_time != toStartOfMonth(now()), 1 != 1, "
-            "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
+            "SELECT start_time != toStartOfMonth(now()) as a, 1 != 1 as b, "
+            "click_count != 1 as c, 1 != click_count as d, click_count != keypress_count as e, click_count != null as f, null != click_count as g "
             "FROM session_replay_events"
         )
         generated_sql2 = self._select(
-            "SELECT notEquals(start_time, toStartOfMonth(now())), notEquals(1, 1), "
-            "notEquals(click_count, 1), notEquals(1, click_count), notEquals(click_count, keypress_count), notEquals(click_count, null), notEquals(null, click_count) "
+            "SELECT notEquals(start_time, toStartOfMonth(now())) as a, notEquals(1, 1) as b, "
+            "notEquals(click_count, 1) as c, notEquals(1, click_count) as d, notEquals(click_count, keypress_count) as e, notEquals(click_count, null) as f, notEquals(null, click_count) as g "
             "FROM session_replay_events"
         )
         assert generated_sql1 == generated_sql2
@@ -1581,19 +1619,19 @@ class TestPrinter(BaseTest):
             # start_time = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
             f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
             # 1 = 1
-            f"0, "
+            f"0 AS b, "
             # click_count = 1
-            f"ifNull(notEquals(session_replay_events.click_count, 1), 1), "
+            f"ifNull(notEquals(session_replay_events.click_count, 1), 1) AS c, "
             # 1 = click_count
-            f"ifNull(notEquals(1, session_replay_events.click_count), 1), "
+            f"ifNull(notEquals(1, session_replay_events.click_count), 1) AS d, "
             # click_count = keypress_count
-            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)), "
+            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)) AS e, "
             # click_count = null
-            f"isNotNull(session_replay_events.click_count), "
+            f"isNotNull(session_replay_events.click_count) AS f, "
             # null = click_count
-            f"isNotNull(session_replay_events.click_count) "
+            f"isNotNull(session_replay_events.click_count) AS g "
             # ...
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
@@ -1639,12 +1677,12 @@ class TestPrinter(BaseTest):
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements1 = self._select(
             "SELECT "
-            "nullable_field like 'a', "
-            "nullable_field like null, "
-            "null like nullable_field, "
-            "null like 'a', "
-            "'a' like nullable_field, "
-            "'a' like null "
+            "nullable_field like 'a' as a, "
+            "nullable_field like null as b, "
+            "null like nullable_field as c, "
+            "null like 'a' as d, "
+            "'a' like nullable_field as e, "
+            "'a' like null as f "
             "FROM events",
             context,
         )
@@ -1653,12 +1691,12 @@ class TestPrinter(BaseTest):
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements2 = self._select(
             "SELECT "
-            "like(nullable_field, 'a'), "
-            "like(nullable_field, null), "
-            "like(null, nullable_field), "
-            "like(null, 'a'), "
-            "like('a', nullable_field), "
-            "like('a', null) "
+            "like(nullable_field, 'a') as a, "
+            "like(nullable_field, null) as b, "
+            "like(null, nullable_field) as c, "
+            "like(null, 'a') as d, "
+            "like('a', nullable_field) as e, "
+            "like('a', null) as f "
             "FROM events",
             context,
         )
@@ -1666,17 +1704,17 @@ class TestPrinter(BaseTest):
         assert generated_sql_statements1 == (
             f"SELECT "
             # event like 'a',
-            "ifNull(like(events.nullable_field, %(hogql_val_0)s), 0), "
+            "ifNull(like(events.nullable_field, %(hogql_val_0)s), 0) AS a, "
             # event like null,
-            "isNull(events.nullable_field), "
+            "isNull(events.nullable_field) AS b, "
             # null like event,
-            "isNull(events.nullable_field), "
+            "isNull(events.nullable_field) AS c, "
             # null like 'a',
-            "ifNull(like(NULL, %(hogql_val_1)s), 0), "
+            "ifNull(like(NULL, %(hogql_val_1)s), 0) AS d, "
             # 'a' like event,
-            "ifNull(like(%(hogql_val_2)s, events.nullable_field), 0), "
+            "ifNull(like(%(hogql_val_2)s, events.nullable_field), 0) AS e, "
             # 'a' like null
-            "isNull(%(hogql_val_3)s) "
+            "isNull(%(hogql_val_3)s) AS f "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
@@ -1685,12 +1723,12 @@ class TestPrinter(BaseTest):
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements1 = self._select(
             "SELECT "
-            "nullable_field not like 'a', "
-            "nullable_field not like null, "
-            "null not like nullable_field, "
-            "null not like 'a', "
-            "'a' not like nullable_field, "
-            "'a' not like null "
+            "nullable_field not like 'a' as a, "
+            "nullable_field not like null as b, "
+            "null not like nullable_field as c, "
+            "null not like 'a' as d, "
+            "'a' not like nullable_field as e, "
+            "'a' not like null as f "
             "FROM events",
             context,
         )
@@ -1699,12 +1737,12 @@ class TestPrinter(BaseTest):
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
         generated_sql_statements2 = self._select(
             "SELECT "
-            "notLike(nullable_field, 'a'), "
-            "notLike(nullable_field, null), "
-            "notLike(null, nullable_field), "
-            "notLike(null, 'a'), "
-            "notLike('a', nullable_field), "
-            "notLike('a', null) "
+            "notLike(nullable_field, 'a') as a, "
+            "notLike(nullable_field, null) as b, "
+            "notLike(null, nullable_field) as c, "
+            "notLike(null, 'a') as d, "
+            "notLike('a', nullable_field) as e, "
+            "notLike('a', null) as f "
             "FROM events",
             context,
         )
@@ -1712,17 +1750,17 @@ class TestPrinter(BaseTest):
         assert generated_sql_statements1 == (
             f"SELECT "
             # event like 'a',
-            "ifNull(notLike(events.nullable_field, %(hogql_val_0)s), 1), "
+            "ifNull(notLike(events.nullable_field, %(hogql_val_0)s), 1) AS a, "
             # event like null,
-            "isNotNull(events.nullable_field), "
+            "isNotNull(events.nullable_field) AS b, "
             # null like event,
-            "isNotNull(events.nullable_field), "
+            "isNotNull(events.nullable_field) AS c, "
             # null like 'a',
-            "ifNull(notLike(NULL, %(hogql_val_1)s), 1), "
+            "ifNull(notLike(NULL, %(hogql_val_1)s), 1) AS d, "
             # 'a' like event,
-            "ifNull(notLike(%(hogql_val_2)s, events.nullable_field), 1), "
+            "ifNull(notLike(%(hogql_val_2)s, events.nullable_field), 1) AS e, "
             # 'a' like null
-            "isNotNull(%(hogql_val_3)s) "
+            "isNotNull(%(hogql_val_3)s) AS f "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
@@ -1736,11 +1774,12 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
+        assert isinstance(query, ast.SelectQuery)
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         printed = print_ast(
             query,
@@ -1754,6 +1793,7 @@ class TestPrinter(BaseTest):
 
     def test_print_both_settings(self):
         query = parse_select("SELECT 1 FROM events")
+        assert isinstance(query, ast.SelectQuery)
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         printed = print_ast(
             query,
@@ -1763,7 +1803,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
     def test_pretty_print(self):
@@ -1852,7 +1892,7 @@ class TestPrinter(BaseTest):
             LIMIT {MAX_SELECT_RETURNED_ROWS}
         """
         )
-        assert printed == self.snapshot
+        assert printed == self.snapshot  # type: ignore
 
     def test_print_hidden_aliases_timestamp(self):
         query = parse_select("select * from (SELECT timestamp, timestamp FROM events)")
@@ -1866,7 +1906,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
             f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
     def test_print_hidden_aliases_column_override(self):
@@ -1881,7 +1921,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
             f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
     def test_print_hidden_aliases_properties(self):
@@ -1904,7 +1944,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
     def test_print_hidden_aliases_double_property(self):
@@ -1928,113 +1968,98 @@ class TestPrinter(BaseTest):
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
             f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
     def test_lookup_domain_type(self):
-        query = parse_select("select hogql_lookupDomainType('www.google.com') from events")
+        query = parse_select("select hogql_lookupDomainType('www.google.com') as domain from events")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')), "
-                "dictGetOrNull('channel_definition_dict', 'domain_type', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'domain_type', "
+            "(coalesce(%(hogql_val_0)s, ''), 'source')), "
+            "dictGetOrNull('posthog_test.channel_definition_dict', 'domain_type', "
+            "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS domain "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_paid_source_type(self):
-        query = parse_select("select hogql_lookupPaidSourceType('google') from events")
+        query = parse_select("select hogql_lookupPaidSourceType('google') as source from events")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
-                "dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+            "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
+            "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+            "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_paid_medium_type(self):
-        query = parse_select("select hogql_lookupPaidMediumType('social') from events")
+        query = parse_select("select hogql_lookupPaidMediumType('social') as medium from events")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(coalesce(%(hogql_val_0)s, ''), 'medium')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
+            "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_organic_source_type(self):
-        query = parse_select("select hogql_lookupOrganicSourceType('google') from events")
+        query = parse_select("select hogql_lookupOrganicSourceType('google') as source  from events")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')), "
-                "dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+            "(coalesce(%(hogql_val_0)s, ''), 'source')), "
+            "dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+            "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) AS source "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+            "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_lookup_organic_medium_type(self):
-        query = parse_select("select hogql_lookupOrganicMediumType('social') from events")
+        query = parse_select("select hogql_lookupOrganicMediumType('social') as medium from events")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(coalesce(%(hogql_val_0)s, ''), 'medium')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
-            ),
-            printed,
-        )
+        assert (
+            "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
+            "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+        ) == printed
 
     def test_currency_conversion(self):
-        query = parse_select("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01'))")
+        query = parse_select("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
@@ -2043,14 +2068,14 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))) "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
             ),
             printed,
         )
 
     def test_currency_conversion_without_date(self):
-        query = parse_select("select convertCurrency('USD', 'EUR', 100)")
+        query = parse_select("select convertCurrency('USD', 'EUR', 100) as currency")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
@@ -2059,11 +2084,80 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10)))) "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
             ),
             printed,
         )
+
+    def test_get_survey_response(self):
+        # Test with just question index
+        with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
+            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE"
+
+            query = parse_select("select getSurveyResponse(0) from events")
+            printed = print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_execution_time=10),
+            )
+
+            # Verify the utility function was called with correct parameters
+            mock_get_survey_response.assert_called_once_with(0, None, False)
+
+            # Just test that the mock value was inserted into the query
+            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE", printed)
+
+        # Test with question index and specific ID
+        with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
+            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE WITH ID"
+
+            query = parse_select("select getSurveyResponse(1, 'question123') from events")
+            printed = print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_execution_time=10),
+            )
+
+            # Verify the utility function was called with correct parameters
+            mock_get_survey_response.assert_called_once_with(1, "question123", False)
+
+            # Just test that the mock value was inserted into the query
+            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE WITH ID", printed)
+
+        # Test with multiple choice question
+        with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
+            mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
+
+            query = parse_select("select getSurveyResponse(2, 'abc123', true) from events")
+            printed = print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_execution_time=10),
+            )
+
+            # Verify the utility function was called with correct parameters
+            mock_get_survey_response.assert_called_once_with(2, "abc123", True)
+
+    def test_unique_survey_submissions_filter(self):
+        with patch(
+            "posthog.hogql.printer.filter_survey_sent_events_by_unique_submission"
+        ) as mock_filter_survey_sent_events_by_unique_submission:
+            mock_filter_survey_sent_events_by_unique_submission.return_value = (
+                "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
+            )
+            query = parse_select("select uuid from events where uniqueSurveySubmissionsFilter('survey123')")
+            printed = print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_execution_time=10),
+            )
+            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123")
+            self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -2077,15 +2171,15 @@ class TestPrinter(BaseTest):
             self._select(
                 """
                     SELECT
-                        toDateTime(timestamp),
-                        toDateTime(timestamp, 'US/Pacific'),
-                        now(),
-                        now('US/Pacific')
+                        toDateTime(timestamp) as ts,
+                        toDateTime(timestamp, 'US/Pacific') as tsz,
+                        now() as now,
+                        now('US/Pacific') as nowz
                     FROM events
                 """,
                 context,
             ),
-            f"SELECT toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s), now64(6, %(hogql_val_4)s), now64(6, %(hogql_val_5)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s) AS ts, toDateTime(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s) AS tsz, now64(6, %(hogql_val_4)s) AS now, now64(6, %(hogql_val_5)s) AS nowz FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -2101,7 +2195,7 @@ class TestPrinter(BaseTest):
 
     def test_trim_leading_trailing_both(self):
         query = parse_select(
-            "select trim(LEADING 'xy' FROM 'media'), trim(TRAILING 'xy' FROM 'media'), trim(BOTH 'xy' FROM 'media')"
+            "select trim(LEADING 'xy' FROM 'media') as a, trim(TRAILING 'xy' FROM 'media') as b, trim(BOTH 'xy' FROM 'media') as c"
         )
         printed = print_ast(
             query,
@@ -2110,10 +2204,12 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert printed == (
-            f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s), trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s), trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
+            f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s) AS a, trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s) AS b, trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) AS c LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
         )
-        query2 = parse_select("select trimLeft('media', 'xy'), trimRight('media', 'xy'), trim('media', 'xy')")
+        query2 = parse_select(
+            "select trimLeft('media', 'xy') as a, trimRight('media', 'xy') as b, trim('media', 'xy') as c"
+        )
         printed2 = print_ast(
             query2,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
@@ -2208,3 +2304,87 @@ class TestPrinter(BaseTest):
             in printed
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+
+    def test_print_hogql_aggregation_function_uses_hogql_function_names(self):
+        query = parse_expr("avgArray([1, 2, 3])")
+        printed = print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
+        assert printed == "avgArray([1, 2, 3])"
+
+    def test_print_percentage_call_alias(self):
+        select = parse_select("SELECT concat('%', 'word', '%') LIMIT 1")
+        printed = print_ast(
+            select, HogQLContext(team_id=self.team.pk, enable_select_queries=True), dialect="clickhouse"
+        )
+
+        assert (
+            printed
+            == "SELECT concat(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s) AS `concat('', 'word', '')` LIMIT 1"
+        )
+
+    def test_print_hogql_output_format(self):
+        query = parse_select("select 1 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="hogql",
+        )
+        assert printed == "SELECT 1 LIMIT 1"
+
+    def test_print_clickhouse_output_format(self):
+        query = parse_select("select 1 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert printed == "SELECT 1 LIMIT 1 FORMAT ArrowStream"
+
+    def test_print_clickhouse_output_format_union(self):
+        query = parse_select("select 1 limit 1 union all select 2 limit 1")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert printed == "SELECT 1 LIMIT 1 UNION ALL SELECT 2 LIMIT 1 FORMAT ArrowStream"
+
+    def test_print_clickhouse_output_format_union_with_nested_union_subquery(self):
+        query = parse_select("select * from (select 1 as num union all select 2 as num) limit 2")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, output_format="ArrowStream"),
+            dialect="clickhouse",
+        )
+        assert (
+            printed == "SELECT num AS num FROM (SELECT 1 AS num UNION ALL SELECT 2 AS num) LIMIT 2 FORMAT ArrowStream"
+        )
+
+    def test_print_hogql_in_cohort(self):
+        Cohort.objects.create(team=self.team, name="some fake cohort", created_by=self.user)
+        query = parse_select(
+            "select event from events where event = 'purchase' and person_id in cohort 'some fake cohort'"
+        )
+        printed = print_prepared_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="hogql",
+        )
+        assert (
+            printed
+            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id IN COHORT 'some fake cohort') LIMIT 50000"
+        )
+
+    def test_print_hogql_not_in_cohort(self):
+        Cohort.objects.create(team=self.team, name="some fake cohort", created_by=self.user)
+        query = parse_select(
+            "select event from events where event = 'purchase' and person_id not in cohort 'some fake cohort'"
+        )
+        printed = print_prepared_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="hogql",
+        )
+        assert (
+            printed
+            == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id NOT IN COHORT 'some fake cohort') LIMIT 50000"
+        )

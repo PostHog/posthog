@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import random
 import typing
+from collections.abc import Collection
 
 import pyarrow as pa
 import pytest
@@ -146,7 +147,8 @@ def test_slice_record_batch_into_single_record_slices():
     """Test we slice a record batch into slices with a single record."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+    arrays: Collection[pa.Array[typing.Any]] = [n_legs, animals]
+    batch = pa.RecordBatch.from_arrays(arrays, names=["n_legs", "animals"])
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=1, min_records_per_batch=1))
     assert len(slices) == 6
@@ -157,7 +159,7 @@ def test_slice_record_batch_into_one_batch():
     """Test we do not slice a record batch without a bytes limit."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=0))
     assert len(slices) == 1
@@ -168,11 +170,43 @@ def test_slice_record_batch_in_half():
     """Test we can slice a record batch into half size."""
     n_legs = pa.array([4] * 6)
     animals = pa.array(["Dog"] * 6)
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=batch.nbytes // 2, min_records_per_batch=1))
     assert len(slices) == 2
     assert all(slice.num_rows == 3 for slice in slices)
+
+
+def test_slice_large_record_batch():
+    """Test we can slice a record batch with plenty of elements and data.
+
+    We construct an array with a large payload and attempt to slice it evenly.
+    We assert that the count of rows matches expected, all ids are accounted
+    for, the number of slices matches what we expect, and that each slice
+    has the same number of rows.
+    """
+    size = 1_000_000
+    one_tenth = size / 10
+
+    payload = pa.array([b"0" * (1024)] * size, type=pa.large_binary())
+    id = pa.array(list(range(size)))
+    batch = pa.RecordBatch.from_arrays([id, payload], names=["id", "payload"])  # type: ignore
+
+    # Large binary allocates additional 8 bytes per row.
+    # Id array is int64, and takes up 8 bytes per row.
+    # So, we add 16 bytes per row (16 * 1000 total) to get evenly split record
+    # batches of 1k rows each.
+    slices = list(
+        slice_record_batch(batch, max_record_batch_size_bytes=int(one_tenth * (1024 + 16)), min_records_per_batch=1)
+    )
+    expected_len = 10
+    result_len = len(slices)
+    concatenated = pa.concat_arrays(s.column("id") for s in slices)
+
+    assert sum(slice.num_rows for slice in slices) == size
+    assert concatenated.to_pylist() == list(range(size))
+    assert result_len == expected_len, f"Have {result_len} slices, expected {expected_len}"
+    assert all(slice.num_rows == one_tenth for slice in slices)
 
 
 @pytest.mark.parametrize(
@@ -279,5 +313,11 @@ async def test_sessions_record_batch_model(ateam, data_interval_start, data_inte
     assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
 
     # check that we have a date range set on the inner query using the session ID
-    assert "lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query
-    assert "greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query
+    assert (
+        "lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus("
+        in printed_query
+    )
+    assert (
+        "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
+        in printed_query
+    )

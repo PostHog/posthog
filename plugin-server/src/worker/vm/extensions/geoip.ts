@@ -1,7 +1,7 @@
 import { GeoIPExtension } from '@posthog/plugin-scaffold'
 
 import { Hub } from '../../../types'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 
 export function createGeoIp(server: Hub): GeoIPExtension {
     return {
@@ -11,7 +11,7 @@ export function createGeoIp(server: Hub): GeoIPExtension {
                     return Promise.resolve(server.mmdb.city(ipAddress))
                 } catch (e) {
                     if (e.name != 'AddressNotFoundError') {
-                        status.warn('⚠️', 'geoip lookup failed', { ip: ipAddress, error: e })
+                        logger.warn('⚠️', 'geoip lookup failed', { ip: ipAddress, error: e })
                     }
                     return Promise.resolve(null)
                 }

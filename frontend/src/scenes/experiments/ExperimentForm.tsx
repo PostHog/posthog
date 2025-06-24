@@ -1,6 +1,14 @@
-import { IconPlusSmall, IconSparkles, IconToggle, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonInput, LemonModal, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTextArea,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
@@ -23,16 +31,10 @@ import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
+    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
         useValues(experimentLogic)
-    const {
-        addVariant,
-        removeExperimentGroup,
-        setExperiment,
-        createExperiment,
-        setExperimentType,
-        validateFeatureFlag,
-    } = useActions(experimentLogic)
+    const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -42,25 +44,48 @@ const ExperimentFormFields = (): JSX.Element => {
 
     return (
         <div>
-            {hasPrimaryMetricSet && (
+            {hasPrimaryMetricSet && formMode !== 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
                     Fill out the details below to create your experiment based off of the insight.
+                </LemonBanner>
+            )}
+            {formMode === 'duplicate' && (
+                <LemonBanner type="info" className="my-4">
+                    We'll copy all settings, including metrics and exposure configuration, from the&nbsp;
+                    <Link target="_blank" className="font-semibold items-center" to={urls.experiment(experiment.id)}>
+                        original experiment
+                        <IconOpenInNew fontSize="18" />
+                    </Link>
+                    .
                 </LemonBanner>
             )}
             <div className="deprecated-space-y-8">
                 <div className="deprecated-space-y-6 max-w-120">
                     <LemonField name="name" label="Name">
-                        <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
+                        <LemonInput
+                            placeholder="Pricing page conversion"
+                            data-attr="experiment-name"
+                            onBlur={() => {
+                                // bail if feature flag key is already set
+                                if (experiment.feature_flag_key) {
+                                    return
+                                }
+
+                                setExperiment({
+                                    feature_flag_key: generateFeatureFlagKey(
+                                        experiment.name,
+                                        unavailableFeatureFlagKeys
+                                    ),
+                                })
+                            }}
+                        />
                     </LemonField>
                     <LemonField
                         name="feature_flag_key"
                         label="Feature flag key"
                         help={
-                            <div className="flex items-center deprecated-space-x-2">
-                                <span>
-                                    Each experiment is backed by a feature flag. Create a new one by entering a key, or
-                                    choose an existing feature flag with multiple variants.
-                                </span>
+                            <div className="flex items-center justify-between">
+                                <span>Each experiment is backed by a feature flag.</span>
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
@@ -69,27 +94,8 @@ const ExperimentFormFields = (): JSX.Element => {
                                         setShowFeatureFlagSelector(true)
                                     }}
                                 >
-                                    <IconToggle className="mr-1" /> Choose
-                                </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    disabledReason={
-                                        experiment.name
-                                            ? undefined
-                                            : 'Fill out the experiment name first to generate a key from it.'
-                                    }
-                                    tooltip={experiment.name ? 'Generate a key from the experiment name' : undefined}
-                                    onClick={() => {
-                                        setExperiment({
-                                            feature_flag_key: generateFeatureFlagKey(
-                                                experiment.name,
-                                                unavailableFeatureFlagKeys
-                                            ),
-                                        })
-                                    }}
-                                >
-                                    <IconSparkles className="mr-1" /> Generate
+                                    <IconToggle className="mr-1" />
+                                    Link to existing feature flag
                                 </LemonButton>
                             </div>
                         }
@@ -282,7 +288,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                                                 <LemonButton
                                                                     size="small"
                                                                     icon={<IconTrash />}
-                                                                    onClick={() => removeExperimentGroup(index)}
+                                                                    onClick={() => removeVariant(index)}
                                                                 />
                                                             </Tooltip>
                                                         )}
@@ -312,12 +318,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     </>
                 )}
             </div>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => createExperiment(true)}
-            >
+            <LemonButton className="mt-2" type="primary" data-attr="save-experiment" onClick={() => submitExperiment()}>
                 Save as draft
             </LemonButton>
         </div>

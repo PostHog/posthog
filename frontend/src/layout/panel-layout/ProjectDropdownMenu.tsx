@@ -1,20 +1,17 @@
-import { IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonSnack } from '@posthog/lemon-ui'
+import { IconCheck, IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
+import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { Label } from 'lib/ui/Label/Label'
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
-import { cn } from 'lib/utils/css-classes'
+    PopoverPrimitive,
+    PopoverPrimitiveContent,
+    PopoverPrimitiveTrigger,
+} from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -26,38 +23,10 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <div className="flex items-center">
-            <span>{team.name}</span>
+        <div className="flex items-center max-w-full">
+            <span className="truncate">{team.name}</span>
             {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
         </div>
-    )
-}
-
-function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
-    const { location } = useValues(router)
-    const { currentTeam } = useValues(teamLogic)
-
-    const relativeOtherProjectPath = useMemo(() => {
-        return getProjectSwitchTargetUrl(location.pathname, team.id, currentTeam?.project_id, team.project_id)
-    }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
-
-    return (
-        <LemonButton
-            to={relativeOtherProjectPath}
-            sideAction={{
-                icon: (
-                    <IconWrapper>
-                        <IconGear />
-                    </IconWrapper>
-                ),
-                tooltip: `Go to ${team.name} settings`,
-                to: urls.project(team.id, urls.settings()),
-            }}
-            title={`Switch to project ${team.name}`}
-            fullWidth
-        >
-            <ProjectName team={team} />
-        </LemonButton>
     )
 }
 
@@ -67,90 +36,152 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { push } = useActions(router)
-    const { currentOrganization } = useValues(organizationLogic)
-
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
-        <DropdownMenu
-            onOpenChange={(open) => {
-                setIsDropdownOpen(open)
-            }}
-        >
-            <DropdownMenuTrigger asChild>
-                <LemonButton
-                    icon={
-                        <IconWrapper>
-                            <IconFolderOpen />
-                        </IconWrapper>
-                    }
-                    size="small"
-                    className="hover:bg-fill-highlight-100"
-                    sideIcon={
-                        <IconWrapper
-                            size="sm"
-                            className={cn(
-                                'transition-transform duration-200 prefers-reduced-motion:transition-none',
-                                isDropdownOpen ? 'rotate-270' : 'rotate-90'
-                            )}
-                        >
-                            <IconChevronRight />
-                        </IconWrapper>
-                    }
-                >
-                    <span>Project</span>
-                </LemonButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start">
-                <DropdownMenuLabel>Projects</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <LemonButton
-                    active
-                    sideAction={{
-                        icon: (
-                            <IconWrapper size="sm">
-                                <IconGear />
-                            </IconWrapper>
-                        ),
-                        tooltip: `Go to ${currentTeam.name} settings`,
-                        onClick: () => {
-                            push(urls.settings('project'))
-                        },
-                    }}
-                    title={`Switch to project ${currentTeam.name}`}
-                    fullWidth
-                >
-                    <ProjectName team={currentTeam} />
-                </LemonButton>
-                {currentOrganization?.teams &&
-                    currentOrganization.teams
-                        .filter((team) => team.id !== currentTeam?.id)
-                        .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                        .map((team) => <OtherProjectButton key={team.id} team={team} />)}
-                {preflight?.can_create_org && (
-                    <DropdownMenuItem asChild>
-                        <LemonButton
-                            icon={
-                                <IconWrapper>
-                                    <IconPlusSmall />
-                                </IconWrapper>
-                            }
-                            onClick={() =>
-                                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
-                                    closeAccountPopover()
-                                    showCreateProjectModal()
-                                })
-                            }
-                            fullWidth
-                            size="small"
-                            data-attr="new-organization-button"
-                        >
-                            New project
-                        </LemonButton>
-                    </DropdownMenuItem>
-                )}
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <PopoverPrimitive>
+            <PopoverPrimitiveTrigger asChild>
+                <ButtonPrimitive data-attr="tree-navbar-project-dropdown-button" className="flex-1 min-w-0 max-w-fit">
+                    <IconFolderOpen className="text-tertiary" />
+                    <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
+                    <IconChevronRight
+                        className={`
+                        size-3 
+                        text-secondary 
+                        rotate-90 
+                        group-data-[state=open]/button-primitive:rotate-270 
+                        transition-transform 
+                        duration-200 
+                        prefers-reduced-motion:transition-none
+                    `}
+                    />
+                </ButtonPrimitive>
+            </PopoverPrimitiveTrigger>
+            <PopoverPrimitiveContent
+                align="start"
+                className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)] max-h-[calc(90vh)]"
+            >
+                <Combobox>
+                    <Combobox.Search placeholder="Search projects..." />
+                    <Combobox.Content>
+                        <Label intent="menu" className="px-2">
+                            Projects
+                        </Label>
+                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+
+                        <Combobox.Empty>No projects found</Combobox.Empty>
+
+                        <Combobox.Group value={[currentTeam.name]}>
+                            <ButtonGroupPrimitive fullWidth>
+                                <Combobox.Item asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        active
+                                        hasSideActionRight
+                                        tooltip={`Current project: ${currentTeam.name}`}
+                                        tooltipPlacement="right"
+                                        data-attr="tree-navbar-project-dropdown-current-project-button"
+                                        className="pr-12"
+                                    >
+                                        <IconCheck className="text-tertiary" />
+                                        <ProjectName team={currentTeam} />
+                                    </ButtonPrimitive>
+                                </Combobox.Item>
+
+                                <Combobox.Item asChild>
+                                    <Link
+                                        buttonProps={{
+                                            iconOnly: true,
+                                            isSideActionRight: true,
+                                        }}
+                                        tooltip={`View settings for project: ${currentTeam.name}`}
+                                        tooltipPlacement="right"
+                                        to={urls.project(currentTeam.id, urls.settings('project'))}
+                                        data-attr="tree-navbar-project-dropdown-current-project-settings-button"
+                                    >
+                                        <IconGear className="text-tertiary" />
+                                    </Link>
+                                </Combobox.Item>
+                            </ButtonGroupPrimitive>
+                        </Combobox.Group>
+
+                        {currentOrganization?.teams &&
+                            currentOrganization.teams
+                                .filter((team) => team.id !== currentTeam?.id)
+                                .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
+                                .map((team) => {
+                                    const relativeOtherProjectPath = getProjectSwitchTargetUrl(
+                                        location.pathname,
+                                        team.id,
+                                        currentTeam?.project_id,
+                                        team.project_id
+                                    )
+
+                                    return (
+                                        <Combobox.Group value={[team.name]} key={team.id}>
+                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            menuItem: true,
+                                                            hasSideActionRight: true,
+                                                            className: 'pr-12',
+                                                        }}
+                                                        tooltip={`Switch to project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={relativeOtherProjectPath}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-button"
+                                                    >
+                                                        <IconBlank />
+                                                        <ProjectName team={team} />
+                                                    </Link>
+                                                </Combobox.Item>
+
+                                                <Combobox.Item asChild>
+                                                    <Link
+                                                        buttonProps={{
+                                                            iconOnly: true,
+                                                            isSideActionRight: true,
+                                                        }}
+                                                        tooltip={`View settings for project: ${team.name}`}
+                                                        tooltipPlacement="right"
+                                                        to={urls.project(team.id, urls.settings('project'))}
+                                                        data-attr="tree-navbar-project-dropdown-other-project-settings-button"
+                                                    >
+                                                        <IconGear />
+                                                    </Link>
+                                                </Combobox.Item>
+                                            </ButtonGroupPrimitive>
+                                        </Combobox.Group>
+                                    )
+                                })}
+
+                        {preflight?.can_create_org && (
+                            <Combobox.Item
+                                asChild
+                                onClick={() =>
+                                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
+                                        closeAccountPopover()
+                                        showCreateProjectModal()
+                                    })
+                                }
+                            >
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr="new-project-button"
+                                    tooltip="Create a new project"
+                                    tooltipPlacement="right"
+                                    className="shrink-0"
+                                    disabled={!!projectCreationForbiddenReason}
+                                >
+                                    <IconPlusSmall className="text-tertiary" />
+                                    New project
+                                </ButtonPrimitive>
+                            </Combobox.Item>
+                        )}
+                    </Combobox.Content>
+                </Combobox>
+            </PopoverPrimitiveContent>
+        </PopoverPrimitive>
     ) : null
 }

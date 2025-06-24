@@ -71,6 +71,7 @@ class HogQLFunctionMeta:
     max_args: Optional[int] = 0
     min_params: int = 0
     max_params: Optional[int] = 0
+    passthrough_suffix_args_count: int = 0
     aggregate: bool = False
     overloads: Optional[list[Overload]] = None
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
@@ -82,6 +83,8 @@ class HogQLFunctionMeta:
     """Signatures allow for specifying the types of the arguments and the return type of the function."""
     suffix_args: Optional[list[ast.Constant]] = None
     """Additional arguments that are added to the end of the arguments provided by the caller"""
+    using_placeholder_arguments: bool = False
+    using_positional_arguments: bool = False
 
 
 def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
@@ -249,6 +252,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[
             ((IntegerType(),), IntegerType()),
             ((FloatType(),), FloatType()),
+            ((DecimalType(),), DecimalType()),
         ],
     ),
     "abs": HogQLFunctionMeta(
@@ -400,14 +404,23 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
-    "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 2, 2),
-    "DATE": HogQLFunctionMeta("toDate", 1, 1),
-    "toDate": HogQLFunctionMeta(
-        "toDateOrNull",
-        1,
-        1,
-        overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+    "toDecimal": HogQLFunctionMeta(
+        "accurateCastOrNull",
+        2,
+        2,
+        passthrough_suffix_args_count=1,
+        suffix_args=[ast.Constant(value="Decimal64({0})")],  # Scale for Decimal64 is customizable
     ),
+    "_toDate": HogQLFunctionMeta("toDate", 1, 1),
+    **{
+        name: HogQLFunctionMeta(
+            "toDateOrNull",
+            1,
+            1,
+            overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+        )
+        for name in ["toDate", "to_date"]
+    },
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
@@ -445,7 +458,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     # dates and times
-    "toTimeZone": HogQLFunctionMeta("toTimeZone", 2, 2),
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
     "timeZoneOffset": HogQLFunctionMeta("timeZoneOffset", 1, 1),
     "toYear": HogQLFunctionMeta("toYear", 1, 1),
@@ -525,8 +537,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toWeek": HogQLFunctionMeta("toWeek", 1, 3),
     "toYearWeek": HogQLFunctionMeta("toYearWeek", 1, 3),
     "age": HogQLFunctionMeta("age", 3, 3),
-    "dateDiff": HogQLFunctionMeta("dateDiff", 3, 3),
-    "dateTrunc": HogQLFunctionMeta("dateTrunc", 2, 2),
     "dateAdd": HogQLFunctionMeta(
         "dateAdd",
         2,
@@ -547,21 +557,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
-    "now": HogQLFunctionMeta(
-        "now64",
-        0,
-        1,
-        tz_aware=True,
-        case_sensitive=False,
-        signatures=[
-            ((), DateTimeType()),
-            ((UnknownType(),), DateTimeType()),
-        ],
-    ),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
     "rowNumberInBlock": HogQLFunctionMeta("rowNumberInBlock", 0, 0),
     "rowNumberInAllBlocks": HogQLFunctionMeta("rowNumberInAllBlocks", 0, 0),
-    "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
     "timeSlot": HogQLFunctionMeta("timeSlot", 1, 1),
     "toYYYYMM": HogQLFunctionMeta("toYYYYMM", 1, 1),
@@ -662,8 +660,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         ],
     ),
     # strings
-    "left": HogQLFunctionMeta("left", 2, 2),
-    "right": HogQLFunctionMeta("right", 2, 2),
+    "left": HogQLFunctionMeta("left", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
+    "right": HogQLFunctionMeta("right", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
     "lengthUTF8": HogQLFunctionMeta("lengthUTF8", 1, 1),
     "leftPad": HogQLFunctionMeta("leftPad", 2, 3),
     "rightPad": HogQLFunctionMeta("rightPad", 2, 3),
@@ -691,9 +689,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "tryBase64Decode": HogQLFunctionMeta("tryBase64Decode", 1, 1),
     "endsWith": HogQLFunctionMeta("endsWith", 2, 2),
     "startsWith": HogQLFunctionMeta("startsWith", 2, 2),
-    "trim": HogQLFunctionMeta("trim", 1, 2, case_sensitive=False),
-    "trimLeft": HogQLFunctionMeta("trimLeft", 1, 2),
-    "trimRight": HogQLFunctionMeta("trimRight", 1, 2),
     "encodeXMLComponent": HogQLFunctionMeta("encodeXMLComponent", 1, 1),
     "decodeXMLComponent": HogQLFunctionMeta("decodeXMLComponent", 1, 1),
     "extractTextFromHTML": HogQLFunctionMeta("extractTextFromHTML", 1, 1),
@@ -793,7 +788,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "roundAge": HogQLFunctionMeta("roundAge", 1, 1),
     "roundDown": HogQLFunctionMeta("roundDown", 2, 2),
     # maps
-    "map": HogQLFunctionMeta("map", 2, None),
+    "map": HogQLFunctionMeta("map", 0, 2),
     "mapFromArrays": HogQLFunctionMeta("mapFromArrays", 2, 2),
     "mapAdd": HogQLFunctionMeta("mapAdd", 2, None),
     "mapSubtract": HogQLFunctionMeta("mapSubtract", 2, None),
@@ -913,6 +908,342 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "geohashEncode": HogQLFunctionMeta("geohashEncode", 2, 3),
     "geohashDecode": HogQLFunctionMeta("geohashDecode", 1, 1),
     "geohashesInBox": HogQLFunctionMeta("geohashesInBox", 5, 5),
+    "h3IsValid": HogQLFunctionMeta(
+        "h3IsValid",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetResolution": HogQLFunctionMeta(
+        "h3GetResolution",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetBaseCell": HogQLFunctionMeta(
+        "h3GetBaseCell",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3EdgeAngle": HogQLFunctionMeta(
+        "h3EdgeAngle",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3EdgeLengthM": HogQLFunctionMeta(
+        "h3EdgeLengthM",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3EdgeLengthKm": HogQLFunctionMeta(
+        "h3EdgeLengthKm",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "geoToH3": HogQLFunctionMeta(
+        "geoToH3",
+        3,
+        3,
+        signatures=[
+            ((FloatType(), FloatType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ToGeo": HogQLFunctionMeta(
+        "h3ToGeo",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), TupleType(item_types=[FloatType(), FloatType()])),
+        ],
+    ),
+    "h3ToGeoBoundary": HogQLFunctionMeta(
+        "h3ToGeoBoundary",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=TupleType(item_types=[FloatType(), FloatType()]))),
+        ],
+    ),
+    "h3kRing": HogQLFunctionMeta(
+        "h3kRing",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3HexAreaM2": HogQLFunctionMeta(
+        "h3HexAreaM2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3HexAreaKm2": HogQLFunctionMeta(
+        "h3HexAreaKm2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3IndexesAreNeighbors": HogQLFunctionMeta(
+        "h3IndexesAreNeighbors",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ToChildren": HogQLFunctionMeta(
+        "h3ToChildren",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3ToParent": HogQLFunctionMeta(
+        "h3ToParent",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ToString": HogQLFunctionMeta(
+        "h3ToString",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), StringType()),
+        ],
+    ),
+    "stringToH3": HogQLFunctionMeta(
+        "stringToH3",
+        1,
+        1,
+        signatures=[
+            ((StringType(),), IntegerType()),
+        ],
+    ),
+    "h3IsResClassIII": HogQLFunctionMeta(
+        "h3IsResClassIII",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3IsPentagon": HogQLFunctionMeta(
+        "h3IsPentagon",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetFaces": HogQLFunctionMeta(
+        "h3GetFaces",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3CellAreaM2": HogQLFunctionMeta(
+        "h3CellAreaM2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3CellAreaRads2": HogQLFunctionMeta(
+        "h3CellAreaRads2",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3ToCenterChild": HogQLFunctionMeta(
+        "h3ToCenterChild",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3ExactEdgeLengthM": HogQLFunctionMeta(
+        "h3ExactEdgeLengthM",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3ExactEdgeLengthKm": HogQLFunctionMeta(
+        "h3ExactEdgeLengthKm",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3ExactEdgeLengthRads": HogQLFunctionMeta(
+        "h3ExactEdgeLengthRads",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), FloatType()),
+        ],
+    ),
+    "h3NumHexagons": HogQLFunctionMeta(
+        "h3NumHexagons",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3PointDistM": HogQLFunctionMeta(
+        "h3PointDistM",
+        4,
+        4,
+        signatures=[
+            ((FloatType(), FloatType(), FloatType(), FloatType()), FloatType()),
+        ],
+    ),
+    "h3PointDistKm": HogQLFunctionMeta(
+        "h3PointDistKm",
+        4,
+        4,
+        signatures=[
+            ((FloatType(), FloatType(), FloatType(), FloatType()), FloatType()),
+        ],
+    ),
+    "h3PointDistRads": HogQLFunctionMeta(
+        "h3PointDistRads",
+        4,
+        4,
+        signatures=[
+            ((FloatType(), FloatType(), FloatType(), FloatType()), FloatType()),
+        ],
+    ),
+    "h3GetRes0Indexes": HogQLFunctionMeta(
+        "h3GetRes0Indexes",
+        0,
+        0,
+        signatures=[
+            ((), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3GetPentagonIndexes": HogQLFunctionMeta(
+        "h3GetPentagonIndexes",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3Line": HogQLFunctionMeta(
+        "h3Line",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3Distance": HogQLFunctionMeta(
+        "h3Distance",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3HexRing": HogQLFunctionMeta(
+        "h3HexRing",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3GetUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetUnidirectionalEdge",
+        2,
+        2,
+        signatures=[
+            ((IntegerType(), IntegerType()), IntegerType()),
+        ],
+    ),
+    "h3UnidirectionalEdgeIsValid": HogQLFunctionMeta(
+        "h3UnidirectionalEdgeIsValid",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetOriginIndexFromUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetOriginIndexFromUnidirectionalEdge",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetDestinationIndexFromUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetDestinationIndexFromUnidirectionalEdge",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntegerType()),
+        ],
+    ),
+    "h3GetIndexesFromUnidirectionalEdge": HogQLFunctionMeta(
+        "h3GetIndexesFromUnidirectionalEdge",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), TupleType(item_types=[IntegerType(), IntegerType()])),
+        ],
+    ),
+    "h3GetUnidirectionalEdgesFromHexagon": HogQLFunctionMeta(
+        "h3GetUnidirectionalEdgesFromHexagon",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=IntegerType())),
+        ],
+    ),
+    "h3GetUnidirectionalEdgeBoundary": HogQLFunctionMeta(
+        "h3GetUnidirectionalEdgeBoundary",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), ArrayType(item_type=TupleType(item_types=[FloatType(), FloatType()]))),
+        ],
+    ),
     # nullable
     "isnull": HogQLFunctionMeta("isNull", 1, 1, case_sensitive=False),
     "isNotNull": HogQLFunctionMeta("isNotNull", 1, 1),
@@ -987,6 +1318,291 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
     # table functions
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
+    # PostgreSQL-style date/time functions
+    "date_part": HogQLFunctionMeta(
+        "if({0} = 'year', toYear({1}), if({0} = 'month', toMonth({1}), if({0} = 'day', toDayOfMonth({1}), if({0} = 'hour', toHour({1}), if({0} = 'minute', toMinute({1}), if({0} = 'second', toSecond({1}), if({0} = 'dow', toDayOfWeek({1}), if({0} = 'doy', toDayOfYear({1}), if({0} = 'quarter', toQuarter({1}), null)))))))))",  # Maps to same implementation as extract
+        2,
+        2,
+        signatures=[
+            ((StringType(), DateTimeType()), IntegerType()),
+            ((StringType(), DateType()), IntegerType()),
+        ],
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+    ),
+    **{
+        name: HogQLFunctionMeta(
+            "dateTrunc",
+            2,
+            3,  # Allow optional timezone parameter
+            signatures=[
+                ((StringType(), DateTimeType()), DateTimeType()),
+                ((StringType(), DateTimeType(), StringType()), DateTimeType()),
+            ],
+        )
+        for name in ["date_trunc", "dateTrunc"]
+    },
+    "to_timestamp": HogQLFunctionMeta(
+        "toDateTime(fromUnixTimestamp({}))",
+        1,
+        2,
+        tz_aware=True,
+        signatures=[
+            ((IntegerType(),), DateTimeType()),
+            ((FloatType(),), DateTimeType()),
+        ],
+        using_placeholder_arguments=True,
+    ),
+    "to_char": HogQLFunctionMeta(
+        "formatDateTime",
+        2,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(), StringType()), StringType()),
+            ((DateTimeType(), StringType(), StringType()), StringType()),
+        ],
+    ),
+    "make_timestamp": HogQLFunctionMeta(
+        "makeDateTime",
+        6,
+        7,
+        tz_aware=True,
+        signatures=[
+            ((IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType(), FloatType()), DateTimeType()),
+            (
+                (IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType(), FloatType(), StringType()),
+                DateTimeType(),
+            ),
+        ],
+    ),
+    "make_date": HogQLFunctionMeta(
+        "makeDate",
+        3,
+        3,
+        signatures=[
+            ((IntegerType(), IntegerType(), IntegerType()), DateType()),
+        ],
+    ),
+    "now": HogQLFunctionMeta(
+        "now64",
+        0,
+        1,
+        tz_aware=True,
+        case_sensitive=False,
+        signatures=[
+            ((), DateTimeType()),
+            ((UnknownType(),), DateTimeType()),
+        ],
+    ),
+    "current_timestamp": HogQLFunctionMeta(
+        "now64",
+        0,
+        0,
+        tz_aware=True,
+        signatures=[
+            ((), DateTimeType()),
+        ],
+    ),
+    **{
+        name: HogQLFunctionMeta(
+            "today",
+            0,
+            0,
+            signatures=[
+                ((), DateType()),
+            ],
+        )
+        for name in ["today", "current_date"]
+    },
+    #  This doesn't work yet but will in a new version of Clickhouse: https://github.com/ClickHouse/ClickHouse/pull/56738
+    # "date_bin": HogQLFunctionMeta(
+    #     "toSTartOfInterval({1}, {0}, {2})",
+    #     3,
+    #     3,
+    #     tz_aware=True,
+    #     signatures=[
+    #         ((IntervalType(), DateTimeType(), DateTimeType()), DateTimeType()),
+    #     ],
+    # ),
+    "date_add": HogQLFunctionMeta(
+        "date_add",
+        2,
+        2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+        ],
+    ),
+    "date_subtract": HogQLFunctionMeta(
+        "date_sub",
+        2,
+        2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+        ],
+    ),
+    **{
+        name: HogQLFunctionMeta(
+            "dateDiff",
+            3,
+            3,
+            signatures=[
+                ((StringType(), DateTimeType(), DateTimeType()), IntegerType()),
+            ],
+        )
+        for name in ["date_diff", "dateDiff"]
+    },
+    "make_interval": HogQLFunctionMeta(
+        "toIntervalYear({}) + toIntervalMonth({}) + toIntervalDay({}) + toIntervalHour({}) + toIntervalMinute({}) + toIntervalSecond({})",  # Changed from makeInterval to addInterval
+        6,
+        6,
+        signatures=[
+            (
+                (IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType()),
+                DateTimeType(),
+            ),
+        ],
+        using_placeholder_arguments=True,
+    ),
+    # Clickhouse doesn't have a TIME type, so this would be the alternative
+    # "make_time": HogQLFunctionMeta(
+    #     "toTime(makeDateTime(1970, 1, 1, {}, {}, {}))",
+    #     3,
+    #     3,
+    #     signatures=[((IntegerType(), IntegerType(), FloatType()), DateTimeType())],
+    # ),
+    "make_timestamptz": HogQLFunctionMeta(
+        "toTimeZone(makeDateTime({}, {}, {}, {}, {}, {}), {})",
+        7,
+        7,
+        signatures=[
+            (
+                (IntegerType(), IntegerType(), IntegerType(), IntegerType(), IntegerType(), FloatType(), StringType()),
+                DateTimeType(),
+            ),
+        ],
+        tz_aware=True,
+        using_placeholder_arguments=True,
+    ),
+    "timezone": HogQLFunctionMeta(
+        "toTimeZone({1}, {0})",
+        2,
+        2,
+        signatures=[((StringType(), DateTimeType()), DateTimeType())],
+        tz_aware=True,
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+    ),
+    "toTimeZone": HogQLFunctionMeta(
+        "toTimeZone",
+        1,
+        2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(), StringType()), DateTimeType()),
+        ],
+    ),
+    # Window functions in PostgreSQL style
+    "lag": HogQLFunctionMeta(
+        "lagInFrame",
+        1,
+        3,
+        signatures=[
+            ((UnknownType(),), UnknownType()),
+            ((UnknownType(), IntegerType()), UnknownType()),
+            ((UnknownType(), IntegerType(), UnknownType()), UnknownType()),
+        ],
+    ),
+    "lead": HogQLFunctionMeta(
+        "leadInFrame",
+        1,
+        3,
+        signatures=[
+            ((UnknownType(),), UnknownType()),
+            ((UnknownType(), IntegerType()), UnknownType()),
+            ((UnknownType(), IntegerType(), UnknownType()), UnknownType()),
+        ],
+    ),
+    # String functions
+    "repeat": HogQLFunctionMeta(
+        "repeat",
+        2,
+        2,
+        signatures=[((StringType(), IntegerType()), StringType())],
+    ),
+    "initcap": HogQLFunctionMeta(
+        "initcap",
+        1,
+        1,
+        signatures=[((StringType(),), StringType())],
+    ),
+    "lpad": HogQLFunctionMeta(
+        "lpad",
+        3,
+        3,
+        signatures=[((StringType(), IntegerType(), StringType()), StringType())],
+    ),
+    "rpad": HogQLFunctionMeta(
+        "rpad",
+        3,
+        3,
+        signatures=[((StringType(), IntegerType(), StringType()), StringType())],
+    ),
+    **{
+        name: HogQLFunctionMeta(
+            "trimLeft",
+            1,
+            2,
+            signatures=[
+                ((StringType(),), StringType()),
+                ((StringType(), StringType()), StringType()),
+            ],
+        )
+        for name in ["ltrim", "trimLeft"]
+    },
+    **{
+        name: HogQLFunctionMeta(
+            "trimRight",
+            1,
+            2,
+            signatures=[
+                ((StringType(),), StringType()),
+                ((StringType(), StringType()), StringType()),
+            ],
+        )
+        for name in ["rtrim", "trimRight"]
+    },
+    **{
+        name: HogQLFunctionMeta(
+            "trim",
+            1,
+            2,
+            signatures=[
+                ((StringType(),), StringType()),
+                ((StringType(), StringType()), StringType()),
+            ],
+            case_sensitive=False,
+        )
+        for name in ["btrim", "trim"]
+    },
+    "split_part": HogQLFunctionMeta(
+        # We need to repeat each argument in the format string since we use each one multiple times
+        "if(empty(splitByString({1}, {0})), '', if(length(splitByString({1}, {0})) >= {2}, arrayElement(splitByString({1}, {0}), {2}), ''))",
+        3,
+        3,
+        signatures=[((StringType(), StringType(), IntegerType()), StringType())],
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+    ),
+    # survey functions
+    "getSurveyResponse": HogQLFunctionMeta(
+        "getSurveyResponse", 1, 3, signatures=[((IntegerType(), StringType(), BooleanType()), StringType())]
+    ),
+    "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
+        "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
 }
 
 # Permitted HogQL aggregations
@@ -994,7 +1610,11 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
+    "countState": HogQLFunctionMeta("countState", 0, 1, aggregate=True),
+    "countMerge": HogQLFunctionMeta("countMerge", 1, 1, aggregate=True),
+    "countStateIf": HogQLFunctionMeta("countStateIf", 1, 2, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
+    "countMapIf": HogQLFunctionMeta("countMapIf", 2, 3, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
@@ -1004,6 +1624,11 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),
+    "avgMap": HogQLFunctionMeta("avgMap", 1, 1, aggregate=True),
+    "avgMapIf": HogQLFunctionMeta("avgMapIf", 2, 3, aggregate=True),
+    "avgMapState": HogQLFunctionMeta("avgMapState", 2, 3, aggregate=True),
+    "avgMapMerge": HogQLFunctionMeta("avgMapMerge", 1, 1, aggregate=True),
+    "avgMapMergeIf": HogQLFunctionMeta("avgMapMergeIf", 2, 2, aggregate=True),
     "any": HogQLFunctionMeta("any", 1, 1, aggregate=True),
     "anyIf": HogQLFunctionMeta("anyIf", 2, 2, aggregate=True),
     "stddevPop": HogQLFunctionMeta("stddevPop", 1, 1, aggregate=True),
@@ -1019,6 +1644,41 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "covarSamp": HogQLFunctionMeta("covarSamp", 2, 2, aggregate=True),
     "covarSampIf": HogQLFunctionMeta("covarSampIf", 3, 3, aggregate=True),
     "corr": HogQLFunctionMeta("corr", 2, 2, aggregate=True),
+    # PostgreSQL-style aggregate functions
+    **{
+        name: HogQLFunctionMeta(
+            "groupArray",
+            1,
+            1,
+            aggregate=True,
+            signatures=[((UnknownType(),), ArrayType(item_type=UnknownType()))],
+        )
+        for name in ["array_agg", "groupArray"]
+    },
+    "json_agg": HogQLFunctionMeta(
+        "toJSONString(groupArray({}))",
+        1,
+        1,
+        aggregate=True,
+        signatures=[((UnknownType(),), StringType())],
+        using_placeholder_arguments=True,
+    ),
+    "string_agg": HogQLFunctionMeta(
+        "arrayStringConcat(groupArray({}), {})",
+        2,
+        2,
+        aggregate=True,
+        signatures=[((StringType(), StringType()), StringType())],
+        using_placeholder_arguments=True,
+    ),
+    "every": HogQLFunctionMeta(
+        "toBool(min({}))",
+        1,
+        1,
+        aggregate=True,
+        signatures=[((UnknownType(),), BooleanType())],
+        using_placeholder_arguments=True,
+    ),
     # ClickHouse-specific aggregate functions
     "anyHeavy": HogQLFunctionMeta("anyHeavy", 1, 1, aggregate=True),
     "anyHeavyIf": HogQLFunctionMeta("anyHeavyIf", 2, 2, aggregate=True),
@@ -1031,6 +1691,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "argMinMerge": HogQLFunctionMeta("argMinMerge", 1, 1, aggregate=True),
     "argMaxMerge": HogQLFunctionMeta("argMaxMerge", 1, 1, aggregate=True),
     "avgState": HogQLFunctionMeta("avgState", 1, 1, aggregate=True),
+    "avgStateIf": HogQLFunctionMeta("avgStateIf", 2, 2, aggregate=True),
     "avgMerge": HogQLFunctionMeta("avgMerge", 1, 1, aggregate=True),
     "avgMergeIf": HogQLFunctionMeta("avgMergeIf", 2, 2, aggregate=True),
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
@@ -1040,7 +1701,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # "topKIf": HogQLFunctionMeta("topKIf", 2, 2, aggregate=True),
     # "topKWeighted": HogQLFunctionMeta("topKWeighted", 1, 1, aggregate=True),
     # "topKWeightedIf": HogQLFunctionMeta("topKWeightedIf", 2, 2, aggregate=True),
-    "groupArray": HogQLFunctionMeta("groupArray", 1, 1, aggregate=True),
     "groupArrayIf": HogQLFunctionMeta("groupArrayIf", 2, 2, aggregate=True),
     # "groupArrayLast": HogQLFunctionMeta("groupArrayLast", 1, 1, aggregate=True),
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),
@@ -1075,10 +1735,15 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "sumMap": HogQLFunctionMeta("sumMap", 1, 2, aggregate=True),
     "sumMapIf": HogQLFunctionMeta("sumMapIf", 2, 3, aggregate=True),
     "sumMapMerge": HogQLFunctionMeta("sumMapMerge", 1, 1, aggregate=True),
+    "sumMapMergeIf": HogQLFunctionMeta("sumMapMergeIf", 2, 2, aggregate=True),
     "minMap": HogQLFunctionMeta("minMap", 1, 2, aggregate=True),
     "minMapIf": HogQLFunctionMeta("minMapIf", 2, 3, aggregate=True),
     "maxMap": HogQLFunctionMeta("maxMap", 1, 2, aggregate=True),
     "maxMapIf": HogQLFunctionMeta("maxMapIf", 2, 3, aggregate=True),
+    "sumMerge": HogQLFunctionMeta("sumMerge", 1, 1, aggregate=True),
+    "sumMergeIf": HogQLFunctionMeta("sumMergeIf", 2, 2, aggregate=True),
+    "sumState": HogQLFunctionMeta("sumState", 1, 1, aggregate=True),
+    "sumStateIf": HogQLFunctionMeta("sumStateIf", 2, 2, aggregate=True),
     "medianArray": HogQLFunctionMeta("medianArrayOrNull", 1, 1, aggregate=True),
     "skewSamp": HogQLFunctionMeta("skewSamp", 1, 1, aggregate=True),
     "skewSampIf": HogQLFunctionMeta("skewSampIf", 2, 2, aggregate=True),
@@ -1101,6 +1766,12 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
     "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, 1, aggregate=True),
+    "uniqMergeIf": HogQLFunctionMeta("uniqMergeIf", 2, 2, aggregate=True),
+    "uniqMap": HogQLFunctionMeta("uniqMap", 1, 1, aggregate=True),
+    "uniqMapMerge": HogQLFunctionMeta("uniqMapMerge", 1, 1, aggregate=True),
+    "uniqMapMergeIf": HogQLFunctionMeta("uniqMapMergeIf", 2, 2, aggregate=True),
+    "uniqState": HogQLFunctionMeta("uniqState", 1, 1, aggregate=True),
+    "uniqStateIf": HogQLFunctionMeta("uniqStateIf", 2, 2, aggregate=True),
     "uniqUpToMerge": HogQLFunctionMeta("uniqUpToMerge", 1, 1, 1, 1, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),
@@ -1170,11 +1841,14 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsIf": HogQLFunctionMeta("maxIntersectionsIf", 3, 3, aggregate=True),
     "maxIntersectionsPosition": HogQLFunctionMeta("maxIntersectionsPosition", 2, 2, aggregate=True),
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
+    "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 99, aggregate=True),
+    "md5": HogQLFunctionMeta("hex(MD5({}))", 1, 1, aggregate=True, using_placeholder_arguments=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
-    "recording_button": HogQLFunctionMeta("recording_button", 1, 1),
+    "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
+    "explain_csp_report": HogQLFunctionMeta("explain_csp_report", 1, 1),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
@@ -1223,9 +1897,9 @@ UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
     "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
     "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 6, 6, aggregate=False),
-    "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 7, 7, aggregate=False),
-    "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 7, 7, aggregate=False),
-    "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 8, 8, aggregate=False),
+    "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 8, 8, aggregate=False),
+    "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 8, 8, aggregate=False),
     "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
 }
 # We want CI to fail if there is a breaking change and the version hasn't been incremented
@@ -1258,6 +1932,8 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopStart",
     "hopEnd",
 )
+
+SURVEY_FUNCTIONS = {"getSurveyResponse", "uniqueSurveySubmissionsFilter"}
 
 
 def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:

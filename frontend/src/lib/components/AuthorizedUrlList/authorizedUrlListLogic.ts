@@ -23,7 +23,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
@@ -157,7 +156,7 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
         if (wildcardMatch) {
             return true
         }
-    } catch (error) {
+    } catch {
         // Ignore invalid URLs
     }
 
@@ -217,10 +216,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
     key((props) => `${props.type}-${props.experimentId}-${props.actionId}`), // Some will be undefined but that's ok, this avoids experiment/action with same ID sharing same store
     props({} as AuthorizedUrlListLogicProps),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
     actions(() => ({
         setAuthorizedUrls: (authorizedUrls: string[]) => ({ authorizedUrls }),
         addUrl: (url: string, launch?: boolean) => ({ url, launch }),
@@ -236,20 +235,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         suggestions: {
             __default: [] as SuggestedDomain[],
             loadSuggestions: async () => {
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: hogql`select properties.$current_url, count()
-                        from events
-                           where event = '$pageview'
-                           and timestamp >= now() - interval 3 day 
-                            and timestamp <= now()
-                           and properties.$current_url is not null
-                         group by properties.$current_url
-                         order by count() desc
-                        limit 25`,
-                }
+                const query = hogql`
+                    select properties.$current_url, count()
+                    from events
+                        where event = '$pageview'
+                        and timestamp >= now() - interval 3 day 
+                        and timestamp <= now()
+                        and properties.$current_url is not null
+                        group by properties.$current_url
+                        order by count() desc
+                    limit 25`
 
-                const response = await api.query(query)
+                const response = await api.queryHogQL(query)
                 const result = response.results as [string, number][]
 
                 if (result && result.length === 0) {

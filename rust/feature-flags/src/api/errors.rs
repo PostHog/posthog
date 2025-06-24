@@ -1,9 +1,11 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use common_cookieless::CookielessManagerError;
+use common_database::CustomDatabaseError;
+use common_redis::CustomRedisError;
 use thiserror::Error;
 
-use crate::client::database::CustomDatabaseError;
-use crate::client::redis::CustomRedisError;
+use crate::utils::graph_utils::DependencyType;
 
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
@@ -41,6 +43,8 @@ pub enum FlagError {
     RowNotFound,
     #[error("failed to parse redis cache data")]
     RedisDataParsingError,
+    #[error("failed to deserialize filters")]
+    DeserializeFiltersError,
     #[error("failed to update redis cache")]
     CacheUpdateError,
     #[error("redis unavailable")]
@@ -53,14 +57,20 @@ pub enum FlagError {
     TimeoutError,
     #[error("No group type mappings")]
     NoGroupTypeMappings,
-    #[error("Cohort not found")]
-    CohortNotFound(String),
+    #[error("Dependency of type {0} with id {1} not found")]
+    DependencyNotFound(DependencyType, i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
-    #[error("Cohort dependency cycle")]
-    CohortDependencyCycle(String),
+    #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
+    DependencyCycle(DependencyType, i64),
     #[error("Person not found")]
     PersonNotFound,
+    #[error("Person properties not found")]
+    PropertiesNotInCache,
+    #[error("Static cohort matches not cached")]
+    StaticCohortMatchesNotCached,
+    #[error(transparent)]
+    CookielessError(#[from] CookielessManagerError),
 }
 
 impl IntoResponse for FlagError {
@@ -112,6 +122,13 @@ impl IntoResponse for FlagError {
                     "Failed to update internal cache. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
+            FlagError::DeserializeFiltersError => {
+                tracing::error!("Failed to deserialize filters");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to deserialize property filters. This is likely a temporary issue. Please try again later.".to_string(),
+                )
+            }
             FlagError::RedisUnavailable => {
                 tracing::error!("Redis unavailable: {:?}", self);
                 (
@@ -154,20 +171,47 @@ impl IntoResponse for FlagError {
                     "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
-            FlagError::CohortNotFound(msg) => {
-                tracing::error!("Cohort not found: {}", msg);
-                (StatusCode::NOT_FOUND, msg)
+            FlagError::DependencyNotFound(dependency_type, dependency_id) => {
+                tracing::error!("Dependency of type {dependency_type} with id {dependency_id} not found");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency of type {dependency_type} with id {dependency_id} not found"))
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
-                (StatusCode::BAD_REQUEST, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
-            FlagError::CohortDependencyCycle(msg) => {
-                tracing::error!("Cohort dependency cycle: {}", msg);
-                (StatusCode::BAD_REQUEST, msg)
+            FlagError::DependencyCycle(dependency_type, cycle_start_id) => {
+                tracing::error!("{} dependency cycle: {:?}", dependency_type, cycle_start_id);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency cycle detected: {dependency_type} id {cycle_start_id} starts the cycle"))
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::PropertiesNotInCache => {
+                (StatusCode::BAD_REQUEST, "Person properties not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::StaticCohortMatchesNotCached => {
+                (StatusCode::BAD_REQUEST, "Static cohort matches not cached. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::CookielessError(err) => {
+                match err {
+                    // 400 Bad Request errors - client-side issues
+                    CookielessManagerError::MissingProperty(prop) =>
+                        (StatusCode::BAD_REQUEST, format!("Missing required property: {}", prop)),
+                    CookielessManagerError::UrlParseError(e) =>
+                        (StatusCode::BAD_REQUEST, format!("Invalid URL: {}", e)),
+                    CookielessManagerError::InvalidTimestamp(msg) =>
+                        (StatusCode::BAD_REQUEST, format!("Invalid timestamp: {}", msg)),
+
+                    // 500 Internal Server Error - server-side issues
+                    err @ (CookielessManagerError::HashError(_) |
+                          CookielessManagerError::ChronoError(_) |
+                          CookielessManagerError::RedisError(_) |
+                          CookielessManagerError::SaltCacheError(_) |
+                          CookielessManagerError::InvalidIdentifyCount(_)) => {
+                        tracing::error!("Internal cookieless error: {}", err);
+                        (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred while processing your request.".to_string())
+                    }
+                }
             }
         }
         .into_response()
@@ -178,15 +222,9 @@ impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
-            CustomRedisError::PickleError(e) => {
-                tracing::error!("failed to fetch data from redis: {}", e);
-                FlagError::RedisDataParsingError
-            }
-            CustomRedisError::Timeout(_) => FlagError::TimeoutError,
-            CustomRedisError::Other(e) => {
-                tracing::error!("Unknown redis error: {}", e);
-                FlagError::RedisUnavailable
-            }
+            CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
+            CustomRedisError::Timeout => FlagError::TimeoutError,
+            CustomRedisError::Other(_) => FlagError::RedisUnavailable,
         }
     }
 }
@@ -194,10 +232,7 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Other(_) => {
-                tracing::error!("failed to get connection: {}", e);
-                FlagError::DatabaseUnavailable
-            }
+            CustomDatabaseError::Other(_) => FlagError::DatabaseUnavailable,
             CustomDatabaseError::Timeout(_) => FlagError::TimeoutError,
         }
     }
@@ -205,9 +240,6 @@ impl From<CustomDatabaseError> for FlagError {
 
 impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
-        // TODO: Be more precise with error handling here
-        tracing::error!("sqlx error: {}", e);
-        println!("sqlx error: {}", e);
         match e {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
             _ => FlagError::DatabaseError(e.to_string()),

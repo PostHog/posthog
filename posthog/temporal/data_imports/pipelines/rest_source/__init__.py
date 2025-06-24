@@ -347,7 +347,7 @@ def create_resources(
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
             ) -> AsyncGenerator[Any, Any]:
-                yield dlt.mark.materialize_table_schema()  # type: ignore
+                yield dlt.mark.materialize_table_schema()
 
                 if incremental_object:
                     params = _set_incremental_params(

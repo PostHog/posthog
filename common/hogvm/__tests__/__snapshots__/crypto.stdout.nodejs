@@ -1,0 +1,7 @@
+string: this is a secure string
+md5Hex(string): e7b466647ea215dbe59b00c756560911
+md5Hex(null): null
+sha256Hex(string): 5216c0931310b31737ef30353830c234901283544e934f54eb75f622cfb86c9d
+sha256Hex(null): null
+data: ['1', 'string', 'more', 'keys']
+sha256HmacChainHex(data): 826820d7eeca97f26ca18096be85fed346f6fd9cc18d64e72c935bea3450dbd9

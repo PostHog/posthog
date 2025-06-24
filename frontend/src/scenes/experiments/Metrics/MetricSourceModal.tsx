@@ -13,7 +13,7 @@ export function MetricSourceModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen, shouldUseExperimentMetrics } =
+    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen, usesNewQueryRunner } =
         useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
@@ -35,13 +35,11 @@ export function MetricSourceModal({
         <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent-primary"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
                         closeCurrentModal()
 
-                        const defaultMetric = shouldUseExperimentMetrics
-                            ? getDefaultFunnelMetric()
-                            : getDefaultFunnelsMetric()
+                        const defaultMetric = usesNewQueryRunner ? getDefaultFunnelMetric() : getDefaultFunnelsMetric()
                         const newMetrics = [...experiment[metricsField], defaultMetric]
                         setExperiment({
                             [metricsField]: newMetrics,
@@ -57,7 +55,7 @@ export function MetricSourceModal({
                     </div>
                 </div>
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent-primary"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
                         closeCurrentModal()
                         openSharedMetricModal(null)

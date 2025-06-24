@@ -4,9 +4,9 @@ import fetch from 'node-fetch'
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
-import { raiseIfUserProvidedUrlUnsafe } from '../utils/fetch'
+import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
-import { status } from '../utils/status'
+import { raiseIfUserProvidedUrlUnsafe } from '../utils/request'
 import { sleep } from '../utils/utils'
 import { pluginActionMsSummary } from './metrics'
 
@@ -60,7 +60,7 @@ export class RustyHook {
         webhook.method ??= 'POST'
         webhook.headers ??= {}
 
-        if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
+        if (isProdEnv()) {
             await raiseIfUserProvidedUrlUnsafe(webhook.url)
         }
 
@@ -116,7 +116,7 @@ export class RustyHook {
                     parameters: { ...rustyWebhookPayload.parameters, body: '<redacted>' },
                     metadata: rustyWebhookPayload.metadata,
                 }
-                status.error('🔴', 'Webhook enqueue to rusty-hook failed', { error, redactedWebhook, attempt })
+                logger.error('🔴', 'Webhook enqueue to rusty-hook failed', { error, redactedWebhook, attempt })
                 captureException(error, { extra: { redactedWebhook } })
             }
 
@@ -166,7 +166,7 @@ export class RustyHook {
                             statusText: response.statusText,
                         },
                     })
-                    status.error('🔴', message, {
+                    logger.error('🔴', message, {
                         status: response.status,
                         statusText: response.statusText,
                         payload,
@@ -179,7 +179,7 @@ export class RustyHook {
                     `Hoghook enqueue returned ${response.status} ${response.statusText}: ${await response.text()}`
                 )
             } catch (error) {
-                status.error('🔴', 'Hoghook enqueue to rusty-hook for Hog failed', { error, attempt })
+                logger.error('🔴', 'Hoghook enqueue to rusty-hook for Hog failed', { error, attempt })
                 captureException(error)
             }
 

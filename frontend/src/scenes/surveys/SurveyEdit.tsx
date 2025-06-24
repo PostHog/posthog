@@ -12,12 +12,11 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
-    LemonTag,
     LemonTextArea,
     Link,
     Popover,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -29,13 +28,18 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { getPropertyKey } from 'lib/taxonomy'
 import { formatDate } from 'lib/utils'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
+import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
+import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
+import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 
+import { actionsModel } from '~/models/actionsModel'
+import { getPropertyKey } from '~/taxonomy/helpers'
 import {
     ActionType,
     LinkSurveyQuestion,
@@ -49,19 +53,17 @@ import {
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
+import { defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
-import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
-    const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { survey, dataCollectionType } = useValues(surveyLogic)
+    const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
     const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =
         useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
@@ -80,9 +82,7 @@ function SurveyCompletionConditions(): JSX.Element {
         },
     ]
 
-    const adaptiveLimitFFEnabled = featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
-
-    if (adaptiveLimitFFEnabled) {
+    if (isAdaptiveLimitFFEnabled) {
         surveyLimitOptions.push({
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
@@ -219,6 +219,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField>
             )}
             <SurveyRepeatSchedule />
+            <SurveyResponsesCollection />
         </div>
     )
 }
@@ -234,8 +235,8 @@ export default function SurveyEdit(): JSX.Element {
         targetingFlagFilters,
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
-        surveyErrors,
         deviceTypesMatchTypeValidationError,
+        surveyErrors,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -244,12 +245,14 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         deleteBranchingLogic,
+        setSurveyManualErrors,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
         useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
+    useMountedLogic(actionsModel)
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -294,50 +297,56 @@ export default function SurveyEdit(): JSX.Element {
                                 <LemonField name="type">
                                     {({ onChange, value }) => {
                                         return (
-                                            <div className="flex gap-4">
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.Popover}
-                                                    onClick={() => {
-                                                        onChange(SurveyType.Popover)
-                                                        if (survey.schedule === SurveySchedule.Always) {
-                                                            setSurveyValue('schedule', SurveySchedule.Once)
-                                                        }
-                                                    }}
-                                                    title="Popover"
-                                                    description="Automatically appears when PostHog JS is installed"
-                                                    value={SurveyType.Popover}
-                                                >
-                                                    <div className="scale-[0.8] absolute -top-4 -left-4">
-                                                        <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
-                                                    </div>
-                                                </PresentationTypeCard>
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.API}
-                                                    onClick={() => {
-                                                        onChange(SurveyType.API)
-                                                        if (survey.schedule === SurveySchedule.Always) {
-                                                            setSurveyValue('schedule', SurveySchedule.Once)
-                                                        }
-                                                    }}
-                                                    title="API"
-                                                    description="Use the PostHog API to show/hide your survey programmatically"
-                                                    value={SurveyType.API}
-                                                >
-                                                    <div className="absolute left-4 w-[350px]">
-                                                        <SurveyAPIEditor survey={survey} />
-                                                    </div>
-                                                </PresentationTypeCard>
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.Widget}
-                                                    onClick={() => onChange(SurveyType.Widget)}
-                                                    title="Feedback button"
-                                                    description="Set up a survey based on your own custom button or our prebuilt feedback tab"
-                                                    value={SurveyType.Widget}
-                                                >
-                                                    <LemonTag type="warning" className="uppercase">
-                                                        Beta
-                                                    </LemonTag>
-                                                </PresentationTypeCard>
+                                            <div className="flex flex-col gap-2">
+                                                <div className="flex gap-4">
+                                                    <PresentationTypeCard
+                                                        active={value === SurveyType.Popover}
+                                                        onClick={() => {
+                                                            onChange(SurveyType.Popover)
+                                                            if (survey.schedule === SurveySchedule.Always) {
+                                                                setSurveyValue('schedule', SurveySchedule.Once)
+                                                            }
+                                                        }}
+                                                        title="Popover"
+                                                        description="Automatically appears when PostHog JS is installed"
+                                                        value={SurveyType.Popover}
+                                                    >
+                                                        <div className="scale-[0.8] absolute -top-4 -left-4">
+                                                            <SurveyAppearancePreview
+                                                                survey={survey}
+                                                                previewPageIndex={0}
+                                                            />
+                                                        </div>
+                                                    </PresentationTypeCard>
+                                                    <PresentationTypeCard
+                                                        active={value === SurveyType.API}
+                                                        onClick={() => {
+                                                            onChange(SurveyType.API)
+                                                            if (survey.schedule === SurveySchedule.Always) {
+                                                                setSurveyValue('schedule', SurveySchedule.Once)
+                                                            }
+                                                        }}
+                                                        title="API"
+                                                        description="Use the PostHog API to show/hide your survey programmatically"
+                                                        value={SurveyType.API}
+                                                    >
+                                                        <div className="absolute left-4 w-[350px]">
+                                                            <SurveyAPIEditor survey={survey} />
+                                                        </div>
+                                                    </PresentationTypeCard>
+                                                    <PresentationTypeCard
+                                                        active={value === SurveyType.Widget}
+                                                        onClick={() => onChange(SurveyType.Widget)}
+                                                        title="Feedback button"
+                                                        description="Set up a survey based on your own custom button or our prebuilt feedback tab"
+                                                        value={SurveyType.Widget}
+                                                    >
+                                                        <button className="bg-black -rotate-90 py-2 px-3 min-w-[40px] absolute -right-4 -bottom-16">
+                                                            Feedback
+                                                        </button>
+                                                    </PresentationTypeCard>
+                                                </div>
+                                                {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
                                             </div>
                                         )
                                     }}
@@ -638,53 +647,35 @@ export default function SurveyEdit(): JSX.Element {
                                       header: 'Customization',
                                       content: (
                                           <LemonField name="appearance" label="">
-                                              {({ value, onChange }) => (
-                                                  <>
-                                                      {survey.type === SurveyType.Widget && (
-                                                          <>
-                                                              <div className="font-bold">
-                                                                  Feedback button customization
-                                                              </div>
-                                                              <WidgetCustomization
-                                                                  hasBranchingLogic={hasBranchingLogic}
-                                                                  deleteBranchingLogic={deleteBranchingLogic}
-                                                                  customizeRatingButtons={
-                                                                      survey.questions[0].type ===
-                                                                      SurveyQuestionType.Rating
-                                                                  }
-                                                                  customizePlaceholderText={
-                                                                      survey.questions[0].type ===
-                                                                      SurveyQuestionType.Open
-                                                                  }
-                                                                  appearance={value || defaultSurveyAppearance}
-                                                                  onAppearanceChange={(appearance) => {
-                                                                      onChange(appearance)
-                                                                  }}
-                                                                  validationErrors={surveyErrors?.appearance}
-                                                              />
-                                                              <LemonDivider className="mt-4" />
-                                                              <div className="font-bold">Survey customization</div>
-                                                          </>
+                                              {({ onChange }) => (
+                                                  <Customization
+                                                      survey={survey}
+                                                      hasBranchingLogic={hasBranchingLogic}
+                                                      deleteBranchingLogic={deleteBranchingLogic}
+                                                      hasRatingButtons={survey.questions.some(
+                                                          (question) => question.type === SurveyQuestionType.Rating
                                                       )}
-                                                      <Customization
-                                                          appearance={value || defaultSurveyAppearance}
-                                                          hasBranchingLogic={hasBranchingLogic}
-                                                          deleteBranchingLogic={deleteBranchingLogic}
-                                                          customizeRatingButtons={survey.questions.some(
-                                                              (question) => question.type === SurveyQuestionType.Rating
-                                                          )}
-                                                          customizePlaceholderText={survey.questions.some(
-                                                              (question) => question.type === SurveyQuestionType.Open
-                                                          )}
-                                                          onAppearanceChange={(appearance) => {
-                                                              onChange(appearance)
-                                                          }}
-                                                          isCustomFontsEnabled={
-                                                              !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
+                                                      hasPlaceholderText={survey.questions.some(
+                                                          (question) => question.type === SurveyQuestionType.Open
+                                                      )}
+                                                      onAppearanceChange={(appearance) => {
+                                                          const newAppearance = sanitizeSurveyAppearance({
+                                                              ...survey.appearance,
+                                                              ...appearance,
+                                                          })
+                                                          onChange(newAppearance)
+                                                          if (newAppearance) {
+                                                              setSurveyManualErrors(
+                                                                  validateSurveyAppearance(
+                                                                      newAppearance,
+                                                                      true,
+                                                                      survey.type
+                                                                  )
+                                                              )
                                                           }
-                                                          validationErrors={surveyErrors?.appearance}
-                                                      />
-                                                  </>
+                                                      }}
+                                                      validationErrors={surveyErrors?.appearance}
+                                                  />
                                               )}
                                           </LemonField>
                                       ),
@@ -922,10 +913,11 @@ export default function SurveyEdit(): JSX.Element {
                                                                     }}
                                                                     className="w-12"
                                                                 />{' '}
-                                                                {value?.seenSurveyWaitPeriodInDays === 1
-                                                                    ? 'day'
-                                                                    : 'days'}
-                                                                .
+                                                                {value?.seenSurveyWaitPeriodInDays === 1 ? (
+                                                                    <span>day.</span>
+                                                                ) : (
+                                                                    <span>days.</span>
+                                                                )}
                                                             </div>
                                                         </LemonField.Pure>
                                                     </>
@@ -993,11 +985,15 @@ export default function SurveyEdit(): JSX.Element {
                                             {surveysEventsAvailable && (
                                                 <LemonField.Pure
                                                     label="User sends events"
-                                                    info="Note that these events are only observed and can trigger this survey within the current user session, but only for events captured using the PostHog SDK."
+                                                    info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
                                                 >
                                                     <>
                                                         <EventSelect
-                                                            filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
+                                                            filterGroupTypes={[
+                                                                TaxonomicFilterGroupType.CustomEvents,
+                                                                TaxonomicFilterGroupType.Events,
+                                                            ]}
+                                                            allowNonCapturedEvents
                                                             onChange={(includedEvents) => {
                                                                 setSurveyValue('conditions', {
                                                                     ...survey.conditions,
@@ -1114,7 +1110,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
+            <div className="flex flex-col h-full sticky top-0 max-w-1/2 overflow-auto">
                 <SurveyFormAppearance
                     previewPageIndex={selectedPageIndex || 0}
                     survey={survey}

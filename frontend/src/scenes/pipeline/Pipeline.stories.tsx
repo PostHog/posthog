@@ -50,6 +50,8 @@ export default {
             get: {
                 '/api/projects/:team_id/batch_exports/': batchExports,
                 '/api/projects/:team_id/batch_exports/:id': batchExportsRetrieveMock,
+                '/api/environments/:team_id/batch_exports/': batchExports,
+                '/api/environments/:team_id/batch_exports/:id': batchExportsRetrieveMock,
                 '/api/organizations/:organization_id/batch_exports/': batchExports,
                 '/api/organizations/:organization_id/plugins/': plugins,
                 '/api/organizations/:organization_id/plugins/repository': [],
@@ -70,6 +72,7 @@ export default {
                 '/api/organizations/:organization_id/pipeline_import_apps/': empty,
                 '/api/projects/:team_id/pipeline_import_apps_configs/': empty,
                 '/api/projects/:team_id/integrations/': empty,
+                '/api/environments/:team_id/integrations/': empty,
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
             },
@@ -199,7 +202,7 @@ export function PipelineNodeNewDestinationWithoutDataPipelines(): JSX.Element {
 
 export function PipelineNodeNewSequenceTimer(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation, eventSequenceTimerPluginId))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation, { id: eventSequenceTimerPluginId }))
     }, [])
     return <App />
 }
@@ -207,21 +210,21 @@ export function PipelineNodeNewSequenceTimer(): JSX.Element {
 export function PipelineNodeNewBigQuery(): JSX.Element {
     useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, { id: 'BigQuery' }))
     }, [])
     return <App />
 }
 
 export function PipelineNodeNewBigQueryWithoutPipelines(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, { id: 'BigQuery' }))
     }, [])
     return <App />
 }
 
 export function PipelineNodeNewHogFunction(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'hog-template-slack'))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, { id: 'hog-template-slack' }))
     }, [])
     return <App />
 }

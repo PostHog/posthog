@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+import orjson
 import os
 import re
 import secrets
@@ -42,7 +43,7 @@ from django.utils import timezone
 from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
-from sentry_sdk import configure_scope
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -284,6 +285,9 @@ def get_delta_mapping_for(
             delta_mapping["day"] = 1
         elif position == "End":
             delta_mapping["day"] = 31
+    elif kind == "M":
+        if number:
+            delta_mapping["minutes"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)
@@ -352,10 +356,6 @@ def render_template(
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = sentry_dsn
-    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
-        context["sentry_environment"] = sentry_environment
     if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
         context["stripe_public_key"] = stripe_public_key
 
@@ -385,15 +385,9 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
-    try:
-        year_in_hog_url = f"/year_in_posthog/2024/{str(request.user.uuid)}"  # type: ignore
-    except:
-        year_in_hog_url = None
-
     posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
@@ -405,7 +399,7 @@ def render_template(
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.rbac.user_access_control import UserAccessControl
+        from posthog.rbac.user_access_control import UserAccessControl, ACCESS_CONTROL_RESOURCES
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -431,6 +425,10 @@ def render_template(
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            posthog_app_context["resource_access_control"] = {
+                resource: user_access_control.access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
             user_serialized = UserSerializer(
                 request.user,
                 context={
@@ -523,7 +521,7 @@ async def initialize_self_capture_api_token():
         )
         # Get the current user's team (or first team in the instance) to set self capture configs
         team = None
-        if user and getattr(user, "team", None):
+        if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
             team = await Team.objects.only("api_token").aget()
@@ -646,11 +644,17 @@ def get_compare_period_dates(
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
-        new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
-        new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
+        new_date_to = (new_date_from + diff).replace(
+            minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     elif interval != "minute":
-        # Align previous period time range to day boundaries
-        new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Align previous period time range to same boundaries as current period
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
         # Handle date_from = -7d, -14d etc. specially
         if (
             interval == "day"
@@ -668,7 +672,9 @@ def get_compare_period_dates(
             # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
             # of relative date ranges:
             new_date_from += datetime.timedelta(days=1)
-        new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
+        new_date_to = (new_date_from + diff).replace(
+            hour=date_to.hour, minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     return new_date_from, new_date_to
 
 
@@ -758,7 +764,7 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception:
                 # Increment a separate counter for JSON parsing failures after all decompression attempts
-                # We do this because we're no longer tracking these fallbacks in Sentry (since they're not actionable defects),
+                # We do this because we're no longer tracking these fallbacks in error tracking (since they're not actionable defects),
                 # but we still want to know how often they occur.
                 KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
                 raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
@@ -781,23 +787,25 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
-    # add the data in sentry's scope in case there's an exception
-    with configure_scope() as scope:
+    # add the data in the scope in case there's an exception
+    with posthoganalytics.new_context():
         if isinstance(data, dict):
-            scope.set_context("data", data)
-        scope.set_tag(
+            posthoganalytics.tag("data", data)
+        posthoganalytics.tag(
             "origin",
             request.headers.get("origin", request.headers.get("remote_host", "unknown")),
         )
-        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        posthoganalytics.tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+        posthoganalytics.tag("library.version", request.GET.get("ver", "unknown"))
 
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    ).lower()
+        compression = (
+            request.GET.get("compression")
+            or request.POST.get("compression")
+            or request.headers.get("content-encoding", "")
+        ).lower()
 
-    return decompress(data, compression)
+        return decompress(data, compression)
 
 
 class SingletonDecorator:
@@ -879,17 +887,12 @@ def is_celery_alive() -> bool:
 
 def is_plugin_server_alive() -> bool:
     try:
-        ping = get_client().get("@posthog-plugin-server/ping")
-        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
+        from posthog.plugins.plugin_server_api import get_plugin_server_status
+
+        plugin_server_status = get_plugin_server_status()
+        return plugin_server_status.status_code == 200
     except BaseException:
         return False
-
-
-def get_plugin_server_version() -> Optional[str]:
-    cache_key_value = get_client().get("@posthog-plugin-server/version")
-    if cache_key_value:
-        return cache_key_value.decode("utf-8")
-    return None
 
 
 def get_plugin_server_job_queues() -> Optional[list[str]]:
@@ -936,7 +939,7 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current Cloud instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or `EU`.
     """
     return settings.CLOUD_DEPLOYMENT
 
@@ -1274,7 +1277,7 @@ def is_json(val):
     return True
 
 
-def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) -> str:
     if not timestamp:
         timestamp = timezone.now()
 
@@ -1458,8 +1461,10 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
 def patchable(fn):
     """
     Decorator which allows patching behavior of a function at run-time.
+    Supports chaining multiple patches in sequence, where earlier patches
+    are applied before later ones.
 
-    Used in benchmarking scripts.
+    Used in benchmarking scripts and tests.
     """
 
     import posthog
@@ -1469,26 +1474,48 @@ def patchable(fn):
 
     @wraps(fn)
     def inner(*args, **kwargs):
-        return inner._impl(*args, **kwargs)  # type: ignore
+        # Execute patches in sequence: first patch → second patch → ... → original function
+        return execute_patch_chain(0, *args, **kwargs)
+
+    # Initialize empty patch list
+    inner._patch_list = []  # type: ignore[attr-defined]
+
+    # Function to execute the patch chain starting from a specific index
+    def execute_patch_chain(index, *args, **kwargs):
+        # If we've gone through all patches, execute the original function
+        if index >= len(inner._patch_list):  # type: ignore[attr-defined]
+            return fn(*args, **kwargs)
+
+        # Execute the current patch, passing a function that will invoke the next patch
+        next_fn = lambda *a, **kw: execute_patch_chain(index + 1, *a, **kw)
+        return inner._patch_list[index](next_fn, *args, **kwargs)  # type: ignore[attr-defined]
+
+    inner._execute_patch_chain = execute_patch_chain  # type: ignore[attr-defined]
 
     def patch(wrapper):
-        inner._impl = lambda *args, **kw: wrapper(fn, *args, **kw)  # type: ignore
+        # Add the wrapper to the end of the patch list
+        inner._patch_list.append(wrapper)  # type: ignore[attr-defined]
 
-    inner._impl = fn  # type: ignore
-    inner._patch = patch  # type: ignore
+    def unpatch():
+        # Remove the most recent patch if there is one
+        if inner._patch_list:  # type: ignore[attr-defined]
+            inner._patch_list.pop()  # type: ignore[attr-defined]
 
     @contextmanager
     def temp_patch(wrapper):
         """
-        Context manager for temporary patching.  Restores the original function when the 'with' block exits.
+        Context manager for temporary patching. Adds the wrapper to the patch list
+        and removes it when the 'with' block exits.
         """
         patch(wrapper)
         try:
             yield
         finally:
-            inner._impl = fn  # type: ignore
+            unpatch()
 
-    inner._temp_patch = temp_patch  # type: ignore
+    inner._patch = patch  # type: ignore[attr-defined]
+    inner._unpatch = unpatch  # type: ignore[attr-defined]
+    inner._temp_patch = temp_patch  # type: ignore[attr-defined]
 
     return inner
 
@@ -1542,3 +1569,25 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def is_relative_url(url: str | None) -> bool:
+    """
+    Returns True if `url` is a relative URL (e.g. "/foo/bar" or "/")
+    """
+    if url is None:
+        return False
+
+    parsed = urlparse(url)
+
+    return (
+        parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
+    )
+
+
+def to_json(obj: dict) -> bytes:
+    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
+    option = orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS
+    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
+
+    return json_string

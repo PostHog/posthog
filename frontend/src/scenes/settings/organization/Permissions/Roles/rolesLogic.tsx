@@ -10,7 +10,7 @@ import type { rolesLogicType } from './rolesLogicType'
 
 export const rolesLogic = kea<rolesLogicType>([
     path(['scenes', 'organization', 'rolesLogic']),
-    connect({ values: [teamMembersLogic, ['allMembers']] }),
+    connect(() => ({ values: [teamMembersLogic, ['allMembers']] })),
     actions({
         setCreateRoleModalShown: (shown: boolean) => ({ shown }),
         setRoleInFocus: (role: null | RoleType) => ({ role }),

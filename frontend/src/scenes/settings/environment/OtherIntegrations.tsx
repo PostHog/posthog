@@ -11,7 +11,7 @@ export function OtherIntegrations(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
 
-    const otherIntegrations = integrations?.filter((integration) => integration.kind !== 'slack')
+    const otherIntegrations = integrations?.filter((integration) => !['slack', 'linear'].includes(integration.kind))
 
     const onDeleteClick = (integration: IntegrationType): void => {
         LemonDialog.open({

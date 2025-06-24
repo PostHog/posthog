@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 
 def PG_EMBEDDINGS_DATA_TABLE_ENGINE():
     return ReplacingMergeTree(
-        "pg_embeddings", replication_scheme=ReplicationScheme.NOT_SHARDED, ver="timestamp, is_deleted"
+        "pg_embeddings", replication_scheme=ReplicationScheme.REPLICATED, ver="timestamp, is_deleted"
     )
 
 
@@ -42,12 +42,12 @@ def PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
     )
 
 
-def DROP_PG_EMBEDDINGS_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+def DROP_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+    return f"DROP TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
-def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+    return f"TRUNCATE TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
 INSERT_BULK_PG_EMBEDDINGS_SQL = """

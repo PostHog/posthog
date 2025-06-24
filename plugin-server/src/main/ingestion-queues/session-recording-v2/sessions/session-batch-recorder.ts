@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
@@ -62,10 +62,11 @@ export class SessionBatchRecorder {
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
-        private readonly consoleLogStore: SessionConsoleLogStore
+        private readonly consoleLogStore: SessionConsoleLogStore,
+        private readonly metadataSwitchoverDate: Date | null
     ) {
         this.batchId = uuidv7()
-        status.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
+        logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
     }
 
     /**
@@ -78,6 +79,7 @@ export class SessionBatchRecorder {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
+        const teamSessionKey = `${teamId}$${sessionId}`
 
         if (!this.partitionSessions.has(partition)) {
             this.partitionSessions.set(partition, new Map())
@@ -85,12 +87,12 @@ export class SessionBatchRecorder {
         }
 
         const sessions = this.partitionSessions.get(partition)!
-        const existingRecorders = sessions.get(sessionId)
+        const existingRecorders = sessions.get(teamSessionKey)
 
         if (existingRecorders) {
             const [sessionBlockRecorder] = existingRecorders
             if (sessionBlockRecorder.teamId !== teamId) {
-                status.warn('🔁', 'session_batch_recorder_team_id_mismatch', {
+                logger.warn('🔁', 'session_batch_recorder_team_id_mismatch', {
                     sessionId,
                     existingTeamId: sessionBlockRecorder.teamId,
                     newTeamId: teamId,
@@ -99,15 +101,21 @@ export class SessionBatchRecorder {
                 return 0
             }
         } else {
-            sessions.set(sessionId, [
-                new SnappySessionRecorder(sessionId, teamId, this.batchId),
-                new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
+            sessions.set(teamSessionKey, [
+                new SnappySessionRecorder(sessionId, teamId, this.batchId, this.metadataSwitchoverDate),
+                new SessionConsoleLogRecorder(
+                    sessionId,
+                    teamId,
+                    this.batchId,
+                    this.consoleLogStore,
+                    this.metadataSwitchoverDate
+                ),
             ])
         }
 
-        const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(sessionId)!
+        const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(teamSessionKey)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
-        await consoleLogRecorder.recordMessage(message.message)
+        await consoleLogRecorder.recordMessage(message)
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
@@ -118,9 +126,10 @@ export class SessionBatchRecorder {
             offset: message.message.metadata.offset,
         })
 
-        status.debug('🔁', 'session_batch_recorder_recorded_message', {
+        logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
             sessionId,
+            teamId,
             bytesWritten,
             totalSize: this._size,
         })
@@ -135,7 +144,7 @@ export class SessionBatchRecorder {
     public discardPartition(partition: number): void {
         const partitionSize = this.partitionSizes.get(partition)
         if (partitionSize !== undefined) {
-            status.info('🔁', 'session_batch_recorder_discarding_partition', {
+            logger.info('🔁', 'session_batch_recorder_discarding_partition', {
                 partition,
                 partitionSize,
             })
@@ -152,7 +161,7 @@ export class SessionBatchRecorder {
      * @throws If the flush operation fails
      */
     public async flush(): Promise<SessionBlockMetadata[]> {
-        status.info('🔁', 'session_batch_recorder_flushing', {
+        logger.info('🔁', 'session_batch_recorder_flushing', {
             partitions: this.partitionSessions.size,
             totalSize: this._size,
         })
@@ -160,7 +169,7 @@ export class SessionBatchRecorder {
         // If no sessions, commit offsets but skip writing the file
         if (this.partitionSessions.size === 0) {
             await this.offsetManager.commit()
-            status.info('🔁', 'session_batch_recorder_flushed_no_sessions')
+            logger.info('🔁', 'session_batch_recorder_flushed_no_sessions')
             return []
         }
 
@@ -218,6 +227,7 @@ export class SessionBatchRecorder {
                         snapshotSource,
                         snapshotLibrary,
                         batchId,
+                        eventCount,
                     })
 
                     totalEvents += eventCount
@@ -242,7 +252,7 @@ export class SessionBatchRecorder {
             this.partitionSizes.clear()
             this._size = 0
 
-            status.info('🔁', 'session_batch_recorder_flushed', {
+            logger.info('🔁', 'session_batch_recorder_flushed', {
                 totalEvents,
                 totalSessions,
                 totalBytes,
@@ -250,7 +260,7 @@ export class SessionBatchRecorder {
 
             return blockMetadata
         } catch (error) {
-            status.error('🔁', 'session_batch_recorder_flush_error', {
+            logger.error('🔁', 'session_batch_recorder_flush_error', {
                 error,
                 totalEvents,
                 totalSessions,

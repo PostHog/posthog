@@ -29,9 +29,9 @@ const FALLBACK_EVENT = {
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     props({ variables: [] } as DashboardTemplateVariablesLogicProps),
-    connect({
+    connect(() => ({
         actions: [iframedToolbarBrowserLogic, ['toolbarMessageReceived', 'disableElementSelector']],
-    }),
+    })),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
         setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({

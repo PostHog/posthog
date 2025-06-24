@@ -35,17 +35,17 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
         }),
         setPage: (page: number) => ({ page }),
     }),
-    connect({
+    connect(() => ({
         values: [notebooksModel, ['notebookTemplates']],
         actions: [notebooksModel, ['deleteNotebookSuccess']],
-    }),
+    })),
     reducers({
         filters: [
             DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...state,
                         ...filters,
                     }),
             },

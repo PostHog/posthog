@@ -1,4 +1,3 @@
-import datetime as dt
 import inspect
 import re
 import resource
@@ -9,6 +8,7 @@ import unittest
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
+import datetime as dt
 from typing import Any, Optional, Union
 from unittest.mock import patch
 
@@ -28,8 +28,21 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
+from posthog.clickhouse.adhoc_events_deletion import (
+    ADHOC_EVENTS_DELETION_TABLE_SQL,
+    DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.custom_metrics import (
+    CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
+    CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+    CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW,
+    CUSTOM_METRICS_REPLICATION_QUEUE_VIEW,
+    CUSTOM_METRICS_TEST_VIEW,
+    CUSTOM_METRICS_VIEW,
+    TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+)
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -47,6 +60,7 @@ from posthog.models.event.sql import (
     DROP_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     EVENTS_TABLE_SQL,
+    TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
@@ -63,6 +77,10 @@ from posthog.models.person.sql import (
 )
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
+from posthog.models.property_definition import (
+    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
+    PROPERTY_DEFINITIONS_TABLE_SQL,
+)
 from posthog.models.sessions.sql import (
     DISTRIBUTED_SESSIONS_TABLE_SQL,
     DROP_SESSION_MATERIALIZED_VIEW_SQL,
@@ -130,6 +148,16 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
+        query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
+        query = re.sub(r"'[0-9a-f-]{36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
+        query = re.sub(
+            r"'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'",
+            r"'00000000-0000-0000-0000-000000000000'",
+            query,
+        )
+        query = re.sub(
+            r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
+        )
 
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
@@ -183,12 +211,26 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
     )
     # and where the HogQL doesn't match the above
+
+    # Often we use a now from python to upper bound event times.
+    # Replace all dates that could be today in any timezone with "today"
+    today = dt.datetime.now(dt.UTC)
+    yesterday = today - dt.timedelta(days=1)
+    tomorrow = today + dt.timedelta(days=1)
+    days_to_sub = "|".join([x.strftime("%Y-%m-%d") for x in [yesterday, today, tomorrow]])
+    query = re.sub(
+        rf"toDateTime64\('({days_to_sub}) \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
+        r"toDateTime64('today', 6, '\2')",
+        query,
+    )
+
     # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    # replace all dates where the date is
     if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
-            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
-            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
+            r"toDateTime64('explicit_redacted_timestamp', 6, '\1')",
             query,
         )
     # replace cohort generated conditions
@@ -200,7 +242,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # replace cohort tuples
     # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
     query = re.sub(
-        r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[\(\d+, \d+\)\]\)",
+        r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[(\(\d+, \d+\)(?:, \(\d+, \d+\))*)\]\)",
         r"(tuple(\1.cohort_id, \2.version), [(99999, 0)])",
         query,
     )
@@ -298,6 +340,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(
         r"\"resource_id\" = '\d+'",
         "\"resource_id\" = '99999'",
+        query,
+    )
+
+    # project tree and file system related replacements
+    query = re.sub(
+        r"\"href\" = '[^']+'",
+        "\"href\" = '__skipped__'",
         query,
     )
 
@@ -636,16 +685,23 @@ def cleanup_materialized_columns():
 
 
 @contextmanager
-def materialized(table, property) -> Iterator[MaterializedColumn]:
+def materialized(table, property, create_minmax_index: bool = False) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
+        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
     except ModuleNotFoundError as e:
         pytest.xfail(str(e))
 
+    column = None
     try:
-        yield materialize(table, property)
+        column = materialize(table, property, create_minmax_index=create_minmax_index)
+        yield column
     finally:
+        if create_minmax_index and column is not None:
+            data_table = "sharded_events" if table == "events" else table
+            sync_execute(
+                f"ALTER TABLE {data_table} DROP INDEX {get_minmax_index_name(column.name)} SETTINGS mutations_sync = 2"
+            )
         cleanup_materialized_columns()
 
 
@@ -653,6 +709,7 @@ def also_test_with_materialized_columns(
     event_properties=None,
     person_properties=None,
     verify_no_jsonextract=True,
+    is_nullable: Optional[list] = None,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -678,10 +735,15 @@ def also_test_with_materialized_columns(
                 return
 
             for prop in event_properties:
-                materialize("events", prop)
+                materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
             for prop in person_properties:
-                materialize("person", prop)
-                materialize("events", prop, table_column="person_properties")
+                materialize("person", prop, is_nullable=is_nullable is not None and prop in is_nullable)
+                materialize(
+                    "events",
+                    prop,
+                    table_column="person_properties",
+                    is_nullable=is_nullable is not None and prop in is_nullable,
+                )
 
             try:
                 with self.capture_select_queries() as sqls:
@@ -710,10 +772,21 @@ class QueryMatchingTest:
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         query = clean_varying_query_parts(query, replace_all_numbers)
 
-        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+        try:
+            assert sqlparse.format(query, reindent=True) == self.snapshot
+        except AssertionError:
+            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
+            raise AssertionError(error_message)
+
         if params is not None:
             del params["team_id"]  # Changes every run
-            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+            try:
+                assert params == self.snapshot
+            except AssertionError:
+                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
+                raise AssertionError(params_error_message)
 
 
 @contextmanager
@@ -966,7 +1039,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
         return value
 
     def capture_select_queries(self):
-        return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))
+        return self.capture_queries(lambda x: re.match(r"[\s(]*(SELECT|WITH)", x, re.I) is not None)
 
     def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
         return self.capture_queries(lambda x: x.startswith(query_prefixes))
@@ -975,23 +1048,12 @@ class ClickhouseTestMixin(QueryMatchingTest):
     def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
 
-        # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
-        # a roundabout way to handle this, but it seems tricky to spy on the
-        # unbound class method `Client.execute` directly easily
-        @contextmanager
-        def get_client(orig_fn, *args, **kwargs):
-            with orig_fn(*args, **kwargs) as client:
-                original_client_execute = client.execute
+        def execute_wrapper(original_client_execute, query, *args, **kwargs):
+            if query_filter(sqlparse.format(query, strip_comments=True).strip()):
+                queries.append(query)
+            return original_client_execute(query, *args, **kwargs)
 
-                def execute_wrapper(query, *args, **kwargs):
-                    if query_filter(sqlparse.format(query, strip_comments=True).strip()):
-                        queries.append(query)
-                    return original_client_execute(query, *args, **kwargs)
-
-                with patch.object(client, "execute", wraps=execute_wrapper) as _:
-                    yield client
-
-        with get_client_from_pool._temp_patch(get_client) as _:
+        with patch_clickhouse_client_execute(execute_wrapper):
             yield queries
 
 
@@ -1003,8 +1065,17 @@ def failhard_threadhook_context():
     """
 
     def raise_hook(args: threading.ExceptHookArgs):
-        if args.exc_value is not None:
-            raise args.exc_type(args.exc_value)
+        """Capture exceptions from threads and raise them as AssertionError"""
+        exc = args.exc_value
+        if exc is None:
+            return
+
+        # Filter out expected Kafka table errors during test setup
+        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
+            return  # Silently ignore expected Kafka table errors
+
+        # For other exceptions, raise as AssertionError to fail tests
+        raise AssertionError from exc  # Must be an AssertionError to fail tests
 
     old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
@@ -1039,6 +1110,7 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
+            DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1048,18 +1120,21 @@ def reset_clickhouse_database() -> None:
             DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
+            DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_TABLE_SQL(),
             DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
             TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+            TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1068,11 +1143,13 @@ def reset_clickhouse_database() -> None:
             EXCHANGE_RATE_TABLE_SQL(),
             EVENTS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
+            PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
             SESSIONS_TABLE_SQL(),
             SESSION_RECORDING_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
+            CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1085,6 +1162,10 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
+            CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
+            CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
+            CUSTOM_METRICS_TEST_VIEW(),
+            CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1095,6 +1176,8 @@ def reset_clickhouse_database() -> None:
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
+            ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            CUSTOM_METRICS_VIEW(include_counters=True),
         ]
     )
 
@@ -1212,6 +1295,22 @@ def also_test_with_person_on_events_v2(fn):
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
+
+
+@contextmanager
+def patch_clickhouse_client_execute(execute_wrapper):
+    @contextmanager
+    def get_client(orig_fn, *args, **kwargs):
+        with orig_fn(*args, **kwargs) as client:
+            original_client_execute = client.execute
+            wrapped_execute = lambda query, *args, **kwargs: execute_wrapper(
+                original_client_execute, query, *args, **kwargs
+            )
+            with patch.object(client, "execute", wraps=wrapped_execute) as _:
+                yield client
+
+    with get_client_from_pool._temp_patch(get_client):
+        yield
 
 
 def _create_insight(

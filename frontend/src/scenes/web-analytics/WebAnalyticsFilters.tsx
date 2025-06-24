@@ -68,6 +68,8 @@ export const WebAnalyticsFilters = (): JSX.Element => {
 const FoldableFilters = (): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
+        preAggregatedEnabled,
+        productTab,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
 
@@ -76,13 +78,13 @@ const FoldableFilters = (): JSX.Element => {
             <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             <WebAnalyticsCompareFilter />
 
-            <WebConversionGoal />
+            {!preAggregatedEnabled && <WebConversionGoal />}
             <TableSortingIndicator />
 
             <WebVitalsPercentileToggle />
             <PathCleaningToggle />
 
-            <WebPropertyFilters />
+            {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
         </div>
     )
 }
@@ -240,11 +242,11 @@ const WebVitalsPercentileToggle = (): JSX.Element | null => {
     )
 }
 
-const WebAnalyticsCompareFilter = (): JSX.Element | null => {
+export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
     const { compareFilter, productTab } = useValues(webAnalyticsLogic)
     const { setCompareFilter } = useActions(webAnalyticsLogic)
 
-    if (productTab !== ProductTab.ANALYTICS) {
+    if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS].includes(productTab)) {
         return null
     }
 

@@ -26,9 +26,9 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
     path(['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic']),
     key((props) => `${props.cohortFilterLogicKey}`),
     props({} as CohortFieldLogicProps),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel'], userLogic, ['hasAvailableFeature']],
-    }),
+    })),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.fieldKey && !objectsEqual(props.criteria, oldProps.criteria)) {
             actions.onChange(props.criteria)
@@ -90,9 +90,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
             (s) => [s.fieldOptionGroups, s.value],
             (fieldOptionGroups, value) =>
                 value && typeof value === 'string'
-                    ? fieldOptionGroups.reduce((accumulator, group) => ({ ...accumulator, ...group.values }), {})?.[
-                          value
-                      ]
+                    ? fieldOptionGroups.reduce((accumulator, group) => {
+                          Object.assign(accumulator, group.values)
+                          return accumulator
+                      }, {} as Record<string, any>)?.[value]
                     : null,
         ],
         calculatedValueLoading: [

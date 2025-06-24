@@ -4468,6 +4468,46 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(event_response, action_response)
 
+    def test_breakdown_by_event_metadata(self):
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "interval": "hour",
+                        "events": [{"id": "$pageview"}],
+                        "breakdown": "distinct_id",
+                        "breakdown_type": "event_metadata",
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "p1")
+        self.assertEqual(response[1]["label"], "p2")
+        self.assertEqual(response[0]["count"], 2)
+        self.assertEqual(response[1]["count"], 1)
+
     @also_test_with_materialized_columns(verify_no_jsonextract=False)
     def test_interval_filtering_breakdown(self):
         self._create_events(use_time=True)
@@ -4640,6 +4680,64 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.assertEqual(response["count"], 3)
 
             self.assertEntityResponseEqual(event_response, action_response)
+
+    def test_virtual_person_property_breakdown(self):
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"$initial_referring_domain": "https://www.google.com"},
+        )
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"$initial_referring_domain": "$direct"},
+        )
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"$initial_referring_domain": "https://www.someothersite.com"},
+        )
+
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "events": [{"id": "sign up"}],
+                        "breakdown": "$virt_initial_channel_type",
+                        "breakdown_type": "person",
+                    },
+                ),
+                self.team,
+            )
+
+        assert len(response) == 3
+        assert response[0]["label"] == "Direct"
+        assert response[1]["label"] == "Organic Search"
+        assert response[2]["label"] == "Referral"
+        assert response[0]["count"] == 1
+        assert response[1]["count"] == 1
+        assert response[2]["count"] == 1
 
     @also_test_with_materialized_columns(["name"], person_properties=["name"])
     def test_breakdown_by_person_property_for_person_on_events(self):
@@ -6852,6 +6950,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_weekly(self):
+        """Test weekly active users with a week interval.
+
+        When using WEEKLY_ACTIVE math with an interval of WEEK or greater,
+        we should treat it like a normal unique users calculation (DAU) rather than
+        the sliding window calculation used for daily intervals.
+        """
         self._create_active_users_events()
 
         data = {
@@ -6871,7 +6975,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
-        self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
+        self.assertEqual(result[0]["data"], [1, 2, 1])
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_hourly(self):

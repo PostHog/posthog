@@ -4,7 +4,6 @@
 !bin
 !common/hogvm
 !common/esbuilder
-!common/eslint_rules
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind
@@ -35,6 +34,8 @@
 !plugin-server/tsconfig.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+!pyproject.toml
+!uv.lock
 !posthog
 !posthog.json
 !products

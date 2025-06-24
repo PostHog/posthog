@@ -1,9 +1,8 @@
 import './PlayerFrameOverlay.scss'
 
-import { IconPlay } from '@posthog/icons'
+import { IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconErrorOutline, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -20,7 +19,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
-                <IconErrorOutline className="text-danger text-5xl" />
+                <IconWarning className="text-danger text-5xl" />
                 <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
                 <div className="text-secondary text-sm text-center">
                     An error occurred that is preventing this recording from being played. You can refresh the page to
@@ -55,7 +54,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     }
     if (pausedState) {
         content = endReached ? (
-            <IconSync className="text-6xl text-white" />
+            <IconRewindPlay className="text-6xl text-white" />
         ) : (
             <IconPlay className="text-6xl text-white" />
         )
