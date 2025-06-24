@@ -17,12 +17,12 @@ def get_s3_url(team_id: int, table_name: str) -> str:
     if settings.DEBUG:
         s3_endpoint = "http://objectstorage:19000"
         bucket = "posthog"
-        key = f"{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}/{table_name}"
+        key = f"{table_name}"
         return f"{s3_endpoint}/{bucket}/{key}"
 
     base_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com"
 
-    return f"{base_url}/{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}/{table_name}"
+    return f"{base_url}/{table_name}"
 
 
 def get_s3_web_stats_structure() -> str:
