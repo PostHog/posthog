@@ -168,8 +168,9 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-		  const eventsTriggeredDestinationById: Record<string, { team_id: number, event_uuid: string }> = {}
-            validInvocations.forEach(({ state, hogFunction }) => {
+            const eventsTriggeredDestinationById: Record<string, { team_id: number; event_uuid: string }> = {}
+            notMaskedInvocations.forEach(({ state, hogFunction }) => {
+                console.log('iterating over not masked invocations one item atm')
                 const key = `${state.globals.project.id}:${state.globals.event.uuid}`
                 if (!eventsTriggeredDestinationById[key] && hogFunction.type === 'destination') {
                     eventsTriggeredDestinationById[key] = {
@@ -184,7 +185,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     return {
                         app_source: 'cdp_destinations',
                         metric_kind: 'success',
-                        metric_name: 'event-triggered-destination',
+                        metric_name: 'event_triggered_destination',
                         team_id,
                         app_source_id: event_uuid,
                         count: 1,
@@ -193,26 +194,34 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             )
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
 
-            const uniqueDestinationMetrics: MinimalAppMetric[] = [
-                ...new Set(notMaskedInvocations.map((invocation) => invocation.id)),
-            ].reduce((acc: MinimalAppMetric[], invocationId) => {
-                const invocation = notMaskedInvocations.find(({ id }) => id === invocationId)
-                if (!invocation) {
-                    return acc
+            const uniqueDestinationsById: Record<
+                string,
+                { team_id: number; template_id: string; invocation_id: string }
+            > = {}
+            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
+                const key = `${state.globals.project.id}:${id}`
+                if (!uniqueDestinationsById[key] && hogFunction.type === 'destination') {
+                    uniqueDestinationsById[key] = {
+                        team_id: state.globals.project.id,
+                        template_id: hogFunction.template_id ?? 'custom',
+                        invocation_id: id,
+                    }
                 }
-                return [
-                    ...acc,
-                    {
+            })
+
+            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.entries(uniqueDestinationsById).map(
+                ([_, { team_id, template_id, invocation_id }]) => {
+                    return {
                         app_source: 'cdp-destination',
                         metric_kind: 'success',
                         metric_name: 'destination_invoked',
-                        team_id: invocation!.state.globals.project.id,
-                        app_source_id: invocation!.hogFunction.template_id ?? 'custom',
-                        instance_id: invocationId,
+                        team_id,
+                        app_source_id: template_id,
+                        instance_id: invocation_id,
                         count: 1,
-                    },
-                ]
-            }, [] as MinimalAppMetric[])
+                    }
+                }
+            )
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
 
             return notMaskedInvocations
