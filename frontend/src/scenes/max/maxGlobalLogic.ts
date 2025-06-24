@@ -40,6 +40,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
+        setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
     }),
     reducers({
         toolMap: [
@@ -63,6 +64,15 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
             {
                 setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
+            },
+        ],
+        floatingMaxPosition: [
+            null as { x: number; y: number; side: 'left' | 'right' } | null,
+            {
+                persist: true,
+            },
+            {
+                setFloatingMaxPosition: (_, { position }) => position,
             },
         ],
     }),

@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +15,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
+import './MaxFloatingInput.scss'
 
 interface MaxQuestionInputProps {
     placeholder?: string
@@ -72,8 +72,8 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
 function MaxFloatingInputContent(): JSX.Element {
     const { dataProcessingAccepted, showSuggestions, threadVisible } = useValues(maxLogic)
     const { setShowSuggestions, setActiveGroup } = useActions(maxLogic)
-    const { isFloatingMaxExpanded } = useValues(maxGlobalLogic)
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
+    const { setIsFloatingMaxExpanded, setFloatingMaxPosition } = useActions(maxGlobalLogic)
     const { startNewConversation } = useActions(maxLogic)
     const { conversation } = useValues(maxThreadLogic)
 
@@ -94,7 +94,14 @@ function MaxFloatingInputContent(): JSX.Element {
     }
 
     if (!isFloatingMaxExpanded) {
-        return <HedgehogAvatar onExpand={handleExpand} isExpanded={isFloatingMaxExpanded} />
+        return (
+            <HedgehogAvatar
+                onExpand={handleExpand}
+                isExpanded={isFloatingMaxExpanded}
+                onPositionChange={setFloatingMaxPosition}
+                fixedDirection={floatingMaxPosition?.side === 'left' ? 'left' : 'right'}
+            />
+        )
     }
 
     return (
@@ -146,7 +153,7 @@ function MaxFloatingInputContent(): JSX.Element {
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen } = useValues(sidePanelLogic)
-    const { isFloatingMaxExpanded } = useValues(maxGlobalLogic)
+    const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
 
     const { threadLogicKey, conversation } = useValues(maxLogic)
 
@@ -163,15 +170,51 @@ export function MaxFloatingInput(): JSX.Element | null {
         conversation,
     }
 
+    const getPositionClasses = (): string => {
+        const side = floatingMaxPosition?.side || 'right'
+        const baseClasses = 'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm w-80'
+
+        if (!isFloatingMaxExpanded) {
+            // When collapsed, avatar position matches the side
+            if (side === 'left') {
+                return `${baseClasses} left-[calc(1rem-1px)] md:left-[calc(0.5rem-1px)]`
+            }
+            return `${baseClasses} right-[calc(1rem-1px)] md:right-[calc(3rem-1px)]`
+        }
+
+        // When expanded, panel stays on same side but moves away from avatar
+        // If avatar is on right, panel moves further left on right side
+        // If avatar is on left, panel moves further right on left side
+        if (side === 'left') {
+            return `${baseClasses} left-[calc(1rem-1px)] md:left-[calc(17rem-1px)]`
+        }
+        return `${baseClasses} right-[calc(1rem-1px)] md:right-[calc(4rem-1px)]`
+    }
+
+    const getAnimationStyle = (): React.CSSProperties => {
+        const side = floatingMaxPosition?.side || 'right'
+
+        if (!isFloatingMaxExpanded) {
+            return {}
+        }
+
+        // Transform origin should be where the avatar is relative to the panel
+        if (side === 'left') {
+            // Avatar is to the left of panel, so origin is bottom-left
+            return {
+                transformOrigin: 'bottom left',
+                animation: 'MaxFloatingInput__ExpandFromAvatar 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            }
+        }
+        // Avatar is to the right of panel, so origin is bottom-right
+        return {
+            transformOrigin: 'bottom right',
+            animation: 'MaxFloatingInput__ExpandFromAvatar 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+        }
+    }
+
     return (
-        // `right:` gets 1px removed to account for border
-        <div
-            className={clsx(
-                'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm w-80 transition-all right-[calc(1rem-1px)]',
-                isFloatingMaxExpanded && 'md:right-[calc(4rem-1px)]',
-                !isFloatingMaxExpanded && 'md:right-[calc(3rem-1px)]'
-            )}
-        >
+        <div className={getPositionClasses()} style={getAnimationStyle()}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <MaxFloatingInputContent />
             </BindLogic>
