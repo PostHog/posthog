@@ -196,7 +196,7 @@ export const StoriesPlayer = ({
     return (
         <div
             ref={containerRef}
-            className="relative rounded overflow-hidden select-none bg-bg-3000"
+            className="relative rounded overflow-hidden select-none"
             style={{ width, height }} // eslint-disable-line react/forbid-dom-props
         >
             {/* header wrapper with gradient */}
