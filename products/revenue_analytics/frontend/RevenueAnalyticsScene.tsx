@@ -106,6 +106,16 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
                 directly to us!
             </LemonBanner>
 
+            <LemonBanner type="info" dismissKey="revenue-analytics-deferred-revenue-banner" className="mb-2">
+                We've recently introduced deferred revenue recognition for data warehouse sources. If an invoice item
+                includes a <code>period.start</code> and <code>period.end</code>, we'll split the revenue evenly across
+                the months represented by the <code>period</code>.
+                <br />
+                <br />
+                This means you might see revenue in the future if you've created an invoice item with a{' '}
+                <code>period.start</code> and <code>period.end</code> that spans several months.
+            </LemonBanner>
+
             {sourceRunningForTheFirstTime && (
                 <LemonBanner
                     type="success"

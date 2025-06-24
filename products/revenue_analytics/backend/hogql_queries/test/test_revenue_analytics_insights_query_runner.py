@@ -44,9 +44,45 @@ INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_q
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 
-LAST_6_MONTHS_LABELS = ["Nov 2024", "Dec 2024", "Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
-LAST_6_MONTHS_DAYS = ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"]
-LAST_6_MONTHS_FAKEDATETIMES = [ANY] * 7
+ALL_MONTHS_LABELS = [
+    "Nov 2024",
+    "Dec 2024",
+    "Jan 2025",
+    "Feb 2025",
+    "Mar 2025",
+    "Apr 2025",
+    "May 2025",
+    "Jun 2025",
+    "Jul 2025",
+    "Aug 2025",
+    "Sep 2025",
+    "Oct 2025",
+    "Nov 2025",
+    "Dec 2025",
+    "Jan 2026",
+]
+ALL_MONTHS_DAYS = [
+    "2024-11-01",
+    "2024-12-01",
+    "2025-01-01",
+    "2025-02-01",
+    "2025-03-01",
+    "2025-04-01",
+    "2025-05-01",
+    "2025-06-01",
+    "2025-07-01",
+    "2025-08-01",
+    "2025-09-01",
+    "2025-10-01",
+    "2025-11-01",
+    "2025-12-01",
+    "2026-01-01",
+]
+ALL_MONTHS_FAKEDATETIMES = [ANY] * 15
+
+LAST_6_MONTHS_LABELS = ALL_MONTHS_LABELS[:7].copy()
+LAST_6_MONTHS_DAYS = ALL_MONTHS_DAYS[:7].copy()
+LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 
 
 @snapshot_clickhouse_queries
@@ -219,26 +255,37 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results, [])
 
     def test_with_data(self):
-        results = self._run_revenue_analytics_insights_query().results
+        # Use huge date range to collect all data
+        results = self._run_revenue_analytics_insights_query(
+            date_range=DateRange(date_from="2024-11-01", date_to="2026-01-01")
+        ).results
 
         self.assertEqual(
             results,
             [
                 {
                     "label": "stripe.posthog_test",
-                    "days": LAST_6_MONTHS_DAYS,
-                    "labels": LAST_6_MONTHS_LABELS,
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
                     "data": [
                         0,
                         0,
-                        Decimal("9025.20409"),
-                        Decimal("9474.87946"),
-                        Decimal("9009.96545"),
-                        Decimal("8882.54906"),
-                        Decimal("8864.83175"),
+                        Decimal("8755.6188399999"),
+                        Decimal("9499.3872099999"),
+                        Decimal("9034.4731999999"),
+                        Decimal("8907.0568099999"),
+                        Decimal("8889.3394999999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        0,
                     ],
                     "action": {
-                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "stripe.posthog_test",
                         "name": "stripe.posthog_test",
                     },
@@ -259,7 +306,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "label": "stripe.posthog_test",
                     "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
                     "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
-                    "data": [Decimal("9474.87946"), Decimal("9009.96545"), Decimal("8882.54906"), 0],
+                    "data": [Decimal("9499.3872099999"), Decimal("9034.4731999999"), Decimal("8907.0568099999"), 0],
                     "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
                 }
             ],
@@ -313,20 +360,20 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     0,
                     0,
-                    Decimal("98.4295"),
-                    Decimal("170.9565"),
-                    Decimal("215.3494"),
-                    Decimal("83.16695"),
-                    Decimal("115.9635"),
+                    Decimal("8.2024583333"),
+                    Decimal("179.1589583333"),
+                    Decimal("223.5518583333"),
+                    Decimal("91.3694083333"),
+                    Decimal("124.1659583333"),
                 ],
                 [
                     0,
                     0,
-                    Decimal("195.6635"),
-                    Decimal("547.1405"),
-                    Decimal("72.2879"),
-                    Decimal("79.69203"),
-                    Decimal("19.5265"),
+                    Decimal("16.3052916666"),
+                    Decimal("563.4457916666"),
+                    Decimal("88.5931916666"),
+                    Decimal("95.9973216666"),
+                    Decimal("35.8317916666"),
                 ],
                 [
                     0,
@@ -378,8 +425,24 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 [0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0, Decimal("8332.34808")],
                 [0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0, Decimal("386.90365")],
-                [0, 0, Decimal("98.4295"), 0, Decimal("215.3494"), 0, Decimal("115.9635")],
-                [0, 0, Decimal("195.6635"), 0, Decimal("72.2879"), 0, Decimal("19.5265")],
+                [
+                    0,
+                    0,
+                    Decimal("8.2024583333"),
+                    Decimal("8.2024583333"),
+                    Decimal("223.5518583333"),
+                    Decimal("8.2024583333"),
+                    Decimal("124.1659583333"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("16.3052916666"),
+                    Decimal("16.3052916666"),
+                    Decimal("88.5931916666"),
+                    Decimal("16.3052916666"),
+                    Decimal("35.8317916666"),
+                ],
                 [0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0, Decimal("9.74731")],
                 [0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0, Decimal("0.34271")],
                 [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
@@ -441,7 +504,17 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([result["label"] for result in results], ["stripe.posthog_test"])
         self.assertEqual(
             [result["data"] for result in results],
-            [[0, 0, Decimal("294.093"), 0, Decimal("287.6373"), 0, Decimal("135.49")]],
+            [
+                [
+                    0,
+                    0,
+                    Decimal("24.5077499999"),
+                    Decimal("24.5077499999"),
+                    Decimal("312.1450499999"),
+                    Decimal("24.5077499999"),
+                    Decimal("159.9977499999"),
+                ]
+            ],
         )
 
     def test_with_events_data(self):

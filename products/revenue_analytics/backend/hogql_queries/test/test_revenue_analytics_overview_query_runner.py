@@ -178,10 +178,12 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8864.83175")),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8889.3394999999")
+                ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2954.9439166666")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2963.1131666666")
                 ),
             ],
         )
