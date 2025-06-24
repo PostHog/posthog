@@ -4,10 +4,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 export function AddPrimaryMetric(): JSX.Element {
     const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openPrimaryMetricSourceModal } = useActions(experimentLogic)
+    const { openPrimaryMetricSourceModal } = useActions(modalsLogic)
 
     return (
         <LemonButton
@@ -30,7 +31,7 @@ export function AddPrimaryMetric(): JSX.Element {
 
 export function AddSecondaryMetric(): JSX.Element {
     const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
-    const { openSecondaryMetricSourceModal } = useActions(experimentLogic)
+    const { openSecondaryMetricSourceModal } = useActions(modalsLogic)
     return (
         <LemonButton
             icon={<IconPlus />}
