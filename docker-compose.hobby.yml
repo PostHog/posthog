@@ -291,6 +291,8 @@ services:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
     feature-flags:
+        build:
+            context: ./posthog/rust
         extends:
             file: docker-compose.base.yml
             service: feature-flags
