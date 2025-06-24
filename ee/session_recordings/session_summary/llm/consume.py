@@ -18,6 +18,7 @@ from collections.abc import AsyncGenerator
 
 from ee.session_recordings.session_summary.patterns.output_data import (
     SessionGroupSummaryPatternsList,
+    load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
 )
 from ee.session_recordings.session_summary.summarize_session import PatternsPrompt, SessionSummaryPrompt
@@ -120,9 +121,30 @@ async def get_llm_session_group_patterns_extraction(
     raw_content = _get_raw_content(result, sessions_identifier)
     if not raw_content:
         raise ValueError(
-            f"No content consumed when calling LLM for session group patterns extraction, session_ids {sessions_identifier}"
+            f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
         )
     patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
+    return patterns
+
+
+async def get_llm_session_group_patterns_assignment(
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str]
+) -> SessionGroupSummaryPatternsList:
+    sessions_identifier = ",".join(session_ids)
+    result = await call_llm(
+        input_prompt=prompt.patterns_prompt,
+        user_key=user_id,
+        session_id=sessions_identifier,
+        system_prompt=prompt.system_prompt,
+        model=SESSION_SUMMARIES_SYNC_MODEL,
+        reasoning=True,
+    )
+    raw_content = _get_raw_content(result, sessions_identifier)
+    if not raw_content:
+        raise ValueError(
+            f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
+        )
+    patterns = load_pattern_assignments_from_llm_content(raw_content, sessions_identifier)
     return patterns
 
 
@@ -139,7 +161,7 @@ async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_id: i
     raw_content = _get_raw_content(result, sessions_identifier)
     if not raw_content:
         raise ValueError(
-            f"No content consumed when calling LLM for session group summary, session_ids {sessions_identifier}"
+            f"No content consumed when calling LLM for session group summary, sessions {sessions_identifier}"
         )
     # TODO: Force LLM to return event ids and use them to enrich group summary with metadata
     return raw_content
@@ -170,7 +192,7 @@ async def get_llm_single_session_summary(
         )
         raw_content = _get_raw_content(result, session_id)
         if not raw_content:
-            raise ValueError(f"No content consumed when calling LLM for session summary, session_id {session_id}")
+            raise ValueError(f"No content consumed when calling LLM for session summary, sessions {session_id}")
         session_summary_str = _convert_llm_content_to_session_summary_json_str(
             content=raw_content,
             allowed_event_ids=allowed_event_ids,
