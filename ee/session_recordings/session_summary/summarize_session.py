@@ -44,6 +44,10 @@ class SessionSummaryPrompt:
     summary_prompt: str
     system_prompt: str
 
+@dataclass(frozen=True)
+class PatternsExtractionPrompt:
+    patterns_prompt: str
+    system_prompt: str
 
 @dataclass(frozen=True)
 class SingleSessionSummaryData:

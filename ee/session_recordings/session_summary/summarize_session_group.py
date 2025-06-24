@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from ee.session_recordings.session_summary.output_data import IntermediateSessionSummarySerializer
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SessionSummaryPrompt
+from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, PatternsExtractionPrompt, SessionSummaryPrompt
 from ee.session_recordings.session_summary.utils import load_custom_template
 
 
@@ -43,5 +43,30 @@ def generate_session_group_summary_prompt(
     )
     return SessionSummaryPrompt(
         summary_prompt=summary_prompt,
+        system_prompt=system_prompt,
+    )
+
+
+def generate_session_group_patterns_extraction_prompt(
+    session_summaries: list[str],
+    extra_summary_context: ExtraSummaryContext | None,
+) -> SessionSummaryPrompt:
+    if extra_summary_context is None:
+        extra_summary_context = ExtraSummaryContext()
+    combined_session_summaries = "\n\n".join(session_summaries)
+    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns"
+    system_prompt = load_custom_template(template_dir, "system-prompt.djt")
+    patterns_example = load_custom_template(template_dir, f"example.yml")
+    patterns_prompt = load_custom_template(
+        template_dir,
+        f"prompt.djt",
+        {
+            "SESSION_SUMMARIES": combined_session_summaries,
+            "PATTERNS_EXAMPLE": patterns_example,
+            # TODO: Add focus area to the prompt
+        },
+    )
+    return PatternsExtractionPrompt(
+        patterns_prompt=patterns_prompt,
         system_prompt=system_prompt,
     )
