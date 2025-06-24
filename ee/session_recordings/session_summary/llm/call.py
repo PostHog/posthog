@@ -1,6 +1,10 @@
 from openai import AsyncOpenAI, AsyncStream
 import structlog
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL, SESSION_SUMMARIES_TEMPERATURE
+from ee.hogai.session_summaries.constants import (
+    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_REASONING_EFFORT,
+    SESSION_SUMMARIES_TEMPERATURE,
+)
 from posthog.utils import get_instance_region
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
@@ -41,7 +45,7 @@ async def stream_llm(
     session_id: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    model: str = SESSION_SUMMARIES_MODEL,
+    model: str = SESSION_SUMMARIES_STREAMING_MODEL,
 ) -> AsyncStream[ChatCompletionChunk]:
     """
     LLM streaming call.
@@ -64,9 +68,10 @@ async def call_llm(
     input_prompt: str,
     user_key: int,
     session_id: str,
+    model: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    model: str = SESSION_SUMMARIES_MODEL,
+    reasoning: bool = False,
 ) -> ChatCompletion:
     """
     LLM non-streaming call.
@@ -75,10 +80,18 @@ async def call_llm(
     user_param = _prepare_user_param(user_key)
     # TODO: Add LLM observability tracking here
     client = AsyncOpenAI()
-    result = await client.chat.completions.create(
-        model=model,
-        temperature=SESSION_SUMMARIES_TEMPERATURE,
-        messages=messages,
-        user=user_param,
-    )
+    if not reasoning:
+        result = await client.chat.completions.create(
+            model=model,
+            temperature=SESSION_SUMMARIES_TEMPERATURE,
+            messages=messages,
+            user=user_param,
+        )
+    else:
+        result = await client.chat.completions.create(
+            model=model,
+            reasoning_effort=SESSION_SUMMARIES_REASONING_EFFORT,
+            messages=messages,
+            user=user_param,
+        )
     return result

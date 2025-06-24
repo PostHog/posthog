@@ -4,6 +4,7 @@ import os
 from typing import Any
 import openai
 import structlog
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.session_recordings.session_summary.llm.call import call_llm, stream_llm
 from ee.session_recordings.session_summary.output_data import (
     enrich_raw_session_summary_with_meta,
@@ -109,6 +110,8 @@ async def get_llm_session_group_patterns_extraction(
         user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
+        model=SESSION_SUMMARIES_SYNC_MODEL,
+        reasoning=True,
     )
     raw_content = _get_raw_content(result, sessions_identifier)
     if not raw_content:
@@ -126,6 +129,8 @@ async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_id: i
         user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
+        model=SESSION_SUMMARIES_SYNC_MODEL,
+        reasoning=True,
     )
     raw_content = _get_raw_content(result, sessions_identifier)
     if not raw_content:
@@ -152,7 +157,12 @@ async def get_llm_single_session_summary(
 ) -> str:
     try:
         result = await call_llm(
-            input_prompt=summary_prompt, user_key=user_id, session_id=session_id, system_prompt=system_prompt
+            input_prompt=summary_prompt,
+            user_key=user_id,
+            session_id=session_id,
+            system_prompt=system_prompt,
+            model=SESSION_SUMMARIES_SYNC_MODEL,
+            reasoning=True,
         )
         raw_content = _get_raw_content(result, session_id)
         if not raw_content:
