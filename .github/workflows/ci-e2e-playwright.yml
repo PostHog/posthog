@@ -93,13 +93,13 @@ jobs:
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python 3.11.9
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: 3.11.9
                   cache: 'pip'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@v5.4.1
+              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
@@ -164,7 +164,7 @@ jobs:
                   python manage.py runserver 8080 &> /tmp/server.log &
 
             - name: Wait for PostHog to be ready
-              uses: iFaxity/wait-on-action@v1.2.1
+              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
               with:
                   resource: http://localhost:8080
                   timeout: 180000
@@ -178,13 +178,15 @@ jobs:
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
+              if: always()
               run: cat /tmp/celery.log
             - name: Show server logs
+              if: always()
               run: cat /tmp/server.log
 
             - name: Archive Playwright report on failure
               if: failure()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: playwright-report
                   path: playwright/playwright-report/
@@ -192,7 +194,7 @@ jobs:
 
             - name: Archive screenshots
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: playwright-screenshots
                   path: playwright/test-results
