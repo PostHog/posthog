@@ -169,12 +169,6 @@ jobs:
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
-            - name: Download frontend build artifacts
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
-              with:
-                  name: frontend-build
-
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
