@@ -10,7 +10,7 @@ use metrics_consts::{
     UPDATES_SEEN, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
-use v2_batch_ingestion::process_batch_v2;
+use v2_batch_ingestion::process_batch;
 
 use ahash::AHashSet;
 use sqlx::PgPool;
@@ -100,7 +100,7 @@ pub async fn update_consumer_loop(
         };
 
         // enrich batch group events with resolved group_type_indices
-        // before passing along to process_batch_v2. We can refactor this
+        // before passing along to process_batch. We can refactor this
         // to make it less awkward soon.
         let _unused = context
             .resolve_group_types_indexes(&mut batch)
@@ -112,7 +112,7 @@ pub async fn update_consumer_loop(
                 )
             });
 
-        process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
+        process_batch(&config, cache.clone(), resolved_pool, batch).await;
     }
 }
 
