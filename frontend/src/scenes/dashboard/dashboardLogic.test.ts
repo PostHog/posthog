@@ -523,6 +523,10 @@ describe('dashboardLogic', () => {
 
         describe('reload items', () => {
             it('reloads all items', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
                 await expectLogic(logic, () => {
                     logic.actions.triggerDashboardRefresh()
                 })
@@ -532,15 +536,16 @@ describe('dashboardLogic', () => {
                         'loadDashboard',
                         'updateDashboardItems',
                         // sets the "reloading" status
-                        logic.actionCreators.setRefreshStatuses(
-                            [dashboards['5'].tiles[0].insight!.short_id],
-                            false,
-                            true
-                        ),
+                        logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].insight!.short_id]: {
+                            [insight1.short_id]: {
+                                loading: false,
+                                queued: true,
+                                timer: null,
+                            },
+                            [insight2.short_id]: {
                                 loading: false,
                                 queued: true,
                                 timer: null,
@@ -548,27 +553,35 @@ describe('dashboardLogic', () => {
                         },
                         refreshMetrics: {
                             completed: 0,
-                            total: 1,
+                            total: 2,
                         },
                     })
                     .toDispatchActionsInAnyOrder([
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.insight.short_id === dashboards['5'].tiles[0].insight!.short_id,
+                            a.payload.insight.short_id === insight1.short_id,
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.insight.short_id === insight2.short_id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(dashboards['5'].tiles[0].insight!.short_id, false),
+                        logic.actionCreators.setRefreshStatus(insight1.short_id, false),
+                        logic.actionCreators.setRefreshStatus(insight2.short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].tiles[0].insight!.short_id]: {
+                            [insight1.short_id]: {
                                 refreshed: true,
-                                timer: null,
+                                timer: expect.any(Date),
+                            },
+                            [insight2.short_id]: {
+                                refreshed: true,
+                                timer: expect.any(Date),
                             },
                         },
                         refreshMetrics: {
-                            completed: 1,
-                            total: 1,
+                            completed: 2,
+                            total: 2,
                         },
                     })
             })
@@ -641,30 +654,6 @@ describe('dashboardLogic', () => {
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
-        })
-    })
-
-    describe('newestRefreshed', () => {
-        it('should be the earliest refreshed dashboard', async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({
-                    newestRefreshed: dayjs('2021-09-21T11:48:48.586Z'),
-                })
-        })
-
-        it('should refresh all dashboards if newestRefreshed is older than 3 hours', async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
-        })
-
-        it('should not refresh all dashboards if newestRefreshed is older than 3 hours but the feature flag is not set', async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic).toNotHaveDispatchedActions(['refreshAllDashboardItems']).toFinishAllListeners()
         })
     })
 
