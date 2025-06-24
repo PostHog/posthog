@@ -23,7 +23,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
-import DataGrid from 'react-data-grid'
+import DataGrid, { RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 import { DataGridProps } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -283,6 +283,7 @@ export function OutputPane(): JSX.Element {
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+    const [sortColumns] = useState<{ columnKey: string; direction: 'ASC' | 'DESC' }[]>([])
 
     const setProgress = useCallback((loadId: string, progress: number) => {
         setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
@@ -338,7 +339,26 @@ export function OutputPane(): JSX.Element {
                         </>
                     ),
                     resizable: true,
+                    sortable: true,
                     width: finalWidth,
+                    headerCellClass: 'cursor-pointer font-medium group hover:bg-slate-50',
+                    renderHeaderCell: ({ column: col, sortDirection }: RenderHeaderCellProps<any>) => (
+                        <div className="flex items-center justify-between px-3 py-2">
+                            <span>{col.name}</span>
+                            <div className="flex flex-col items-center opacity-30 group-hover:opacity-70 transition-opacity">
+                                <div
+                                    className={`w-0 h-0 border-l-[3px] border-r-[3px] border-b-[4px] border-l-transparent border-r-transparent ${
+                                        sortDirection === 'ASC' ? 'border-b-gray-800' : 'border-b-gray-400'
+                                    }`}
+                                />
+                                <div
+                                    className={`w-0 h-0 border-l-[3px] border-r-[3px] border-t-[4px] border-l-transparent border-r-transparent mt-0.5 ${
+                                        sortDirection === 'DESC' ? 'border-t-gray-800' : 'border-t-gray-400'
+                                    }`}
+                                />
+                            </div>
+                        </div>
+                    ),
                 }
 
                 // Hack to get bools to render in the data grid
@@ -368,7 +388,8 @@ export function OutputPane(): JSX.Element {
         if (!response?.results) {
             return []
         }
-        return response?.results?.map((row: any[], index: number) => {
+
+        let processedRows = response.results.map((row: any[], index: number) => {
             const rowObject: Record<string, any> = { __index: index }
             response.columns?.forEach((column: string, i: number) => {
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
@@ -380,7 +401,44 @@ export function OutputPane(): JSX.Element {
             })
             return rowObject
         })
-    }, [response])
+
+        // Apply sorting
+        if (sortColumns.length > 0) {
+            processedRows = [...processedRows].sort((a, b) => {
+                for (const sortColumn of sortColumns) {
+                    const { columnKey, direction } = sortColumn
+                    const aVal = a[columnKey]
+                    const bVal = b[columnKey]
+
+                    if (aVal == null && bVal == null) {
+                        continue
+                    }
+                    if (aVal == null) {
+                        return direction === 'ASC' ? 1 : -1
+                    }
+                    if (bVal == null) {
+                        return direction === 'ASC' ? -1 : 1
+                    }
+
+                    let comparison = 0
+                    if (typeof aVal === 'number' && typeof bVal === 'number') {
+                        comparison = aVal - bVal
+                    } else if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
+                        comparison = aVal === bVal ? 0 : aVal ? 1 : -1
+                    } else {
+                        comparison = String(aVal).localeCompare(String(bVal))
+                    }
+
+                    if (comparison !== 0) {
+                        return direction === 'ASC' ? comparison : -comparison
+                    }
+                }
+                return 0
+            })
+        }
+
+        return processedRows
+    }, [response, sortColumns])
 
     const hasColumns = columns.length > 1
 
@@ -678,6 +736,34 @@ const Content = ({
     setProgress,
     progress,
 }: any): JSX.Element | null => {
+    const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+
+    // Sort the rows based on sortColumns
+    const sortedRows = useMemo(() => {
+        if (!sortColumns.length || !rows) {
+            return rows
+        }
+
+        return [...rows].sort((a, b) => {
+            for (const sort of sortColumns) {
+                const { columnKey, direction } = sort
+                const aValue = a[columnKey]
+                const bValue = b[columnKey]
+
+                let comparison = 0
+                if (aValue < bValue) {
+                    comparison = -1
+                } else if (aValue > bValue) {
+                    comparison = 1
+                }
+
+                if (comparison !== 0) {
+                    return direction === 'DESC' ? -comparison : comparison
+                }
+            }
+            return 0
+        })
+    }, [rows, sortColumns])
     if (activeTab === OutputTab.Materialization) {
         return (
             <TabScroller>
@@ -745,7 +831,9 @@ const Content = ({
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
-                    rows={rows}
+                    rows={sortedRows}
+                    sortColumns={sortColumns}
+                    onSortColumnsChange={setSortColumns}
                 />
             </TabScroller>
         )

@@ -4,6 +4,18 @@
     border-right: 0;
 }
 
+.rdg-header-row .rdg-cell:focus,
+.rdg-header-row .rdg-cell:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.rdg-cell:focus,
+.rdg-cell:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
 .rdg-row {
     .hover-actions-cell {
         opacity: 0;
