@@ -171,7 +171,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             }
 
             if (Object.keys(apiFilters).length > 0 || replace) {
-                featureFlagsLogic.actions.setFeatureFlagsFilters({ ...apiFilters, page: 1 }, replace)
+                actions.setFeatureFlagsFilters({ ...apiFilters, page: 1 }, replace)
             }
         },
         loadFeatureFlagsSuccess: () => {
