@@ -221,6 +221,67 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
 export interface TraceTreeNode {
     event: LLMTraceEvent
     children?: TraceTreeNode[]
+    aggregation?: SpanAggregation
+}
+
+export interface SpanAggregation {
+    totalCost: number
+    totalLatency: number
+    inputTokens: number
+    outputTokens: number
+    hasGenerationChildren: boolean
+}
+
+function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
+    const event = node.event
+    let hasGenerationChildren = false
+
+    let totalCost = event.properties.$ai_total_cost_usd || 0
+    let totalLatency = event.properties.$ai_latency || 0
+    let inputTokens = event.properties.$ai_input_tokens || 0
+    let outputTokens = event.properties.$ai_output_tokens || 0
+
+    if (node.children && node.children.length > 0) {
+        for (const child of node.children) {
+            if (child.event.event === '$ai_generation') {
+                hasGenerationChildren = true
+            }
+
+            if (event.properties.$ai_total_cost_usd === undefined) {
+                totalCost += child.event.properties.$ai_total_cost_usd || 0
+            }
+            if (event.properties.$ai_latency === undefined) {
+                totalLatency += child.event.properties.$ai_latency || 0
+            }
+            if (event.properties.$ai_input_tokens === undefined) {
+                inputTokens += child.event.properties.$ai_input_tokens || 0
+            }
+            if (event.properties.$ai_output_tokens === undefined) {
+                outputTokens += child.event.properties.$ai_output_tokens || 0
+            }
+
+            if (child.children) {
+                const childAgg = aggregateSpanMetrics(child)
+                if (event.properties.$ai_total_cost_usd === undefined) {
+                    totalCost += childAgg.totalCost
+                }
+                if (event.properties.$ai_latency === undefined) {
+                    totalLatency += childAgg.totalLatency
+                }
+                if (event.properties.$ai_input_tokens === undefined) {
+                    inputTokens += childAgg.inputTokens
+                }
+                if (event.properties.$ai_output_tokens === undefined) {
+                    outputTokens += childAgg.outputTokens
+                }
+                if (childAgg.hasGenerationChildren) {
+                    hasGenerationChildren = true
+                }
+            }
+        }
+    }
+
+    return { totalCost, totalLatency, inputTokens, outputTokens, hasGenerationChildren }
 }
 
 export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
@@ -228,7 +289,6 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     const idMap = new Map<any, LLMTraceEvent>()
     const visitedNodes = new Set<any>()
 
-    // Map all events with parents to their parent IDs
     for (const event of events) {
         if (FEEDBACK_EVENTS.has(event.event)) {
             continue
@@ -262,15 +322,19 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
 
         visitedNodes.add(spanId)
         const children = childrenMap.get(spanId)
-        const result = {
+        const result: TraceTreeNode = {
             event,
             children: children?.map((child) => traverse(child)).filter((node): node is TraceTreeNode => node !== null),
         }
+
+        if (result.children && result.children.length > 0 && event.event !== '$ai_generation') {
+            result.aggregation = aggregateSpanMetrics(result)
+        }
+
         visitedNodes.delete(spanId)
         return result
     }
 
-    // Get all direct children of the trace ID
     const directChildren = childrenMap.get(traceId) || []
     return directChildren.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
 }
