@@ -63,7 +63,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         exportData.export_context.filename
                     )
                     lemonToast.success('Export complete!')
-                } catch (e) {
+                } catch {
                     lemonToast.error('Export failed!')
                 }
                 return
@@ -104,7 +104,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         action: () => router.actions.push(urls.cohort(cohort.id)),
                     },
                 })
-            } catch (e) {
+            } catch {
                 lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
             }
