@@ -58,7 +58,7 @@ const buildGlobals = (
             let properties = {}
             try {
                 properties = JSON.parse(tuple[3])
-            } catch (e) {
+            } catch {
                 // Ignore
             }
             globals.groups![groupType.group_type] = {

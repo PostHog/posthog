@@ -8,7 +8,7 @@ from typing import Any, Optional
 from unittest.mock import patch
 
 from ee.billing.quota_limiting import QuotaResource
-from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
+from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
 
 
