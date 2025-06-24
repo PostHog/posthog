@@ -22,7 +22,7 @@ from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.graph.root.nodes import search_documentation
+from ee.hogai.tool import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
@@ -1565,3 +1565,74 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantMessage(content="Everything is fine"),
         ]
         self.assertStateMessagesEqual(state.messages, expected_state_messages)
+
+    def test_parse_sse_chunk_valid_chunks(self):
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        chunk = (
+            "event: message\n"
+            'data: {"content": "First message", "type": "ai"}\n\n'
+            "event: status\n"
+            'data: {"type": "completed"}\n\n'
+        )
+        events = assistant._parse_sse_chunk(chunk)
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0][0], "message")
+        self.assertEqual(events[0][1], {"content": "First message", "type": "ai"})
+        self.assertEqual(events[1][0], "status")
+        self.assertEqual(events[1][1], {"type": "completed"})
+
+    def test_parse_sse_chunk_invalid_json(self):
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        chunk = "event: message\ndata: {invalid json}\n\n"
+        events = assistant._parse_sse_chunk(chunk)
+
+        self.assertEqual(len(events), 0)
+
+    def test_parse_sse_chunk_malformed_event(self):
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        chunk = 'event: message\n{"content": "no data prefix"}\n\n'
+        events = assistant._parse_sse_chunk(chunk)
+
+        self.assertEqual(len(events), 0)
+
+    def test_parse_sse_chunk_mixed_valid_invalid(self):
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        chunk = (
+            "event: message\n"
+            'data: {"content": "Valid message", "type": "ai"}\n\n'
+            "event: invalid\n"
+            "data: {invalid json}\n\n"
+            "event: status\n"
+            'data: {"type": "completed"}\n\n'
+        )
+        events = assistant._parse_sse_chunk(chunk)
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0][0], "message")
+        self.assertEqual(events[0][1], {"content": "Valid message", "type": "ai"})
+        self.assertEqual(events[1][0], "status")
+        self.assertEqual(events[1][1], {"type": "completed"})
+
+    @patch.object(Assistant, "_stream")
+    def test_generate_filters_messages(self, mock_stream):
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        mock_stream.return_value = [
+            'event: conversation\ndata: {"id": "123", "status": "active"}\n\n',
+            'event: message\ndata: {"content": "First response", "type": "ai"}\n\n',
+            'event: status\ndata: {"type": "processing"}\n\n',
+            'event: message\ndata: {"content": "Second response", "type": "ai"}\n\n',
+        ]
+
+        messages = assistant.generate()
+
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["type"], "message")
+        self.assertEqual(messages[0]["data"], {"content": "First response", "type": "ai"})
+        self.assertEqual(messages[1]["type"], "message")
+        self.assertEqual(messages[1]["data"], {"content": "Second response", "type": "ai"})

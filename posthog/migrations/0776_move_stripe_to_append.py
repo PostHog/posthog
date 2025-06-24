@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0774_batchimport_display_status_message"),
+        ("posthog", "0775_survey_is_publicly_shareable"),
     ]
 
     operations = [
