@@ -206,7 +206,6 @@ jobs:
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
-                  fetch-depth: 0
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
@@ -233,7 +232,9 @@ jobs:
 
             - name: Build Storybook
               if: needs.changes.outputs.frontend == 'true'
-              run: bin/turbo --filter=@posthog/storybook build
+              run: |
+                  bin/turbo --filter=@posthog/storybook prepare
+                  pnpm --filter=@posthog/storybook build --test
 
             - name: Serve Storybook in the background
               if: needs.changes.outputs.frontend == 'true'
@@ -488,8 +489,8 @@ jobs:
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
             needs.changes.outputs.frontend == 'true' && (
-            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository
-            ) == 'PostHog/posthog'
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Calculate running time
               run: |
