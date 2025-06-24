@@ -113,7 +113,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
               ? ``
               : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
-      defaults: '2025-05-24'
+      defaults: '${SDK_DEFAULTS_DATE}'
     })
   }, [])
 

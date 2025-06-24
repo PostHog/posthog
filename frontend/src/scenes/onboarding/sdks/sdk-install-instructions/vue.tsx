@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { JSInstallSnippet } from './js-web'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SDK_DEFAULTS_DATE } from './constants'
 
 function VueCreateComposableFileSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -14,14 +15,13 @@ function VueCreateComposableFileSnippet(): JSX.Element {
     const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
 
     return (
-        <CodeSnippet language={Language.Bash}>
+        <CodeSnippet language={Language.JavaScript}>
             {`import posthog from 'posthog-js'
 
 export function usePostHog() {
   posthog.init('${currentTeam?.api_token}', {
     api_host: '${apiHostOrigin()}',
-    
-    defaults: '2025-05-24',
+    defaults: '${SDK_DEFAULTS_DATE}',
     ${
         isPersonProfilesDisabled
             ? ``
@@ -81,7 +81,7 @@ export function SDKInstallVueInstructions(): JSX.Element {
             </p>
             <VueCreateComposableFileSnippet />
             <br />
-            Next, in <code>router/index.js</code>, import the <code>usePosthog</code> composable and call it:
+            Next, in <code>router/index.js</code>, import the <code>usePostHog</code> composable and call it:
             <VueComposableCodeSnippet />
         </>
     )

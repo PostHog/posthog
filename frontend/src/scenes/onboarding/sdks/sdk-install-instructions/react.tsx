@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
 import { JSInstallSnippet } from './js-web'
+import { SDK_DEFAULTS_DATE } from './constants'
 
 function ReactEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -32,7 +33,7 @@ import { PostHogProvider } from 'posthog-js/react'
 
 const options = {
   api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-  defaults: '2025-05-24',
+  defaults: '${SDK_DEFAULTS_DATE}',
 }
 
 createRoot(document.getElementById('root')).render(
