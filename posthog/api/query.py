@@ -51,6 +51,8 @@ from posthog.schema import (
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
+    QueryUpgradeRequest,
+    QueryUpgradeResponse,
 )
 from posthog.hogql.constants import LimitContext
 
@@ -242,6 +244,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
+
+    @extend_schema(
+        request=QueryUpgradeRequest,
+        responses={
+            200: QueryUpgradeResponse,
+        },
+        description="Upgrades a query without executing it. Returns a query with all nodes migrated to the lastest version.",
+    )
+    @action(methods=["POST"], detail=False, url_path="upgrade")
+    def upgrade(self, request: Request, *args, **kwargs) -> Response:
+        upgraded_query = upgrade(request.data)
+        return Response({"query": upgraded_query["query"]}, status=200)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

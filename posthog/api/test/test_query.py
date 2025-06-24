@@ -1192,3 +1192,22 @@ class TestQueryDraftSql(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"sql": "SELECT 1"})
         hit_openai_mock.assert_called_once()
+
+
+class TestQueryUpgrade(APIBaseTest):
+    def test_upgrades_valid_query(self):
+        query = {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7, "showMean": True}}
+
+        response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "query": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
+                    "version": 2,
+                }
+            },
+        )

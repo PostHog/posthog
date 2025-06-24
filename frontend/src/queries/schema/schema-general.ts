@@ -1439,6 +1439,14 @@ export interface QueryRequest {
     variables_override?: Record<string, Record<string, any>>
 }
 
+export interface QueryUpgradeRequest {
+    query: QuerySchema
+}
+
+export interface QueryUpgradeResponse {
+    query: QuerySchema
+}
+
 /**
  * All analytics query responses must inherit from this.
  * @internal - no need to emit to schema.json.
