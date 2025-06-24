@@ -184,4 +184,6 @@ class NavigateTool(MaxTool):
     args_schema: type[BaseModel] = NavigateToolArgs
 
     def _run_impl(self, page_key: PageKeyLiterals) -> tuple[str, Any]:
-        return f"Navigated to `{page_key}`.", {"page_key": page_key}
+        # Note that page_key should get replaced by a nicer breadcrumbs-based name in the frontend
+        # but it's useful for the LLM to still have the page_key in chat history
+        return f"Navigated to **{page_key}**.", {"page_key": page_key}
