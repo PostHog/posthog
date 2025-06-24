@@ -280,7 +280,6 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_EVENT_SORTING: 'taxonomic-event-sorting', // owner: @pauldambra #team-replay
     SQL_EDITOR_TREE_VIEW: 'sql-editor-tree-view', // owner: @EDsCODE #team-data-warehouse
     AI_HOG_FUNCTION_CREATION: 'ai-hog-function-creation', // owner: @meikel #team-cdp
-    REPLAY_FILTERS_IN_PLAYLIST: 'replay-filters-in-playlist', // owner: @veryayskiy #team-replay
     REPLAY_FILTERS_IN_PLAYLIST_MAX_AI: 'replay-filters-in-playlist-max-ai', // owner: @veryayskiy #team-replay
     ANNOTATIONS_RECORDING_SCOPE: 'annotations-recording-scope', // owner: @pauldambra #team-replay,
     EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN: 'experiments-new-runner-results-breakdown', // owner: @rodrigoi #team-experiments
