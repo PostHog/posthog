@@ -57,6 +57,7 @@ def mock_call_llm(mock_valid_llm_yaml_response: str) -> Callable:
 @pytest.mark.asyncio
 async def test_get_llm_single_session_summary_activity_standalone(
     mocker: MockerFixture,
+    mock_session_id: str,
     mock_enriched_llm_json_response: dict[str, Any],
     mock_single_session_summary_llm_inputs: Callable,
     mock_single_session_summary_inputs: Callable,
@@ -64,10 +65,9 @@ async def test_get_llm_single_session_summary_activity_standalone(
     redis_test_setup: RedisTestContext,
 ):
     # Prepare input data
-    session_id = "test_single_session_id"
-    llm_input = mock_single_session_summary_llm_inputs(session_id)
+    llm_input = mock_single_session_summary_llm_inputs(mock_session_id)
     compressed_llm_input_data = compress_llm_input_data(llm_input)
-    input_data = mock_single_session_summary_inputs(session_id)
+    input_data = mock_single_session_summary_inputs(mock_session_id)
     # Set up spies to track Redis operations
     spy_get = mocker.spy(redis_test_setup.redis_client, "get")
     spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
@@ -204,13 +204,14 @@ class TestSummarizeSessionGroupWorkflow:
 
     def setup_workflow_test(
         self,
+        mock_session_id: str,
         mock_session_group_summary_inputs: Callable,
         identifier_suffix: str,
     ) -> tuple[list[str], str, SessionGroupSummaryInputs, str]:
         # Prepare test data
         session_ids = [
-            f"test_workflow_session_id_{identifier_suffix}_1",
-            f"test_workflow_session_id_{identifier_suffix}_2",
+            f"{mock_session_id}-1-{identifier_suffix}",
+            f"{mock_session_id}-2-{identifier_suffix}",
         ]
         redis_input_key_base = f"test_group_fetch_{identifier_suffix}_base"
         workflow_input = mock_session_group_summary_inputs(session_ids, redis_input_key_base)
@@ -220,12 +221,15 @@ class TestSummarizeSessionGroupWorkflow:
 
     def test_execute_summarize_session_group(
         self,
+        mock_session_id: str,
         mock_user: MagicMock,
         mock_team: MagicMock,
         mock_session_group_summary_inputs: Callable,
     ):
         """Test the execute_summarize_session_group starts a Temporal workflow and returns the expected result"""
-        session_ids, _, _, expected_summary = self.setup_workflow_test(mock_session_group_summary_inputs, "execute")
+        session_ids, _, _, expected_summary = self.setup_workflow_test(
+            mock_session_id, mock_session_group_summary_inputs, "execute"
+        )
         with patch(
             "posthog.temporal.ai.session_summary.summarize_session_group._execute_workflow",
             new=AsyncMock(return_value=expected_summary),
@@ -238,6 +242,7 @@ class TestSummarizeSessionGroupWorkflow:
     async def test_summarize_session_group_workflow(
         self,
         mocker: MockerFixture,
+        mock_session_id: str,
         mock_team: MagicMock,
         mock_call_llm: Callable,
         mock_raw_metadata: dict[str, Any],
@@ -249,7 +254,7 @@ class TestSummarizeSessionGroupWorkflow:
     ):
         """Test that the workflow completes successfully and returns the expected result"""
         session_ids, workflow_id, workflow_input, expected_summary = self.setup_workflow_test(
-            mock_session_group_summary_inputs, "success"
+            mock_session_id, mock_session_group_summary_inputs, "success"
         )
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")

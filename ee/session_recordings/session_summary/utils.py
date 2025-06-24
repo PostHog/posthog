@@ -109,8 +109,6 @@ def generate_full_event_id(session_id: str, event_uuid: str) -> str:
     """Generate a full event ID from a session ID and an event UUID to be able to track events across sessions"""
     if not event_uuid:
         raise ValueError(f"UUID is not present when generating event_id for session_id {session_id}")
-    if not isinstance(event_uuid, str):
-        raise ValueError(f"UUID is not a string when generating event_id for session_id {session_id}: {event_uuid}")
     full_event_id = f"{session_id}_{event_uuid}"
     return full_event_id
 
