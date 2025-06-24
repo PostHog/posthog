@@ -99,6 +99,7 @@ pub fn extract_compression(
         match ct.to_str().unwrap_or("UNKNOWN") {
             "gzip" | "gzip-js" => Compression::Gzip,
             "lz64" | "lz-string" => Compression::LZString,
+            "base64" | "b64" => Compression::Base64,
             _ => Compression::Unsupported,
         }
     } else {

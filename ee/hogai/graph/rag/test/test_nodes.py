@@ -48,7 +48,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     def test_prewarm_queries(self, mock_team_taxonomy_query_runner, cohere_mock, embed_mock):
         # Arrange
         team = MagicMock()
-        retriever = InsightRagContextNode(team=team)
+        retriever = InsightRagContextNode(team=team, user=self.user)
 
         mock_runner_instance = MagicMock()
         mock_team_taxonomy_query_runner.return_value = mock_runner_instance
@@ -67,7 +67,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         mock_runner_instance.run.assert_called_once_with(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
 
     def test_injects_action(self, cohere_mock, embed_mock):
-        retriever = InsightRagContextNode(team=self.team)
+        retriever = InsightRagContextNode(team=self.team, user=self.user)
         response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
         self.assertIn("Action", response.rag_context)
         self.assertIn("Description", response.rag_context)

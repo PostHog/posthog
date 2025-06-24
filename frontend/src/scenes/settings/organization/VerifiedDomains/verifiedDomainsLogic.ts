@@ -25,7 +25,7 @@ export const isSecureURL = (url: string): boolean => {
     try {
         const parsed = new URL(url)
         return parsed.protocol === 'https:'
-    } catch (_) {
+    } catch {
         return false
     }
 }
@@ -88,7 +88,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
                 deleteVerifiedDomain: async (id: string) => {
                     await api.delete(`api/organizations/${values.currentOrganization?.id}/domains/${id}`)
-                    return [...values.verifiedDomains.filter((domain) => domain.id !== id)]
+                    return values.verifiedDomains.filter((domain) => domain.id !== id)
                 },
             },
         ],

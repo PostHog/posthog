@@ -128,7 +128,7 @@ pub fn session_recording_config_response(
 }
 
 fn session_recording_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
-    matches!(&team.recording_domains, Some(domains) if !on_permitted_recording_domain(domains, headers))
+    matches!(&team.recording_domains, Some(domains) if !domains.is_empty() && !on_permitted_recording_domain(domains, headers))
 }
 
 fn hostname_in_allowed_url_list(allowed: &Vec<String>, hostname: Option<&str>) -> bool {
@@ -200,5 +200,20 @@ mod tests {
         let result = get_linked_flag_value(Some(config));
 
         assert_eq!(result, Some(Value::String("record_sessions".to_string())));
+    }
+
+    #[test]
+    fn test_session_recording_domain_allowed_with_empty_domains() {
+        use axum::http::HeaderMap;
+
+        let team = Team {
+            recording_domains: Some(vec![]),
+            ..Team::default()
+        };
+
+        let headers = HeaderMap::new();
+
+        // Empty domains list should allow recording (return false)
+        assert!(!session_recording_domain_not_allowed(&team, &headers));
     }
 }

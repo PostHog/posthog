@@ -332,12 +332,7 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType =
-    | 'destination'
-    | 'transformation'
-    | 'internal_destination'
-    | 'source_webhook'
-    | 'broadcast'
+export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]

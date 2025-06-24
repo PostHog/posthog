@@ -16,10 +16,10 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const {
         experiment,
         getInsightType,
-        metricResults,
-        secondaryMetricResultsNew,
-        secondaryMetricsResultErrors,
-        primaryMetricsResultErrors,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+        secondaryMetricsResultsErrors,
+        primaryMetricsResultsErrors,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
@@ -28,8 +28,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return <></>
     }
 
-    const results = isSecondary ? secondaryMetricResultsNew : metricResults
-    const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
+    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
+    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const sharedMetrics = experiment.saved_metrics
