@@ -9,9 +9,11 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
 from ee.session_recordings.session_summary.llm.consume import (
+    get_llm_session_group_patterns_extraction,
     get_llm_session_group_summary,
     get_llm_single_session_summary,
 )
+from ee.session_recordings.session_summary.patterns.output_data import SessionGroupSummaryPatternsList
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
 from ee.session_recordings.session_summary.summarize_session_group import (
     generate_session_group_patterns_extraction_prompt,
@@ -92,6 +94,8 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
         remove_excessive_content_from_session_summary_for_llm(session_summary_str)
         for session_summary_str in inputs.session_summaries
     ]
+
+    # TODO: Rework as separate activities
     patterns_prompt = generate_session_group_patterns_extraction_prompt(
         session_summaries=session_summaries, extra_summary_context=inputs.extra_summary_context
     )
@@ -99,14 +103,24 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     patterns_extraction = await get_llm_session_group_patterns_extraction(
         prompt=patterns_prompt, user_id=inputs.user_id, session_ids=inputs.session_ids
     )
-    summary_prompt = generate_session_group_summary_prompt(
-        session_summaries=session_summaries, extra_summary_context=inputs.extra_summary_context
-    )
-    # Get summary from LLM
-    summary_of_summaries = await get_llm_session_group_summary(
-        prompt=prompt, user_id=inputs.user_id, session_ids=inputs.session_ids
-    )
-    return summary_of_summaries
+
+    # Split sessions summaries into chunks of 10 sessions each
+    # TODO: Define in constants after testing optimal chunk size quality-wise
+    session_summaries_chunks = [session_summaries[i : i + 10] for i in range(0, len(session_summaries), 10)]
+
+    # TODO: Remove after testing
+    with open("patterns_extraction.yaml", "w") as f:
+        f.write(patterns_extraction)
+
+    # TODO: Enable after testing
+    # summary_prompt = generate_session_group_summary_prompt(
+    #     session_summaries=session_summaries, extra_summary_context=inputs.extra_summary_context
+    # )
+    # # Get summary from LLM
+    # summary_of_summaries = await get_llm_session_group_summary(
+    #     prompt=summary_prompt, user_id=inputs.user_id, session_ids=inputs.session_ids
+    # )
+    # return summary_of_summaries
 
 
 @temporalio.workflow.defn(name="summarize-session-group")
