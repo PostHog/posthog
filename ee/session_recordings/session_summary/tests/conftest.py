@@ -305,6 +305,146 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
 
 
 @pytest.fixture
+def mock_intermediate_llm_json_response() -> dict[str, Any]:
+    """
+    Intermediate LLM response, with excessive content (like UUIDs) removed, if single summary
+    is not a final step, but a context for the next one (like group summaries)
+    """
+    return {
+        "segments": [
+            {
+                "index": 0,
+                "name": "Example Segment",
+                "start_event_id": "abcd1234",
+                "end_event_id": "vbgs1287",
+                "meta": {
+                    "duration": 5,
+                    "duration_percentage": 0.0009,
+                    "events_count": 3,
+                    "events_percentage": 0.4286,
+                    "key_action_count": 2,
+                    "failure_count": 0,
+                    "abandonment_count": 0,
+                    "confusion_count": 0,
+                    "exception_count": 0,
+                },
+            },
+            {
+                "index": 1,
+                "name": "Another Example Segment",
+                "start_event_id": "gfgz6242",
+                "end_event_id": "stuv9012",
+                "meta": {
+                    "duration": 17,
+                    "duration_percentage": 0.0032,
+                    "events_count": 4,
+                    "events_percentage": 0.5714,
+                    "key_action_count": 3,
+                    "failure_count": 2,
+                    "abandonment_count": 1,
+                    "confusion_count": 1,
+                    "exception_count": 1,
+                },
+            },
+        ],
+        "key_actions": [
+            {
+                "segment_index": 0,
+                "events": [
+                    {
+                        "description": "First significant action in this segment",
+                        "abandonment": False,
+                        "confusion": False,
+                        "exception": None,
+                        "event_id": "abcd1234",
+                        "timestamp": "2025-03-31T18:40:39.302000+00:00",
+                        "milliseconds_since_start": 7000,
+                        "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "current_url": "http://localhost:8010/login",
+                        "event": "$autocapture",
+                        "event_type": "click",
+                        "event_index": 0,
+                    },
+                    {
+                        "description": "Second action in this segment",
+                        "abandonment": False,
+                        "confusion": False,
+                        "exception": None,
+                        "event_id": "defg4567",
+                        "timestamp": "2025-03-31T18:40:43.645000+00:00",
+                        "milliseconds_since_start": 11343,
+                        "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "current_url": "http://localhost:8010/login",
+                        "event": "$autocapture",
+                        "event_type": "submit",
+                        "event_index": 1,
+                    },
+                ],
+            },
+            {
+                "segment_index": 1,
+                "events": [
+                    {
+                        "description": "Significant action in this segment",
+                        "abandonment": False,
+                        "confusion": False,
+                        "exception": None,
+                        "event_id": "ghij7890",
+                        "timestamp": "2025-03-31T18:41:05.459000+00:00",
+                        "milliseconds_since_start": 33157,
+                        "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "current_url": "http://localhost:8010/signup",
+                        "event": "$autocapture",
+                        "event_type": "click",
+                        "event_index": 4,
+                    },
+                    {
+                        "description": "User attempted to perform an action but encountered an error",
+                        "abandonment": False,
+                        "confusion": True,
+                        "exception": "blocking",
+                        "event_id": "mnop3456",
+                        "timestamp": "2025-03-31T18:41:10.123000+00:00",
+                        "milliseconds_since_start": 37821,
+                        "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "current_url": "http://localhost:8010/signup/error",
+                        "event": "$autocapture",
+                        "event_type": "submit",
+                        "event_index": 5,
+                    },
+                    {
+                        "description": "Final action in this chronological segment",
+                        "abandonment": True,
+                        "confusion": False,
+                        "exception": None,
+                        "event_id": "stuv9012",
+                        "timestamp": "2025-03-31T18:41:15.789000+00:00",
+                        "milliseconds_since_start": 43487,
+                        "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "current_url": "http://localhost:8010/signup/error",
+                        "event": "$autocapture",
+                        "event_type": "click",
+                        "event_index": 6,
+                    },
+                ],
+            },
+        ],
+        "segment_outcomes": [
+            {"segment_index": 0, "summary": "Detailed description incorporating key action insights", "success": True},
+            {
+                "segment_index": 1,
+                "summary": "Description highlighting encountered failures and their impact",
+                "success": False,
+            },
+        ],
+        "session_outcome": {
+            "description": "Concise session outcome description focusing on conversion attempts, feature usage, and critical issues",
+            "success": True,
+        },
+    }
+
+
+@pytest.fixture
 def mock_chat_completion(mock_valid_llm_yaml_response: str) -> ChatCompletion:
     return ChatCompletion(
         id="test_id",

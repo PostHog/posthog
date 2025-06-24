@@ -13,7 +13,10 @@ from ee.session_recordings.session_summary.llm.consume import (
     get_llm_single_session_summary,
 )
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
-from ee.session_recordings.session_summary.summarize_session_group import generate_session_group_summary_prompt
+from ee.session_recordings.session_summary.summarize_session_group import (
+    generate_session_group_summary_prompt,
+    remove_excessive_content_from_session_summary_for_llm,
+)
 from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
@@ -83,7 +86,12 @@ async def get_llm_single_session_summary_activity(inputs: SingleSessionSummaryIn
 @temporalio.activity.defn
 async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
     """Summarize a group of sessions in one call"""
-    prompt = generate_session_group_summary_prompt(inputs.session_summaries, inputs.extra_summary_context)
+    # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
+    session_summaries = [
+        remove_excessive_content_from_session_summary_for_llm(session_summary_str)
+        for session_summary_str in inputs.session_summaries
+    ]
+    prompt = generate_session_group_summary_prompt(session_summaries, inputs.extra_summary_context)
     # Get summary from LLM
     summary_of_summaries = await get_llm_session_group_summary(
         prompt=prompt, user_id=inputs.user_id, session_ids=inputs.session_ids

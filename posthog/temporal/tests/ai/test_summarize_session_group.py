@@ -92,14 +92,15 @@ async def test_get_llm_single_session_summary_activity_standalone(
 
 @pytest.mark.asyncio
 async def test_get_llm_session_group_summary_activity_standalone(
+    mock_session_id: str,
     mock_user: MagicMock,
-    mock_enriched_llm_json_response: dict[str, Any],
+    mock_intermediate_llm_json_response: dict[str, Any],
     mock_call_llm: Callable,
     mocker: MockerFixture,
 ):
     # Prepare input data
-    session_ids = ["test_single_session_id_1", "test_single_session_id_2"]
-    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    enriched_summary_str = json.dumps(mock_intermediate_llm_json_response)
     session_summaries = [enriched_summary_str, enriched_summary_str]
     activity_input = SessionGroupSummaryOfSummariesInputs(
         session_ids=session_ids,
@@ -118,6 +119,45 @@ async def test_get_llm_session_group_summary_activity_standalone(
         result = await get_llm_session_group_summary_activity(activity_input)
         assert result == expected_summary_of_summaries
         spy_generate_prompt.assert_called_once_with(session_summaries, None)
+
+
+@pytest.mark.asyncio
+async def test_get_llm_session_group_summary_activity_standalone_removes_excessive_content(
+    mock_session_id: str,
+    mock_user: MagicMock,
+    mock_enriched_llm_json_response: dict[str, Any],
+    mock_intermediate_llm_json_response: dict[str, Any],
+    mock_call_llm: Callable,
+    mocker: MockerFixture,
+):
+    """Test that excessive content is removed from session summaries before generating group summary"""
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
+    session_summaries = [enriched_summary_str, enriched_summary_str]
+    activity_input = SessionGroupSummaryOfSummariesInputs(
+        session_ids=session_ids,
+        session_summaries=session_summaries,
+        user_id=mock_user.id,
+    )
+    expected_summary_of_summaries = "everything is good"
+    # Spy on the excessive content removal function and prompt generator
+    summary_module = importlib.import_module("posthog.temporal.ai.session_summary.summarize_session_group")
+    spy_remove_excessive_content = mocker.spy(summary_module, "remove_excessive_content_from_session_summary_for_llm")
+    spy_generate_prompt = mocker.spy(summary_module, "generate_session_group_summary_prompt")
+    # Execute the activity and verify results
+    with patch(
+        "ee.session_recordings.session_summary.llm.consume.call_llm",
+        new=AsyncMock(return_value=mock_call_llm(custom_content=expected_summary_of_summaries)),
+    ):
+        result = await get_llm_session_group_summary_activity(activity_input)
+        assert result == expected_summary_of_summaries
+        # Verify that excessive content removal was called for each session summary
+        assert spy_remove_excessive_content.call_count == len(session_summaries)
+        spy_remove_excessive_content.assert_any_call(enriched_summary_str)
+        # Verify that the prompt generator was called with the cleaned summaries (intermediate format)
+        expected_intermediate_summary_str = json.dumps(mock_intermediate_llm_json_response)
+        expected_cleaned_summaries = [expected_intermediate_summary_str, expected_intermediate_summary_str]
+        spy_generate_prompt.assert_called_once_with(expected_cleaned_summaries, None)
 
 
 class TestSummarizeSessionGroupWorkflow:

@@ -150,7 +150,7 @@ class IntermediateSessionSummarySerializer(RawSessionSummarySerializer):
         child=EnrichedSegmentSerializer(), required=False, allow_empty=True, allow_null=True
     )
     key_actions = serializers.ListField(
-        child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
+        child=IntermediateSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
 
 
