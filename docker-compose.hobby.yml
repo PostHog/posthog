@@ -292,6 +292,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: feature-flags
+        depends_on:
+            - db
+            - redis
 
 volumes:
     zookeeper-data:
