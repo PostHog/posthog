@@ -183,8 +183,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
-        for arro3_field in delta_schema.to_arrow():
-            field = pa.field(arro3_field)
+        for field in delta_schema.to_pyarrow():
             if field.name not in py_table_field_names:
                 if field.nullable:
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
@@ -360,6 +359,11 @@ def append_partition_key_to_table(
                     date = datetime.datetime.fromtimestamp(date)
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
+                    partition_array.append(date.strftime(date_format))
+                elif isinstance(date, datetime.date):
+                    partition_array.append(date.strftime(date_format))
+                elif isinstance(date, str):
+                    date = parser.parse(date)
                     partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")

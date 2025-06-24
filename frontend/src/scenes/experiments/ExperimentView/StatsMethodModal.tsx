@@ -6,11 +6,13 @@ import { useActions, useValues } from 'kea'
 import { ExperimentStatsMethod } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 
 export function StatsMethodModal(): JSX.Element {
-    const { experiment, isStatsEngineModalOpen, statsMethod } = useValues(experimentLogic)
-    const { updateExperiment, closeStatsEngineModal, setExperiment, restoreUnmodifiedExperiment } =
-        useActions(experimentLogic)
+    const { experiment, statsMethod } = useValues(experimentLogic)
+    const { updateExperiment, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { closeStatsEngineModal } = useActions(modalsLogic)
+    const { isStatsEngineModalOpen } = useValues(modalsLogic)
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()

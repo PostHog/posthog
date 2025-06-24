@@ -813,7 +813,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: ({ settings }) => {
             actions.setQuery({
                 ...props.query,
-                chartSettings: { ...(props.query.chartSettings ?? {}), ...settings },
+                chartSettings: { ...props.query.chartSettings, ...settings },
             })
         },
         setQuery: ({ node }) => {
@@ -926,7 +926,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 chartSettings: {
-                    ...(props.query.chartSettings ?? {}),
+                    ...props.query.chartSettings,
                     yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                     xAxis: xColumn,
                 },
@@ -944,7 +944,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 chartSettings: {
-                    ...(props.query.chartSettings ?? {}),
+                    ...props.query.chartSettings,
                     yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                     xAxis: xColumn,
                 },
@@ -960,7 +960,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 tableSettings: {
-                    ...(props.query.tableSettings ?? {}),
+                    ...props.query.tableSettings,
                     columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
                 },
             })
@@ -971,7 +971,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 tableSettings: {
-                    ...(props.query.tableSettings ?? {}),
+                    ...props.query.tableSettings,
                     conditionalFormatting: saveableRules,
                 },
             })

@@ -31,6 +31,7 @@ describe('HogFlowActionRunner', () => {
                     trigger: {
                         type: 'trigger',
                         config: {
+                            type: 'event',
                             filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
                         },
                     },
@@ -71,8 +72,7 @@ describe('HogFlowActionRunner', () => {
                             type: 'wait_until_condition',
                             config: {
                                 condition: {
-                                    filter: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // no match
-                                    on_match: 'next-action',
+                                    filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // no match
                                 },
                                 max_wait_duration: '10m',
                             },
@@ -101,10 +101,10 @@ describe('HogFlowActionRunner', () => {
                             config: {
                                 conditions: [
                                     {
-                                        filter: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
+                                        filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
                                     },
                                     {
-                                        filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                                        filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
                                     },
                                 ],
                             },
