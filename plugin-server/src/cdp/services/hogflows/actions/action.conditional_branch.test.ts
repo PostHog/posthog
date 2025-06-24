@@ -28,8 +28,7 @@ describe('HogFlowActionRunnerCondition', () => {
                         config: {
                             conditions: [
                                 {
-                                    filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // Match for pageviews
-                                    on_match: 'condition_1',
+                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // Match for pageviews
                                 },
                             ], // Filled by tests
                         },
@@ -131,10 +130,10 @@ describe('HogFlowActionRunnerCondition', () => {
         it('should ignore conditions that do not match', () => {
             action.config.conditions = [
                 {
-                    filter: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // No match
+                    filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // No match
                 },
                 {
-                    filter: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // No match
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // No match
                 },
             ]
 

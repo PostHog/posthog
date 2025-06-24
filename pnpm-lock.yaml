@@ -2035,6 +2035,9 @@ importers:
       kea-router:
         specifier: '*'
         version: 3.2.1(kea@3.1.5(react@18.2.0))
+      kea-subscriptions:
+        specifier: '*'
+        version: 3.0.1(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
