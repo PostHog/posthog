@@ -8,15 +8,25 @@ import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
+    FunnelsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, Experiment, ExperimentMetricMathType } from '~/types'
+import { AnyPropertyFilter, Experiment, ExperimentMetricMathType, FunnelVizType } from '~/types'
 
 import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
 import { getFunnelQuery, getSumQuery, getTotalCountQuery } from './metricQueryUtils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
+
+import {
+    addExposureToMetric,
+    compose,
+    getDefaultDateRange,
+    getEventNode,
+    getQuery,
+} from '~/scenes/experiments/metricQueryUtils'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
 export const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
@@ -125,6 +135,43 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                           metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
                         : getFunnelQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
+
+                console.log('values.exposureEstimateConfig?.eventFilter', values.exposureEstimateConfig?.eventFilter)
+                console.log('query', query)
+
+                const eventFilter = values.exposureEstimateConfig?.eventFilter ?? {
+                    event: '$pageview',
+                    name: '$pageview',
+                    properties: [],
+                    entityType: TaxonomicFilterGroupType.Events,
+                }
+
+                // const queryBuilder = compose<
+                //     ExperimentMetric,
+                //     ExperimentMetric,
+                //     FunnelsQuery | TrendsQuery | undefined
+                // >(
+                //     getQuery({
+                //         filterTestAccounts: !!values.experiment.exposure_criteria?.filterTestAccounts,
+                //         dateRange: getDefaultDateRange(),
+                //         funnelsFilter: {
+                //             funnelVizType: FunnelVizType.Steps,
+                //         },
+                //     })
+                // )
+
+                const queryBuilder = getQuery({
+                    filterTestAccounts: !!values.experiment.exposure_criteria?.filterTestAccounts,
+                    dateRange: getDefaultDateRange(),
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.Steps,
+                    },
+                })
+
+                const newQuery = queryBuilder(metric)
+
+                console.log('eventFilter', eventFilter, getEventNode(eventFilter))
+                console.log('newQuery', newQuery)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
