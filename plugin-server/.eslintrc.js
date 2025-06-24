@@ -6,7 +6,7 @@ module.exports = {
         tsconfigRootDir: __dirname,
         project: ['./tsconfig.eslint.json'],
     },
-    plugins: ['@typescript-eslint', 'simple-import-sort', 'no-only-tests', 'posthog'],
+    plugins: ['@typescript-eslint', 'simple-import-sort', 'no-only-tests'],
     extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
     ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
     rules: {
@@ -43,7 +43,6 @@ module.exports = {
         '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
         curly: 'error',
         'no-fallthrough': 'warn',
-        'posthog/no-spread-in-reduce': 'error',
     },
     overrides: [
         {

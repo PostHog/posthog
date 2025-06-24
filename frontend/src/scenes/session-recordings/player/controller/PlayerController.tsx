@@ -10,6 +10,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
+import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -90,6 +91,7 @@ function AnnotateRecording(): JSX.Element {
 
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
+    const { isZenMode } = useValues(playerSettingsLogic)
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -107,10 +109,14 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                        <AnnotateRecording />
-                    </FlaggedFeature>
-                    {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                    {!isZenMode && (
+                        <>
+                            <FlaggedFeature flag="annotations-recording-scope" match={true}>
+                                <AnnotateRecording />
+                            </FlaggedFeature>
+                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                        </>
+                    )}
                     <FullScreen />
                 </div>
             </div>

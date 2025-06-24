@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil import parser
 
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, QueryTags, update_tags
 from posthog.constants import (
     INSIGHT_LIFECYCLE,
     NON_BREAKDOWN_DISPLAY_TYPES,
@@ -167,11 +167,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         query_type,
         sql,
         params,
-        query_tags: dict,
+        query_tags: QueryTags,
         filter: Filter,
         team_id: int,
     ):
-        tag_queries(**query_tags)
+        update_tags(query_tags)
         with posthoganalytics.new_context():
             posthoganalytics.tag("query", {"sql": sql, "params": params})
             result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
@@ -197,7 +197,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                     query_type,
                     sql,
                     query_params,
-                    get_query_tags(),
+                    get_query_tags().model_copy(deep=True),
                     adjusted_filter,
                     team.pk,
                 ),

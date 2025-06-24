@@ -405,10 +405,7 @@ export function getVariantCalculationResult(
 /**
  * Generate significance details text based on experiment results
  */
-export function getSignificanceDetails(
-    metricResult: LegacyExperimentMetricResult,
-    experimentStatsVersion: number
-): string {
+export function getSignificanceDetails(metricResult: LegacyExperimentMetricResult): string {
     if (!metricResult) {
         return ''
     }
@@ -426,10 +423,7 @@ export function getSignificanceDetails(
     }
 
     if (metricResult.significance_code === ExperimentSignificanceCode.LowWinProbability) {
-        if (experimentStatsVersion === 2) {
-            return 'This is because no variant (control or test) has a win probability higher than 90%.'
-        }
-        return 'This is because the win probability of all test variants combined is less than 90%.'
+        return 'This is because no variant (control or test) has a win probability higher than 90%.'
     }
 
     if (metricResult.significance_code === ExperimentSignificanceCode.NotEnoughExposure) {

@@ -1,5 +1,4 @@
 name: 'Storybook Deployment'
-
 on:
     push:
         branches:
@@ -61,3 +60,15 @@ jobs:
                   commit_user_name: PostHog Bot
                   commit_user_email: hey@posthog.com
                   commit_author: PostHog Bot <hey@posthog.com>
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always()
+        needs: [storybook-deployment] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

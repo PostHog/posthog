@@ -9,6 +9,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat import Heartbeater
 from asgiref.sync import sync_to_async
+from django.db import close_old_connections
 
 
 logger = structlog.get_logger()
@@ -35,6 +36,7 @@ async def run_quota_limiting_all_orgs(
 
             @sync_to_async
             def async_update_all_orgs_billing_quotas():
+                close_old_connections()
                 update_all_orgs_billing_quotas()
 
             await async_update_all_orgs_billing_quotas()
@@ -42,7 +44,8 @@ async def run_quota_limiting_all_orgs(
             pass
         except Exception as e:
             capture_exception(e)
-            raise
+            # Raise exception without large context to avoid "Failure exceeds size limit"
+            raise Exception(f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...")
 
 
 @workflow.defn(name="run-quota-limiting")
@@ -59,7 +62,7 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 run_quota_limiting_all_orgs,
                 RunQuotaLimitingAllOrgsInputs(),
-                start_to_close_timeout=timedelta(minutes=30),
+                start_to_close_timeout=timedelta(minutes=25),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),

@@ -10,7 +10,7 @@ inputs:
         description: Whether to save the image in the Depot ephemeral registry after building it
     push-image:
         required: false
-        default: false
+        default: 'false'
         description: Whether to push the built image - requires aws-access-key and aws-access-secret
     aws-access-key:
         required: false

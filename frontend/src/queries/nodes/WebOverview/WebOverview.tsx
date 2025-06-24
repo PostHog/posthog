@@ -32,6 +32,7 @@ const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
+
 export function WebOverview(props: {
     query: WebOverviewQuery
     cachedResults?: AnyResponseType
@@ -57,7 +58,10 @@ export function WebOverview(props: {
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const usedWebAnalyticsPreAggregatedTables =
-        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables
+        canUseWebAnalyticsPreAggregatedTables &&
+        response &&
+        'usedPreAggregatedTables' in response &&
+        response.usedPreAggregatedTables
 
     return (
         <>
@@ -172,7 +176,8 @@ const WebOverviewItemCell = ({
                 {trend && isNotNil(item.changeFromPreviousPct) ? (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ color: trend.color }}>
-                        <trend.Icon color={trend.color} /> {formatPercentage(item.changeFromPreviousPct)}
+                        <trend.Icon color={trend.color} />
+                        {formatPercentage(item.changeFromPreviousPct)}
                     </div>
                 ) : (
                     <div />

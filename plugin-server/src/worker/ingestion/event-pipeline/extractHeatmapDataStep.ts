@@ -4,7 +4,7 @@ import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
-import { isDistinctIdIllegal } from '../persons/person-state'
+import { isDistinctIdIllegal } from '../persons/person-merge-service'
 import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 

@@ -57,10 +57,6 @@ fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
     })
 }
 
-// TODO(eli): idea for v2 batch writes: add an isolated tokio runtime to
-// the AppContext just for batch writes that are *always* IO bound, leaving
-// the update loop workers without interference. We could tune the v2 write
-// runtime's worker_count independently then
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
@@ -70,7 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    // owns Postgres client and biz logic that handles property defs API calls
+    // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)
+    // TODO: update this to conditionally point to new isolated propdefs & persons (grouptypemapping)
+    // DBs after those migrations are completed, prior to deployment
     let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
     let api_pool = options.connect(&config.database_url).await?;
     let query_manager = Manager::new(api_pool).await?;

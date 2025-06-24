@@ -278,8 +278,9 @@ export async function createUserTeamAndOrganization(
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
-        slug: Math.round(Math.random() * 10000),
+        slug: new UUIDT().toString(),
     } as RawOrganization)
+    await updateOrganizationAvailableFeatures(db, organizationId, [{ key: 'data_pipelines', name: 'Data Pipelines' }])
     await insertRow(db, 'posthog_organizationmembership', {
         id: organizationMembershipId,
         organization_id: organizationId,
@@ -392,6 +393,19 @@ export const createOrganization = async (pg: PostgresRouter) => {
         slug: new UUIDT().toString(),
     })
     return organizationId
+}
+
+export const updateOrganizationAvailableFeatures = async (
+    pg: PostgresRouter,
+    organizationId: string,
+    features: { key: string; name: string }[]
+) => {
+    await pg.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_organization SET available_product_features = $1 WHERE id = $2`,
+        [features, organizationId],
+        'change-team-available-features'
+    )
 }
 
 export const createTeam = async (

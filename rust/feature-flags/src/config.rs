@@ -121,6 +121,12 @@ pub struct Config {
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
+    #[envconfig(default = "")]
+    pub redis_reader_url: String,
+
+    #[envconfig(default = "")]
+    pub redis_writer_url: String,
+
     #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
 
@@ -176,6 +182,8 @@ impl Config {
         Self {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
+            redis_reader_url: "".to_string(),
+            redis_writer_url: "".to_string(),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -211,6 +219,22 @@ impl Config {
                 .join("GeoLite2-City.mmdb")
         } else {
             PathBuf::from(&self.maxmind_db_path)
+        }
+    }
+
+    pub fn get_redis_reader_url(&self) -> &str {
+        if self.redis_reader_url.is_empty() {
+            &self.redis_url
+        } else {
+            &self.redis_reader_url
+        }
+    }
+
+    pub fn get_redis_writer_url(&self) -> &str {
+        if self.redis_writer_url.is_empty() {
+            &self.redis_url
+        } else {
+            &self.redis_writer_url
         }
     }
 

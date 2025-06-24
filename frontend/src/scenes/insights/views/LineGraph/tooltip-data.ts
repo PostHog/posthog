@@ -26,6 +26,7 @@ export function createTooltipData(
                 compare_label: pointDataset?.compare_label ?? pointDataset?.compareLabels?.[dp.dataIndex] ?? undefined,
                 action: pointDataset?.action ?? pointDataset?.actions?.[dp.dataIndex] ?? undefined,
                 label: pointDataset?.label ?? pointDataset.labels?.[dp.dataIndex] ?? undefined,
+                order: pointDataset?.order ?? 0,
                 color: Array.isArray(pointDataset.borderColor)
                     ? pointDataset.borderColor?.[dp.dataIndex]
                     : pointDataset.borderColor,

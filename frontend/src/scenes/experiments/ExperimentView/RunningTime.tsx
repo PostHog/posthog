@@ -5,10 +5,11 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 
 export function RunningTime(): JSX.Element {
     const { experiment, actualRunningTime } = useValues(experimentLogic)
-    const { openCalculateRunningTimeModal } = useActions(experimentLogic)
+    const { openCalculateRunningTimeModal } = useActions(modalsLogic)
 
     const recommendedSampleSize = experiment.parameters.recommended_sample_size
     const minimumDetectableEffect = experiment.parameters.minimum_detectable_effect

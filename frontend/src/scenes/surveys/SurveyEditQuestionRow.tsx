@@ -189,18 +189,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 value: SurveyQuestionType.Rating,
                                 'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
                             },
-                            ...[
-                                {
-                                    label: 'Single choice select',
-                                    value: SurveyQuestionType.SingleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
-                                },
-                                {
-                                    label: 'Multiple choice select',
-                                    value: SurveyQuestionType.MultipleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
-                                },
-                            ],
+                            {
+                                label: 'Single choice select',
+                                value: SurveyQuestionType.SingleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
+                            },
+                            {
+                                label: 'Multiple choice select',
+                                value: SurveyQuestionType.MultipleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                            },
                         ]}
                     />
                 </LemonField>

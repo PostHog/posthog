@@ -18,7 +18,7 @@ export const ResultsBreakdown = ({
 }): JSX.Element | null => {
     return (
         <BindLogic logic={resultsBreakdownLogic} props={{ experiment, metric: result.metric }}>
-            <ResultsBreakdownContent>{children}</ResultsBreakdownContent>
+            <ResultsBreakdownContent result={result}>{children}</ResultsBreakdownContent>
         </BindLogic>
     )
 }

@@ -8,6 +8,7 @@ import { experimentLogic } from '../experimentLogic'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
+import { modalsLogic } from '../modalsLogic'
 
 export function LegacyMetricModal({
     experimentId,
@@ -16,22 +17,13 @@ export function LegacyMetricModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const {
-        experiment,
-        experimentLoading,
-        getInsightType,
-        isPrimaryMetricModalOpen,
-        isSecondaryMetricModalOpen,
-        editingPrimaryMetricIndex,
-        editingSecondaryMetricIndex,
-    } = useValues(experimentLogic({ experimentId }))
-    const {
-        updateExperimentMetrics,
-        setExperiment,
-        closePrimaryMetricModal,
-        closeSecondaryMetricModal,
-        restoreUnmodifiedExperiment,
-    } = useActions(experimentLogic({ experimentId }))
+    const { experiment, experimentLoading, getInsightType, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
+        useValues(experimentLogic({ experimentId }))
+    const { updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
+    const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
+    const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(modalsLogic)
 
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'

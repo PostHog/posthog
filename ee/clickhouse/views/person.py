@@ -1,5 +1,6 @@
 from typing import Optional
 
+from posthog.api.insight import capture_legacy_api_call
 from rest_framework import request, response
 from posthog.api.utils import action
 
@@ -20,6 +21,8 @@ from posthog.utils import format_query_params_absolute_url
 class EnterprisePersonViewSet(PersonViewSet):
     @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
     def funnel_correlation(self, request: request.Request, **kwargs) -> response.Response:
+        capture_legacy_api_call(request, self.team)
+
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 

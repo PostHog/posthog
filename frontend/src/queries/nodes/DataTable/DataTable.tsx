@@ -139,7 +139,11 @@ export function DataTable({
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const usedWebAnalyticsPreAggregatedTables =
-        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables && response?.hogql
+        canUseWebAnalyticsPreAggregatedTables &&
+        response &&
+        'usedPreAggregatedTables' in response &&
+        response.usedPreAggregatedTables &&
+        response?.hogql
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -515,7 +519,7 @@ export function DataTable({
     const editorButton = (
         <>
             <OpenEditorButton query={query} />
-            {response?.hogql ? <EditHogQLButton hogql={response.hogql} /> : null}
+            {response && 'hogql' in response && response?.hogql ? <EditHogQLButton hogql={response.hogql} /> : null}
         </>
     )
 
@@ -581,7 +585,7 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? (response as any).error
+                                                    ? response.error
                                                     : responseError
                                             }
                                         />

@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
-import { HogFunctionInputSchemaType, IntegrationType } from '~/types'
+import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
 
 export function IntegrationView({
     integration,
@@ -12,15 +12,15 @@ export function IntegrationView({
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
-    schema?: HogFunctionInputSchemaType
+    schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
     const errors = (integration.errors && integration.errors?.split(',')) || []
 
     return (
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
-                <div className="flex items-center gap-4 ml-2">
-                    <img src={integration.icon_url} className="h-10 w-10 rounded" />
+                <div className="flex gap-4 items-center ml-2">
+                    <img src={integration.icon_url} className="w-10 h-10 rounded" />
                     <div>
                         <div>
                             Connected to <strong>{integration.display_name}</strong>

@@ -43,7 +43,7 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
     return PLAYBACK_SPEEDS.map((x, i) => ({ key: `${i}`, value: x })).reduce(
-        (acc, x) => ({ ...acc, [x.key]: { action: () => action(x.value) } }),
+        (acc, x) => Object.assign(acc, { [x.key]: { action: () => action(x.value) } }),
         {}
     )
 }

@@ -140,7 +140,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         )
 
     def test_should_run(self):
-        node = MemoryOnboardingNode(team=self.team)
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(
             node.should_run_onboarding_at_start(
                 AssistantState(messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)])
@@ -164,7 +164,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         )
 
     def test_router(self):
-        node = MemoryOnboardingNode(team=self.team)
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "initialize_memory")
         core_memory = CoreMemory.objects.create(team=self.team)
         core_memory.initial_text = "Some initial text"
@@ -172,7 +172,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "onboarding_enquiry")
 
     def test_onboarding_initial_message_is_sent_if_no_events(self):
-        node = MemoryOnboardingNode(team=self.team)
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
         self.assertEqual(len(new_state.messages), 1)
         self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
@@ -182,7 +182,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         self.team.project.product_description = "This is a product analytics platform"
         self.team.project.save()
 
-        node = MemoryOnboardingNode(team=self.team)
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
         self.assertEqual(len(new_state.messages), 1)
         self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
@@ -196,7 +196,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_starts_onboarding_for_pageview_events(self):
         self._set_up_pageview_events()
-        node = MemoryOnboardingNode(team=self.team)
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
         self.assertEqual(len(new_state.messages), 1)
         self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
@@ -207,7 +207,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_starts_onboarding_for_app_bundle_id_events(self):
         self._set_up_app_bundle_id_events()
-        node = MemoryOnboardingNode(team=self.team)
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
         self.assertEqual(len(new_state.messages), 1)
         self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
@@ -252,12 +252,12 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
         )
 
     def test_router_with_failed_scraping_message(self):
-        node = MemoryInitializerNode(team=self.team)
+        node = MemoryInitializerNode(team=self.team, user=self.user)
         state = AssistantState(messages=[AssistantMessage(content=prompts.SCRAPING_SUCCESS_MESSAGE)])
         self.assertEqual(node.router(state), "interrupt")
 
     def test_router_with_other_message(self):
-        node = MemoryInitializerNode(team=self.team)
+        node = MemoryInitializerNode(team=self.team, user=self.user)
         state = AssistantState(messages=[AssistantMessage(content="Some other message")])
         self.assertEqual(node.router(state), "continue")
 
@@ -296,7 +296,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
 
             self._set_up_pageview_events()
-            node = MemoryInitializerNode(team=self.team)
+            node = MemoryInitializerNode(team=self.team, user=self.user)
 
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
             self.assertEqual(len(new_state.messages), 1)
@@ -322,7 +322,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "PostHog mobile app description.")
 
             self._set_up_app_bundle_id_events()
-            node = MemoryInitializerNode(team=self.team)
+            node = MemoryInitializerNode(team=self.team, user=self.user)
 
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
             self.assertEqual(len(new_state.messages), 1)
@@ -341,7 +341,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             patch.object(MemoryInitializerNode, "_model") as model_mock,
             patch.object(MemoryInitializerNode, "_retrieve_context") as context_mock,
         ):
-            node = MemoryInitializerNode(team=self.team)
+            node = MemoryInitializerNode(team=self.team, user=self.user)
 
             model_mock.return_value = RunnableLambda(lambda _: "no data available.")
             context_mock.return_value = []
@@ -367,7 +367,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
             scraping_status=CoreMemory.ScrapingStatus.PENDING,
             scraping_started_at=timezone.now(),
         )
-        self.node = MemoryInitializerInterruptNode(team=self.team)
+        self.node = MemoryInitializerInterruptNode(team=self.team, user=self.user)
 
     def test_interrupt_when_not_resumed(self):
         state = AssistantState(messages=[AssistantMessage(content="Product description")])
@@ -389,7 +389,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
-        self.node = MemoryOnboardingEnquiryNode(team=self.team)
+        self.node = MemoryOnboardingEnquiryNode(team=self.team, user=self.user)
 
     def test_router_with_no_core_memory(self):
         self.core_memory.delete()
@@ -548,7 +548,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
-        self.node = MemoryOnboardingEnquiryInterruptNode(team=self.team)
+        self.node = MemoryOnboardingEnquiryInterruptNode(team=self.team, user=self.user)
 
     def test_run(self):
         with self.assertRaises(NodeInterrupt) as e:
@@ -578,7 +578,7 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
-        self.node = MemoryOnboardingFinalizeNode(team=self.team)
+        self.node = MemoryOnboardingFinalizeNode(team=self.team, user=self.user)
 
     def test_router(self):
         self.assertEqual(self.node.router(AssistantState(messages=[])), "continue")
@@ -604,7 +604,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
         self.core_memory.set_core_memory("Test product core memory")
-        self.node = MemoryCollectorNode(team=self.team)
+        self.node = MemoryCollectorNode(team=self.team, user=self.user)
 
     def test_router(self):
         # Test with no memory collection messages
@@ -769,7 +769,7 @@ class TestMemoryCollectorToolsNode(BaseTest):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
         self.core_memory.set_core_memory("Initial memory content")
-        self.node = MemoryCollectorToolsNode(team=self.team)
+        self.node = MemoryCollectorToolsNode(team=self.team, user=self.user)
 
     def test_handles_correct_tools(self):
         # Test handling a single append tool

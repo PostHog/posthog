@@ -56,6 +56,7 @@ export function VariantBar({
                         textAnchor="end"
                         dominantBaseline="middle"
                         fill="var(--text-secondary)"
+                        fontWeight="600"
                     >
                         {variantResult.key}
                     </text>
@@ -71,6 +72,8 @@ export function VariantBar({
                             stroke={colors.BOUNDARY_LINES}
                             strokeWidth={1}
                             strokeDasharray="2,2"
+                            rx={3}
+                            ry={3}
                         />
                     ) : (
                         <>
@@ -113,6 +116,8 @@ export function VariantBar({
                                 fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
                                     isSecondary ? 'secondary' : 'primary'
                                 })`}
+                                rx={3}
+                                ry={3}
                             />
                         </>
                     )}
@@ -140,6 +145,7 @@ export function VariantBar({
                         textAnchor="end"
                         dominantBaseline="middle"
                         fill="var(--text-secondary)"
+                        fontWeight="600"
                     >
                         {variantResult.key}
                     </text>

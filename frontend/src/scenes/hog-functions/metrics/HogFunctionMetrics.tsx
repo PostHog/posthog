@@ -176,14 +176,12 @@ function AppMetricsGraph(): JSX.Element {
                 type: 'line',
                 data: {
                     labels: appMetrics.labels,
-                    datasets: [
-                        ...appMetrics.series.map((series) => ({
-                            label: series.name,
-                            data: series.values,
-                            borderColor: '',
-                            ...colorConfig(series.name),
-                        })),
-                    ],
+                    datasets: appMetrics.series.map((series) => ({
+                        label: series.name,
+                        data: series.values,
+                        borderColor: '',
+                        ...colorConfig(series.name),
+                    })),
                 },
                 options: {
                     scales: {
@@ -218,6 +216,7 @@ function AppMetricsGraph(): JSX.Element {
                                             id: i,
                                             dataIndex: 0,
                                             datasetIndex: 0,
+                                            order: i,
                                             label: dp.dataset.label,
                                             color: dp.dataset.borderColor as string,
                                             count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,

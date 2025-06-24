@@ -3,25 +3,34 @@
     gap: 0.125rem;
     align-items: center;
     padding: 0.125rem 0.25rem;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     font-weight: var(--font-medium);
     line-height: 1rem;
     color: var(--text-3000);
     white-space: nowrap;
-    background: var(--border-primary);
+    border-width: 1px;
     border-radius: var(--radius-sm);
+
+    &.LemonTag--size-small {
+        padding: 0 0.1875rem;
+        font-size: 0.625rem;
+        line-height: 0.875rem;
+    }
 
     &.LemonTag--normal {
         font-weight: normal;
     }
 
-    &:not(.LemonTag--breakdown) {
-        padding: 0.075rem 0.25rem;
-        font-size: 0.6875rem;
-        background: none;
-        border-style: solid;
-        border-width: 1px;
-        border-radius: var(--radius-sm);
+    &.LemonTag--breakdown {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        font-weight: 400;
+        line-height: 1rem;
+        color: var(--primary-alt);
+        vertical-align: bottom;
+        background-color: var(--accent-highlight-secondary);
+        border-width: 0;
+        border-radius: 9999px;
     }
 
     &.LemonTag--primary {
@@ -84,52 +93,17 @@
         background: none;
     }
 
-    &.LemonTag--breakdown {
-        padding: 8px 12px;
-        font-size: 14px;
-        font-weight: 400;
-        line-height: 16px;
-        color: var(--primary-alt);
-        vertical-align: bottom;
-        background-color: var(--accent-highlight-secondary);
-        border-radius: 40px;
-    }
-
-    &.LemonTag--size-small {
-        padding: 0 0.1875rem;
-        font-size: 0.625rem;
-        line-height: 0.875rem;
-    }
-
-    &.LemonTag--size-xsmall {
-        padding: 0 0.125rem;
-        font-size: 0.625rem;
-        line-height: 0.875rem;
-    }
-
-    &:not(.LemonTag--breakdown).LemonTag--size-xsmall {
-        box-sizing: border-box;
-        height: 1.625rem;
-        padding: 0 0.125rem;
-        line-height: 0.625rem;
-    }
-
     .LemonTag__icon {
         display: flex;
         margin-right: 0.125rem;
-        font-size: 0.875rem;
+        font-size: 0.8125rem;
+        opacity: 0.8;
     }
 
     .LemonTag__right-button {
         min-height: 1.5rem !important;
         padding: 0.125rem !important;
         margin-left: 0.25rem;
-    }
-
-    &.LemonTag--size-xsmall .LemonTag__right-button {
-        min-height: 0.875rem !important;
-        padding: 0 !important;
-        margin-left: 0.125rem;
     }
 
     &.LemonTag--size-small .LemonTag__right-button {
@@ -144,8 +118,8 @@
             position: relative;
             display: inline-flex;
             align-items: center;
-            width: 0.875rem; // Fixed width to prevent layout shift
-            height: 0.875rem; // Fixed height to match icon size
+            width: 0.8125rem; // Fixed width to prevent layout shift
+            height: 0.8125rem; // Fixed height to match icon size
             margin-right: 0.125rem;
 
             .LemonTag__icon--default,
@@ -158,11 +132,6 @@
                 justify-content: center;
                 width: 100%;
                 height: 100%;
-                transition: opacity 0.15s ease-in-out;
-            }
-
-            .LemonTag__icon--default {
-                opacity: 1;
             }
 
             .LemonTag__icon--hover {
@@ -177,10 +146,6 @@
                 height: 100%;
                 pointer-events: none; // Disable click on the icon since the whole tag is clickable
                 cursor: pointer;
-
-                &:hover {
-                    opacity: 0.7;
-                }
             }
         }
 

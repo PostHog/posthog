@@ -30,7 +30,6 @@ EXPECTED_FIRST_RESULT = {
     "mappings": template.mappings,
     "mapping_templates": template.mapping_templates,
     "icon_url": template.icon_url,
-    "kind": template.kind,
 }
 
 
@@ -79,13 +78,13 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
 
-    def test_alpha_templates_are_hidden(self):
+    def test_hidden_templates_are_hidden(self):
         self.client.logout()
         response = self.client.get("/api/public_hog_function_templates/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         for template_item in response.json()["results"]:
-            assert template_item["status"] != "alpha", f"Alpha template {template_item['id']} should not be returned"
+            assert template_item["status"] != "hidden", f"Hidden template {template_item['id']} should not be returned"
 
     def test_templates_are_sorted_by_usage(self):
         HogFunction.objects.create(

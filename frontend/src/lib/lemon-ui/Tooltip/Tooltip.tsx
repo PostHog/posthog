@@ -24,7 +24,7 @@ import React, { useRef, useState } from 'react'
 
 import { Link } from '../Link'
 
-type TooltipTitle = string | React.ReactNode | (() => string)
+export type TooltipTitle = string | React.ReactNode | (() => string)
 
 export interface TooltipProps extends BaseTooltipProps {
     title?: TooltipTitle

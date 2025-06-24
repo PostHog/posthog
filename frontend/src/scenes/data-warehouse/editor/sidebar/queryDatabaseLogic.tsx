@@ -199,16 +199,34 @@ const createTopLevelFolderNode = (
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
-): TreeDataItem => ({
-    id: isSearch ? `search-${type}` : type,
-    name: type === 'sources' ? 'Sources' : 'Views',
-    type: 'node',
-    icon: icon,
-    record: {
-        type,
-    },
-    children,
-})
+): TreeDataItem => {
+    let finalChildren = children
+
+    // Add empty folder child if views folder is empty
+    if (type === 'views' && children.length === 0) {
+        finalChildren = [
+            {
+                id: `${isSearch ? 'search-' : ''}views-folder-empty/`,
+                name: 'Empty folder',
+                type: 'empty-folder',
+                record: {
+                    type: 'empty-folder',
+                },
+            },
+        ]
+    }
+
+    return {
+        id: isSearch ? `search-${type}` : type,
+        name: type === 'sources' ? 'Sources' : 'Views',
+        type: 'node',
+        icon: icon,
+        record: {
+            type,
+        },
+        children: finalChildren,
+    }
+}
 
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),

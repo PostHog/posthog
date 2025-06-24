@@ -191,7 +191,7 @@ class PipelineNonDLT:
                 pa_memory_pool.release_unused()
                 gc.collect()
 
-                if self._is_incremental:
+                if self._schema.should_use_incremental_field:
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if len(buffer) > 0:
@@ -262,8 +262,14 @@ class PipelineNonDLT:
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
+        write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
+        if self._schema.is_incremental:
+            write_type = "incremental"
+        elif self._schema.is_append:
+            write_type = "append"
+
         delta_table = self._delta_table_helper.write_to_deltalake(
-            pa_table, self._is_incremental, index, self._resource.primary_keys
+            pa_table, write_type, index, self._resource.primary_keys
         )
 
         self._internal_schema.add_pyarrow_table(pa_table)
@@ -408,7 +414,7 @@ def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger)
 def _get_incremental_field_value(
     schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
 ) -> Any:
-    if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
+    if schema is None or schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
         return
 
     incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
@@ -430,7 +436,7 @@ def _get_incremental_field_value(
 def should_partition_table(
     delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
 ) -> bool:
-    if not schema.is_incremental:
+    if not schema.should_use_incremental_field:
         return False
 
     if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
@@ -442,7 +448,7 @@ def should_partition_table(
     if delta_table is None:
         return True
 
-    delta_schema = delta_table.schema().to_pyarrow()
+    delta_schema = delta_table.schema().to_arrow()
     if PARTITION_KEY in delta_schema.names:
         return True
 

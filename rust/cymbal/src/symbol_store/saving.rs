@@ -262,11 +262,14 @@ impl SymbolSetRecord {
         team_id: i32,
         set_ref: &str,
     ) -> Result<Option<Self>, UnhandledError> {
+        // Query looks a bit odd. Symbol sets are usable by cymbal if they have no storage ptr (indicating an
+        // unfound symbol set) or if they have a content hash (indicating a full saved symbol set). The in-between
+        // states (storage_ptr is not null AND content_hash is null) indicate an ongoing upload.
         let mut record = sqlx::query_as!(
             SymbolSetRecord,
             r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash, last_used
             FROM posthog_errortrackingsymbolset
-            WHERE team_id = $1 AND ref = $2"#,
+            WHERE (content_hash is not null OR storage_ptr is null) AND team_id = $1 AND ref = $2"#,
             team_id,
             set_ref
         )

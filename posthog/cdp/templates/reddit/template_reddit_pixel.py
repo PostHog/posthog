@@ -19,7 +19,7 @@ common_inputs = [
 
 template_reddit_pixel: HogFunctionTemplate = HogFunctionTemplate(
     free=False,
-    status="beta",
+    status="alpha",
     type="site_destination",
     id="template-reddit-pixel",
     name="Reddit Pixel",

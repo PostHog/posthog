@@ -1411,7 +1411,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Start polling for results
                 tile.insight = refreshedInsight!
                 actions.refreshAllDashboardItems({ tiles: [tile], action: REFRESH_DASHBOARD_ITEM_ACTION })
-            } catch (e: any) {
+            } catch {
                 actions.setRefreshError(insight.short_id)
             }
         },

@@ -131,7 +131,8 @@ export function InsightTooltip({
                 colCutoff
             )
             const dataColumns: LemonTableColumn<InvertedSeriesDatum, keyof InvertedSeriesDatum | undefined>[] = []
-            truncatedCols.forEach((seriesColumn, colIdx) => {
+            truncatedCols.forEach((seriesColumn) => {
+                const colIdx = seriesColumn.order
                 dataColumns.push({
                     key: colIdx.toString(),
                     className: 'datum-counts-column',
@@ -154,7 +155,9 @@ export function InsightTooltip({
                                 colIdx
                             )),
                     render: function renderSeriesColumnData(_, datum) {
-                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData?.[colIdx]
+                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData.find(
+                            (s) => s.order === colIdx
+                        )
                         return renderDatumToTableCell(
                             seriesColumnData?.action?.math_property,
                             seriesColumnData?.count,
@@ -165,11 +168,12 @@ export function InsightTooltip({
                     },
                 })
             })
-            dataColumns.sort(
-                (a, b) =>
-                    (truncatedCols[parseInt(a.key as string)]?.action?.order || 0) -
-                    (truncatedCols[parseInt(b.key as string)]?.action?.order || 0)
-            )
+            dataColumns.sort((a, b) => {
+                const itemA = truncatedCols?.find((s) => s.order === parseInt(a.key as string))
+                const itemB = truncatedCols?.find((s) => s.order === parseInt(b.key as string))
+
+                return (itemA?.order || 0) - (itemB?.order || 0)
+            })
             columns.push(...dataColumns)
         }
 

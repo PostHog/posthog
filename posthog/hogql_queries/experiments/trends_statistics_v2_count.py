@@ -5,10 +5,11 @@ from posthog.hogql_queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from posthog.hogql_queries.experiments.funnels_statistics import Probability
 from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 from scipy.stats import gamma
 import numpy as np
+
+Probability = float
 
 # Prior parameters (minimal prior knowledge)
 ALPHA_0 = 1

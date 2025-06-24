@@ -505,9 +505,10 @@ def clean_stale_partials() -> None:
 
 @shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
     enqueue_cohorts_to_calculate(parallel_count)
+    reset_stuck_cohorts()
 
 
 class Polling:
@@ -840,3 +841,10 @@ def count_items_in_playlists() -> None:
         logger.exception("Failed to import task to count items in playlists", error=ie)
     else:
         enqueue_recordings_that_match_playlist_filters()
+
+
+@shared_task(ignore_result=True)
+def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
+    from posthog.tasks.environments_rollback import environments_rollback_migration
+
+    environments_rollback_migration(organization_id, environment_mappings, user_id)

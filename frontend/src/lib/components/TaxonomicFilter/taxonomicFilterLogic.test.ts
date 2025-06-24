@@ -253,8 +253,8 @@ describe('taxonomicFilterLogic', () => {
             const taxonomicGroups = maxLogic.values.taxonomicGroups
             const maxAIGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.MaxAIContext)
 
-            expect(maxAIGroup).toBeDefined()
-            expect(maxAIGroup?.name).toBe('In this page')
+            expect(maxAIGroup).toBeDefined() // eslint-disable-line jest/no-restricted-matchers
+            expect(maxAIGroup?.name).toBe('On this page')
             expect(maxAIGroup?.searchPlaceholder).toBe('elements from this page')
             expect(maxAIGroup?.options).toEqual([
                 { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },

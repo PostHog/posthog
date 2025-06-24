@@ -1,5 +1,6 @@
 import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconRevert, IconSend } from '@posthog/icons'
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 
 import type { HogFlowAction } from '../types'
@@ -58,7 +59,9 @@ function BaseNode({ id, icon, selected, type, data, children }: NodeProps): JSX.
         >
             <div className="flex items-center justify-center gap-1">
                 {icon}
-                <div className="text-xs">{data.name}</div>
+                <div className="text-xs">
+                    {data.config.inputs.name?.value || capitalizeFirstLetter(type || 'Untitled')}
+                </div>
             </div>
             {children}
             {handles?.map((handle) => (

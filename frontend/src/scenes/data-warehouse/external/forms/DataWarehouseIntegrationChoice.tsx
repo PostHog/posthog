@@ -1,4 +1,7 @@
-import { IntegrationChoice, IntegrationConfigureProps } from 'scenes/hog-functions/integrations/IntegrationChoice'
+import {
+    IntegrationChoice,
+    IntegrationConfigureProps,
+} from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
 
 import { PipelineStage, SourceConfig } from '~/types'

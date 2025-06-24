@@ -148,6 +148,7 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
 ):
+    tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
 
     from posthog.api.services.query import ExecutionMode, process_query_dict
@@ -155,15 +156,12 @@ def execute_process_query(
     from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
-    tag_queries(team_id=team_id)
-
     is_staff_user = False
 
     user = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
-        tag_queries(user_email=user.email)
 
     query_status = manager.get_query_status()
 
@@ -185,7 +183,6 @@ def execute_process_query(
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     try:
-        tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
         results = process_query_dict(
             team=team,
             query_json=query_json,

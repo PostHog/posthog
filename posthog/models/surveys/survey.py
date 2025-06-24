@@ -222,6 +222,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+    is_publicly_shareable = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Allow this survey to be accessed via public URL (https://app.posthog.com/surveys/[survey_id]) without authentication",
+    )
 
     actions = models.ManyToManyField(Action)
 

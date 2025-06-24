@@ -63,7 +63,7 @@ jobs:
               if: needs.changes.outputs.docker_files == 'true'
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  push-image: true
+                  push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
                   aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
                   aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}

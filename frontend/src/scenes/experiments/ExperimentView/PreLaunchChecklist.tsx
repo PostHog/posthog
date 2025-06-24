@@ -3,11 +3,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 
 export function PreLaunchChecklist(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { openDescriptionModal, openPrimaryMetricSourceModal, openCalculateRunningTimeModal } =
-        useActions(experimentLogic)
+        useActions(modalsLogic)
     return (
         <div>
             <div className="flex items-center deprecated-space-x-2 mb-2">

@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta
+from itertools import groupby
 from typing import Optional
+import posthoganalytics
+
 
 import structlog
 from celery import shared_task
@@ -10,6 +13,7 @@ from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_r
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.models.subscription import Subscription
 from posthog.tasks.utils import CeleryQueue
 
@@ -130,17 +134,21 @@ def schedule_all_subscriptions() -> None:
         Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
+        .select_related("team")
+        .order_by("team_id")
         .all()
     )
 
-    for subscription in subscriptions:
-        logger.info(
-            "Scheduling subscription",
-            subscription_id=subscription.id,
-            next_delivery_date=subscription.next_delivery_date,
-            destination=subscription.target_type,
-        )
-        deliver_subscription_report.delay(subscription.id)
+    for team, group_subscriptions in groupby(subscriptions, key=lambda x: x.team):
+        if not team_use_temporal_flag(team):
+            for subscription in group_subscriptions:
+                logger.info(
+                    "Scheduling subscription",
+                    subscription_id=subscription.id,
+                    next_delivery_date=subscription.next_delivery_date,
+                    destination=subscription.target_type,
+                )
+                deliver_subscription_report.delay(subscription.id)
 
 
 report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 60 * 1.5
@@ -164,3 +172,24 @@ def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None
 ) -> None:
     return _deliver_subscription_report(subscription_id, previous_value, invite_message)
+
+
+def team_use_temporal_flag(team: Team) -> bool:
+    return posthoganalytics.feature_enabled(
+        "use-temporal-subscriptions",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )

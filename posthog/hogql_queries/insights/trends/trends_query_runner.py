@@ -16,6 +16,7 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.printer import to_printed_hogql
@@ -93,6 +94,20 @@ class TrendsQueryRunner(QueryRunner):
 
         if isinstance(query, dict):
             query = TrendsQuery.model_validate(query)
+
+        assert isinstance(query, TrendsQuery)
+
+        # For backwards compatibility
+        if query.trendsFilter:
+            if not query.trendsFilter.formulaNodes:
+                if query.trendsFilter.formulas:
+                    query.trendsFilter.formulaNodes = [
+                        TrendsFormulaNode(formula=formula) for formula in query.trendsFilter.formulas
+                    ]
+                elif query.trendsFilter.formula:
+                    query.trendsFilter.formulaNodes = [TrendsFormulaNode(formula=query.trendsFilter.formula)]
+            query.trendsFilter.formula = None
+            query.trendsFilter.formulas = None
 
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
@@ -337,11 +352,11 @@ class TrendsQueryRunner(QueryRunner):
             query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
-            query_tags: Optional[dict] = None,
+            query_tags: Optional[QueryTags] = None,
         ):
             try:
                 if query_tags:
-                    query_tagging.tag_queries(**query_tags)
+                    query_tagging.update_tags(query_tags)
 
                 series_with_extra = self.series[index]
 
@@ -385,7 +400,7 @@ class TrendsQueryRunner(QueryRunner):
                             query,
                             self.timings.clone_for_subquery(index),
                             True,
-                            query_tagging.get_query_tags(),
+                            query_tagging.get_query_tags().model_copy(deep=True),
                         ),
                     )
                     for index, query in enumerate(queries)
@@ -406,7 +421,7 @@ class TrendsQueryRunner(QueryRunner):
                 returned_results.append([result])
 
         final_result: list[dict] = []
-        formula_nodes = self.formula_nodes
+        formula_nodes = self.query.trendsFilter and self.query.trendsFilter.formulaNodes
 
         if formula_nodes:
             with self.timings.measure("apply_formula"):
@@ -416,22 +431,36 @@ class TrendsQueryRunner(QueryRunner):
                     previous_results = returned_results[len(returned_results) // 2 :]
 
                     final_result = []
-                    for formula_node in formula_nodes:
+                    for formula_idx, formula_node in enumerate(formula_nodes):
                         current_formula_results = self.apply_formula(formula_node, current_results)
                         previous_formula_results = self.apply_formula(formula_node, previous_results)
                         # Create a new list for each formula's results
                         formula_results = []
                         formula_results.extend(current_formula_results)
                         formula_results.extend(previous_formula_results)
+
+                        # Set the order based on the formula index
+                        for result in formula_results:
+                            result["order"] = formula_idx
+
                         final_result.extend(formula_results)
                 else:
-                    for formula_node in formula_nodes:
+                    for formula_idx, formula_node in enumerate(formula_nodes):
                         formula_results = self.apply_formula(formula_node, returned_results)
+
+                        # Set the order based on the formula index
+                        for result in formula_results:
+                            result["order"] = formula_idx
+
                         # Create a new list for each formula's results
                         final_result.extend(formula_results)
         else:
             for result in returned_results:
                 if isinstance(result, list):
+                    for item in result:
+                        # Set the order for each item based on the action order
+                        item["order"] = item.get("action", {}).get("order", 0)
+
                     final_result.extend(result)
                 elif isinstance(result, dict):  # type: ignore [unreachable]
                     raise ValueError("This should not happen")
@@ -784,7 +813,6 @@ class TrendsQueryRunner(QueryRunner):
             and self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
             and not in_breakdown_clause
             and self.query.trendsFilter
-            and self.query.trendsFilter.formula
         ):
             cohort_count = len(self.query.breakdownFilter.breakdown)
 
@@ -794,12 +822,12 @@ class TrendsQueryRunner(QueryRunner):
                 for i in range(cohort_count):
                     cohort_series = results[(i * results_per_cohort) : ((i + 1) * results_per_cohort)]
                     cohort_results = self.apply_formula(
-                        TrendsFormulaNode(formula=self.query.trendsFilter.formula),
+                        formula_node,
                         cohort_series,
                         in_breakdown_clause=True,
                     )
-                    conjoined_results.append(cohort_results)
-                results = conjoined_results
+                    conjoined_results.extend(cohort_results)
+                return conjoined_results
             else:
                 raise ValueError("Number of results is not divisible by breakdowns count")
 
@@ -1120,19 +1148,3 @@ class TrendsQueryRunner(QueryRunner):
             or isinstance(breakdown, list)
             and BREAKDOWN_OTHER_STRING_LABEL in breakdown
         )
-
-    @cached_property
-    def formula_nodes(self) -> list[TrendsFormulaNode]:
-        if not self.query.trendsFilter:
-            return []
-
-        formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
-
-        # for backwards compatibility
-        if not formula_nodes:
-            if self.query.trendsFilter.formulas:
-                formula_nodes = [TrendsFormulaNode(formula=formula) for formula in self.query.trendsFilter.formulas]
-            elif self.query.trendsFilter.formula:
-                formula_nodes = [TrendsFormulaNode(formula=self.query.trendsFilter.formula)]
-
-        return formula_nodes

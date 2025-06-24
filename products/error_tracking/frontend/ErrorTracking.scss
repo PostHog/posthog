@@ -5,7 +5,7 @@
 
 .ErrorTrackingIssue {
     & .SessionRecordingPlayer {
-        height: 24rem;
+        min-height: 24rem;
     }
 
     & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {

@@ -372,12 +372,10 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
             csv_exporter.export_tabular(self._create_asset())
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(
-        self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10
-    ) -> None:
+    def test_csv_exporter_hogql_query(self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, CSV_EXPORT_LIMIT=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -418,9 +416,9 @@ class TestCSVExporter(APIBaseTest):
 
             assert exported_asset.content is None
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -461,11 +459,9 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(first_row[2], "$pageview")
             self.assertEqual(first_row[5], str(self.team.pk))
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query_with_columns(
-        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
-    ) -> None:
+    def test_csv_exporter_events_query_with_columns(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT: int = 10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(

@@ -1088,6 +1088,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         # Upload parts when buffer is full
         while len(self.current_buffer) >= self.part_size:
             await self._upload_next_part()
+        else:
+            # Ensure that we give pending tasks a chance to run.
+            await asyncio.sleep(0)
 
     async def _upload_next_part(self, final: bool = False):
         """Extract a part from buffer and upload it"""
@@ -1147,14 +1150,15 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             raise NoUploadInProgressError()
 
         try:
-            await self.logger.ainfo(
+            self.logger.info(
                 "Uploading file number %s part %s with upload id %s",
                 self.current_file_index,
                 part_number,
                 self.upload_id,
             )
             current_key = self._get_current_key()
-            client = await self._get_s3_client()
+            client = self._s3_client
+            assert client is not None, "No S3 client, is multi-part initialized?"
 
             # Retry logic for upload_part
             response: UploadPartOutputTypeDef | None = None

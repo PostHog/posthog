@@ -69,7 +69,6 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "type",
-            "kind",
             "name",
             "description",
             "created_at",
@@ -115,7 +114,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         fields = [
             "id",
             "type",
-            "kind",
             "name",
             "description",
             "created_at",
@@ -169,7 +167,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
-        data["kind"] = data.get("kind", instance.kind if instance else None)
         data["template_id"] = instance.template_id if instance else data.get("template_id")
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
@@ -401,12 +398,10 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 
 class HogFunctionFilterSet(FilterSet):
     type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
-    kind = CommaSeparatedListFilter(field_name="kind", lookup_expr="in")
-    exclude_kind = CommaSeparatedListFilter(field_name="kind", lookup_expr="in", exclude=True)
 
     class Meta:
         model = HogFunction
-        fields = ["type", "kind", "exclude_kind", "enabled", "id", "created_by", "created_at", "updated_at"]
+        fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
 class HogFunctionViewSet(

@@ -37,7 +37,7 @@ export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributio
                     const newQuery: Q = {
                         ...query,
                         filters: {
-                            ...(query.filters ?? {}),
+                            ...query.filters,
                             dateRange: {
                                 date_from: changedDateFrom ?? undefined,
                                 date_to: changedDateTo ?? undefined,

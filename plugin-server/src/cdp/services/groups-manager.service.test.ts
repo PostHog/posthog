@@ -206,7 +206,7 @@ describe('Groups Manager', () => {
             expect(mockHub.postgres.query.mock.calls).toMatchInlineSnapshot(`
                 [
                   [
-                    0,
+                    3,
                     "SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)",
                     [
                       [
@@ -216,7 +216,7 @@ describe('Groups Manager', () => {
                     "fetchGroupTypes",
                   ],
                   [
-                    0,
+                    3,
                     "SELECT team_id, group_type_index, group_key, group_properties
                             FROM posthog_group
                             WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)",

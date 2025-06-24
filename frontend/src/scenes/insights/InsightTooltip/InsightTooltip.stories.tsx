@@ -89,6 +89,7 @@ Columns.args = {
             id: 0,
             dataIndex: 3,
             datasetIndex: 2,
+            order: 1,
             dotted: false,
             breakdown_value: 'Safari',
             action: {
@@ -131,6 +132,7 @@ Columns.args = {
             id: 1,
             dataIndex: 3,
             datasetIndex: 0,
+            order: 0,
             dotted: false,
             breakdown_value: 'Chrome',
             action: {
@@ -173,6 +175,7 @@ Columns.args = {
             id: 2,
             dataIndex: 3,
             datasetIndex: 1,
+            order: 0,
             dotted: false,
             breakdown_value: 'Safari',
             action: {

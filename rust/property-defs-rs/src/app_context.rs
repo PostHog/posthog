@@ -23,17 +23,17 @@ const PG_CONSTRAINT_CODES: [&str; 7] = [
 ];
 
 pub struct AppContext {
-    // this points to the (original, shared) CLOUD PG instance
-    // in both property-defs-rs and property-defs-rs-v2 deployments.
-    // the v2 deployment will use this pool to access tables that
-    // aren't slated to migrate to the isolated PROPDEFS DB in production
+    // this points to the original (shared) CLOUD DB instance in prod deployments
     pub pool: PgPool,
 
-    // this is only used by the property-defs-rs-v2 deployments, and
-    // only when the enabled_v2 config is set. This maps to the new
-    // PROPDEFS isolated PG instances in production, and the local
-    // Docker Compose DB in dev/test/CI. This will be *UNSET* in
-    // "v1" (property-defs-rs) deployments
+    // if populated, this pool will be used to read from the new, isolated
+    // persons DB instance in production. call sites will fall back to the
+    // std (shared) pool above if this is unset
+    pub persons_pool: Option<PgPool>,
+
+    // if populated, this pool can be used to write to the new, isolated
+    // propdefs DB instance in production. call sites will fall back to the
+    // std (shared) pool above if this is unset
     pub propdefs_pool: Option<PgPool>,
 
     pub query_manager: Manager,
@@ -57,13 +57,32 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let orig_pool = options.connect(&config.database_url).await?;
 
-        let v2_pool = match config.enable_mirror {
-            true => {
-                let v2_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-                Some(v2_options.connect(&config.database_propdefs_url).await?)
-            }
-            _ => None,
+        // only to be populated and used if DATABASE_PERSONS_URL is set in the deploy env
+        // indicating we should read posthog_grouptypemappings from the new persons DB
+        let persons_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        let persons_pool: Option<PgPool> = if config.database_persons_url.is_some() {
+            Some(
+                persons_options
+                    .connect(config.database_persons_url.as_ref().unwrap())
+                    .await?,
+            )
+        } else {
+            None
         };
+
+        // only to be populated and used if config.enable_mirror is set, which
+        // assumes this is the new property-defs-rs-v2 deployment and always writes
+        // to the new isolated propdefs DB in production
+        let propdefs_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        let propdefs_pool: Option<PgPool> =
+            match config.enable_mirror && config.database_propdefs_url.is_some() {
+                true => Some(
+                    propdefs_options
+                        .connect(config.database_propdefs_url.as_ref().unwrap())
+                        .await?,
+                ),
+                _ => None,
+            };
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
@@ -74,7 +93,8 @@ impl AppContext {
 
         Ok(Self {
             pool: orig_pool,
-            propdefs_pool: v2_pool,
+            persons_pool,
+            propdefs_pool,
             query_manager: qmgr,
             liveness,
             worker_liveness,
@@ -93,18 +113,17 @@ impl AppContext {
 
         let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
         if !self.skip_writes && !self.skip_reads {
-            // if enable_mirror is TRUE and we are in the mirror deploy: use propdefs write DB.
-            let mut write_pool = &self.pool;
-            if self.enable_mirror {
-                if let Some(resolved) = &self.propdefs_pool {
-                    metrics::counter!(
-                        V2_ISOLATED_DB_SELECTED,
-                        &[(String::from("processor"), String::from("v1"))]
-                    )
-                    .increment(1);
-                    write_pool = resolved;
-                }
-            }
+            // if this is mirror deploy, use isolated propdefs write DB
+            let write_pool = if self.propdefs_pool.is_some() {
+                metrics::counter!(
+                    V2_ISOLATED_DB_SELECTED,
+                    &[(String::from("processor"), String::from("v1"))]
+                )
+                .increment(1);
+                self.propdefs_pool.as_ref().unwrap()
+            } else {
+                &self.pool
+            };
 
             let mut tx = write_pool.begin().await?;
 
@@ -126,9 +145,7 @@ impl AppContext {
                         // be helped by additional retries. an hour w/o write attempts is a good thing for these
                     }
                     Err(e) => {
-                        // TODO(eli): move retry behavior (and cache removal) here and out of parent batch?
-                        // depends on what kind of errors we see landing here now that it's instrumented,
-                        // and we're (hopefully) catching the frequent constraint errors above
+                        // track when a batch write fails with an unexpected (unhandled) error type
                         metrics::counter!(UPDATES_SKIPPED, &[("reason", "unhandled_fail")])
                             .increment(1);
                         error!(
@@ -196,13 +213,19 @@ impl AppContext {
                 .map(|(_, name, team_id)| (name.clone(), team_id))
                 .unzip();
 
+            let resolved_pool = if self.persons_pool.is_some() {
+                self.persons_pool.as_ref().unwrap()
+            } else {
+                &self.pool
+            };
+
             let results = sqlx::query!(
                 "SELECT group_type, team_id, group_type_index FROM posthog_grouptypemapping
                  WHERE (group_type, team_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::int[]))",
                 &group_names,
                 &team_ids
             )
-            .fetch_all(&self.pool)
+            .fetch_all(resolved_pool)
             .await?;
 
             // Create a lookup map for resolved group types

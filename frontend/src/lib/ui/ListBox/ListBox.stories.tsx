@@ -1,10 +1,10 @@
 import { Link } from '@posthog/lemon-ui'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { ListBox } from './ListBox'
+import { ListBox, ListBoxHandle } from './ListBox'
 
 type Story = StoryObj<typeof ListBox>
 const meta: Meta<typeof ListBox> = {
@@ -17,6 +17,7 @@ export default meta
 
 const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<typeof ListBox>) => {
     const [expandedItemIds, setExpandedItemIds] = useState<string[]>([])
+    const ref = useRef<ListBoxHandle>(null)
 
     return (
         <div className="flex flex-col gap-3">
@@ -38,6 +39,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
             <ListBox
                 className="flex flex-col gap-px max-h-[400px] overflow-y-auto border-1 border-dashed border-darkgray p-2"
                 {...props}
+                ref={ref}
             >
                 <ListBox.Item asChild className="mb-4">
                     <input type="text" className="h-9 border border-primary rounded-md p-2" />

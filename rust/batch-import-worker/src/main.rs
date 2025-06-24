@@ -9,6 +9,7 @@ use axum::{routing::get, Router};
 use batch_import_worker::{
     config::Config,
     context::AppContext,
+    error::get_user_message,
     job::{model::JobModel, Job},
     spawn_liveness_loop,
 };
@@ -87,10 +88,15 @@ pub async fn main() -> Result<(), Error> {
             Err(e) => {
                 let error_msg = format!("Job initialization failed for job {}: {:?}", model.id, e);
                 error!("{}", error_msg);
-                // Customer will see this error in the UI, we want to surface any problems they might have with their parsing
-                // or configuring the job, etc.
+                // A developer can tag an error with a user facing message, which we'll surface to the user
+                // via the display_status_message field on the job model
+                let user_facing_error_message = get_user_message(&e);
                 if let Err(pause_err) = model
-                    .pause(context.clone(), e.root_cause().to_string())
+                    .pause(
+                        context.clone(),
+                        error_msg,
+                        user_facing_error_message.to_string(),
+                    )
                     .await
                 {
                     error!(

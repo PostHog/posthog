@@ -145,11 +145,8 @@ const appendPathLinks = (
             setNodeCards(
                 nodes.map((node: PathNodeData) => ({
                     ...node,
-                    ...{
-                        visible: pathCardsToShow.includes(node.index)
-                            ? true
-                            : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
-                    },
+
+                    visible: pathCardsToShow.includes(node.index) ? true : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
                 }))
             )
         })

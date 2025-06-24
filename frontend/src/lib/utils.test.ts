@@ -62,12 +62,6 @@ describe('lib/utils', () => {
             expect(toParams(null as any)).toEqual('')
         })
 
-        it('is tolerant of empty objects', () => {
-            const left = toParams({ a: 'b', ...{}, b: 'c' })
-            const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
-            expect(left).toEqual(right)
-        })
-
         it('can handle numeric values', () => {
             const actual = toParams({ a: 123 })
             expect(actual).toEqual('a=123')

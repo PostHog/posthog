@@ -2,13 +2,13 @@
 .StoriesModal__modal {
     min-width: 0;
     overflow: hidden;
-    border: 1px solid rgb(219 222 212);
+    background: transparent !important;
+    border: none;
     border-radius: 6px;
-    box-shadow: 0 25px 50px -12px rgb(52 48 48 / 50%), -8px 0 25px -8px rgb(52 48 48 / 25%),
-        8px 0 25px -8px rgb(52 48 48 / 25%);
+    box-shadow: none;
 
     // This will change the opacity of the swipe component so it's not visible until hovered
-    div > div:nth-child(2) > div:nth-child(2) {
+    .stories-container [role='button'][aria-label*='swipe'] {
         cursor: pointer;
         opacity: 0;
         transition: opacity 0.3s ease-in-out;

@@ -1,6 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { ProjectId, Team } from '../types'
+import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
@@ -39,7 +39,7 @@ export class TeamManager {
         return this.lazyLoader.getMany(tokens)
     }
 
-    public async hasAvailableFeature(teamId: number, feature: string): Promise<boolean> {
+    public async hasAvailableFeature(teamId: number, feature: OrganizationAvailableFeature): Promise<boolean> {
         const team = await this.getTeam(teamId)
         return team?.available_features.includes(feature) || false
     }
@@ -148,7 +148,7 @@ export class TeamManager {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
                 project_id: Number(teamPartial.project_id) as ProjectId,
-                available_features: available_product_features?.map((f) => f.key) || [],
+                available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team

@@ -62,7 +62,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_get_metadata(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="1", team=self.team)
+        metadata = SessionReplayEvents().get_metadata(session_id="1", team_id=self.team.id)
         assert metadata == {
             "active_seconds": 25.0,
             "block_first_timestamps": [],
@@ -83,7 +83,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_get_metadata_with_block(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="2", team=self.team)
+        metadata = SessionReplayEvents().get_metadata(session_id="2", team_id=self.team.id)
         assert metadata == {
             "active_seconds": 1.234,
             "start_time": self.base_time,
@@ -104,7 +104,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_get_metadata_with_multiple_blocks(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="3", team=self.team)
+        metadata = SessionReplayEvents().get_metadata(session_id="3", team_id=self.team.id)
         assert metadata == {
             "active_seconds": 2.345,
             "start_time": self.base_time + relativedelta(seconds=1),
@@ -131,18 +131,18 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_get_nonexistent_metadata(self) -> None:
-        metadata = SessionReplayEvents().get_metadata(session_id="not a session", team=self.team)
+        metadata = SessionReplayEvents().get_metadata(session_id="not a session", team_id=self.team.id)
         assert metadata is None
 
     def test_get_metadata_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization, name="Another Team")
-        metadata = SessionReplayEvents().get_metadata(session_id="1", team=another_team)
+        metadata = SessionReplayEvents().get_metadata(session_id="1", team_id=another_team.id)
         assert metadata is None
 
     def test_get_metadata_filters_by_date(self) -> None:
         metadata = SessionReplayEvents().get_metadata(
             session_id="1",
-            team=self.team,
+            team_id=self.team.id,
             recording_start_time=self.base_time + relativedelta(days=2),
         )
         assert metadata is None

@@ -117,7 +117,7 @@ pub struct KafkaConfig {
     pub kafka_client_ingestion_warning_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_exceptions_topic: String,
-    #[envconfig(default = "events_plugin_ingestion")]
+    #[envconfig(default = "exceptions_ingestion")]
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]
     pub kafka_replay_overflow_topic: String,

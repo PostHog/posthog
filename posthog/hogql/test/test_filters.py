@@ -3,6 +3,7 @@ from typing import Any, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
@@ -44,6 +45,39 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select), f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
+
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            None,
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select), f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
+
+    def test_raises_when_filters_empty_and_not_events_or_sessions(self):
+        select = self._parse_select("SELECT person FROM persons where {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table.",
+        ):
+            replace_filters(select, None, self.team)
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table.",
+        ):
+            replace_filters(select, HogQLFilters(), self.team)
+
+    def test_raises_when_filters_and_not_events_or_sessions(self):
+        select = self._parse_select("SELECT person FROM persons where {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table.",
+        ):
+            replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
     def test_replace_filters_date_range(self):
         select = replace_filters(

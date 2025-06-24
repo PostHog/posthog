@@ -1,14 +1,5 @@
-import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonButtonProps,
-    LemonInput,
-    LemonModal,
-    LemonTab,
-    LemonTabs,
-    Popover,
-} from '@posthog/lemon-ui'
+import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -46,41 +37,8 @@ import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPla
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
+import { HideRecordingsMenu } from './RecordingsUniversalFilters'
 import { SavedFilters } from './SavedFilters'
-
-function HideRecordingsMenu(): JSX.Element {
-    const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
-    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-
-    return (
-        <SettingsMenu
-            highlightWhenActive={false}
-            items={[
-                {
-                    label: hideRecordingsMenuLabelFor(false),
-                    onClick: () => setHideViewedRecordings(false),
-                    active: !hideViewedRecordings,
-                    'data-attr': 'hide-viewed-recordings-show-all',
-                },
-                {
-                    label: hideRecordingsMenuLabelFor('current-user'),
-                    onClick: () => setHideViewedRecordings('current-user'),
-                    active: hideViewedRecordings === 'current-user',
-                    'data-attr': 'hide-viewed-recordings-hide-current-user',
-                },
-                {
-                    label: hideRecordingsMenuLabelFor('any-user'),
-                    onClick: () => setHideViewedRecordings('any-user'),
-                    active: hideViewedRecordings === 'any-user',
-                    'data-attr': 'hide-viewed-recordings-hide-any-user',
-                },
-            ]}
-            icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
-            rounded={true}
-            label={hideRecordingsMenuLabelFor(hideViewedRecordings)}
-        />
-    )
-}
 
 export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
@@ -95,6 +53,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { isZenMode } = useValues(playerSettingsLogic)
 
     return (
         <>
@@ -134,32 +93,34 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
-            <div className="flex gap-2 mt-2 justify-between">
-                <HideRecordingsMenu />
-                <SettingsMenu
-                    highlightWhenActive={false}
-                    items={[
-                        {
-                            label: 'UTC',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
-                            active: playlistTimestampFormat === TimestampFormat.UTC,
-                        },
-                        {
-                            label: 'Device',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
-                            active: playlistTimestampFormat === TimestampFormat.Device,
-                        },
-                        {
-                            label: 'Relative',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
-                            active: playlistTimestampFormat === TimestampFormat.Relative,
-                        },
-                    ]}
-                    icon={<IconClock />}
-                    label={TimestampFormatToLabel[playlistTimestampFormat]}
-                    rounded={true}
-                />
-            </div>
+            {!isZenMode && (
+                <div className="flex gap-2 mt-2 justify-between">
+                    <HideRecordingsMenu />
+                    <SettingsMenu
+                        highlightWhenActive={false}
+                        items={[
+                            {
+                                label: 'UTC',
+                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                                active: playlistTimestampFormat === TimestampFormat.UTC,
+                            },
+                            {
+                                label: 'Device',
+                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                                active: playlistTimestampFormat === TimestampFormat.Device,
+                            },
+                            {
+                                label: 'Relative',
+                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                                active: playlistTimestampFormat === TimestampFormat.Relative,
+                            },
+                        ]}
+                        icon={<IconClock />}
+                        label={TimestampFormatToLabel[playlistTimestampFormat]}
+                        rounded={true}
+                    />
+                </div>
+            )}
         </>
     )
 }
@@ -422,7 +383,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                             >
-                                <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
+                                <RecordingsUniversalFilterGroup />
                             </UniversalFilters>
                         </div>
                     </div>
@@ -532,13 +493,7 @@ export const RecordingsUniversalFiltersEmbed = ({
     )
 }
 
-const RecordingsUniversalFilterGroup = ({
-    size = 'small',
-    totalFiltersCount,
-}: {
-    size?: LemonButtonProps['size']
-    totalFiltersCount?: number
-}): JSX.Element => {
+const RecordingsUniversalFilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
@@ -552,7 +507,7 @@ const RecordingsUniversalFilterGroup = ({
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                        <RecordingsUniversalFilterGroup />
 
                         <Popover
                             overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}

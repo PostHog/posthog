@@ -42,7 +42,6 @@ from posthog.tasks.tasks import (
     redis_celery_queue_depth,
     redis_heartbeat,
     replay_count_metrics,
-    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -52,6 +51,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
     count_items_in_playlists,
+    schedule_all_subscriptions,
 )
 from posthog.utils import get_crontab
 

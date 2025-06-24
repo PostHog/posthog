@@ -393,7 +393,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                         return {
                             ...values.response,
-                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            results: [
+                                ...(values.response && 'results' in values.response
+                                    ? values.response?.results ?? []
+                                    : []),
+                                ...(newResponse?.results ?? []),
+                            ],
                             next: newResponse?.next,
                         }
                     }
@@ -524,8 +529,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     return error ?? 'Error loading data'
                 },
-                loadDataSuccess: (_, { response }) => response?.error ?? null,
-                loadNewDataSuccess: (_, { response }) => response?.error ?? null,
+                loadDataSuccess: (_, { response }) =>
+                    response && 'error' in response ? response?.error ?? null : null,
+                loadNewDataSuccess: (_, { response }) =>
+                    response && 'error' in response ? response?.error ?? null : null,
             },
         ],
         elapsedTime: [
@@ -661,7 +668,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
                 }
-                if (isPersonsNode(query) && response && !responseError && response.next) {
+                if (isPersonsNode(query) && response && !responseError && 'next' in response && response.next) {
                     const personsResults = (response as PersonsNode['response'])?.results
                     const nextQuery: PersonsNode = {
                         ...query,
@@ -680,20 +687,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         hasMoreData: [
             (s) => [s.response],
             (response): boolean => {
-                if (!response?.hasMore) {
-                    return false
-                }
-                return response.hasMore
+                return response && 'hasMore' in response && response.hasMore
             },
         ],
         dataLimit: [
             // get limit from response
             (s) => [s.response],
             (response): number | null => {
-                if (!response?.limit) {
-                    return null
-                }
-                return response.limit
+                return response && 'limit' in response ? response.limit ?? null : null
             },
         ],
         backToSourceQuery: [
@@ -801,7 +802,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.resetLoadingTimer()
         },
         loadDataSuccess: ({ response }) => {
-            props.onData?.(response)
+            props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
@@ -811,10 +812,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.collectionNodeLoadDataFailure(props.key)
         },
         loadNewDataSuccess: ({ response }) => {
-            props.onData?.(response)
+            props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         loadNextDataSuccess: ({ response }) => {
-            props.onData?.(response)
+            props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         resetLoadingTimer: () => {
             if (cache.loadingTimer) {

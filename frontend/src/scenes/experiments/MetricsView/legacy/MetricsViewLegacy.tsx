@@ -14,10 +14,10 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
     const {
         experiment,
         getInsightType,
-        legacyMetricResults,
-        legacySecondaryMetricResults,
-        primaryMetricsResultErrors,
-        secondaryMetricsResultErrors,
+        legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
+        primaryMetricsResultsErrors,
+        secondaryMetricsResultsErrors,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
@@ -25,9 +25,9 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
         return <></>
     }
 
-    const results = isSecondary ? legacySecondaryMetricResults : legacyMetricResults
+    const results = isSecondary ? legacySecondaryMetricsResults : legacyPrimaryMetricsResults
 
-    const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
+    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
     const hasSomeResults = results?.some((result) => result?.insight)
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics

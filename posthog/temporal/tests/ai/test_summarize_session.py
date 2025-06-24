@@ -4,23 +4,25 @@ import json
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
-from collections.abc import Generator
 import pytest
 import uuid
 from unittest.mock import MagicMock, patch
 
 from pytest_mock import MockerFixture
+
+from ee.session_recordings.session_summary import ExceptionToRetry
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.summarize_session import (
     SingleSessionSummaryData,
-    SingleSessionSummaryLlmInputs,
+)
+from posthog.temporal.ai.session_summary.shared import (
+    compress_llm_input_data,
+    get_single_session_summary_llm_input_from_redis,
 )
 from posthog.temporal.ai.session_summary.summarize_session import (
     SingleSessionSummaryInputs,
     SummarizeSingleSessionWorkflow,
-    _compress_llm_input_data,
-    _get_single_session_summary_llm_input_from_redis,
-    execute_summarize_session,
+    execute_summarize_session_stream,
     fetch_session_data_activity,
     stream_llm_single_session_summary_activity,
 )
@@ -29,13 +31,14 @@ from temporalio.testing import WorkflowEnvironment
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
 from openai.types.completion_usage import CompletionUsage
-from posthog.redis import get_client
 from posthog.temporal.ai import WORKFLOWS
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 from posthog import constants
 from unittest.mock import AsyncMock
 from temporalio.exceptions import ApplicationError
 from temporalio.client import WorkflowFailureError
+
+from posthog.temporal.tests.ai.conftest import RedisTestContext
 
 pytestmark = pytest.mark.django_db
 
@@ -72,80 +75,6 @@ def mock_stream_llm(mock_valid_llm_yaml_response: str) -> Callable:
     return _mock_stream_llm
 
 
-@pytest.fixture
-def mock_single_session_summary_inputs(
-    mock_user: MagicMock,
-    mock_team: MagicMock,
-) -> Callable:
-    def _create_inputs(
-        session_id: str, redis_input_key: str = "test_input_key", redis_output_key: str = "test_output_key"
-    ) -> SingleSessionSummaryInputs:
-        return SingleSessionSummaryInputs(
-            session_id=session_id,
-            user_pk=mock_user.pk,
-            team_id=mock_team.id,
-            redis_input_key=redis_input_key,
-            redis_output_key=redis_output_key,
-        )
-
-    return _create_inputs
-
-
-@pytest.fixture
-def mock_session_summary_llm_inputs(
-    mock_user,
-    mock_events_mapping,
-    mock_events_columns,
-    mock_url_mapping_reversed,
-    mock_window_mapping_reversed,
-) -> Callable:
-    def _create_inputs(session_id: str) -> SingleSessionSummaryLlmInputs:
-        return SingleSessionSummaryLlmInputs(
-            session_id=session_id,
-            user_pk=mock_user.pk,
-            summary_prompt="Generate a summary for this session",
-            system_prompt="You are a helpful assistant that summarizes user sessions",
-            simplified_events_mapping=mock_events_mapping,
-            simplified_events_columns=mock_events_columns,
-            url_mapping_reversed=mock_url_mapping_reversed,
-            window_mapping_reversed=mock_window_mapping_reversed,
-            session_start_time_str="2025-03-31T18:40:32.302000Z",
-            session_duration=5323,
-        )
-
-    return _create_inputs
-
-
-class RedisTestContext:
-    def __init__(self):
-        self.redis_client = get_client()
-        self.keys_to_cleanup = []
-
-    def setup_input_data(self, input_key: str, output_key: str, input_data: bytes):
-        """Set up Redis input data and track keys for cleanup."""
-        self.redis_client.setex(
-            input_key,
-            900,  # 15 minutes TTL
-            input_data,
-        )
-        self.keys_to_cleanup.extend([input_key, output_key])
-
-    def cleanup(self):
-        """Clean up all tracked Redis keys."""
-        for key in self.keys_to_cleanup:
-            self.redis_client.delete(key)
-
-
-@pytest.fixture
-def redis_test_setup() -> Generator[RedisTestContext, None, None]:
-    """Context manager for Redis test setup and cleanup."""
-    context = RedisTestContext()
-    try:
-        yield context
-    finally:
-        context.cleanup()
-
-
 class TestFetchSessionDataActivity:
     @pytest.mark.asyncio
     async def test_fetch_session_data_activity_standalone(
@@ -165,7 +94,7 @@ class TestFetchSessionDataActivity:
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
             # Mock DB calls
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -185,11 +114,11 @@ class TestFetchSessionDataActivity:
             stored_data = redis_test_setup.redis_client.get(input_data.redis_input_key)
             assert stored_data is not None
             # Verify we can decompress and parse the stored data
-            decompressed_data = _get_single_session_summary_llm_input_from_redis(
+            decompressed_data = get_single_session_summary_llm_input_from_redis(
                 redis_test_setup.redis_client, input_data.redis_input_key
             )
             assert decompressed_data.session_id == session_id
-            assert decompressed_data.user_pk == input_data.user_pk
+            assert decompressed_data.user_id == input_data.user_id
 
     @pytest.mark.asyncio
     async def test_fetch_session_data_activity_no_events_raises_error(
@@ -204,7 +133,7 @@ class TestFetchSessionDataActivity:
         input_data = mock_single_session_summary_inputs(session_id)
         with (
             # Mock DB calls - return columns but no events (empty list)
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -214,42 +143,42 @@ class TestFetchSessionDataActivity:
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ),
         ):
-            # Call the activity and expect an ApplicationError with a specific message
-            with pytest.raises(ApplicationError) as exc_info:
-                await fetch_session_data_activity(input_data)
-            # Verify the error is retryable and contains the expected message
-            assert not exc_info.value.non_retryable
-            assert "No events found for this replay yet" in str(exc_info.value)
+            with patch("posthog.temporal.ai.session_summary.shared.logger.exception") as mock_logger_exception:
+                # Call the activity and expect an ExceptionToRetry to be raised
+                with pytest.raises(ExceptionToRetry):
+                    await fetch_session_data_activity(input_data)
+                # Verify that the logger was called with the expected message
+                mock_logger_exception.assert_called_once()
+                logged_message = mock_logger_exception.call_args[0][0]
+                assert "No events found for this replay yet" in logged_message
 
 
 class TestStreamLlmSummaryActivity:
     @pytest.mark.asyncio
-    async def test_stream_llm_summary_activity_standalone(
+    async def test_stream_llm_single_session_summary_activity_standalone(
         self,
         mocker: MockerFixture,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
-        mock_session_summary_llm_inputs: Callable,
+        mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         redis_test_setup: RedisTestContext,
     ):
         session_id = "test_session_id"
-        llm_input_data = mock_session_summary_llm_inputs(session_id)
-        compressed_llm_input_data = _compress_llm_input_data(llm_input_data)
+        llm_input_data = mock_single_session_summary_llm_inputs(session_id)
+        compressed_llm_input_data = compress_llm_input_data(llm_input_data)
         input_data = mock_single_session_summary_inputs(session_id)
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         # Store initial input data
         redis_test_setup.setup_input_data(
+            compressed_llm_input_data,
             input_data.redis_input_key,
             input_data.redis_output_key,
-            compressed_llm_input_data,
         )
         # Run the activity and verify results
-        expected_final_summary = serialize_to_sse_event(
-            event_label="session-summary-stream", event_data=json.dumps(mock_enriched_llm_json_response)
-        )
+        expected_final_summary = json.dumps(mock_enriched_llm_json_response)
         with (
             patch("ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()),
             patch("temporalio.activity.heartbeat") as mock_heartbeat,
@@ -266,7 +195,7 @@ class TestStreamLlmSummaryActivity:
             assert spy_setex.call_count == 1 + 8
 
 
-class TestSummarizeSessionWorkflow:
+class TestSummarizeSingleSessionWorkflow:
     @asynccontextmanager
     async def workflow_test_environment(
         self,
@@ -280,7 +209,7 @@ class TestSummarizeSessionWorkflow:
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=constants.MAX_AI_TASK_QUEUE,
                 workflows=WORKFLOWS,
                 activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -291,7 +220,7 @@ class TestSummarizeSessionWorkflow:
                         "ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()
                     ),
                     # Mock DB calls
-                    patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+                    patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
                     patch(
                         "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
                         return_value=mock_raw_metadata,
@@ -309,52 +238,55 @@ class TestSummarizeSessionWorkflow:
 
     def setup_workflow_test(
         self,
-        mock_session_summary_llm_inputs: Callable,
+        mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         redis_test_setup: RedisTestContext,
         mock_enriched_llm_json_response: dict[str, Any],
         session_id_suffix: str = "",
-    ) -> tuple[str, str, SingleSessionSummaryInputs, str]:
+    ) -> tuple[str, str, SingleSessionSummaryInputs, str, str]:
         # Prepare test data
         session_id = f"test_workflow_session_id{session_id_suffix}"
-        input_data = _compress_llm_input_data(mock_session_summary_llm_inputs(session_id))
+        compressed_llm_input_data = compress_llm_input_data(mock_single_session_summary_llm_inputs(session_id))
         redis_input_key = f"test_workflow_input_key_{uuid.uuid4()}"
         redis_output_key = f"test_workflow_output_key_{uuid.uuid4()}"
         workflow_id = f"test_workflow_{uuid.uuid4()}"
         # Create workflow input object
         workflow_input = mock_single_session_summary_inputs(session_id, redis_input_key, redis_output_key)
         # Store input data in Redis
-        redis_test_setup.setup_input_data(redis_input_key, redis_output_key, input_data)
+        redis_test_setup.setup_input_data(compressed_llm_input_data, redis_input_key, redis_output_key)
         # Prepare expected final summary
-        expected_final_summary = serialize_to_sse_event(
-            event_label="session-summary-stream", event_data=json.dumps(mock_enriched_llm_json_response)
+        expected_final_summary = json.dumps(mock_enriched_llm_json_response)
+        expected_sse_final_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=expected_final_summary
         )
-        return session_id, workflow_id, workflow_input, expected_final_summary
+        return session_id, workflow_id, workflow_input, expected_final_summary, expected_sse_final_summary
 
-    def test_execute_summarize_session(
+    def test_execute_summarize_session_stream(
         self,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_user: MagicMock,
         mock_team: MagicMock,
-        mock_session_summary_llm_inputs: Callable,
+        mock_single_session_summary_llm_inputs: Callable,
         redis_test_setup: RedisTestContext,
     ):
         # Prepare input data
         session_id = "test_session_id"
         sample_session_summary_data = SingleSessionSummaryData(
             session_id=session_id,
-            user_pk=mock_user.pk,
+            user_id=mock_user.id,
             prompt_data=True,  # type: ignore
             prompt=True,  # type: ignore
-            sse_error_msg=None,
+            error_msg=None,
         )
-        input_data = mock_session_summary_llm_inputs(session_id)
+        input_data = mock_single_session_summary_llm_inputs(session_id)
         # Mock Redis data for streaming updates
-        expected_final_summary = serialize_to_sse_event(
-            event_label="session-summary-stream", event_data=json.dumps(mock_enriched_llm_json_response)
+        expected_final_summary = json.dumps(mock_enriched_llm_json_response)
+        expected_sse_final_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=expected_final_summary
         )
-        intermediate_summary = serialize_to_sse_event(
-            event_label="session-summary-stream", event_data=json.dumps({"partial": "data"})
+        intermediate_summary = json.dumps({"partial": "data"})
+        intermediate_sse_summary = serialize_to_sse_event(
+            event_label="session-summary-stream", event_data=intermediate_summary
         )
         # Track Redis calls to properly mock responses
         redis_call_count = 0
@@ -388,11 +320,11 @@ class TestSummarizeSessionWorkflow:
         mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)
         with (
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session.prepare_data_for_single_session_summary",
+                "posthog.temporal.ai.session_summary.shared.prepare_data_for_single_session_summary",
                 return_value=sample_session_summary_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session.prepare_single_session_summary_input",
+                "posthog.temporal.ai.session_summary.shared.prepare_single_session_summary_input",
                 return_value=input_data,
             ),
             patch(
@@ -404,9 +336,9 @@ class TestSummarizeSessionWorkflow:
             patch.object(redis_test_setup.redis_client, "delete"),  # Does nothing
         ):
             result = list(
-                execute_summarize_session(
+                execute_summarize_session_stream(
                     session_id=session_id,
-                    user_pk=mock_user.pk,
+                    user_id=mock_user.id,
                     team=mock_team,
                     extra_summary_context=None,
                     local_reads_prod=False,
@@ -414,8 +346,8 @@ class TestSummarizeSessionWorkflow:
             )
             # Verify we got the expected streaming results
             assert len(result) == 2  # intermediate + final, as the first empty result is skipped
-            assert result[0] == intermediate_summary
-            assert result[1] == expected_final_summary
+            assert result[0] == intermediate_sse_summary
+            assert result[1] == expected_sse_final_summary
             # Verify workflow was polled the expected number of times
             assert mock_workflow_handle.describe.call_count == 3
             assert mock_workflow_handle.result.call_count == 1
@@ -426,7 +358,7 @@ class TestSummarizeSessionWorkflow:
         mocker: MockerFixture,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
-        mock_session_summary_llm_inputs: Callable,
+        mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         mock_team: MagicMock,
         mock_raw_metadata: dict[str, Any],
@@ -441,8 +373,8 @@ class TestSummarizeSessionWorkflow:
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
-        _, workflow_id, workflow_input, expected_final_summary = self.setup_workflow_test(
-            mock_session_summary_llm_inputs,
+        _, workflow_id, workflow_input, expected_final_summary, _ = self.setup_workflow_test(
+            mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
             mock_enriched_llm_json_response,
@@ -475,7 +407,7 @@ class TestSummarizeSessionWorkflow:
         self,
         mock_enriched_llm_json_response: dict[str, Any],
         mock_stream_llm: Callable,
-        mock_session_summary_llm_inputs: Callable,
+        mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         mock_team: MagicMock,
         mock_raw_metadata: dict[str, Any],
@@ -485,8 +417,8 @@ class TestSummarizeSessionWorkflow:
         redis_test_setup: RedisTestContext,
     ):
         """Test that the workflow retries when stream_llm_summary_activity fails initially, but succeeds eventually."""
-        _, workflow_id, workflow_input, expected_final_summary = self.setup_workflow_test(
-            mock_session_summary_llm_inputs,
+        _, workflow_id, workflow_input, expected_final_summary, _ = self.setup_workflow_test(
+            mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
             mock_enriched_llm_json_response,
@@ -501,7 +433,7 @@ class TestSummarizeSessionWorkflow:
             redis_get_call_count += 1
             if redis_get_call_count in (1, 2):
                 # First two calls fail with a retryable exception
-                raise ApplicationError("Simulated stream_llm_session_summary failure", non_retryable=False)
+                raise ApplicationError("Simulated stream_llm_single_session_summary failure", non_retryable=False)
             else:
                 # Subsequent calls succeed - return actual data
                 return original_get(key)
@@ -531,7 +463,7 @@ class TestSummarizeSessionWorkflow:
     async def test_summarize_session_workflow_exceeds_retries(
         self,
         mock_stream_llm: Callable,
-        mock_session_summary_llm_inputs: Callable,
+        mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         mock_team: MagicMock,
         mock_raw_metadata: dict[str, Any],
@@ -542,8 +474,8 @@ class TestSummarizeSessionWorkflow:
         mock_enriched_llm_json_response: dict[str, Any],
     ):
         """Test that the workflow retries when stream_llm_summary_activity and fails, as it exceeds the retries limit."""
-        _, workflow_id, workflow_input, _ = self.setup_workflow_test(
-            mock_session_summary_llm_inputs,
+        _, workflow_id, workflow_input, _, _ = self.setup_workflow_test(
+            mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
             mock_enriched_llm_json_response,
@@ -559,7 +491,7 @@ class TestSummarizeSessionWorkflow:
             # Retries limit is 3, so failing 3 times should lead to workflow failure
             if redis_get_call_count in (1, 2, 3):
                 # First two calls fail with a retryable exception
-                raise ApplicationError("Simulated stream_llm_session_summary failure", non_retryable=False)
+                raise ApplicationError("Simulated stream_llm_single_session_summary failure", non_retryable=False)
             else:
                 # Subsequent calls succeed - return actual data
                 return original_get(key)
@@ -595,7 +527,7 @@ class TestSummarizeSessionWorkflow:
         invalid_arg: str,
         expected_error_type: str,
         mock_stream_llm: Callable,
-        mock_session_summary_llm_inputs: Callable,
+        mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         mock_team: MagicMock,
         mock_raw_metadata: dict[str, Any],
@@ -607,7 +539,7 @@ class TestSummarizeSessionWorkflow:
     ):
         """Test that the workflow properly handles incorrect argument types by failing or timing out during argument processing."""
         self.setup_workflow_test(
-            mock_session_summary_llm_inputs,
+            mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
             redis_test_setup,
             mock_enriched_llm_json_response,

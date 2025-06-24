@@ -200,7 +200,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
-            experiment_id=str(self.query.experiment_id),
+            experiment_id=self.query.experiment_id,
             experiment_name=self.query.experiment_name,
             experiment_feature_flag_key=self.feature_flag_key,
         )

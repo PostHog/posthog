@@ -78,7 +78,7 @@ class SessionRecording(UUIDModel):
         else:
             # Try to load from Clickhouse
             metadata = SessionReplayEvents().get_metadata(
-                team=self.team,
+                team_id=self.team.pk,
                 session_id=self.session_id,
                 recording_start_time=self.start_time,
             )

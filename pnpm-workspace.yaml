@@ -1,7 +1,6 @@
 packages:
     - '.'
     - common/esbuilder
-    - common/eslint_rules
     - common/hogvm/typescript
     - common/plugin_transpiler
     - common/storybook
@@ -13,3 +12,7 @@ packages:
     - plugin-server
     - products/*
     - rust/cyclotron-node
+
+catalog:
+    posthog-js: ^1.255.1
+    posthog-js-lite: ^3.6.0

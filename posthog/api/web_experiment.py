@@ -1,8 +1,10 @@
 from typing import Any
+
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
 from nanoid import generate
-from rest_framework import status, serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -10,7 +12,6 @@ from rest_framework.request import Request
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
-from django.views.decorators.csrf import csrf_exempt
 from posthog.auth import (
     TemporaryTokenAuthentication,
 )
@@ -100,7 +101,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         team = Team.objects.get(id=self.context["team_id"])
         default_method = team.organization.default_experiment_stats_method
         stats_config = {
-            "version": 2,
             "method": default_method,
         }
 

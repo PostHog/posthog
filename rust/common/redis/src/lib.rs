@@ -6,7 +6,14 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
 
-const REDIS_TIMEOUT_MILLISECS: u64 = 10;
+const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 100;
+
+fn get_redis_timeout_ms() -> u64 {
+    std::env::var("REDIS_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_REDIS_TIMEOUT_MILLISECS)
+}
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum CustomRedisError {
@@ -119,7 +126,7 @@ impl Client for RedisClient {
     ) -> Result<Vec<String>, CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.zrangebyscore(k, min, max);
-        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         Ok(fut?)
     }
 
@@ -132,7 +139,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
         let count = count.unwrap_or(1);
         let results = conn.hincr(k, v, count);
-        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         fut.map_err(|e| CustomRedisError::Other(e.to_string()))
     }
 
@@ -148,7 +155,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.get(k);
         let fut: Result<Vec<u8>, RedisError> =
-            timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
+            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
 
         // return NotFound error when empty
         if matches!(&fut, Ok(v) if v.is_empty()) {
@@ -186,7 +193,7 @@ impl Client for RedisClient {
         };
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.set(k, bytes);
-        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         Ok(fut?)
     }
 
@@ -216,7 +223,7 @@ impl Client for RedisClient {
 
         // Use SET with both NX and EX options
         let result: Result<Option<String>, RedisError> = timeout(
-            Duration::from_millis(REDIS_TIMEOUT_MILLISECS),
+            Duration::from_millis(get_redis_timeout_ms()),
             redis::cmd("SET")
                 .arg(&k)
                 .arg(&bytes)
@@ -237,7 +244,7 @@ impl Client for RedisClient {
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.del(k);
-        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         fut.map_err(|e| CustomRedisError::Other(e.to_string()))
     }
 
@@ -245,7 +252,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.hget(k, field);
         let fut: Result<Option<String>, RedisError> =
-            timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
+            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
 
         match fut? {
             Some(value) => Ok(value),

@@ -88,6 +88,10 @@ pub async fn evaluate_for_request(
         return FlagsResponse::new(false, HashMap::new(), None, request_id);
     }
 
+    if filtered_flags.flags.is_empty() {
+        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+    }
+
     let ctx = FeatureFlagEvaluationContext {
         team_id,
         project_id,
