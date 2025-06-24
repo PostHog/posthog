@@ -280,13 +280,10 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
+        this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
 
-        // Track the reassignment in final state - all distinct IDs from source now point to target
-        // This is the critical operation that causes cache key mismatches
-        this.updateFinalState(source.team_id, distinctId, target, false, 'moveDistinctIds')
-
-        // Also clear the cache for the source person to prevent stale data
-        this.secondaryStore.clearCache(source.team_id, distinctId)
+        this.updateFinalState(source.team_id, source.uuid, source, false, 'moveDistinctIds')
+        this.updateFinalState(target.team_id, distinctId, target, false, 'moveDistinctIds')
 
         return mainResult
     }
@@ -403,8 +400,6 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     compareFinalStates(): void {
-        const batchUpdateCache = this.secondaryStore.getUpdateCache()
-
         // Initialize metrics
         this.shadowMetrics.totalComparisons = 0
         this.shadowMetrics.sameOutcomeSameBatch = 0
@@ -416,7 +411,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
         // Compare each person we tracked in finalStates with what's in the batch cache
         for (const [key, mainUpdate] of this.finalStates.entries()) {
-            const secondaryPersonUpdate = batchUpdateCache.get(key)
+            // Parse the key to extract teamId and distinctId
+            const [teamIdStr, distinctId] = key.split(':')
+            const teamId = parseInt(teamIdStr, 10)
+
+            const secondaryPersonUpdate = this.secondaryStore.getCachedPersonForUpdate(teamId, distinctId)
             const secondaryPerson = secondaryPersonUpdate ? toInternalPerson(secondaryPersonUpdate) : null
             const mainPerson = mainUpdate?.person || null
             const versionDisparity = mainUpdate?.versionDisparity || false
