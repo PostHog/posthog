@@ -3,11 +3,17 @@
 from typing import List, Dict, Any, Optional, Type
 import structlog
 
-from .base import MarketingSourceAdapter, ValidationResult, QueryContext
+from .base import MarketingSourceAdapter, QueryContext
 from .google_ads import GoogleAdsAdapter
-from .external_table import ExternalTableAdapter
+
 from .meta_ads import MetaAdsAdapter
-from ..constants import VALID_NATIVE_MARKETING_SOURCES
+from .bigquery import BigQueryAdapter
+from .self_managed import (
+    SelfManagedAdapter, AWSAdapter, GoogleCloudAdapter, 
+    CloudflareR2Adapter, AzureAdapter
+)
+from ..constants import VALID_NATIVE_MARKETING_SOURCES, VALID_NON_NATIVE_MARKETING_SOURCES, VALID_SELF_MANAGED_MARKETING_SOURCES
+from ..utils import get_marketing_config_value, map_url_to_provider
 
 logger = structlog.get_logger(__name__)
 
@@ -23,9 +29,16 @@ class MarketingSourceFactory:
     
     # Registry of adapter classes
     _adapter_registry: Dict[str, Type[MarketingSourceAdapter]] = {
+        # Native adapters
         'GoogleAds': GoogleAdsAdapter,
         'MetaAds': MetaAdsAdapter,
-        'external_table': ExternalTableAdapter,
+        # Non-native adapters
+        'BigQuery': BigQueryAdapter,
+        # Self-managed adapters
+        'aws': AWSAdapter,
+        'google-cloud': GoogleCloudAdapter,
+        'cloudflare-r2': CloudflareR2Adapter,
+        'azure': AzureAdapter,
     }
     
     def __init__(self, team: Any):
@@ -37,6 +50,16 @@ class MarketingSourceFactory:
         """Register a new adapter type for a marketing source"""
         cls._adapter_registry[source_type] = adapter_class
         logger.info("Registered marketing source adapter", source_type=source_type, adapter_class=adapter_class.__name__)
+    
+    @classmethod
+    def register_self_managed_adapter(cls, platform_type: str, adapter_class: Type[MarketingSourceAdapter]):
+        """Convenience method to register a new self-managed platform adapter"""
+        cls.register_adapter(platform_type, adapter_class)
+        # Also add to the valid self-managed sources if not already there
+        from ..constants import VALID_SELF_MANAGED_MARKETING_SOURCES
+        if platform_type not in VALID_SELF_MANAGED_MARKETING_SOURCES:
+            VALID_SELF_MANAGED_MARKETING_SOURCES.append(platform_type)
+            logger.info("Added new self-managed platform", platform_type=platform_type)
     
     def create_adapters(self) -> List[MarketingSourceAdapter]:
         """
@@ -55,8 +78,12 @@ class MarketingSourceFactory:
             native_adapters = self._create_native_source_adapters(datawarehouse_tables)
             adapters.extend(native_adapters)
             
-            # Create adapters for external tables
-            external_adapters = self._create_external_table_adapters(datawarehouse_tables, sources_map)
+            # Create adapters for non-native sources (e.g., BigQuery)
+            non_native_adapters = self._create_non_native_source_adapters(datawarehouse_tables, sources_map)
+            adapters.extend(non_native_adapters)
+            
+            # Create adapters for external tables (e.g., AWS, Google Cloud, Cloudflare R2, Azure)
+            external_adapters = self._create_self_managed_source_adapters(datawarehouse_tables, sources_map)
             adapters.extend(external_adapters)
             
             self.logger.info(f"Created {len(adapters)} marketing source adapters")
@@ -166,11 +193,24 @@ class MarketingSourceFactory:
             self.logger.error("Error creating Meta Ads adapter", error=str(e))
             return None
     
-    def _create_external_table_adapters(self, datawarehouse_tables, sources_map) -> List[MarketingSourceAdapter]:
-        """Create adapters for external tables"""
+    def _create_self_managed_source_adapters(self, datawarehouse_tables, sources_map) -> List[MarketingSourceAdapter]:
+        """Create adapters for self-managed external tables (exclude tables already handled by native/non-native flows)"""
         adapters = []
         
+        # Filter out tables that have external_data_source with source_type in VALID_NATIVE_MARKETING_SOURCES or VALID_NON_NATIVE_MARKETING_SOURCES
+        # These tables are already handled by the native and non-native flows
+        self_managed_tables = []
+        excluded_count = 0
+        
         for table in datawarehouse_tables:
+            if table.external_data_source:
+                source_type = table.external_data_source.source_type
+                if source_type in VALID_NATIVE_MARKETING_SOURCES or source_type in VALID_NON_NATIVE_MARKETING_SOURCES:
+                    excluded_count += 1
+                    continue
+            self_managed_tables.append(table)
+        
+        for table in self_managed_tables:
             try:
                 adapter = self._create_external_table_adapter(table, sources_map)
                 if adapter:
@@ -179,10 +219,9 @@ class MarketingSourceFactory:
                 self.logger.error("Error creating external table adapter", 
                                  table_name=getattr(table, 'name', 'unknown'), 
                                  error=str(e))
-        
         return adapters
     
-    def _create_external_table_adapter(self, table, sources_map) -> Optional[ExternalTableAdapter]:
+    def _create_external_table_adapter(self, table, sources_map) -> Optional[MarketingSourceAdapter]:
         """Create adapter for a specific external table"""
         try:
             # Get source map and type (replicating existing logic)
@@ -198,16 +237,72 @@ class MarketingSourceFactory:
                 'table': table,
                 'source_map': source_map,
                 'source_type': source_type,
-                'schema_name': schema_name  # Add schema_name to config
+                'schema_name': schema_name
             }
             
-            return ExternalTableAdapter(team=self.team, config=config)
+            # Use specific self-managed adapter if it's a self-managed source
+            if source_type == 'self_managed':
+                return self._create_self_managed_adapter(config)
+            else:
+                # No fallback - only support explicitly configured adapters
+                self.logger.warning(f"No adapter available for external source type: {source_type}")
+                return None
             
         except Exception as e:
             self.logger.error("Error creating external table adapter", 
                              table_name=getattr(table, 'name', 'unknown'), 
                              error=str(e))
             return None
+    
+    def _create_self_managed_adapter(self, config: Dict[str, Any]) -> Optional[MarketingSourceAdapter]:
+        """Create appropriate self-managed adapter based on platform detection"""
+        try:
+            table = config.get('table')
+            table_name = getattr(table, 'name', '').lower()
+            
+            # Try to detect platform from table metadata or configuration
+            # For now, we'll detect based on naming patterns or add metadata later
+            platform_type = self._detect_self_managed_platform(table)
+            
+            # Get the appropriate adapter class
+            adapter_class = self._adapter_registry.get(platform_type)
+            if adapter_class:
+                self.logger.info(f"Creating {platform_type} adapter for self-managed table: {table_name}")
+                return adapter_class(team=self.team, config=config)
+            else:
+                # Fallback to generic self-managed adapter
+                self.logger.warning(f"No specific adapter for platform {platform_type}, using generic self-managed adapter")
+                return SelfManagedAdapter(team=self.team, config=config)
+                
+        except Exception as e:
+            self.logger.error("Error creating self-managed adapter", error=str(e))
+            return None
+    
+    def _detect_self_managed_platform(self, table) -> str:
+        """Detect the platform type for self-managed tables based on URL pattern"""
+        try:
+            # Use the same logic as frontend mapUrlToProvider function
+            # from DataWarehouseSourceIcon.tsx
+            url_pattern = getattr(table, 'url_pattern', '')
+            
+            if not url_pattern:
+                self.logger.warning("No url_pattern found for self-managed table", table_name=getattr(table, 'name', 'unknown'))
+                return 'aws'  # Safe default
+            
+            # Use the utility function that mirrors frontend logic
+            platform = map_url_to_provider(url_pattern)
+            
+            # Handle unknown platform (BlushingHog in frontend)
+            if platform == 'BlushingHog':
+                self.logger.info(f"Unknown URL pattern, defaulting to AWS", url_pattern=url_pattern, table_name=getattr(table, 'name', 'unknown'))
+                return 'aws'
+            
+            self.logger.info(f"Detected platform from URL pattern", platform=platform, url_pattern=url_pattern, table_name=getattr(table, 'name', 'unknown'))
+            return platform
+            
+        except Exception as e:
+            self.logger.error("Error detecting self-managed platform from URL pattern", error=str(e))
+            return 'aws'  # Safe default
     
     def _get_table_source_config(self, table, sources_map) -> tuple[Optional[Dict], str]:
         """Get source map and type for a table (replicating existing logic)"""
@@ -299,7 +394,6 @@ class MarketingSourceFactory:
     def _get_team_sources_map(self):
         """Get sources map from team marketing analytics config"""
         from posthog.models import Team
-        from ..utils import get_marketing_config_value
         team = Team.objects.get(pk=self.team.pk)
         marketing_config = getattr(team, 'marketing_analytics_config', None)
         return get_marketing_config_value(marketing_config, 'sources_map', {})
@@ -347,4 +441,88 @@ class MarketingSourceFactory:
                 
         except Exception as e:
             self.logger.error("Error getting table schema name", table_name=getattr(table, 'name', 'unknown'), error=str(e))
-            return getattr(table, 'name', 'unknown') 
+            return getattr(table, 'name', 'unknown')
+    
+    def _create_non_native_source_adapters(self, datawarehouse_tables, sources_map) -> List[MarketingSourceAdapter]:
+        """Create adapters for non-native marketing sources (e.g., BigQuery)"""
+        adapters = []
+        
+        try:
+            from posthog.warehouse.models import ExternalDataSource
+            
+            external_data_sources = ExternalDataSource.objects.filter(team_id=self.team.pk)
+            
+            for source in external_data_sources:
+                if source.source_type in VALID_NON_NATIVE_MARKETING_SOURCES:
+                    associated_tables = datawarehouse_tables.filter(external_data_source=source)
+                    
+                    if associated_tables.exists():
+                        result = self._create_non_native_source_adapter(source, list(associated_tables), sources_map)
+                        if result:
+                            # Handle both single adapter and list of adapters
+                            if isinstance(result, list):
+                                adapters.extend(result)
+                            else:
+                                adapters.append(result)
+            
+        except Exception as e:
+            self.logger.error("Error creating non-native source adapters", error=str(e))
+        
+        return adapters
+    
+    def _create_non_native_source_adapter(self, source, tables, sources_map) -> Optional[List[MarketingSourceAdapter]]:
+        """Create adapters for a specific non-native source (can return multiple adapters for BigQuery)"""
+        try:
+            if source.source_type == 'BigQuery':
+                return self._create_bigquery_adapters(source, tables, sources_map)
+            
+            self.logger.warning(f"No adapter available for non-native source type: {source.source_type}")
+            return None
+            
+        except Exception as e:
+            self.logger.error("Error creating non-native source adapter", source_type=source.source_type, error=str(e))
+            return None
+    
+    def _create_bigquery_adapters(self, source, tables, sources_map) -> Optional[List[BigQueryAdapter]]:
+        """Create BigQuery adapters - one per table that has a source map"""
+        try:
+            adapters = []
+            
+            for table in tables:
+                # For BigQuery, check if this table has a source map configured
+                table_id = str(table.id)
+                schema_id = self._get_schema_id_for_table(table)
+                source_id = str(source.id)
+                
+                # Check if there's a source map for this table
+                source_map = self._find_source_map_for_managed_table(
+                    sources_map, schema_id, source_id, table_id
+                )
+                
+                if source_map:
+                    schema_name = self._get_table_schema_name(table)
+                    
+                    config = {
+                        'table': table,
+                        'source_map': source_map,
+                        'source_type': 'BigQuery',
+                        'source_id': source.id,
+                        'schema_name': schema_name
+                    }
+                    
+                    adapter = BigQueryAdapter(team=self.team, config=config)
+                    adapters.append(adapter)
+                    self.logger.info(f"JFBW: Created BigQuery adapter for table {table.name}")
+                else:
+                    self.logger.info(f"JFBW: No source map found for BigQuery table {table.name}")
+            
+            if not adapters:
+                self.logger.warning("BigQuery source has no configured tables with source maps")
+                return None
+            
+            self.logger.info(f"JFBW: Created {len(adapters)} BigQuery adapters for source {source.id}")
+            return adapters
+            
+        except Exception as e:
+            self.logger.error("Error creating BigQuery adapters", error=str(e))
+            return None 

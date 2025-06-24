@@ -18,7 +18,7 @@ from .constants import (
 from .utils import (
     get_marketing_analytics_columns_with_conversion_goals, get_source_map_field,
     get_marketing_config_value, ConversionGoalProcessor, add_conversion_goal_property_filters,
-    get_global_property_conditions
+    get_global_property_conditions, convert_team_conversion_goals_to_objects
 )
 from .adapters.factory import MarketingSourceFactory
 from .adapters.base import QueryContext
@@ -58,6 +58,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             valid_adapters = factory.get_valid_adapters(adapters)
             
             logger.info(f"Found {len(valid_adapters)} valid marketing source adapters")
+            
             return valid_adapters
             
         except Exception as e:
@@ -303,57 +304,7 @@ LEFT JOIN {cte_name} cg_{index} ON cc.campaign_name = cg_{index}.campaign_name
         
         return ",\n".join(selects)
 
-    def _convert_team_conversion_goals_to_objects(self, team_conversion_goals):
-        """Convert team conversion goals from dict format to ConversionGoalFilter objects"""
-        converted_goals = []
-        
-        for goal in team_conversion_goals:
-            try:
-                # Handle both dict and object formats
-                if hasattr(goal, 'get'):
-                    goal_dict = dict(goal) if hasattr(goal, 'items') else goal
-                elif hasattr(goal, '__dict__'):
-                    goal_dict = goal.__dict__
-                else:
-                    goal_dict = goal
-                
-                # Determine the correct ConversionGoalFilter type based on kind
-                kind = goal_dict.get('kind', 'EventsNode')
-                # Clean up the goal_dict for each schema type
-                cleaned_goal_dict = goal_dict.copy()
-                
-                if kind == 'EventsNode':
-                    # EventsNode doesn't need special field mapping
-                    converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)
-                elif kind == 'ActionsNode':
-                    # ActionsNode doesn't allow 'event' field - remove it
-                    if 'event' in cleaned_goal_dict:
-                        del cleaned_goal_dict['event']
-                    converted_goal = ConversionGoalFilter2(**cleaned_goal_dict)
-                elif kind == 'DataWarehouseNode':
-                    # DataWarehouseNode doesn't allow 'event' field - remove it
-                    if 'event' in cleaned_goal_dict:
-                        del cleaned_goal_dict['event']
 
-                    # ConversionGoalFilter3 expects both id_field and distinct_id_field
-                    if 'distinct_id_field' in cleaned_goal_dict and 'id_field' not in cleaned_goal_dict:
-                        cleaned_goal_dict['id_field'] = cleaned_goal_dict['distinct_id_field']
-                        # Keep distinct_id_field as it's also required
-                    
-                    converted_goal = ConversionGoalFilter3(**cleaned_goal_dict)
-                else:
-                    # Default to EventsNode
-                    converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)
-                
-                converted_goals.append(converted_goal)
-                
-            except Exception as e:
-                logger.error("Error converting team conversion goal", error=str(e), goal=str(goal), extra={
-                    "team_id": self.team.pk
-                })
-                continue
-        
-        return converted_goals
 
     def _get_team_conversion_goals(self):
         """Get conversion goals from team marketing analytics config and convert to proper objects"""
@@ -367,7 +318,7 @@ LEFT JOIN {cte_name} cg_{index} ON cc.campaign_name = cg_{index}.campaign_name
                 team_conversion_goals = self._get_marketing_config_value(marketing_config, 'conversion_goals', [])
             
             # Convert to proper ConversionGoalFilter objects
-            converted_goals = self._convert_team_conversion_goals_to_objects(team_conversion_goals)
+            converted_goals = convert_team_conversion_goals_to_objects(team_conversion_goals, self.team.pk)
 
             return converted_goals
             

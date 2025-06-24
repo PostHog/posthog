@@ -44,6 +44,12 @@ MARKETING_ANALYTICS_SCHEMA = {
 # Valid native marketing sources
 VALID_NATIVE_MARKETING_SOURCES = ['GoogleAds', 'MetaAds']
 
+# Valid non-native marketing sources (managed external sources like BigQuery)
+VALID_NON_NATIVE_MARKETING_SOURCES = ['BigQuery']
+
+# Valid self-managed marketing sources (mirrors frontend types)
+VALID_SELF_MANAGED_MARKETING_SOURCES = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
+
 # Required tables for each native source
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     'GoogleAds': ['campaign', 'campaign_stats'],
