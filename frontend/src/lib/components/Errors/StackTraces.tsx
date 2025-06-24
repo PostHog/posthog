@@ -2,10 +2,10 @@ import './StackTraces.scss'
 
 import { IconBox } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { cancelEvent } from 'products/error_tracking/frontend/utils'
 import { MouseEvent, useEffect } from 'react'
 import { match, P } from 'ts-pattern'
 

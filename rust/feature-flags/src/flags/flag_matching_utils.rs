@@ -4,9 +4,9 @@ use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     api::{errors::FlagError, types::FlagValue},
@@ -89,6 +89,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             AND ppd.team_id = $2
     "#;
 
+    let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
     let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
         .bind(&distinct_id)
@@ -98,6 +99,23 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         .unwrap_or((None, None));
     person_query_timer.fin();
 
+    let person_query_duration = person_query_start.elapsed();
+
+    if person_query_duration.as_millis() > 500 {
+        warn!(
+            "Slow person query detected: {}ms for distinct_id={}, team_id={}",
+            person_query_duration.as_millis(),
+            distinct_id,
+            team_id
+        );
+    } else {
+        info!(
+            "Person query completed: {}ms for distinct_id={}, team_id={}",
+            person_query_duration.as_millis(),
+            distinct_id,
+            team_id,
+        );
+    }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
         // NB: this is where we actually set our person ID in the flag evaluation state.
@@ -117,6 +135,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                     FROM cohort_membership
                 "#;
 
+            let cohort_query_start = Instant::now();
             let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
@@ -124,6 +143,24 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
+
+            let cohort_query_duration = cohort_query_start.elapsed();
+
+            if cohort_query_duration.as_millis() > 200 {
+                warn!(
+                    "Slow cohort query detected: {}ms for person_id={}, cohort_count={}",
+                    cohort_query_duration.as_millis(),
+                    person_id,
+                    static_cohort_ids.len()
+                );
+            } else {
+                info!(
+                    "Cohort query completed: {}ms for person_id={}, cohort_count={}",
+                    cohort_query_duration.as_millis(),
+                    person_id,
+                    static_cohort_ids.len()
+                );
+            }
 
             let cohort_processing_timer =
                 common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
@@ -149,16 +186,26 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     // if we have person properties, set them
-    if let Some(person_props) = person_props {
-        flag_evaluation_state.set_person_properties(
-            person_props
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        );
-    }
+    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
+    {
+        person_props
+            .as_object()
+            .unwrap_or(&serde_json::Map::new())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    // Always add distinct_id to person properties to match Python implementation
+    // This allows flags to filter on distinct_id even when no other person properties exist
+    all_person_properties.insert(
+        "distinct_id".to_string(),
+        Value::String(distinct_id.clone()),
+    );
+
+    flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
 
     // Only fetch group property data if we have group types to look up
@@ -178,6 +225,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             group_type_indexes.iter().cloned().collect();
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
+        let group_query_start = Instant::now();
         let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
         let groups = sqlx::query(group_query)
             .bind(team_id)
@@ -186,6 +234,27 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .fetch_all(&mut *conn)
             .await?;
         group_query_timer.fin();
+
+        let group_query_duration = group_query_start.elapsed();
+
+        if group_query_duration.as_millis() > 300 {
+            warn!(
+                "Slow group query detected: {}ms for team_id={}, group_types={}, group_keys={}",
+                group_query_duration.as_millis(),
+                team_id,
+                group_type_indexes_vec.len(),
+                group_keys_vec.len()
+            );
+        } else {
+            info!(
+                "Group query completed: {}ms for team_id={}, group_types={}, group_keys={}, results={}",
+                group_query_duration.as_millis(),
+                team_id,
+                group_type_indexes_vec.len(),
+                group_keys_vec.len(),
+                groups.len()
+            );
+        }
 
         let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
         for row in groups {
@@ -216,15 +285,9 @@ pub fn locally_computable_property_overrides(
         return None;
     }
 
-    // Filter out metadata that isn't a real property override
-    let real_overrides = extract_real_property_overrides(overrides);
-    if real_overrides.is_empty() {
-        return None;
-    }
-
     // Only return overrides if they're useful for this flag
-    if are_overrides_useful_for_flag(&real_overrides, property_filters) {
-        Some(real_overrides)
+    if are_overrides_useful_for_flag(overrides, property_filters) {
+        Some(overrides.clone())
     } else {
         None
     }
@@ -235,15 +298,6 @@ fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
     property_filters
         .iter()
         .any(|prop| prop.prop_type == PropertyType::Cohort)
-}
-
-/// Extracts real property overrides, filtering out metadata like $group_key
-fn extract_real_property_overrides(overrides: &HashMap<String, Value>) -> HashMap<String, Value> {
-    overrides
-        .iter()
-        .filter(|(key, _)| *key != "$group_key")
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect()
 }
 
 /// Determines if the provided overrides contain properties that the flag actually needs

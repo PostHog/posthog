@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
@@ -12,7 +12,9 @@ from posthog.tasks.calculate_cohort import (
     enqueue_cohorts_to_calculate,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
-    update_stale_cohort_metrics,
+    MAX_STUCK_COHORTS_TO_RESET,
+    reset_stuck_cohorts,
+    update_cohort_metrics,
     COHORTS_STALE_COUNT_GAUGE,
     COHORT_STUCK_COUNT_GAUGE,
     increment_version_and_enqueue_calculate_cohort,
@@ -191,7 +193,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 is_static=False,
             )
 
-            update_stale_cohort_metrics()
+            update_cohort_metrics()
 
             mock_labels.assert_any_call(hours="24")
             mock_labels.assert_any_call(hours="36")
@@ -250,8 +252,154 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 is_static=False,
             )
 
-            update_stale_cohort_metrics()
+            update_cohort_metrics()
             mock_set.assert_called_with(2)
+
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_cohorts(self, mock_logger: MagicMock) -> None:
+            now = timezone.now()
+
+            # Create stuck cohorts that should be reset (is_calculating=True, last_calculation > 24 hours ago)
+            stuck_cohort_1 = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort_1",
+                last_calculation=now - relativedelta(hours=25),  # Stuck for 25 hours
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=2,
+                is_static=False,
+            )
+
+            stuck_cohort_2 = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_cohort_2",
+                last_calculation=now - relativedelta(hours=48),  # Stuck for 48 hours
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=1,
+                is_static=False,
+            )
+
+            # Create cohorts that should NOT be reset
+            # Not stuck (recent calculation)
+            not_stuck_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="not_stuck_cohort",
+                last_calculation=now - relativedelta(hours=1),  # Recent calculation
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Static cohort (should be excluded)
+            static_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="static_cohort",
+                last_calculation=now - relativedelta(hours=48),
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=True,  # Static cohorts are excluded
+            )
+
+            # Deleted cohort (should be excluded)
+            deleted_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="deleted_cohort",
+                last_calculation=now - relativedelta(hours=48),
+                deleted=True,  # Deleted cohorts are excluded
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Cohort with null last_calculation (should be excluded)
+            null_last_calc_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="null_last_calc_cohort",
+                last_calculation=None,  # Null last_calculation is excluded
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Not calculating cohort (should be excluded)
+            not_calculating_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="not_calculating_cohort",
+                last_calculation=now - relativedelta(hours=48),
+                deleted=False,
+                is_calculating=False,  # Not calculating
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            # Run the function
+            reset_stuck_cohorts()
+
+            # Verify that stuck cohorts were reset
+            stuck_cohort_1.refresh_from_db()
+            stuck_cohort_2.refresh_from_db()
+            self.assertFalse(stuck_cohort_1.is_calculating)
+            self.assertFalse(stuck_cohort_2.is_calculating)
+
+            # Verify that non-stuck cohorts were NOT reset
+            not_stuck_cohort.refresh_from_db()
+            static_cohort.refresh_from_db()
+            deleted_cohort.refresh_from_db()
+            null_last_calc_cohort.refresh_from_db()
+            not_calculating_cohort.refresh_from_db()
+
+            self.assertTrue(not_stuck_cohort.is_calculating)  # Should still be calculating
+            self.assertTrue(static_cohort.is_calculating)  # Should still be calculating
+            self.assertTrue(deleted_cohort.is_calculating)  # Should still be calculating
+            self.assertTrue(null_last_calc_cohort.is_calculating)  # Should still be calculating
+            self.assertFalse(not_calculating_cohort.is_calculating)  # Should remain not calculating
+
+            # Verify logging
+            mock_logger.warning.assert_called_once()
+            args, kwargs = mock_logger.warning.call_args
+            self.assertEqual(args[0], "reset_stuck_cohorts")
+            self.assertEqual(set(kwargs["cohort_ids"]), {stuck_cohort_1.pk, stuck_cohort_2.pk})
+            self.assertEqual(kwargs["count"], 2)
+
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_cohorts_respects_limit(self, mock_logger: MagicMock) -> None:
+            now = timezone.now()
+
+            # Create more stuck cohorts than the limit (MAX_STUCK_COHORTS_TO_RESET)
+            stuck_cohorts = []
+            for i in range(MAX_STUCK_COHORTS_TO_RESET + 3):
+                cohort = Cohort.objects.create(
+                    team_id=self.team.pk,
+                    name=f"stuck_cohort_{i}",
+                    last_calculation=now - relativedelta(hours=25),
+                    deleted=False,
+                    is_calculating=True,
+                    errors_calculating=0,
+                    is_static=False,
+                )
+                stuck_cohorts.append(cohort)
+
+            reset_stuck_cohorts()
+
+            # Count how many were actually reset
+            reset_count = 0
+            for cohort in stuck_cohorts:
+                cohort.refresh_from_db()
+                if not cohort.is_calculating:
+                    reset_count += 1
+
+            self.assertEqual(reset_count, MAX_STUCK_COHORTS_TO_RESET)
+
+            # Verify logging
+            mock_logger.warning.assert_called_once()
+            args, kwargs = mock_logger.warning.call_args
+            self.assertEqual(args[0], "reset_stuck_cohorts")
+            self.assertEqual(len(kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
+            self.assertEqual(kwargs["count"], MAX_STUCK_COHORTS_TO_RESET)
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
@@ -279,17 +427,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             enqueue_cohorts_to_calculate(2)
 
-            # Verify the log was called for both cohorts
-            self.assertEqual(mock_logger.info.call_count, 2)
-
-            # Check the log calls have the expected format
-            self.assertCountEqual(
-                mock_logger.info.call_args_list,
-                [
-                    call("Enqueuing cohort calculation", cohort_id=cohort2.pk, last_calculation=None),
-                    call("Enqueuing cohort calculation", cohort_id=cohort1.pk, last_calculation=last_calc_time),
-                ],
-            )
+            self.assertEqual(mock_logger.warning.call_count, 1)
+            args, kwargs = mock_logger.warning.call_args
+            assert args[0] == "enqueued_cohort_calculation"
+            assert set(kwargs["cohort_ids"]) == {cohort1.pk, cohort2.pk}
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -379,16 +520,22 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             self.assertEqual(mock_calculate_cohort_ch_si.call_count, 4)
 
-            # Extract the actual call order and verify it matches expected dependency resolution
+            # Extract the actual call order and verify dependency constraints are satisfied
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
-            expected_cohort_order = [cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id]
 
-            self.assertEqual(
-                actual_cohort_order,
-                expected_cohort_order,
-                "Cohorts should be processed in dependency order: A, B (leaves), then C (depends on A,B), then D (depends on C)",
-            )
+            self.assertEqual(set(actual_cohort_order), {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id})
+
+            # Verify dependency constraints:
+            # Both A and B (leaf nodes) must come before C
+            a_index = actual_cohort_order.index(cohort_a.id)
+            b_index = actual_cohort_order.index(cohort_b.id)
+            c_index = actual_cohort_order.index(cohort_c.id)
+            d_index = actual_cohort_order.index(cohort_d.id)
+
+            self.assertLess(a_index, c_index, "Cohort A must be processed before C (dependency)")
+            self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
+            self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()

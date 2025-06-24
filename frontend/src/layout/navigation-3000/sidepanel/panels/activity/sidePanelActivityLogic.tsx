@@ -113,7 +113,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
-                    } catch (e) {
+                    } catch {
                         // swallow errors as this isn't user initiated
                         // increment a counter to backoff calling the API while errors persist
                         actions.incrementErrorCount()
@@ -262,7 +262,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                     }
 
                     return humanize(importantChanges?.results || [], describerFor, true)
-                } catch (e) {
+                } catch {
                     // swallow errors as this isn't user initiated
                     return []
                 }

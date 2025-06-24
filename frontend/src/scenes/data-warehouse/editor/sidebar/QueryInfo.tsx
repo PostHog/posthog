@@ -1,4 +1,4 @@
-import { IconBolt, IconLightBulb, IconRevert, IconX } from '@posthog/icons'
+import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
@@ -94,7 +94,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     return (
         <div className="overflow-auto" data-attr="sql-editor-sidebar-query-info-pane">
-            <div className="flex flex-col flex-1 p-4 gap-4">
+            <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>
@@ -192,7 +192,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             </div>
                         ) : (
                             <div>
-                                <p>
+                                <p className="text-xs">
                                     Materialized views are a way to pre-compute data in your data warehouse. This allows
                                     you to run queries faster and more efficiently. Learn more about materialization{' '}
                                     <Link
@@ -205,6 +205,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     .
                                 </p>
                                 <LemonButton
+                                    size="small"
                                     onClick={() => {
                                         if (editingView) {
                                             updateDataWarehouseSavedQuery({
@@ -233,9 +234,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     <>
                         <div>
                             <h3>Materialization Runs</h3>
-                            <p>The last runs for this materialized view. These can be scheduled or run on demand.</p>
+                            <p className="text-xs">
+                                The last runs for this materialized view. These can be scheduled or run on demand.
+                            </p>
                         </div>
                         <LemonTable
+                            size="small"
                             loading={initialDataWarehouseSavedQueryLoading}
                             dataSource={dataModelingJobs?.results || []}
                             columns={[
@@ -312,9 +316,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                 )}
                 <div>
                     <h3>Columns</h3>
-                    <p>Columns that are available in the materialized view.</p>
+                    <p className="text-xs">Columns that are available in the materialized view.</p>
                 </div>
                 <LemonTable
+                    size="small"
                     columns={[
                         {
                             key: 'name',
@@ -342,9 +347,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     <>
                         <div>
                             <h3>Dependencies</h3>
-                            <p>Dependencies are tables that this query uses.</p>
+                            <p className="text-xs">Dependencies are tables that this query uses.</p>
                         </div>
                         <LemonTable
+                            size="small"
                             columns={[
                                 {
                                     key: 'Name',
@@ -408,23 +414,19 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     <>
                         <div>
                             <h3>Upstream Dependencies</h3>
-                            <p>Tables and views that this query depends on.</p>
+                            <p className="text-xs">Tables and views that this query depends on.</p>
                         </div>
                         <LemonTable
+                            size="small"
                             columns={[
                                 {
                                     key: 'name',
                                     title: 'Name',
-                                    render: (_, { name, last_run_at }) => (
+                                    render: (_, { name }) => (
                                         <div className="flex items-center gap-1">
                                             {name === editingView?.name && (
                                                 <Tooltip placement="right" title="This is the currently viewed query">
-                                                    <IconLightBulb className="text-warning" />
-                                                </Tooltip>
-                                            )}
-                                            {last_run_at && (
-                                                <Tooltip placement="right" title="This view is materialized">
-                                                    <IconBolt className="text-warning" />
+                                                    <IconTarget className="text-warning" />
                                                 </Tooltip>
                                             )}
                                             {name}

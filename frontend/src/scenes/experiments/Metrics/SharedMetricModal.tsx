@@ -14,6 +14,7 @@ import { experimentLogic } from '../experimentLogic'
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../MetricsView/shared/const'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
+import { modalsLogic } from '../modalsLogic'
 
 export function SharedMetricModal({
     experimentId,
@@ -25,19 +26,15 @@ export function SharedMetricModal({
     const {
         experiment,
         compatibleSharedMetrics,
-        isPrimarySharedMetricModalOpen,
-        isSecondarySharedMetricModalOpen,
         editingSharedMetricId,
         primaryMetricsLengthWithSharedMetrics,
         secondaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic({ experimentId }))
-    const {
-        closePrimarySharedMetricModal,
-        closeSecondarySharedMetricModal,
-        addSharedMetricsToExperiment,
-        removeSharedMetricFromExperiment,
-        restoreUnmodifiedExperiment,
-    } = useActions(experimentLogic({ experimentId }))
+    const { addSharedMetricsToExperiment, removeSharedMetricFromExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
+    const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
+    const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const mode = editingSharedMetricId ? 'edit' : 'create'

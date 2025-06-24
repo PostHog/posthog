@@ -30,7 +30,7 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
         if (path == '/') {
             return prefix
         }
-    } catch (e) {
+    } catch {
         // Not logged in
     }
     if (path === prefix || path.startsWith(prefix + '/')) {

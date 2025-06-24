@@ -3984,12 +3984,6 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn test_super_condition_with_cohort_filters() -> Result<()> {
-    // This test specifically addresses the scenario you described:
-    // A flag that has BOTH super condition properties AND cohort filters.
-    // The bug was that super condition evaluation would fail because it looked at ALL flag properties
-    // (including cohort filters) when deciding if it could use overrides, instead of just
-    // checking the super condition properties.
-
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "super_condition_cohort_user".to_string();
 
@@ -4308,6 +4302,134 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
             "toolbarParams": {},
             "isAuthenticated": false,
             "defaultIdentifiedOnly": true
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_group_key_property_matching() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    let token = team.api_token;
+
+    // Create a flag that filters on $group_key property
+    let flag_json = json!([{
+        "id": 1,
+        "key": "group-key-flag",
+        "name": "Group Key Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "value": "test_company_id",
+                            "operator": "exact",
+                            "type": "group",
+                            "group_type_index": 0
+                        }
+                    ],
+                    "rollout_percentage": 100
+                }
+            ],
+            "aggregation_group_type_index": 0
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with group_key that should match the filter
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "test_company_id"
+        }
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "group-key-flag": true
+            }
+        })
+    );
+
+    // Test with non-matching group key
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "wrong_company_id"
+        }
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "group-key-flag": false
+            }
+        })
+    );
+
+    // Test with missing groups entirely
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "group-key-flag": false
+            }
         })
     );
 
