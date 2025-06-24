@@ -169,13 +169,26 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             )
 
             const eventsTriggeredDestinationById: Record<string, { team_id: number; event_uuid: string }> = {}
-            notMaskedInvocations.forEach(({ state, hogFunction }) => {
-                console.log('iterating over not masked invocations one item atm')
-                const key = `${state.globals.project.id}:${state.globals.event.uuid}`
-                if (!eventsTriggeredDestinationById[key] && hogFunction.type === 'destination') {
-                    eventsTriggeredDestinationById[key] = {
+            const uniqueDestinationsById: Record<
+                string,
+                { team_id: number; template_id: string; invocation_id: string }
+            > = {}
+
+            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
+                const eventKey = `${state.globals.project.id}:${state.globals.event.uuid}`
+                if (!eventsTriggeredDestinationById[eventKey] && hogFunction.type === 'destination') {
+                    eventsTriggeredDestinationById[eventKey] = {
                         team_id: state.globals.project.id,
                         event_uuid: state.globals.event.uuid,
+                    }
+                }
+
+                const destinationKey = `${state.globals.project.id}:${id}`
+                if (!uniqueDestinationsById[destinationKey] && hogFunction.type === 'destination') {
+                    uniqueDestinationsById[destinationKey] = {
+                        team_id: state.globals.project.id,
+                        template_id: hogFunction.template_id ?? 'custom',
+                        invocation_id: id,
                     }
                 }
             })
@@ -193,21 +206,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 }
             )
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
-
-            const uniqueDestinationsById: Record<
-                string,
-                { team_id: number; template_id: string; invocation_id: string }
-            > = {}
-            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
-                const key = `${state.globals.project.id}:${id}`
-                if (!uniqueDestinationsById[key] && hogFunction.type === 'destination') {
-                    uniqueDestinationsById[key] = {
-                        team_id: state.globals.project.id,
-                        template_id: hogFunction.template_id ?? 'custom',
-                        invocation_id: id,
-                    }
-                }
-            })
 
             const uniqueDestinationMetrics: MinimalAppMetric[] = Object.entries(uniqueDestinationsById).map(
                 ([_, { team_id, template_id, invocation_id }]) => {
