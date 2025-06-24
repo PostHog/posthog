@@ -193,10 +193,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 }
             })
 
-            const uniqueEventMetrics: MinimalAppMetric[] = Object.entries(eventsTriggeredDestinationById).map(
-                ([_, { team_id, event_uuid }]) => {
+            const uniqueEventMetrics: MinimalAppMetric[] = Object.values(eventsTriggeredDestinationById).map(
+                ({ team_id, event_uuid }) => {
                     return {
-                        app_source: 'cdp_destinations',
+                        app_source: 'cdp_destination',
                         metric_kind: 'success',
                         metric_name: 'event_triggered_destination',
                         team_id,
@@ -207,10 +207,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             )
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
 
-            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.entries(uniqueDestinationsById).map(
-                ([_, { team_id, template_id, invocation_id }]) => {
+            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.values(uniqueDestinationsById).map(
+                ({ team_id, template_id, invocation_id }) => {
                     return {
-                        app_source: 'cdp-destination',
+                        app_source: 'cdp_destination',
                         metric_kind: 'success',
                         metric_name: 'destination_invoked',
                         team_id,

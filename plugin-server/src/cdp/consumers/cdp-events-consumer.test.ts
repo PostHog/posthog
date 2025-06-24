@@ -208,7 +208,7 @@ describe.each([
                                   key: globals.event.uuid,
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp_destinations',
+                                      app_source: 'cdp_destination',
                                       app_source_id: globals.event.uuid,
                                       count: 1,
                                       metric_kind: 'success',
@@ -221,7 +221,7 @@ describe.each([
                                   key: 'custom',
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp-destination',
+                                      app_source: 'cdp_destination',
                                       app_source_id: 'custom',
                                       count: 1,
                                       metric_kind: 'success',
@@ -235,7 +235,7 @@ describe.each([
                                   key: 'custom',
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp-destination',
+                                      app_source: 'cdp_destination',
                                       app_source_id: 'custom',
                                       count: 1,
                                       metric_kind: 'success',
@@ -284,7 +284,7 @@ describe.each([
                                   key: globals.event.uuid,
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp_destinations',
+                                      app_source: 'cdp_destination',
                                       app_source_id: globals.event.uuid,
                                       count: 1,
                                       metric_kind: 'success',
@@ -297,7 +297,7 @@ describe.each([
                                   key: 'custom',
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
-                                      app_source: 'cdp-destination',
+                                      app_source: 'cdp_destination',
                                       app_source_id: 'custom',
                                       count: 1,
                                       metric_kind: 'success',
