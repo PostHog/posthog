@@ -1232,6 +1232,7 @@ class ConsumerFromStage:
         num_bytes_in_batch = 0
         total_record_batches_count = 0
         total_records_count = 0
+        total_record_batch_bytes_count = 0
         total_file_bytes_count = 0
 
         async def track_iteration_of_record_batches():
@@ -1240,6 +1241,7 @@ class ConsumerFromStage:
             nonlocal num_bytes_in_batch
             nonlocal total_record_batches_count
             nonlocal total_records_count
+            nonlocal total_record_batch_bytes_count
 
             async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
                 record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
@@ -1248,6 +1250,7 @@ class ConsumerFromStage:
                 num_records_in_batch = record_batch.num_rows
                 total_records_count += num_records_in_batch
                 num_bytes_in_batch = record_batch.nbytes
+                total_record_batch_bytes_count += num_bytes_in_batch
 
                 self.rows_exported_counter.add(num_records_in_batch)
 
@@ -1262,12 +1265,11 @@ class ConsumerFromStage:
                 total_file_bytes_count += chunk_size
 
                 await self.logger.adebug(
-                    "Consuming transformed chunk. Record batch num rows: %s, record batch MiB: %s, data chunk size: %s. Total records so far: %s, total file MiB so far: %s",
-                    num_records_in_batch,
-                    num_bytes_in_batch / 1024**2,
-                    chunk_size,
-                    total_records_count,
-                    total_file_bytes_count / 1024**2,
+                    f"Consuming transformed chunk. Record batch num rows: {num_records_in_batch:,}, "
+                    f"record batch MiB: {num_bytes_in_batch / 1024**2:.2f}, "
+                    f"data chunk MiB: {chunk_size / 1024**2:.2f}. "
+                    f"Total records so far: {total_records_count:,}, "
+                    f"total file MiB so far: {total_file_bytes_count / 1024**2:.2f}"
                 )
                 await self.consume_chunk(data=chunk)
                 self.bytes_exported_counter.add(chunk_size)
@@ -1282,10 +1284,9 @@ class ConsumerFromStage:
             raise
 
         await self.logger.adebug(
-            "Finished consuming %s records from %s record batches. Total file MiB: %s",
-            total_records_count,
-            total_record_batches_count,
-            total_file_bytes_count / 1024**2,
+            f"Finished consuming {total_records_count:,} records, {total_record_batch_bytes_count / 1024**2:.2f} MiB "
+            f"from {total_record_batches_count:,} record batches. "
+            f"Total file MiB: {total_file_bytes_count / 1024**2:.2f}"
         )
         return total_records_count
 
