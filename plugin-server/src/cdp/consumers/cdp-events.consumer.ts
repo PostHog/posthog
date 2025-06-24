@@ -168,25 +168,29 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
-            const uniqueEventMetrics: MinimalAppMetric[] = [
-                ...new Set(notMaskedInvocations.map((invocation) => invocation.state.globals.event.uuid)),
-            ].reduce((acc, eventId) => {
-                const invocation = notMaskedInvocations.find(({ state }) => state.globals.event.uuid === eventId)
-                if (!invocation) {
-                    return acc
+		  const eventsTriggeredDestinationById: Record<string, { team_id: number, event_uuid: string }> = {}
+            validInvocations.forEach(({ state, hogFunction }) => {
+                const key = `${state.globals.project.id}:${state.globals.event.uuid}`
+                if (!eventsTriggeredDestinationById[key] && hogFunction.type === 'destination') {
+                    eventsTriggeredDestinationById[key] = {
+                        team_id: state.globals.project.id,
+                        event_uuid: state.globals.event.uuid,
+                    }
                 }
-                return [
-                    ...acc,
-                    {
+            })
+
+            const uniqueEventMetrics: MinimalAppMetric[] = Object.entries(eventsTriggeredDestinationById).map(
+                ([_, { team_id, event_uuid }]) => {
+                    return {
                         app_source: 'cdp_destinations',
                         metric_kind: 'success',
-                        metric_name: 'event_triggered_destination',
-                        team_id: invocation!.state.globals.project.id,
-                        app_source_id: eventId,
+                        metric_name: 'event-triggered-destination',
+                        team_id,
+                        app_source_id: event_uuid,
                         count: 1,
-                    },
-                ]
-            }, [] as MinimalAppMetric[])
+                    }
+                }
+            )
             this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
 
             const uniqueDestinationMetrics: MinimalAppMetric[] = [
