@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
@@ -18,11 +18,13 @@ import {
 } from '~/types'
 import { PropertyGroupFilter } from '~/types'
 
-import type { HogFlow } from '../types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
+import { HogFlow } from '../types'
+import { CampaignLogicProps } from '../../campaignLogic'
+import { campaignLogic } from '../../campaignLogic'
 
-export interface HogflowTestLogicProps {
-    hogFlow: HogFlow
+export interface HogFlowEditorTestLogicProps {
+    id: HogFlow['id']
 }
 
 export interface HogflowTestInvocation {
@@ -42,8 +44,11 @@ export interface HogflowTestResult {
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     path(['products', 'messaging', 'frontend', 'Campaigns', 'hogflows', 'actions', 'workflowTestLogic']),
-    props({} as HogflowTestLogicProps),
-    key((props) => props.hogFlow.id),
+    props({} as HogFlowEditorTestLogicProps),
+    key((props) => `${props.id}`),
+    connect((props: CampaignLogicProps) => ({
+        values: [campaignLogic(props), ['campaign']],
+    })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         toggleExpanded: true,
@@ -95,17 +100,21 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ values }) => ({
         canLoadSampleGlobals: [
-            (_, props) => [props.hogFlow],
-            (hogFlow: HogFlow) => {
-                return !!hogFlow.trigger?.filters
+            () => [],
+            () => {
+                return (
+                    !!values.campaign.trigger?.filters?.events?.length ||
+                    !!values.campaign.trigger?.filters?.actions?.length ||
+                    !!values.campaign.trigger?.filters?.data_warehouse?.length
+                )
             },
         ],
         // TODO(messaging): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
-            (_, props) => [props.hogFlow],
-            (hogFlow: HogFlow): PropertyGroupFilter => {
+            () => [],
+            (): PropertyGroupFilter => {
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
@@ -114,8 +123,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                const allPossibleEventFilters = hogFlow.trigger.filters?.events ?? []
-                const allPossibleActionFilters = hogFlow.trigger.filters?.actions ?? []
+                const allPossibleEventFilters = values.campaign.trigger.filters?.events ?? []
+                const allPossibleActionFilters = values.campaign.trigger.filters?.actions ?? []
 
                 for (const event of allPossibleEventFilters) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
@@ -149,12 +158,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         values: actionProperties,
                     })
                 }
-                if ((hogFlow.trigger.filters?.properties?.length ?? 0) > 0) {
+                if ((values.campaign.trigger.filters?.properties?.length ?? 0) > 0) {
                     const globalProperties: PropertyGroupFilterValue = {
                         type: FilterLogicalOperator.And,
                         values: [],
                     }
-                    for (const property of hogFlow.trigger.filters?.properties ?? []) {
+                    for (const property of values.campaign.trigger.filters?.properties ?? []) {
                         globalProperties.values.push(property as AnyPropertyFilter)
                     }
                     properties.values.push(globalProperties)
@@ -163,8 +172,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             { resultEqualityCheck: equal },
         ],
-    }),
-    loaders(({ props, actions, values }) => ({
+    })),
+    loaders(({ actions, values }) => ({
         testInvocation: [
             {
                 globals: JSON.stringify(
@@ -197,7 +206,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             url: `${window.location.origin}/project/1`,
                         },
                         source: {
-                            name: props.hogFlow.name ?? 'Unnamed',
+                            name: values.campaign.name ?? 'Unnamed',
                             url: window.location.href.split('#')[0],
                         },
                     },
@@ -240,7 +249,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async () => {
-                    if (!props.hogFlow.trigger?.filters) {
+                    if (!values.campaign.trigger?.filters) {
                         return null
                     }
 
@@ -290,12 +299,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                 : undefined,
                             groups: {},
                             project: {
-                                id: props.hogFlow.team_id,
+                                id: values.campaign.team_id,
                                 name: 'Default project',
-                                url: `${window.location.origin}/project/${props.hogFlow.team_id}`,
+                                url: `${window.location.origin}/project/${values.campaign.team_id}`,
                             },
                             source: {
-                                name: props.hogFlow.name ?? 'Unnamed',
+                                name: values.campaign.name ?? 'Unnamed',
                                 url: window.location.href.split('#')[0],
                             },
                         }

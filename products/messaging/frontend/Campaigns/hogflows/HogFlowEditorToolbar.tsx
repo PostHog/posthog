@@ -40,7 +40,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
 export function HogFlowEditorToolbar(): JSX.Element {
     return (
-        <Panel position="top-left" className="bottom">
+        <Panel position="top-left">
             <div className="z-10 rounded-md border shadow-lg bg-surface-primary">
                 <h3 className="px-3 my-2 font-semibold">Workflow steps</h3>
                 <LemonDivider className="my-0" />

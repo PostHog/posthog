@@ -65,9 +65,9 @@ function HogFlowEditorContent(): JSX.Element {
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 onPaneClick={() => setSelectedNodeId(null)}
             >
-                <Controls showInteractive={false} />
-
                 <Background gap={36} variant={BackgroundVariant.Dots} />
+
+                <Controls showInteractive={false} />
 
                 <HogFlowEditorToolbar />
 
