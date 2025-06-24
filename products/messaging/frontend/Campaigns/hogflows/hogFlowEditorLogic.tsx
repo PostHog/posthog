@@ -34,13 +34,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
         actions: [
             campaignLogic(props),
-            [
-                'setCampaignValues',
-                'setCampaignActionConfig',
-                'setCampaignAction',
-                'setCampaignEdges',
-                'setCampaignActionEdges',
-            ],
+            ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
         ],
     })),
     actions({
@@ -251,7 +245,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // Update campaign actions to match the new flow
             const updatedActions = values.campaign.actions.filter((action) => !deletedNodeIds.includes(action.id))
 
-            actions.setCampaignValues({ actions: updatedActions, edges: updatedEdges })
+            actions.setCampaignInfo({ actions: updatedActions, edges: updatedEdges })
         },
 
         onDragStart: () => {
@@ -363,7 +357,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const oldActions = values.campaign.actions
                 const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
 
-                actions.setCampaignValues({ actions: newActions, edges: newEdges })
+                actions.setCampaignInfo({ actions: newActions, edges: newEdges })
                 actions.setNewDraggingNode(null)
             }
             // We can clear the dropzones now

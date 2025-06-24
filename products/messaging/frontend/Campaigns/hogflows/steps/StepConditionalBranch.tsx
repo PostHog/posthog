@@ -122,16 +122,11 @@ function StepConditionalBranchConfiguration({
 
     return (
         <>
-            <div className="flex flex-col">
-                <p className="mb-1 text-lg font-semibold">Conditional branch</p>
-                <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
-            </div>
-
             {conditions.map((condition, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">
                         <LemonLabel>Condition {index + 1}</LemonLabel>
-                        <LemonButton size="small" icon={<IconX />} onClick={() => removeCondition(index)} />
+                        <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCondition(index)} />
                     </div>
 
                     <HogFlowFilters

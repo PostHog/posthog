@@ -1,10 +1,8 @@
 import { IconBolt } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
@@ -42,34 +40,12 @@ function StepTriggerConfiguration({ node }: { node: Node<Extract<HogFlowAction, 
     return (
         <>
             <div className="flex flex-col">
-                <p className="mb-1 text-lg font-semibold">Campaign trigger event</p>
                 <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
             </div>
-            <ActionFilter
+            <HogFlowFilters
                 filters={filters ?? {}}
                 setFilters={(filters) => setCampaignActionConfig(action.id, { filters })}
                 typeKey="campaign-trigger"
-                mathAvailability={MathAvailability.None}
-                hideRename
-                hideDuplicate
-                showNestedArrow={false}
-                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                ]}
-                propertyFiltersPopover
-                addFilterDefaultOptions={{
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                }}
-                buttonProps={{
-                    type: 'secondary',
-                }}
                 buttonCopy="Add trigger event"
             />
         </>

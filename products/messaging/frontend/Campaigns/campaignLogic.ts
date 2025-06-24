@@ -67,7 +67,8 @@ export const campaignLogic = kea<campaignLogicType>([
         setCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({ actionId, config }),
         setCampaignAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
         setCampaignActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
-        setCampaignEdges: (edges: HogFlow['edges']) => ({ edges }),
+        // NOTE: This is a wrapper for setCampaignValues, to get around some weird typegen issues
+        setCampaignInfo: (campaign: Partial<HogFlow>) => ({ campaign }),
         discardChanges: true,
     }),
     loaders(({ props }) => ({
@@ -154,11 +155,10 @@ export const campaignLogic = kea<campaignLogicType>([
                 },
             })
         },
+        setCampaignInfo: async ({ campaign }) => {
+            actions.setCampaignValues(campaign)
+        },
         setCampaignActionConfig: async ({ actionId, config }) => {
-            if (!values.campaign) {
-                return
-            }
-
             const action = values.campaign.actions.find((action) => action.id === actionId)
             if (!action) {
                 return
@@ -168,31 +168,15 @@ export const campaignLogic = kea<campaignLogicType>([
             actions.setCampaignValues({ actions: [...values.campaign.actions] })
         },
         setCampaignAction: async ({ actionId, action }) => {
-            if (!values.campaign) {
-                return
-            }
-
             const newActions = values.campaign.actions.map((a) => (a.id === actionId ? action : a))
             actions.setCampaignValues({ actions: newActions })
         },
         setCampaignActionEdges: async ({ actionId, edges }) => {
             // Helper method - Replaces all edges related to the action with the new edges
-            if (!values.campaign) {
-                return
-            }
-
             const actionEdges = values.edgesByActionId[actionId] ?? []
             const newEdges = values.campaign.edges.filter((e) => !actionEdges.includes(e))
 
             actions.setCampaignValues({ edges: [...newEdges, ...edges] })
-        },
-        setCampaignEdges: async ({ edges }) => {
-            const campaign = values.campaign
-            if (!campaign) {
-                return
-            }
-
-            actions.setCampaignValues({ edges })
         },
     })),
     afterMount(({ actions, props }) => {

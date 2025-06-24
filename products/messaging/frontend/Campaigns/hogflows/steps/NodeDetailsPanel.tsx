@@ -2,6 +2,7 @@ import { IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { getOutgoers, Panel, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -32,7 +33,7 @@ export function NodeDetailsPanel(): JSX.Element | null {
     return (
         <Panel position="top-right" className="bottom">
             <div className="bg-surface-primary border rounded-md shadow-lg flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-full">
-                <div className="flex justify-between items-center p-2">
+                <div className="flex justify-between items-center px-2 my-2">
                     <h3 className="flex gap-1 items-center mb-0 font-semibold">
                         <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
                     </h3>
@@ -58,7 +59,10 @@ export function NodeDetailsPanel(): JSX.Element | null {
                     </div>
                 </div>
                 <LemonDivider className="my-0" />
-                <div className="flex overflow-y-auto flex-col gap-2 p-2">{Step?.renderConfiguration(selectedNode)}</div>
+
+                <ScrollableShadows direction="vertical" innerClassName="flex flex-col gap-2 p-3" styledScrollbars>
+                    {Step?.renderConfiguration(selectedNode)}
+                </ScrollableShadows>
 
                 <LemonDivider className="my-0" />
                 {!['trigger', 'exit'].includes(action.type) && (

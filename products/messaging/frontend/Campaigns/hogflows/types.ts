@@ -154,7 +154,8 @@ export const HogFlowSchema = z.object({
     edges: z.array(HogFlowEdgeSchema),
 })
 
-export type HogFlow = z.infer<typeof HogFlowSchema>
-export type HogFlowAction = z.infer<typeof HogFlowActionSchema>
-export type HogFlowEdge = z.infer<typeof HogFlowEdgeSchema>
-export type HogFlowActionNode = Node<HogFlowAction>
+// NOTE: these are purposefully exported as interfaces to support kea typegen
+export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
+export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
+export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
+export interface HogFlowActionNode extends Node<HogFlowAction> {}
