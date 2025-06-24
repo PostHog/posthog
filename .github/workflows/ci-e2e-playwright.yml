@@ -89,6 +89,9 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
             - name: Set up Python 3.11.9
               uses: actions/setup-python@v5
               with:
