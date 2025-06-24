@@ -1,11 +1,9 @@
 import { IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { getOutgoers, Panel, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from './HogFlowSteps'
 
@@ -62,34 +60,34 @@ export function NodeDetailsPanel(): JSX.Element | null {
 
                 <LemonDivider className="my-0" />
                 {!['trigger', 'exit'].includes(action.type) && (
-                    <div className="flex flex-col gap-2 p-2">
-                        <LemonLabel>Conditions</LemonLabel>
+                    <div className="flex flex-col p-2">
+                        <LemonLabel htmlFor="conditions" className="flex gap-2 justify-between items-center">
+                            <span>Conditions</span>
+                            <LemonSwitch
+                                id="conditions"
+                                checked={!!action.filters}
+                                onChange={(checked) =>
+                                    setCampaignAction(action.id, {
+                                        ...action,
+                                        filters: checked ? {} : null,
+                                    })
+                                }
+                            />
+                        </LemonLabel>
 
-                        <ActionFilter
-                            filters={action.filters ?? {}}
-                            setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
-                            typeKey="action-filter"
-                            mathAvailability={MathAvailability.None}
-                            hideRename
-                            hideDuplicate
-                            showNestedArrow={false}
-                            actionsTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.Events,
-                                TaxonomicFilterGroupType.Actions,
-                            ]}
-                            propertiesTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.Elements,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
-                            propertyFiltersPopover
-                            buttonProps={{
-                                type: 'secondary',
-                            }}
-                            buttonCopy="Add filter conditions"
-                        />
+                        {action.filters && (
+                            <>
+                                <p className="mb-0">
+                                    Add conditions to the step. If these conditions aren't met, the user will skip this
+                                    step and continue to the next one.
+                                </p>
+                                <HogFlowFilters
+                                    filters={action.filters ?? {}}
+                                    setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
+                                    buttonCopy="Add filter conditions"
+                                />
+                            </>
+                        )}
                     </div>
                 )}
             </div>

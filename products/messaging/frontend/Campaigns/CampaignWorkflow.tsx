@@ -5,12 +5,12 @@ import { campaignLogic, CampaignLogicProps } from './campaignLogic'
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
 
 export function CampaignWorkflow(props: CampaignLogicProps): JSX.Element {
-    const { campaignLoading } = useValues(campaignLogic(props))
+    const { campaignLoading, campaign } = useValues(campaignLogic(props))
 
     return (
         <div className="relative h-[calc(100vh-220px)] border rounded-md">
             <BindLogic logic={campaignLogic} props={props}>
-                {campaignLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
+                {!campaign && campaignLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
             </BindLogic>
         </div>
     )

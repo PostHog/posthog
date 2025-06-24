@@ -1,4 +1,5 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { LemonDialog } from '@posthog/lemon-ui'
+import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -63,13 +64,13 @@ export const campaignLogic = kea<campaignLogicType>([
     props({ id: 'new' } as CampaignLogicProps),
     key((props) => props.id || 'new'),
     actions({
-        setOriginalCampaign: (campaign: HogFlow) => ({ campaign }),
         setCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({ actionId, config }),
         setCampaignAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
         setCampaignEdges: (edges: HogFlow['edges']) => ({ edges }),
+        discardChanges: true,
     }),
     loaders(({ props }) => ({
-        campaign: [
+        originalCampaign: [
             null as HogFlow | null,
             {
                 loadCampaign: async () => {
@@ -91,38 +92,55 @@ export const campaignLogic = kea<campaignLogicType>([
     })),
     forms(({ actions }) => ({
         campaign: {
-            defaults: { ...NEW_CAMPAIGN } as HogFlow,
+            defaults: null as HogFlow | null,
             submit: async (values) => {
+                if (!values) {
+                    return
+                }
+
                 actions.saveCampaign(values)
             },
         },
     })),
-    reducers({
-        originalCampaign: [
-            { ...NEW_CAMPAIGN } as HogFlow,
-            {
-                setOriginalCampaign: (_, { campaign }) => campaign,
-                loadCampaignSuccess: (_, { campaign }) => {
-                    return campaign
-                },
-            },
-        ],
-    }),
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
+        campaignLoading: [(s) => [s.originalCampaignLoading], (originalCampaignLoading) => originalCampaignLoading],
     }),
     listeners(({ actions, values }) => ({
-        saveCampaignSuccess: async ({ campaign }) => {
+        loadCampaignSuccess: async ({ originalCampaign }) => {
+            actions.resetCampaign(originalCampaign)
+        },
+        saveCampaignSuccess: async ({ originalCampaign }) => {
             lemonToast.success('Campaign saved')
-            campaign.id &&
+            originalCampaign.id &&
                 router.actions.replace(
-                    urls.messagingCampaign(campaign.id, campaignSceneLogic.findMounted()?.values.currentTab)
+                    urls.messagingCampaign(originalCampaign.id, campaignSceneLogic.findMounted()?.values.currentTab)
                 )
-            actions.resetCampaign(campaign)
-            actions.setOriginalCampaign(campaign)
+            actions.resetCampaign(originalCampaign)
+        },
+        discardChanges: () => {
+            if (!values.originalCampaign) {
+                return
+            }
+
+            LemonDialog.open({
+                title: 'Discard changes',
+                description: 'Are you sure?',
+                primaryButton: {
+                    children: 'Discard',
+                    onClick: () => actions.resetCampaign(values.originalCampaign),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
         },
         setCampaignActionConfig: async ({ actionId, config }) => {
-            const action = values.campaign?.actions.find((action) => action.id === actionId)
+            if (!values.campaign) {
+                return
+            }
+
+            const action = values.campaign.actions.find((action) => action.id === actionId)
             if (!action) {
                 return
             }
@@ -131,8 +149,7 @@ export const campaignLogic = kea<campaignLogicType>([
             actions.setCampaignValues({ actions: [...values.campaign.actions] })
         },
         setCampaignAction: async ({ actionId, action }) => {
-            const campaign = values.campaign
-            if (!campaign) {
+            if (!values.campaign) {
                 return
             }
 

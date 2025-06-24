@@ -1,12 +1,10 @@
 import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
@@ -119,34 +117,12 @@ function StepConditionalBranchConfiguration({
                         />
                     </div>
 
-                    <ActionFilter
+                    <HogFlowFilters
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
                             setConditions(conditions.map((condition, i) => (i === index ? { filters } : condition)))
                         }
                         typeKey={`campaign-trigger-${index}`}
-                        mathAvailability={MathAvailability.None}
-                        hideRename
-                        hideDuplicate
-                        showNestedArrow={false}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.Elements,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                        propertyFiltersPopover
-                        addFilterDefaultOptions={{
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                        }}
-                        buttonProps={{
-                            type: 'secondary',
-                        }}
-                        buttonCopy="Add match filters"
                     />
                 </div>
             ))}

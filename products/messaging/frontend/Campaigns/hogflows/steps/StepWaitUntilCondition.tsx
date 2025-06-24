@@ -1,9 +1,12 @@
 import { IconDecisionTree } from '@posthog/icons'
+import { LemonLabel } from '@posthog/lemon-ui'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
+import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
+import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
@@ -45,13 +48,24 @@ function StepWaitUntilConditionConfiguration({
 
     return (
         <>
-            <div className="flex flex-col">
-                <p className="mb-1 text-lg font-semibold">Wait until...</p>
-                <p className="mb-0">Wait until a condition is met.</p>
+            <div>
+                <LemonLabel>Wait time</LemonLabel>
+                <HogFlowDuration
+                    value={max_wait_duration}
+                    onChange={(value) => {
+                        console.log('value', value)
+                        setCampaignActionConfig(action.id, { max_wait_duration: value })
+                    }}
+                />
             </div>
-            <div className="flex flex-col">
-                <p className="mb-1 text-lg font-semibold">Condition</p>
-                <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
+
+            <div>
+                <LemonLabel>Conditions to wait for</LemonLabel>
+                <HogFlowFilters
+                    filters={condition.filters ?? {}}
+                    setFilters={(filters) => setCampaignActionConfig(action.id, { condition: { filters } })}
+                    typeKey="campaign-wait-until-condition"
+                />
             </div>
         </>
     )
