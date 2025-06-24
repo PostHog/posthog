@@ -32,20 +32,60 @@ class SessionGroupSummaryPatternsList(BaseModel):
     patterns: list[SessionGroupSummaryPattern] = Field(..., description="List of patterns to validate", min_items=1)
 
 
-def load_patterns_from_llm_content(raw_content: str, session_id: str) -> SessionGroupSummaryPatternsList:
+class RawSessionGroupPatternAssignment(BaseModel):
+    """Schema for validating individual pattern with events assigned from LLM output"""
+
+    pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
+    event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_items=1)
+
+
+class RawSessionGroupPatternAssignmentsList(BaseModel):
+    """Schema for validating LLM output for patterns with events assigned"""
+
+    patterns: list[RawSessionGroupPatternAssignment] = Field(
+        ..., description="List of pattern assignments to validate", min_items=1
+    )
+
+
+def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -> SessionGroupSummaryPatternsList:
     if not raw_content:
-        raise SummaryValidationError(f"No LLM content found when extracting patterns for session_id {session_id}")
+        raise SummaryValidationError(
+            f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
+        )
     try:
         json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
     except Exception as err:
         raise SummaryValidationError(
-            f"Error loading YAML content into JSON when extracting patterns for session_id {session_id}: {err}"
+            f"Error loading YAML content into JSON when extracting patterns for sessions {sessions_identifier}: {err}"
         ) from err
     # Validate the LLM output against the schema
     try:
         validated_patterns = SessionGroupSummaryPatternsList(**json_content)
     except ValidationError as err:
         raise SummaryValidationError(
-            f"Error validating LLM output against the schema when extracting patterns for session_id {session_id}: {err}"
+            f"Error validating LLM output against the schema when extracting patterns for sessions {sessions_identifier}: {err}"
         ) from err
     return validated_patterns
+
+
+def load_pattern_assignments_from_llm_content(
+    raw_content: str, sessions_identifier: str
+) -> RawSessionGroupPatternAssignmentsList:
+    if not raw_content:
+        raise SummaryValidationError(
+            f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
+        )
+    try:
+        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+    except Exception as err:
+        raise SummaryValidationError(
+            f"Error loading YAML content into JSON when extracting pattern assignments for sessions {sessions_identifier}: {err}"
+        ) from err
+    # Validate the LLM output against the schema
+    try:
+        validated_assignments = RawSessionGroupPatternAssignmentsList(**json_content)
+    except ValidationError as err:
+        raise SummaryValidationError(
+            f"Error validating LLM output against the schema when extracting pattern assignments for sessions {sessions_identifier}: {err}"
+        ) from err
+    return validated_assignments
