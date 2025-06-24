@@ -46,7 +46,7 @@ def get_earliest_timestamp_from_series(
     :param series: A list of series nodes which can be EventsNode, ActionsNode, or DataWarehouseNode.
     :return: The earliest timestamp as a datetime object.
     """
-    timestamp_queries = [
+    timestamp_queries: list[ast.Expr] = [
         _get_data_warehouse_earliest_timestamp_query(series_node)
         for series_node in series
         if isinstance(series_node, DataWarehouseNode)
