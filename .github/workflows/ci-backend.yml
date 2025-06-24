@@ -249,69 +249,171 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [20]
-                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+                concurrency: [40]
+                group:
+                    [
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                    ]
                 include:
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 5
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 6
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 7
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 8
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 9
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 5
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 6
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 7
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 8
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 9
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 10
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
