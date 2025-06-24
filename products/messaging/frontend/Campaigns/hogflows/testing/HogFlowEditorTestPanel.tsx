@@ -1,4 +1,4 @@
-import { IconChevronDown, IconInfo, IconPlay, IconTestTube, IconX } from '@posthog/icons'
+import { IconChevronDown, IconInfo, IconPlay, IconRedo, IconTestTube, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -22,9 +22,14 @@ import { campaignLogic } from '../../campaignLogic'
 
 export function HogFlowEditorTestPanel(): JSX.Element {
     const { logicProps } = useValues(campaignLogic)
-    const { sampleGlobals, isTestInvocationSubmitting, testResult, expanded, canLoadSampleGlobals } = useValues(
-        hogFlowEditorTestLogic(logicProps)
-    )
+    const {
+        sampleGlobals,
+        isTestInvocationSubmitting,
+        testResult,
+        expanded,
+        canLoadSampleGlobals,
+        testInvocationLoading,
+    } = useValues(hogFlowEditorTestLogic(logicProps))
     const { submitTestInvocation, setTestResult, toggleExpanded, loadSampleGlobals } = useActions(
         hogFlowEditorTestLogic(logicProps)
     )
@@ -54,7 +59,7 @@ export function HogFlowEditorTestPanel(): JSX.Element {
     return (
         <Panel position="bottom-right">
             <Form logic={hogFlowEditorTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
-                <div className="max-w-[600px] max-h-[500px] overflow-y-auto gap-2 bg-surface-primary rounded-md shadow-md">
+                <div className="max-w-[600px] max-h-[600px] overflow-y-auto gap-2 bg-surface-primary rounded-md shadow-md">
                     {/* Header */}
                     <div className="flex w-full justify-between items-center px-2 my-2">
                         <h3 className="flex gap-1 items-center mb-0 font-semibold">
@@ -77,6 +82,7 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                                     onClick={() => loadSampleGlobals()}
                                     tooltip="Find the last event matching the trigger event filters, and use it to populate the globals for a test run."
                                     disabledReason={!canLoadSampleGlobals ? 'Must configure trigger event' : undefined}
+                                    icon={<IconRedo />}
                                 >
                                     Load new event
                                 </LemonButton>
@@ -150,7 +156,7 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                                         : 'Error'}
                                 </LemonBanner>
 
-                                <div className="gap-2">
+                                <div className="gap-2 overflow-y-auto">
                                     <div className="font-semibold">Test invocation logs</div>
 
                                     <LemonTable
@@ -224,7 +230,7 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                                         data-attr="test-workflow-panel-new"
                                         onClick={() => submitTestInvocation()}
                                         icon={<IconPlay />}
-                                        loading={isTestInvocationSubmitting}
+                                        loading={testInvocationLoading}
                                         disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
                                     >
                                         Run test

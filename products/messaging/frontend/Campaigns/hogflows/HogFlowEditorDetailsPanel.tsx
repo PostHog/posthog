@@ -31,7 +31,7 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const Step = getHogFlowStep(action.type)
 
     return (
-        <Panel position="top-right" className="bottom">
+        <Panel position="top-right">
             <div className="bg-surface-primary border rounded-md shadow-lg flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-full">
                 <div className="flex justify-between items-center px-2 my-2">
                     <h3 className="flex gap-1 items-center mb-0 font-semibold">

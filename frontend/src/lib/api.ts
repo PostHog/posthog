@@ -3469,7 +3469,7 @@ const api = {
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
         },
-        async test(
+        async createTestInvocation(
             hogFlowId: HogFlow['id'],
             data: {
                 configuration: Record<string, any>

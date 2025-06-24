@@ -61,9 +61,6 @@ export class HogFlowExecutorService {
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
         hogFlows.forEach((hogFlow) => {
-            if (hogFlow.trigger.type !== 'event') {
-                return
-            }
             const filterResults = filterFunctionInstrumented({
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,

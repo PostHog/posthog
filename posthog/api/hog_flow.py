@@ -16,6 +16,7 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cdp.validation import compile_filters_bytecode
 
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -23,6 +24,39 @@ from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 
 
 logger = structlog.get_logger(__name__)
+
+
+class HogFlowFiltersSerializer(serializers.Serializer):
+    actions = serializers.ListField(child=serializers.DictField(), required=False)
+    events = serializers.ListField(child=serializers.DictField(), required=False)
+    properties = serializers.ListField(child=serializers.DictField(), required=False)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
+    transpiled = serializers.JSONField(required=False)
+    filter_test_accounts = serializers.BooleanField(required=False)
+    bytecode_error = serializers.CharField(required=False)
+
+    def to_internal_value(self, data):
+        # Weirdly nested serializers don't get this set...
+        self.initial_data = data
+        return super().to_internal_value(data)
+
+    def validate(self, data):
+        team = self.context["get_team"]()
+
+        # Ensure data is initialized as an empty dict if it's None
+        data = data or {}
+
+        # If we have a bytecode, we need to validate the transpiled
+        data = compile_filters_bytecode(data, team)
+        # Check if bytecode compilation resulted in an error
+        if data.get("bytecode_error"):
+            raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
+
+        return data
+
+
+class HogFlowTriggerSerializer(serializers.Serializer):
+    filters = HogFlowFiltersSerializer()
 
 
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
@@ -50,6 +84,8 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    trigger = HogFlowTriggerSerializer()
+
     class Meta:
         model = HogFlow
         fields = [
@@ -180,6 +216,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
         return Response(res.json())

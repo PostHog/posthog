@@ -219,28 +219,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 submitTestInvocation: async () => {
                     try {
-                        const apiResponse = await api.hogFlows.test(values.campaign.id, {
+                        const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {
                             configuration: {},
                             globals: JSON.parse(values.testInvocation.globals),
                             mock_async_functions: values.testInvocation.mock_async_functions,
                         })
 
-                        // Use the actual API response
-                        const response: HogflowTestResult = {
-                            status: apiResponse.status === 'error' ? 'error' : 'success',
-                            result: apiResponse,
-                            logs: [
-                                {
-                                    timestamp: new Date().toISOString(),
-                                    level: apiResponse.status === 'error' ? 'error' : 'info',
-                                    message:
-                                        apiResponse.status === 'error'
-                                            ? 'Workflow test failed'
-                                            : 'Workflow test completed successfully',
-                                },
-                            ],
-                        }
-                        actions.setTestResult(response)
+                        actions.setTestResult(apiResponse)
                         return values.testInvocation
                     } catch (error: any) {
                         console.error('Workflow test error:', error)

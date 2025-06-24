@@ -350,12 +350,7 @@ export class CdpApi {
     private postHogflowInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const {
-                clickhouse_event,
-                mock_async_functions: _mock_async_functions,
-                configuration,
-                invocation_id,
-            } = req.body
+            const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
 
             logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
 
@@ -383,17 +378,13 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Hog flow not found' })
             }
 
-            let globals: HogFunctionInvocationGlobals
-
-            if (clickhouse_event) {
-                globals = convertToHogFunctionInvocationGlobals(
-                    clickhouse_event,
-                    team,
-                    this.hub.SITE_URL ?? 'http://localhost:8000'
-                )
-            } else {
-                return res.status(400).json({ error: 'Missing clickhouse_event' })
-            }
+            const globals: HogFunctionInvocationGlobals | null = clickhouse_event
+                ? convertToHogFunctionInvocationGlobals(
+                      clickhouse_event,
+                      team,
+                      this.hub.SITE_URL ?? 'http://localhost:8000'
+                  )
+                : req.body.globals
 
             if (!globals || !globals.event) {
                 return res.status(400).json({ error: 'Missing event' })
@@ -451,6 +442,8 @@ export class CdpApi {
             // Execute the first invocation (assuming single flow execution)
             const invocation = invocations[0]
             invocation.id = invocationID
+            invocation.state.mockDelays = true
+            invocation.state.mockAsyncFunctions = mock_async_functions ?? false
 
             const response = await this.hogFlowExecutor.execute(invocation)
 
@@ -467,7 +460,7 @@ export class CdpApi {
             })
         } catch (e) {
             console.error(e)
-            res.status(500).json({ errors: [e.message] })
+            res.status(500).json({ error: [e.message] })
         }
     }
 
