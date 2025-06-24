@@ -4,11 +4,11 @@ export const template: HogFunctionTemplate = {
     free: true,
     status: 'beta',
     type: 'transformation',
-    id: 'template-field-anonymization',
-    name: 'Field Anonymization',
+    id: 'template-hash-properties',
+    name: 'Hash properties',
     description:
-        'Anonymizes sensitive fields by hashing them with SHA256 using a salt. This helps protect user privacy while maintaining data consistency.',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
+        'Hashes sensitive fields with SHA256 using a salt. This helps protect user privacy while maintaining data consistency.',
+    icon_url: '/static/hedgehog/police-hog.png',
     category: ['Custom'],
     hog: `
 // Function to hash a value with SHA256

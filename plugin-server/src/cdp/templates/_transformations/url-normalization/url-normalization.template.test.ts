@@ -150,22 +150,32 @@ describe('url-normalization.template', () => {
                 properties: {
                     $current_url: 'https://example.com/users/123/profile',
                     $referrer: 'https://google.com/search?q=test',
-                    $initial_referrer: 'https://example.com/posts/456',
                     $referring_domain: 'https://example.com/dashboard/789',
+                    not_this_url: 'https://example.com/dashboard/789',
                 },
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
+        const response = await tester.invoke(
+            {
+                removeHash: true,
+                removeQueryString: true,
+            },
+            mockGlobals
+        )
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
 
         const result = response.execResult as EventResult
-        expect(result.properties.$current_url).toBe('https://example.com/users/:id/profile')
-        expect(result.properties.$referrer).toBe('https://google.com/search?q=test')
-        expect(result.properties.$initial_referrer).toBe('https://example.com/posts/:id')
-        expect(result.properties.$referring_domain).toBe('https://example.com/dashboard/:id')
+        expect(result.properties).toMatchInlineSnapshot(`
+            {
+              "$current_url": "https://example.com/users/:id/profile",
+              "$referrer": "https://google.com/search",
+              "$referring_domain": "https://example.com/dashboard/:id",
+              "not_this_url": "https://example.com/dashboard/789",
+            }
+        `)
     })
 
     it('should handle $set and $set_once properties', async () => {
@@ -176,20 +186,35 @@ describe('url-normalization.template', () => {
                         $current_url: 'https://example.com/users/123/profile',
                     },
                     $set_once: {
-                        $initial_current_url: 'https://example.com/posts/456',
+                        other_url: 'https://example.com/posts/456',
+                        not_this_url: 'https://example.com/posts/456',
                     },
                 },
             },
         })
 
-        const response = await tester.invoke(commonInputs, mockGlobals)
+        const response = await tester.invoke(
+            {
+                urlProperties: '$current_url, other_url',
+            },
+            mockGlobals
+        )
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
 
         const result = response.execResult as EventResult
-        expect(result.properties.$set?.$current_url).toBe('https://example.com/users/:id/profile')
-        expect(result.properties.$set_once?.$initial_current_url).toBe('https://example.com/posts/:id')
+        expect(result.properties).toMatchInlineSnapshot(`
+            {
+              "$set": {
+                "$current_url": "https://example.com/users/:id/profile",
+              },
+              "$set_once": {
+                "not_this_url": "https://example.com/posts/456",
+                "other_url": "https://example.com/posts/:id",
+              },
+            }
+        `)
     })
 
     it('should handle URLs without hash fragments', async () => {

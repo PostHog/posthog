@@ -138,17 +138,19 @@ let normalizedEvent := event
 // Process URL properties
 let urlProperties := splitByString(',', inputs.urlProperties)
 for (let propName in urlProperties) {
+    propName := trim(propName)
+    print('propName', propName)
     if (not empty(event.properties?.[propName])) {
         normalizedEvent.properties[propName] := normalizeUrl(event.properties[propName])
     }
-}
 
-// Process $set and $set_once properties
-if (not empty(event.properties?.$set?.$current_url)) {
-    normalizedEvent.properties.$set.$current_url := normalizeUrl(event.properties.$set.$current_url)
-}
-if (not empty(event.properties?.$set_once?.$initial_current_url)) {
-    normalizedEvent.properties.$set_once.$initial_current_url := normalizeUrl(event.properties.$set_once.$initial_current_url)
+    // Process $set and $set_once properties
+    if (not empty(event.properties?.$set?.[propName])) {
+        normalizedEvent.properties.$set[propName] := normalizeUrl(event.properties.$set[propName])
+    }
+    if (not empty(event.properties?.$set_once?.[propName])) {
+        normalizedEvent.properties.$set_once[propName] := normalizeUrl(event.properties.$set_once[propName])
+    }
 }
 
 return normalizedEvent
@@ -182,7 +184,7 @@ return normalizedEvent
             label: 'URL properties to normalize',
             description:
                 'Comma-separated list of event properties to normalize. Can include both event properties and top-level event fields like distinct_id.',
-            default: '$current_url, $referrer, $initial_referrer, $referring_domain',
+            default: '$current_url, $referrer, $referring_domain',
             secret: false,
             required: true,
         },

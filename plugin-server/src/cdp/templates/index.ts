@@ -11,9 +11,9 @@ import { template as incomingWebhookTemplate } from './_sources/webhook/incoming
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
-import { template as fieldAnonymizationTemplate } from './_transformations/field-anonymization/field-anonymization.template'
 import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
+import { template as hashPropertiesTemplate } from './_transformations/hash-properties/hash-properties.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
@@ -42,7 +42,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     botDetectionTemplate,
     dropEventsTemplate,
     filterPropertiesTemplate,
-    fieldAnonymizationTemplate,
+    hashPropertiesTemplate,
     urlNormalizationTemplate,
 ]
 

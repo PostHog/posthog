@@ -2,7 +2,7 @@ import crypto from 'crypto'
 
 import { HogFunctionInvocationGlobals } from '../../../types'
 import { TemplateTester } from '../../test/test-helpers'
-import { template } from './field-anonymization.template'
+import { template } from './hash-properties.template'
 
 interface EventResult {
     distinct_id?: string
@@ -24,7 +24,7 @@ function sha256(data: string, salt = '1234567890'): string {
         .digest('hex')
 }
 
-describe('field-anonymization.template', () => {
+describe('hash-properties.template', () => {
     const tester = new TemplateTester(template)
     let mockGlobals: HogFunctionInvocationGlobals
 
