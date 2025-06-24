@@ -84,7 +84,7 @@ export const getClampedStepRangeFilter = ({
     }
 
     return {
-        ...(stepRange || {}),
+        ...stepRange,
         funnel_from_step,
         funnel_to_step,
     }
@@ -100,12 +100,11 @@ export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): Funn
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {
             ...event,
-            ...{ funnel_from_step },
-            ...{
-                funnel_to_step: event.funnel_to_step
-                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
-                    : lastIndex,
-            },
+            funnel_from_step,
+
+            funnel_to_step: event.funnel_to_step
+                ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                : lastIndex,
         }
     })
     return exclusions.length > 0 ? exclusions : undefined

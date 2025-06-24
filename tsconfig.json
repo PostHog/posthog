@@ -46,7 +46,6 @@
         "products/**/frontend/**/*",
         "products/**/manifest.tsx",
         "common/esbuilder/*",
-        "common/eslint_rules/*",
         "common/storybook/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
