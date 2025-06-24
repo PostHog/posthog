@@ -148,7 +148,7 @@ export const signupLogic = kea<signupLogicType>([
         emailCaseNotice: [
             (s) => [s.emailWasNormalized],
             (emailWasNormalized): string | undefined => {
-                return emailWasNormalized ? '⚠ Your email was changed to lowercase!' : undefined
+                return emailWasNormalized ? '⚠ Your email was automatically converted to lowercase' : undefined
             },
         ],
         loginUrl: [
