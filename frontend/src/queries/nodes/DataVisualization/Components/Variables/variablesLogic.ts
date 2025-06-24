@@ -99,7 +99,7 @@ export const variablesLogic = kea<variablesLogicType>([
                     return [...state, { ...variable }]
                 },
                 addVariables: (_state, { variables }) => {
-                    return [...variables.map((n) => ({ ...n }))]
+                    return variables.map((n) => ({ ...n }))
                 },
                 updateVariableValue: (state, { variableId, value, isNull, allVariables }) => {
                     const variableIndex = state.findIndex((n) => n.variableId === variableId)

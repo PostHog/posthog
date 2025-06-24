@@ -3,7 +3,7 @@ import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -468,7 +468,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         filters: {
                             ...state.filters,
                             multivariate: {
-                                ...(state.filters.multivariate || {}),
+                                ...state.filters.multivariate,
                                 variants: [...variants, NEW_VARIANT],
                             },
                         },

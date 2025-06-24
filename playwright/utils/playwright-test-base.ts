@@ -74,6 +74,7 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
         // }
 
         // Pass the extended page to the test
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         await use(page)
     },
     // this auto fixture makes sure we log in before every test
@@ -89,6 +90,7 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
             await page.goto(urls.projectHomepage())
 
             // Continue with tests
+            // eslint-disable-next-line react-hooks/rules-of-hooks
             await use()
 
             // any teardown would go here
