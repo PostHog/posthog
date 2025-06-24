@@ -1,6 +1,5 @@
 import { IconRewindPlay } from '@posthog/icons'
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -10,10 +9,8 @@ import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/Res
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
-import { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
-import { Experiment } from '~/types'
+import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
 import { formatPValue } from '../shared/utils'
 
@@ -21,10 +18,14 @@ export function ResultDetails({
     experiment,
     result,
     metric,
+    metricIndex,
+    isSecondary,
 }: {
     experiment: Experiment
     result: CachedExperimentQueryResponse
     metric: ExperimentMetric
+    metricIndex: number
+    isSecondary: boolean
 }): JSX.Element {
     const columns: LemonTableColumns<any> = [
         {
@@ -129,8 +130,13 @@ export function ResultDetails({
     return (
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {metric.metric_type === 'funnel' && (
-                <ResultsBreakdown result={result} experiment={experiment}>
+            {metric.metric_type === 'funnel' && !isSecondary && (
+                <ResultsBreakdown
+                    result={result}
+                    experiment={experiment}
+                    metricIndex={metricIndex}
+                    isPrimary={!isSecondary}
+                >
                     {({ query, breakdownResultsLoading, breakdownResults }) => {
                         return (
                             <>
