@@ -40,6 +40,18 @@ const meta: Meta = {
                         is_ai_data_processing_approved: true,
                     },
                 ],
+                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                    200,
+                    {
+                        id: CONVERSATION_ID,
+                        status: 'idle',
+                        title: 'Test Conversation',
+                        created_at: '2025-04-29T17:44:21.654307Z',
+                        updated_at: '2025-04-29T17:44:29.184791Z',
+                        messages: [],
+                    },
+                ],
             },
         }),
     ],
