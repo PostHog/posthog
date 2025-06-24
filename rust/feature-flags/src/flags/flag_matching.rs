@@ -459,13 +459,13 @@ impl FeatureFlagMatcher {
         let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
             HashMap::new();
 
+        // Step 0: Pre-compute property overrides for all flags upfront
         for flag in flags {
             // Skip disabled or deleted flags early
             if !flag.active || flag.deleted {
                 continue;
             }
 
-            // Pre-compute property overrides for all flags upfront
             let relevant_property_overrides = match flag.get_group_type_index() {
                 Some(group_type_index) => {
                     // For group flags, extract the relevant group overrides
@@ -479,7 +479,7 @@ impl FeatureFlagMatcher {
                                 "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
                                 flag.key, group_type_index, e
                             );
-                            None // If we can't get the mapping, treat as no overrides; we'll hit the DB later if needed.
+                            None // If we can't get the mapping, treat as no overrides; we'll hit the DB later if needed, but odds are that this is an error on the client side
                         }
                     }
                 }
@@ -499,10 +499,9 @@ impl FeatureFlagMatcher {
             let property_override_match_timer =
                 common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
 
-            // Use pre-computed overrides
             let property_overrides = precomputed_property_overrides
                 .get(&flag.key)
-                .unwrap_or(&None); // Safe fallback: if flag not in map, treat as no overrides
+                .unwrap_or(&None); // Safe fallback: if flag not in map, treat as no overrides.  Shouldn't happen, but is here to avoid panics
 
             match self.match_flag_exclusively_with_overrides(
                 flag,
@@ -582,18 +581,16 @@ impl FeatureFlagMatcher {
         // Step 3: Evaluate remaining flags with cached properties using pre-computed overrides
         let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
 
-        // Create a HashMap for quick flag lookups
         let flags_map: HashMap<&String, &FeatureFlag> = flags_needing_db_properties
             .iter()
             .map(|flag| (&flag.key, flag))
             .collect();
 
-        // Use pre-computed overrides instead of recomputing them
         let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> =
             flags_needing_db_properties
                 .par_iter()
                 .map(|flag| {
-                    // Safe access: if the overrides for this flag are not in the pre-computed map, assume no overrides
+                    // If the overrides for this flag are not in the pre-computed map, assume no overrides
                     // this shouldn't happen, but it's here to avoid panics
                     let property_overrides = precomputed_property_overrides
                         .get(&flag.key)
@@ -607,7 +604,7 @@ impl FeatureFlagMatcher {
                 .collect();
 
         for (flag_key, result) in results {
-            // Safe access: if flag not found in map, skip it (this shouldn't happen but is safe)
+            // If flag not found in map, skip it (this shouldn't happen but is safe)
             let Some(flag) = flags_map.get(&flag_key) else {
                 error!(
                     "Flag '{}' not found in flags_map during evaluation - this shouldn't happen",
@@ -982,11 +979,8 @@ impl FeatureFlagMatcher {
                     .partition(|prop| prop.is_cohort());
 
             // Get the properties we need to check for in this condition match from the flag + any overrides
-            let person_or_group_properties = self.get_properties_to_check(
-                feature_flag,
-                property_overrides,
-                &non_cohort_filters,
-            )?;
+            let person_or_group_properties =
+                self.get_properties_to_check(feature_flag, property_overrides)?;
 
             // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
             if !all_properties_match(&non_cohort_filters, &person_or_group_properties) {
@@ -1018,15 +1012,12 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
-        flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
         match feature_flag.get_group_type_index() {
-            Some(group_type_index) => self.get_group_properties(
-                group_type_index,
-                property_overrides,
-                flag_property_filters,
-            ),
-            None => self.get_person_properties(property_overrides, flag_property_filters),
+            Some(group_type_index) => {
+                self.get_group_properties(group_type_index, property_overrides)
+            }
+            None => self.get_person_properties(property_overrides),
         }
     }
 
@@ -1035,7 +1026,6 @@ impl FeatureFlagMatcher {
         &self,
         group_type_index: GroupTypeIndex,
         property_overrides: Option<HashMap<String, Value>>,
-        _flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
         // Start with DB properties
         let mut merged_properties =
@@ -1046,7 +1036,7 @@ impl FeatureFlagMatcher {
             merged_properties.extend(overrides);
         }
 
-        // Return all merged properties - let the caller filter as needed
+        // Return all merged properties
         Ok(merged_properties)
     }
 
@@ -1054,7 +1044,6 @@ impl FeatureFlagMatcher {
     fn get_person_properties(
         &self,
         property_overrides: Option<HashMap<String, Value>>,
-        _flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
         // Start with DB properties
         let mut merged_properties = self
@@ -1066,7 +1055,7 @@ impl FeatureFlagMatcher {
             merged_properties.extend(overrides);
         }
 
-        // Return all merged properties - let the caller filter as needed
+        // Return all merged properties
         Ok(merged_properties)
     }
 
@@ -1136,10 +1125,7 @@ impl FeatureFlagMatcher {
             .and_then(|sc| sc.first())
         {
             // Merge DB properties with overrides (overrides take precedence)
-            let merged_properties = self.get_person_properties(
-                property_overrides,
-                super_condition.properties.as_deref().unwrap_or(&[]),
-            )?;
+            let merged_properties = self.get_person_properties(property_overrides)?;
 
             let has_relevant_super_condition_properties =
                 super_condition.properties.as_ref().map_or(false, |props| {
