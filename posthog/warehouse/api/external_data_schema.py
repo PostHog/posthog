@@ -381,4 +381,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
 
             incremental_columns = mapping_fields
 
-        return Response(status=status.HTTP_200_OK, data=incremental_columns)
+        data = {
+            "incremental_fields": incremental_columns,
+            "incremental_available": len(incremental_columns) > 0
+            and source.source_type != ExternalDataSource.Type.STRIPE,
+            "append_available": len(incremental_columns) > 0,
+            "full_refresh_available": True,
+        }
+
+        return Response(status=status.HTTP_200_OK, data=data)

@@ -1098,6 +1098,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in columns
                     ],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
                     "sync_type": None,
                 }
@@ -1151,6 +1152,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in incremental_fields.get(name, [])
                     ],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": incremental_fields[name][0]
                     if len(incremental_fields.get(name, [])) > 0
                     else None,
@@ -1176,7 +1178,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "table": name,
                     "should_sync": False,
                     "incremental_fields": DOIT_INCREMENTAL_FIELDS,
-                    "incremental_available": False,
+                    "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": None,
                     "sync_type": None,
                 }
@@ -1361,6 +1364,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in columns
                     ],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
                     "sync_type": None,
                 }
@@ -1453,6 +1457,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in columns
                     ],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
                     "sync_type": None,
                 }
@@ -1484,7 +1489,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     }
                     for field in incremental_fields.get(row, [])
                 ],
-                "incremental_available": row in incremental_schemas,
+                "incremental_available": source_type != ExternalDataSource.Type.STRIPE and row in incremental_schemas,
+                "append_available": row in incremental_schemas,
                 "incremental_field": (
                     incremental_fields.get(row, [])[0]["field"] if row in incremental_schemas else None
                 ),
