@@ -358,6 +358,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 actions.setCampaignInfo({ actions: newActions, edges: newEdges })
                 actions.setNewDraggingNode(null)
+                actions.setSelectedNodeId(newAction.id)
             }
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
