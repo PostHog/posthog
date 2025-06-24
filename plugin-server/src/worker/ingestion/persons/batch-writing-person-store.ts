@@ -408,6 +408,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
         const response = await this.db.addDistinctId(person, distinctId, version, tx)
         observeLatencyByVersion(person, start, 'addDistinctId')
+        this.setCachedPersonForUpdate(person.team_id, distinctId, fromInternalPerson(person, distinctId))
         return response
     }
 
