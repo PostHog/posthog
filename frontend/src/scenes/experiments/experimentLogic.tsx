@@ -90,6 +90,7 @@ import {
     toInsightVizNode,
     transformFiltersForWinningVariant,
 } from './utils'
+import { modalsLogic } from './modalsLogic'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -327,6 +328,18 @@ export const experimentLogic = kea<experimentLogicType>([
             ['addProductIntent'],
             featureFlagsLogic,
             ['updateFlag'],
+            modalsLogic,
+            [
+                'openPrimaryMetricModal',
+                'closePrimaryMetricModal',
+                'openSecondaryMetricModal',
+                'closeSecondaryMetricModal',
+                'openPrimarySharedMetricModal',
+                'openSecondarySharedMetricModal',
+                'closeStopExperimentModal',
+                'closeShipVariantModal',
+                'openReleaseConditionsModal',
+            ],
         ],
     })),
     actions({
@@ -472,43 +485,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        setEditingPrimaryMetricIndex: (index: number | null) => ({ index }),
-        openPrimaryMetricModal: (index: number) => ({ index }),
-        // MODALS
-        openExperimentCollectionGoalModal: true,
-        closeExperimentCollectionGoalModal: true,
-        openExposureCriteriaModal: true,
-        closeExposureCriteriaModal: true,
-        openShipVariantModal: true,
-        closeShipVariantModal: true,
-        openStopExperimentModal: true,
-        closeStopExperimentModal: true,
-        openEditConclusionModal: true,
-        closeEditConclusionModal: true,
-        openDistributionModal: true,
-        closeDistributionModal: true,
-        openReleaseConditionsModal: true,
-        closeReleaseConditionsModal: true,
-        openDescriptionModal: true,
-        closeDescriptionModal: true,
-        openStatsEngineModal: true,
-        closeStatsEngineModal: true,
-        closePrimaryMetricModal: true,
-        updateDistributionModal: (featureFlag: FeatureFlagType) => ({ featureFlag }),
-        openSecondaryMetricModal: (index: number) => ({ index }),
-        closeSecondaryMetricModal: true,
-        openPrimaryMetricSourceModal: true,
-        closePrimaryMetricSourceModal: true,
-        openSecondaryMetricSourceModal: true,
-        closeSecondaryMetricSourceModal: true,
-        openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
-        closePrimarySharedMetricModal: true,
-        openSecondarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
-        closeSecondarySharedMetricModal: true,
-        openVariantDeltaTimeseriesModal: true,
-        closeVariantDeltaTimeseriesModal: true,
-        openCalculateRunningTimeModal: true,
-        closeCalculateRunningTimeModal: true,
+        updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
     }),
     reducers({
         experiment: [
@@ -702,55 +679,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 setExperimentMissing: () => true,
             },
         ],
-        isExperimentCollectionGoalModalOpen: [
-            false,
-            {
-                openExperimentCollectionGoalModal: () => true,
-                closeExperimentCollectionGoalModal: () => false,
-            },
-        ],
-        isExposureCriteriaModalOpen: [
-            false,
-            {
-                openExposureCriteriaModal: () => true,
-                closeExposureCriteriaModal: () => false,
-            },
-        ],
-        isShipVariantModalOpen: [
-            false,
-            {
-                openShipVariantModal: () => true,
-                closeShipVariantModal: () => false,
-            },
-        ],
-        isStopExperimentModalOpen: [
-            false,
-            {
-                openStopExperimentModal: () => true,
-                closeStopExperimentModal: () => false,
-            },
-        ],
-        isEditConclusionModalOpen: [
-            false,
-            {
-                openEditConclusionModal: () => true,
-                closeEditConclusionModal: () => false,
-            },
-        ],
-        isDistributionModalOpen: [
-            false,
-            {
-                openDistributionModal: () => true,
-                closeDistributionModal: () => false,
-            },
-        ],
-        isReleaseConditionsModalOpen: [
-            false,
-            {
-                openReleaseConditionsModal: () => true,
-                closeReleaseConditionsModal: () => false,
-            },
-        ],
         unmodifiedExperiment: [
             null as Experiment | null,
             {
@@ -761,13 +689,6 @@ export const experimentLogic = kea<experimentLogicType>([
             'results',
             {
                 setTabKey: (_, { tabKey }) => tabKey,
-            },
-        ],
-        isPrimaryMetricModalOpen: [
-            false,
-            {
-                openPrimaryMetricModal: () => true,
-                closePrimaryMetricModal: () => false,
             },
         ],
         // PRIMARY METRICS
@@ -838,13 +759,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 loadExperiment: () => [],
             },
         ],
-        isSecondaryMetricModalOpen: [
-            false,
-            {
-                openSecondaryMetricModal: () => true,
-                closeSecondaryMetricModal: () => false,
-            },
-        ],
         editingPrimaryMetricIndex: [
             null as number | null,
             {
@@ -870,41 +784,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperimentMetrics: () => null,
             },
         ],
-        isPrimaryMetricSourceModalOpen: [
-            false,
-            {
-                openPrimaryMetricSourceModal: () => true,
-                closePrimaryMetricSourceModal: () => false,
-            },
-        ],
-        isSecondaryMetricSourceModalOpen: [
-            false,
-            {
-                openSecondaryMetricSourceModal: () => true,
-                closeSecondaryMetricSourceModal: () => false,
-            },
-        ],
-        isPrimarySharedMetricModalOpen: [
-            false,
-            {
-                openPrimarySharedMetricModal: () => true,
-                closePrimarySharedMetricModal: () => false,
-            },
-        ],
-        isSecondarySharedMetricModalOpen: [
-            false,
-            {
-                openSecondarySharedMetricModal: () => true,
-                closeSecondarySharedMetricModal: () => false,
-            },
-        ],
-        isVariantDeltaTimeseriesModalOpen: [
-            false,
-            {
-                openVariantDeltaTimeseriesModal: () => true,
-                closeVariantDeltaTimeseriesModal: () => false,
-            },
-        ],
         isCreatingExperimentDashboard: [
             false,
             {
@@ -921,30 +800,6 @@ export const experimentLogic = kea<experimentLogicType>([
             null as string | null,
             {
                 setFeatureFlagValidationError: (_, { error }) => error,
-            },
-        ],
-        /**
-         * Controls the MDE modal visibility. Candidate for useState refactor.
-         */
-        isCalculateRunningTimeModalOpen: [
-            false,
-            {
-                openCalculateRunningTimeModal: () => true,
-                closeCalculateRunningTimeModal: () => false,
-            },
-        ],
-        isDescriptionModalOpen: [
-            false,
-            {
-                openDescriptionModal: () => true,
-                closeDescriptionModal: () => false,
-            },
-        ],
-        isStatsEngineModalOpen: [
-            false,
-            {
-                openStatsEngineModal: () => true,
-                closeStatsEngineModal: () => false,
             },
         ],
     }),
@@ -1194,7 +1049,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistributionModal: async ({ featureFlag }) => {
+        updateDistribution: async ({ featureFlag }) => {
             const { created_at, id, ...flag } = featureFlag
 
             const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
