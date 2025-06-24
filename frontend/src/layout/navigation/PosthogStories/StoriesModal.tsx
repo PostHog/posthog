@@ -165,7 +165,7 @@ export const StoriesModal = (): JSX.Element | null => {
                     activeStory?.durationMs && activeStory?.durationMs > 0
                         ? Math.round((timeSpentMs / activeStory.durationMs) * 100)
                         : undefined,
-                ...(extraProps || {}),
+                ...extraProps,
             }
             posthog.capture('posthog_story_ended', props)
         },

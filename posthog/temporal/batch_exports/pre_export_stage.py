@@ -113,7 +113,8 @@ async def execute_batch_export_insert_activity_using_s3_stage(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=1)
+        # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
+        start_to_close_timeout = dt.timedelta(hours=2)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):
