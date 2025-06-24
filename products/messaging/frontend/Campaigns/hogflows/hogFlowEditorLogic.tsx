@@ -31,10 +31,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign']],
+        values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
         actions: [
             campaignLogic(props),
-            ['setCampaignValues', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignEdges'],
+            [
+                'setCampaignValues',
+                'setCampaignActionConfig',
+                'setCampaignAction',
+                'setCampaignEdges',
+                'setCampaignActionEdges',
+            ],
         ],
     })),
     actions({
@@ -117,25 +123,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             (s) => [s.nodes, s.selectedNodeId],
             (nodes, selectedNodeId) => {
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
-            },
-        ],
-
-        edgesByActionId: [
-            (s) => [s.campaign],
-            (campaign): Record<string, HogFlow['edges']> => {
-                return campaign.edges.reduce((acc, edge) => {
-                    if (!acc[edge.from]) {
-                        acc[edge.from] = []
-                    }
-                    acc[edge.from].push(edge)
-
-                    if (!acc[edge.to]) {
-                        acc[edge.to] = []
-                    }
-                    acc[edge.to].push(edge)
-
-                    return acc
-                }, {} as Record<string, HogFlow['edges']>)
             },
         ],
     }),
@@ -350,17 +337,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 newEdges.splice(edgeToBeReplacedIndex, 1)
 
-                // Now add the new edges for the new action
-                newEdges.push({
-                    ...edgeToBeReplaced,
-                    from: newAction.id,
-                })
-
+                // Push the source edge first
                 newEdges.push({
                     ...edgeToBeReplaced,
                     to: newAction.id,
                 })
 
+                // Then any branch edges
                 for (let i = 0; i < branchEdges; i++) {
                     // Add in branching edges
                     newEdges.push({
@@ -370,6 +353,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         from: newAction.id,
                     })
                 }
+
+                // Finally the continue edge
+                newEdges.push({
+                    ...edgeToBeReplaced,
+                    from: newAction.id,
+                })
 
                 const oldActions = values.campaign.actions
                 const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]

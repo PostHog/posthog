@@ -3,10 +3,11 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { useMemo } from 'react'
 
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { HogFlowAction } from '../types'
+import { HogFlow, HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
@@ -56,9 +57,24 @@ function StepConditionalBranchConfiguration({
     const { conditions } = action.config
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
-    const { setCampaignAction, setCampaignEdges } = useActions(hogFlowEditorLogic)
+    const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
-    const edges = edgesByActionId[action.id]
+    const nodeEdges = edgesByActionId[action.id]
+
+    const [branchEdges, nonBranchEdges] = useMemo(() => {
+        const branchEdges: HogFlow['edges'] = []
+        const nonBranchEdges: HogFlow['edges'] = []
+
+        nodeEdges.forEach((edge) => {
+            if (edge.type === 'branch' && edge.from === action.id) {
+                branchEdges.push(edge)
+            } else {
+                nonBranchEdges.push(edge)
+            }
+        })
+
+        return [branchEdges.sort((a, b) => a.index - b.index), nonBranchEdges]
+    }, [nodeEdges, action.id])
 
     const setConditions = (
         conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
@@ -74,7 +90,7 @@ function StepConditionalBranchConfiguration({
     }
 
     const addCondition = (): void => {
-        const continueEdge = edges.find((edge) => edge.type === 'continue' && edge.from === action.id)
+        const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
         if (!continueEdge) {
             throw new Error('Continue edge not found')
         }
@@ -83,19 +99,25 @@ function StepConditionalBranchConfiguration({
             ...conditions,
             { filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events' }] } },
         ])
-        setCampaignEdges([
-            ...edges,
+        setCampaignActionEdges(action.id, [
+            ...branchEdges,
             {
                 from: action.id,
                 to: continueEdge.to,
                 type: 'branch',
                 index: conditions.length,
             },
+            ...nonBranchEdges,
         ])
     }
 
     const removeCondition = (index: number): void => {
+        // Branch edges are pre-sorted
+        // We just need to remove the edge and re-assign the indexes
+        const newBranchEdges = branchEdges.filter((_, i) => i !== index).map((edge, i) => ({ ...edge, index: i }))
         setConditions(conditions.filter((_, i) => i !== index))
+        // Branch edges come first as they are sorted to show on the left
+        setCampaignActionEdges(action.id, [...newBranchEdges, ...nonBranchEdges])
     }
 
     return (
@@ -109,13 +131,7 @@ function StepConditionalBranchConfiguration({
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">
                         <LemonLabel>Condition {index + 1}</LemonLabel>
-                        <LemonButton
-                            size="small"
-                            icon={<IconX />}
-                            onClick={() => {
-                                setConditions(conditions.filter((_, i) => i !== index))
-                            }}
-                        />
+                        <LemonButton size="small" icon={<IconX />} onClick={() => removeCondition(index)} />
                     </div>
 
                     <HogFlowFilters

@@ -66,6 +66,7 @@ export const campaignLogic = kea<campaignLogicType>([
     actions({
         setCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({ actionId, config }),
         setCampaignAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
+        setCampaignActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         setCampaignEdges: (edges: HogFlow['edges']) => ({ edges }),
         discardChanges: true,
     }),
@@ -92,7 +93,7 @@ export const campaignLogic = kea<campaignLogicType>([
     })),
     forms(({ actions }) => ({
         campaign: {
-            defaults: null as HogFlow | null,
+            defaults: NEW_CAMPAIGN,
             submit: async (values) => {
                 if (!values) {
                     return
@@ -105,6 +106,24 @@ export const campaignLogic = kea<campaignLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         campaignLoading: [(s) => [s.originalCampaignLoading], (originalCampaignLoading) => originalCampaignLoading],
+        edgesByActionId: [
+            (s) => [s.campaign],
+            (campaign): Record<string, HogFlow['edges']> => {
+                return campaign.edges.reduce((acc, edge) => {
+                    if (!acc[edge.from]) {
+                        acc[edge.from] = []
+                    }
+                    acc[edge.from].push(edge)
+
+                    if (!acc[edge.to]) {
+                        acc[edge.to] = []
+                    }
+                    acc[edge.to].push(edge)
+
+                    return acc
+                }, {} as Record<string, HogFlow['edges']>)
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadCampaignSuccess: async ({ originalCampaign }) => {
@@ -128,7 +147,7 @@ export const campaignLogic = kea<campaignLogicType>([
                 description: 'Are you sure?',
                 primaryButton: {
                     children: 'Discard',
-                    onClick: () => actions.resetCampaign(values.originalCampaign),
+                    onClick: () => actions.resetCampaign(values.originalCampaign ?? NEW_CAMPAIGN),
                 },
                 secondaryButton: {
                     children: 'Cancel',
@@ -155,6 +174,17 @@ export const campaignLogic = kea<campaignLogicType>([
 
             const newActions = values.campaign.actions.map((a) => (a.id === actionId ? action : a))
             actions.setCampaignValues({ actions: newActions })
+        },
+        setCampaignActionEdges: async ({ actionId, edges }) => {
+            // Helper method - Replaces all edges related to the action with the new edges
+            if (!values.campaign) {
+                return
+            }
+
+            const actionEdges = values.edgesByActionId[actionId] ?? []
+            const newEdges = values.campaign.edges.filter((e) => !actionEdges.includes(e))
+
+            actions.setCampaignValues({ edges: [...newEdges, ...edges] })
         },
         setCampaignEdges: async ({ edges }) => {
             const campaign = values.campaign
