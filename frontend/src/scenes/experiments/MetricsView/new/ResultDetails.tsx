@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
+import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
 import { formatPValue } from '../shared/utils'
 
 export function ResultDetails({
@@ -137,12 +138,15 @@ export function ResultDetails({
                     metricIndex={metricIndex}
                     isPrimary={!isSecondary}
                 >
-                    {({ query, breakdownResultsLoading, breakdownResults }) => {
+                    {({ query, breakdownResultsLoading, breakdownResults, exposureDifference }) => {
                         return (
                             <>
                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                 {query && breakdownResults && (
-                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                    <>
+                                        <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
+                                        <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                    </>
                                 )}
                             </>
                         )
