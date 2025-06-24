@@ -624,6 +624,10 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 "PostgreSQLConnectionError",
                 # Column missing in Redshift, likely the schema was altered.
                 "UndefinedColumn",
+                # Raised by our PostgreSQL client when a given feature is not supported.
+                # This can also happen when merging tables with a different number of columns:
+                # "Target relation and source relation must have the same number of columns"
+                "FeatureNotSupported",
             ],
             finish_inputs=finish_inputs,
         )
