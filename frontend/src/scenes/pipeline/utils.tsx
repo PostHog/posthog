@@ -49,7 +49,7 @@ const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     'https://github.com/PostHog/timestamp-parser-plugin',
     'https://github.com/PostHog/user-agent-plugin',
 ]
-export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set(PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR)
+export const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES = new Set([...PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR])
 
 const GLOBAL_EXPORT_PLUGINS = [
     // export apps
@@ -212,9 +212,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
     return []
 }
 
-export function usePipelineNodeMenuCommonItems(
-    node: Transformation | SiteApp | ImportApp | Destination
-): LemonMenuItem[] {
+export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
@@ -248,7 +246,7 @@ export async function loadPluginsFromUrl(url: string): Promise<Record<number, Pl
     return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
 }
 
-export function usePipelinePluginBackedNodeMenuCommonItems(
+export function pipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,
     loadPluginConfigs: any,
@@ -267,7 +265,7 @@ export function usePipelinePluginBackedNodeMenuCommonItems(
                 }),
             disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
         },
-        ...usePipelineNodeMenuCommonItems(node),
+        ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
                   {

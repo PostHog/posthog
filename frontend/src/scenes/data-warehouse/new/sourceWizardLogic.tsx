@@ -1095,8 +1095,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         payload: {
-                            ...state.payload,
-                            ...source.payload,
+                            ...(state.payload ?? {}),
+                            ...(source.payload ?? {}),
                         },
                     }
                 },
@@ -1557,7 +1557,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
-                                } catch {
+                                } catch (e) {
                                     return lemonToast.error('File is not valid')
                                 }
                             } else {

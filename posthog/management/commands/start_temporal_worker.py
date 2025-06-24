@@ -11,13 +11,11 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
-from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     BATCH_EXPORTS_TASK_QUEUE,
     DATA_MODELING_TASK_QUEUE,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
     DATA_WAREHOUSE_TASK_QUEUE,
-    MAX_AI_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
@@ -65,12 +63,12 @@ WORKFLOWS_DICT = {
     DATA_MODELING_TASK_QUEUE: DATA_MODELING_WORKFLOWS,
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS
     + DELETE_PERSONS_WORKFLOWS
+    + AI_WORKFLOWS
     + USAGE_REPORTS_WORKFLOWS
     + SESSION_RECORDINGS_WORKFLOWS
     + QUOTA_LIMITING_WORKFLOWS
     + PRODUCT_ANALYTICS_WORKFLOWS
     + SUBSCRIPTION_WORKFLOWS,
-    MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
     TEST_TASK_QUEUE: TEST_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
@@ -81,12 +79,12 @@ ACTIVITIES_DICT = {
     DATA_MODELING_TASK_QUEUE: DATA_MODELING_ACTIVITIES,
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES
     + DELETE_PERSONS_ACTIVITIES
+    + AI_ACTIVITIES
     + USAGE_REPORTS_ACTIVITIES
     + SESSION_RECORDINGS_ACTIVITIES
     + QUOTA_LIMITING_ACTIVITIES
     + PRODUCT_ANALYTICS_ACTIVITIES
     + SUBSCRIPTION_ACTIVITIES,
-    MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
 
@@ -179,8 +177,6 @@ class Command(BaseCommand):
         metrics_port = int(options["metrics_port"])
 
         shutdown_task = None
-
-        tag_queries(kind="temporal")
 
         def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""

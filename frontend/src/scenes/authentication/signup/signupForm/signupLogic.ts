@@ -108,23 +108,12 @@ export const signupLogic = kea<signupLogicType>([
 
                     location.href = res.redirect_url || '/'
                 } catch (e) {
-                    const error = e as Record<string, any>
-
-                    if (error.code === 'throttled') {
-                        actions.setSignupPanel2ManualErrors({
-                            generic: {
-                                code: error.code,
-                                detail: 'Too many signup attempts. Please try again later.',
-                            },
-                        })
-                    } else {
-                        actions.setSignupPanel2ManualErrors({
-                            generic: {
-                                code: error.code,
-                                detail: error.detail,
-                            },
-                        })
-                    }
+                    actions.setSignupPanel2ManualErrors({
+                        generic: {
+                            code: (e as Record<string, any>).code,
+                            detail: (e as Record<string, any>).detail,
+                        },
+                    })
                     throw e
                 }
             },

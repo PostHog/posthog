@@ -13,19 +13,18 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
-import { modalsLogic } from '../modalsLogic'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
-    const { updateDistribution } = useActions(experimentLogic({ experimentId }))
-    const { closeDistributionModal } = useActions(modalsLogic)
-    const { isDistributionModalOpen } = useValues(modalsLogic)
+    const { experiment, experimentLoading, isDistributionModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeDistributionModal, updateDistributionModal } = useActions(experimentLogic({ experimentId }))
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
     const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
@@ -64,7 +63,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                     </LemonButton>
                     <LemonButton
                         onClick={() => {
-                            updateDistribution(featureFlag)
+                            updateDistributionModal(featureFlag)
                             closeDistributionModal()
                         }}
                         type="primary"
@@ -133,9 +132,10 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 }
 
 export function DistributionTable(): JSX.Element {
-    const { openDistributionModal } = useActions(modalsLogic)
+    const { openDistributionModal } = useActions(experimentLogic)
     const { experimentId, experiment, legacyPrimaryMetricsResults } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const result = legacyPrimaryMetricsResults?.[0]
 
@@ -273,7 +273,11 @@ export function DistributionTable(): JSX.Element {
                 columns={columns}
                 dataSource={tableData}
                 rowClassName={(item) =>
-                    item.key === `holdout-${experiment.holdout?.id}` ? 'dark:bg-fill-primary bg-mid' : ''
+                    item.key === `holdout-${experiment.holdout?.id}`
+                        ? isDarkModeOn
+                            ? 'bg-fill-primary'
+                            : 'bg-mid'
+                        : ''
                 }
             />
         </div>

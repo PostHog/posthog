@@ -62,7 +62,7 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
                         try {
                             const prettySource = await formatSource(file, source as string)
                             formattedCode[file] = prettySource
-                        } catch {
+                        } catch (e: any) {
                             formattedCode[file] = source
                         }
                     }

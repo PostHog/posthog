@@ -1,6 +1,9 @@
 {
     "name": "@posthog/products-llm-observability",
     "scripts": {},
+    "dependencies": {
+        "eslint-plugin-posthog": "workspace:*"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
@@ -8,6 +11,7 @@
         "classnames": "*",
         "clsx": "*",
         "eslint": "*",
+        "eslint-plugin-posthog": "*",
         "jest": "*",
         "kea": "*",
         "kea-loaders": "*",

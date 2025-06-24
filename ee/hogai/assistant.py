@@ -99,7 +99,7 @@ logger = structlog.get_logger(__name__)
 class Assistant:
     _team: Team
     _graph: CompiledStateGraph
-    _user: User
+    _user: Optional[User]
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _latest_message: Optional[HumanMessage]
@@ -115,7 +115,7 @@ class Assistant:
         *,
         new_message: Optional[HumanMessage] = None,
         mode: AssistantMode = AssistantMode.ASSISTANT,
-        user: User,
+        user: Optional[User] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
@@ -132,9 +132,9 @@ class Assistant:
         self._mode = mode
         match mode:
             case AssistantMode.ASSISTANT:
-                self._graph = AssistantGraph(team, user).compile_full_graph()
+                self._graph = AssistantGraph(team).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
-                self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
+                self._graph = InsightsAssistantGraph(team).compile_full_graph()
             case _:
                 raise ValueError(f"Invalid assistant mode: {mode}")
         self._chunks = AIMessageChunk(content="")
@@ -160,37 +160,6 @@ class Assistant:
         if SERVER_GATEWAY_INTERFACE == "ASGI":
             return self._astream()
         return self._stream()
-
-    def generate(self) -> list[dict[str, Any]]:
-        messages = []
-
-        for chunk in self._stream():
-            parsed_events = self._parse_sse_chunk(chunk)
-            for event_type, data in parsed_events:
-                if event_type == AssistantEventType.MESSAGE:
-                    messages.append({"type": event_type, "data": data})
-
-        return messages
-
-    def _parse_sse_chunk(self, chunk: str) -> list[tuple[str, dict[str, Any]]]:
-        events = []
-        lines = chunk.strip().split("\n")
-
-        i = 0
-        while i < len(lines):
-            if i + 1 < len(lines) and lines[i].startswith("event:") and lines[i + 1].startswith("data:"):
-                event_type = lines[i].replace("event:", "").strip()
-                data_str = lines[i + 1].replace("data:", "").strip()
-                try:
-                    data = json.loads(data_str)
-                    events.append((event_type, data))
-                except json.JSONDecodeError:
-                    pass
-                i += 2
-            else:
-                i += 1
-
-        return events
 
     def _astream(self):
         return SyncIterableToAsync(self._stream())
@@ -292,8 +261,7 @@ class Assistant:
                 "trace_id": self._trace_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
-                "team": self._team,
-                "user": self._user,
+                "team_id": self._team.id,
             },
         }
         return config

@@ -261,8 +261,8 @@ class CohortSerializer(serializers.ModelSerializer):
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         decoded_file = file.read().decode("utf-8").splitlines()
         reader = csv.reader(decoded_file)
-        distinct_ids = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
+        distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
+        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails, team_id=self.context["team_id"])
 
     def validate_query(self, query: Optional[dict]) -> Optional[dict]:
         if not query:

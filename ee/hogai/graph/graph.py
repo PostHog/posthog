@@ -8,7 +8,6 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
-from posthog.models.user import User
 
 from .funnels.nodes import (
     FunnelGeneratorNode,
@@ -54,12 +53,10 @@ checkpointer = DjangoCheckpointer()
 
 class BaseAssistantGraph:
     _team: Team
-    _user: User
     _graph: StateGraph
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team):
         self._team = team
-        self._user = user
         self._graph = StateGraph(AssistantState)
         self._has_start_node = False
 
@@ -83,7 +80,7 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     def add_rag_context(self):
         builder = self._graph
         self._has_start_node = True
-        retriever = InsightRagContextNode(self._team, self._user)
+        retriever = InsightRagContextNode(self._team)
         builder.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
         builder.add_edge(AssistantNodeName.START, AssistantNodeName.INSIGHT_RAG_CONTEXT)
         builder.add_conditional_edges(
@@ -106,11 +103,11 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     ):
         builder = self._graph
 
-        create_trends_plan_node = TrendsPlannerNode(self._team, self._user)
+        create_trends_plan_node = TrendsPlannerNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node)
         builder.add_edge(AssistantNodeName.TRENDS_PLANNER, AssistantNodeName.TRENDS_PLANNER_TOOLS)
 
-        create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team, self._user)
+        create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER_TOOLS, create_trends_plan_tools_node)
         builder.add_conditional_edges(
             AssistantNodeName.TRENDS_PLANNER_TOOLS,
@@ -127,10 +124,10 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
-        trends_generator = TrendsGeneratorNode(self._team, self._user)
+        trends_generator = TrendsGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator)
 
-        trends_generator_tools = TrendsGeneratorToolsNode(self._team, self._user)
+        trends_generator_tools = TrendsGeneratorToolsNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools)
 
         builder.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
@@ -152,11 +149,11 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     ):
         builder = self._graph
 
-        funnel_planner = FunnelPlannerNode(self._team, self._user)
+        funnel_planner = FunnelPlannerNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner)
         builder.add_edge(AssistantNodeName.FUNNEL_PLANNER, AssistantNodeName.FUNNEL_PLANNER_TOOLS)
 
-        funnel_planner_tools = FunnelPlannerToolsNode(self._team, self._user)
+        funnel_planner_tools = FunnelPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER_TOOLS, funnel_planner_tools)
         builder.add_conditional_edges(
             AssistantNodeName.FUNNEL_PLANNER_TOOLS,
@@ -173,10 +170,10 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
-        funnel_generator = FunnelGeneratorNode(self._team, self._user)
+        funnel_generator = FunnelGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator)
 
-        funnel_generator_tools = FunnelGeneratorToolsNode(self._team, self._user)
+        funnel_generator_tools = FunnelGeneratorToolsNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools)
 
         builder.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
@@ -198,11 +195,11 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     ):
         builder = self._graph
 
-        retention_planner = RetentionPlannerNode(self._team, self._user)
+        retention_planner = RetentionPlannerNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_PLANNER, retention_planner)
         builder.add_edge(AssistantNodeName.RETENTION_PLANNER, AssistantNodeName.RETENTION_PLANNER_TOOLS)
 
-        retention_planner_tools = RetentionPlannerToolsNode(self._team, self._user)
+        retention_planner_tools = RetentionPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_PLANNER_TOOLS, retention_planner_tools)
         builder.add_conditional_edges(
             AssistantNodeName.RETENTION_PLANNER_TOOLS,
@@ -219,10 +216,10 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
-        retention_generator = RetentionGeneratorNode(self._team, self._user)
+        retention_generator = RetentionGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_GENERATOR, retention_generator)
 
-        retention_generator_tools = RetentionGeneratorToolsNode(self._team, self._user)
+        retention_generator_tools = RetentionGeneratorToolsNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_GENERATOR_TOOLS, retention_generator_tools)
 
         builder.add_edge(AssistantNodeName.RETENTION_GENERATOR_TOOLS, AssistantNodeName.RETENTION_GENERATOR)
@@ -244,11 +241,11 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     ):
         builder = self._graph
 
-        sql_planner = SQLPlannerNode(self._team, self._user)
+        sql_planner = SQLPlannerNode(self._team)
         builder.add_node(AssistantNodeName.SQL_PLANNER, sql_planner)
         builder.add_edge(AssistantNodeName.SQL_PLANNER, AssistantNodeName.SQL_PLANNER_TOOLS)
 
-        sql_planner_tools = SQLPlannerToolsNode(self._team, self._user)
+        sql_planner_tools = SQLPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.SQL_PLANNER_TOOLS, sql_planner_tools)
         builder.add_conditional_edges(
             AssistantNodeName.SQL_PLANNER_TOOLS,
@@ -265,10 +262,10 @@ class InsightsAssistantGraph(BaseAssistantGraph):
     def add_sql_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
-        sql_generator = SQLGeneratorNode(self._team, self._user)
+        sql_generator = SQLGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.SQL_GENERATOR, sql_generator)
 
-        sql_generator_tools = SQLGeneratorToolsNode(self._team, self._user)
+        sql_generator_tools = SQLGeneratorToolsNode(self._team)
         builder.add_node(AssistantNodeName.SQL_GENERATOR_TOOLS, sql_generator_tools)
 
         builder.add_edge(AssistantNodeName.SQL_GENERATOR_TOOLS, AssistantNodeName.SQL_GENERATOR)
@@ -285,7 +282,7 @@ class InsightsAssistantGraph(BaseAssistantGraph):
 
     def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
-        query_executor_node = QueryExecutorNode(self._team, self._user)
+        query_executor_node = QueryExecutorNode(self._team)
         builder.add_node(AssistantNodeName.QUERY_EXECUTOR, query_executor_node)
         builder.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
         return self
@@ -321,9 +318,9 @@ class AssistantGraph(BaseAssistantGraph):
             "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
             "end": AssistantNodeName.END,
         }
-        root_node = RootNode(self._team, self._user)
+        root_node = RootNode(self._team)
         builder.add_node(AssistantNodeName.ROOT, root_node)
-        root_node_tools = RootNodeTools(self._team, self._user)
+        root_node_tools = RootNodeTools(self._team)
         builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
         builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
         builder.add_conditional_edges(
@@ -333,7 +330,7 @@ class AssistantGraph(BaseAssistantGraph):
 
     def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
-        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
+        insights_assistant_graph = InsightsAssistantGraph(self._team)
         compiled_graph = insights_assistant_graph.compile_full_graph()
         builder.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
         builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
@@ -347,12 +344,12 @@ class AssistantGraph(BaseAssistantGraph):
         builder = self._graph
         self._has_start_node = True
 
-        memory_onboarding = MemoryOnboardingNode(self._team, self._user)
-        memory_initializer = MemoryInitializerNode(self._team, self._user)
-        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team, self._user)
-        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team, self._user)
-        memory_onboarding_enquiry_interrupt = MemoryOnboardingEnquiryInterruptNode(self._team, self._user)
-        memory_onboarding_finalize = MemoryOnboardingFinalizeNode(self._team, self._user)
+        memory_onboarding = MemoryOnboardingNode(self._team)
+        memory_initializer = MemoryInitializerNode(self._team)
+        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team)
+        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team)
+        memory_onboarding_enquiry_interrupt = MemoryOnboardingEnquiryInterruptNode(self._team)
+        memory_onboarding_finalize = MemoryOnboardingFinalizeNode(self._team)
 
         builder.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer)
@@ -413,7 +410,7 @@ class AssistantGraph(BaseAssistantGraph):
         builder = self._graph
         self._has_start_node = True
 
-        memory_collector = MemoryCollectorNode(self._team, self._user)
+        memory_collector = MemoryCollectorNode(self._team)
         builder.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
         builder.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector)
         builder.add_conditional_edges(
@@ -425,7 +422,7 @@ class AssistantGraph(BaseAssistantGraph):
 
     def add_memory_collector_tools(self):
         builder = self._graph
-        memory_collector_tools = MemoryCollectorToolsNode(self._team, self._user)
+        memory_collector_tools = MemoryCollectorToolsNode(self._team)
         builder.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools)
         builder.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
@@ -437,7 +434,7 @@ class AssistantGraph(BaseAssistantGraph):
             "end": AssistantNodeName.END,
             "root": AssistantNodeName.ROOT,
         }
-        inkeep_docs_node = InkeepDocsNode(self._team, self._user)
+        inkeep_docs_node = InkeepDocsNode(self._team)
         builder.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
         builder.add_conditional_edges(
             AssistantNodeName.INKEEP_DOCS,
@@ -450,7 +447,7 @@ class AssistantGraph(BaseAssistantGraph):
         builder = self._graph
         self._has_start_node = True
 
-        title_generator = TitleGeneratorNode(self._team, self._user)
+        title_generator = TitleGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
         builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
         builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)

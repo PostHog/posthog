@@ -1,4 +1,7 @@
+import datetime
+import importlib
 import math
+import pkgutil
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
@@ -16,11 +19,10 @@ from langchain_openai import ChatOpenAI
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
+import products
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-
-# Import moved inside functions to avoid circular imports
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
@@ -49,8 +51,18 @@ from .prompts import (
     ROOT_INSIGHT_CONTEXT_PROMPT,
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_SYSTEM_PROMPT,
-    ROOT_UI_CONTEXT_PROMPT,
+    ROOT_USER_CONTEXT_PROMPT,
 )
+
+# TRICKY: Dynamically import max_tools from all products
+for module_info in pkgutil.iter_modules(products.__path__):
+    if module_info.name in ("conftest", "test"):
+        continue  # We mustn't import test modules in prod
+    try:
+        importlib.import_module(f"products.{module_info.name}.backend.max_tools")
+    except ModuleNotFoundError:
+        pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
+
 
 # Map query kinds to their respective full UI query classes
 # NOTE: Update this and SupportedQueryTypes when adding new query types
@@ -228,7 +240,7 @@ class RootNodeUIContextMixin(AssistantNode):
 
     def _render_user_context_template(self, dashboard_context: str, insights_context: str) -> str:
         """Render the user context template with the provided context strings."""
-        template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
+        template = PromptTemplate.from_template(ROOT_USER_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(
             ui_context_dashboard=dashboard_context, ui_context_insights=insights_context
         ).to_string()
@@ -245,24 +257,21 @@ class RootNode(RootNodeUIContextMixin):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        from ee.hogai.tool import _get_contextual_tool_class
-
         history, new_window_id = self._construct_and_update_messages_window(state, config)
 
         prompt = (
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
-                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                     *[
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{_get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]().format_system_prompt_injection(tool_context)}\n"
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
-                        if _get_contextual_tool_class(tool_name) is not None
+                        if tool_name in CONTEXTUAL_TOOL_NAME_TO_TOOL
                     ],
                 ],
                 template_format="mustache",
@@ -271,18 +280,19 @@ class RootNode(RootNodeUIContextMixin):
         )
         chain = prompt | self._get_model(state, config)
 
-        ui_context = self._format_ui_context(self._get_ui_context(state))
+        utc_now = datetime.datetime.now(datetime.UTC)
+        project_now = utc_now.astimezone(self._team.timezone_info)
+
+        ui_context = self._get_ui_context(state)
+        user_context = self._format_ui_context(ui_context)
 
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
-                "project_datetime": self.project_now,
-                "project_timezone": self.project_timezone,
-                "project_name": self._team.name,
-                "organization_name": self._team.organization.name,
-                "user_full_name": self._user.get_full_name(),
-                "user_email": self._user.email,
-                "ui_context": ui_context,
+                "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
+                "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
+                "project_timezone": self._team.timezone_info.tzname(utc_now),
+                "user_context": user_context,
             },
             config,
         )
@@ -314,8 +324,6 @@ class RootNode(RootNodeUIContextMixin):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import create_and_query_insight, search_documentation, _get_contextual_tool_class
-
         available_tools: list[type[BaseModel]] = []
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
@@ -325,8 +333,9 @@ class RootNode(RootNodeUIContextMixin):
             # This is the default tool, which can be overriden by the MaxTool based tool with the same name
             available_tools.append(create_and_query_insight)
         for tool_name in tool_names:
-            ToolClass = _get_contextual_tool_class(tool_name)
-            if ToolClass is None:
+            try:
+                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
+            except ValueError:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             available_tools.append(ToolClass())  # type: ignore
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
@@ -454,9 +463,6 @@ class RootNodeTools(AssistantNode):
         tool_names = self._get_contextual_tools(config).keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
-
-        from ee.hogai.tool import _get_contextual_tool_class
-
         if tool_call.name == "create_and_query_insight" and not is_editing_insight:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
@@ -471,7 +477,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif ToolClass := _get_contextual_tool_class(tool_call.name):
+        elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
             tool_class = ToolClass(state)
             result = tool_class.invoke(tool_call.model_dump(), config)
             assert isinstance(result, LangchainToolMessage)

@@ -90,7 +90,14 @@ Follow these guidelines when searching documentation:
 - If the documentation search doesn't provide enough information, acknowledge this and suggest alternative resources or ways to get help
 </posthog_documentation>
 
-{{{ui_context}}}
+<user_context>
+The user can provide you with additional context in the <attached_context> tag.
+If the user's request is ambiguous, use the context to direct your answer as much as possible.
+If the user's provided context has nothing to do with previous interactions, ignore any past interaction and use this new context instead. The user probably wants to change topic.
+You can acknowledge that you are using this context to answer the user's request.
+</user_context>
+
+{{{user_context}}}
 """.strip()
 )
 
@@ -162,11 +169,8 @@ ROOT_HARD_LIMIT_REACHED_PROMPT = """
 You have reached the maximum number of iterations, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.
 """.strip()
 
-ROOT_UI_CONTEXT_PROMPT = """
-The user can provide you with additional context in the <attached_context> tag.
-If the user's request is ambiguous, use the context to direct your answer as much as possible.
-If the user's provided context has nothing to do with previous interactions, ignore any past interaction and use this new context instead. The user probably wants to change topic.
-You can acknowledge that you are using this context to answer the user's request.
+ROOT_USER_CONTEXT_PROMPT = """
+Below are some potentially helpful/relevant pieces of information for figuring out to respond.
 <attached_context>
 {{{ui_context_dashboard}}}
 {{{ui_context_insights}}}

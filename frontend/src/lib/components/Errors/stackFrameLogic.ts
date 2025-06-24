@@ -11,13 +11,7 @@ function mapStackFrameRecords(
     newRecords: ErrorTrackingStackFrameRecord[],
     initialRecords: KeyedStackFrameRecords
 ): KeyedStackFrameRecords {
-    return newRecords.reduce(
-        (frames, record) => {
-            frames[record.raw_id] = record
-            return frames
-        },
-        { ...initialRecords }
-    )
+    return newRecords.reduce((frames, record) => ({ ...frames, [record.raw_id]: record }), initialRecords)
 }
 
 export const stackFrameLogic = kea<stackFrameLogicType>([

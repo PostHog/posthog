@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -16,15 +15,20 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],
 
     connect: {
-        actions: [userLogic, ['loadUser'], organizationLogic, ['loadCurrentOrganization']],
+        actions: [
+            userLogic,
+            ['loadUser'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
+            billingLogic,
+            ['loadBilling'],
+        ],
     },
 
     actions: {
         setClientSecret: (clientSecret) => ({ clientSecret }),
         setLoading: (loading) => ({ loading }),
-        setStripeError: (error) => ({ error }),
-        setApiError: (error) => ({ error }),
-        clearErrors: true,
+        setError: (error) => ({ error }),
         initiateAuthorization: true,
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
@@ -50,18 +54,10 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                 setLoading: (_, { loading }) => loading,
             },
         ],
-        stripeError: [
+        error: [
             null,
             {
-                setStripeError: (_, { error }) => error,
-                clearErrors: () => null,
-            },
-        ],
-        apiError: [
-            null,
-            {
-                setApiError: (_, { error }) => error,
-                clearErrors: () => null,
+                setError: (_, { error }) => error,
             },
         ],
         authorizationStatus: [
@@ -110,22 +106,17 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
         },
         initiateAuthorization: async () => {
             actions.setLoading(true)
-            actions.clearErrors()
+            actions.setError(null)
             try {
                 const response = await api.create('api/billing/activate/authorize')
                 actions.setClientSecret(response.clientSecret)
                 actions.setLoading(false)
             } catch (error) {
-                posthog.capture('payment entry api error', {
-                    error,
-                    type: 'initiate authorization error',
-                })
-                actions.setApiError('Failed to initialize payment')
-                actions.setLoading(false)
+                actions.setError('Failed to initialize payment')
             }
         },
 
-        pollAuthorizationStatus: async ({ paymentIntentId }) => {
+        pollAuthorizationStatus: async ({ paymentIntentId }, breakpoint) => {
             const pollInterval = 2000 // Poll every 2 seconds
             const maxAttempts = 30 // Max 1 minute of polling (30 * 2 seconds)
             let attempts = 0
@@ -143,26 +134,23 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     actions.setAuthorizationStatus(status)
 
                     if (status === 'success') {
-                        // Load before doing anything to reload in entitlements on the organization
-                        await billingLogic.asyncActions.loadBilling()
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
+                            // Push success to the url
+                            await breakpoint(1000)
                             router.actions.push(router.values.location.pathname, {
                                 ...router.values.searchParams,
                                 success: true,
                             })
+                            actions.loadBilling()
                             actions.loadCurrentOrganization()
                             actions.loadUser()
                             actions.hidePaymentEntryModal()
                         }
                         return
                     } else if (status === 'failed') {
-                        actions.setApiError(errorMessage)
-                        posthog.capture('payment entry api error', {
-                            error_message: errorMessage,
-                            type: 'authorization status failed',
-                        })
+                        actions.setError(errorMessage)
                         return
                     }
 
@@ -170,16 +158,14 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     if (attempts < maxAttempts) {
                         setTimeout(() => void poll(), pollInterval)
                     } else {
-                        actions.setApiError('Payment status check timed out')
-                        posthog.capture('payment entry api error', {
-                            error_message: errorMessage,
-                            type: 'authorization status timed out',
-                        })
+                        actions.setError('Payment status check timed out')
                     }
-                } catch {
-                    actions.setStripeError('Failed to complete. Please refresh the page and try again.')
+                } catch (error) {
+                    actions.setError('Failed to check payment status')
                 } finally {
+                    // Reset the state
                     actions.setLoading(false)
+                    actions.setAuthorizationStatus(null)
                     actions.setClientSecret(null)
                     actions.setRedirectPath(null)
                 }

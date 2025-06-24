@@ -5,10 +5,11 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
 
+use serde_json::json;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
-use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
+use crate::assignment_rules::{try_assignment_rules, Assignment};
 use crate::teams::TeamManager;
 use crate::types::FingerprintedErrProps;
 use crate::{
@@ -392,12 +393,30 @@ async fn send_internal_event(
     event.insert_prop("status", issue.status.as_str())?;
 
     if let Some(assignment) = new_assignment {
-        let assignee = Assignee::try_from(&assignment)?;
-        let stringified_assignee = serde_json::to_string(&assignee)?;
-
-        event
-            .insert_prop("assignee", stringified_assignee)
-            .expect("Strings are serializable");
+        if let Some(user_id) = assignment.user_id {
+            event
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user", "id": user_id}).to_string(),
+                )
+                .expect("Strings are serializable");
+        }
+        if let Some(group_id) = assignment.user_group_id {
+            event
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user_group", "id": group_id.to_string()}).to_string(),
+                )
+                .expect("Strings are serializable");
+        }
+        if let Some(role_id) = assignment.role_id {
+            event
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "role", "id": role_id.to_string()}).to_string(),
+                )
+                .expect("Strings are serializable");
+        }
     }
 
     send_iter_to_kafka(
@@ -443,18 +462,11 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::{assignment_rules::Assignee, sanitize_string};
+    use crate::sanitize_string;
 
     #[test]
     fn it_replaces_null_characters() {
         let content = sanitize_string("\u{0000} is not valid JSON".to_string());
         assert_eq!(content, "� is not valid JSON");
-    }
-
-    #[test]
-    fn it_correctly_orders_stringified_assignee_keys() {
-        let assignee = Assignee::User(1234);
-        let stringified_assignee = serde_json::to_string(&assignee).unwrap();
-        assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
     }
 }

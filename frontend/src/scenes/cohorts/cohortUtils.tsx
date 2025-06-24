@@ -93,7 +93,7 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 export function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
         ...(cohort.name ? { name: cohort.name } : {}),
-        description: cohort.description ?? '',
+        ...{ description: cohort.description ?? '' },
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),

@@ -16,17 +16,15 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -81,7 +79,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { isDev } = useValues(preflightLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -170,21 +168,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     : 'Open project tree'
                 : null,
         },
-        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
-            ? [
-                  {
-                      identifier: 'Database',
-                      id: 'Database',
-                      icon: <IconDatabase />,
-                      onClick: (e?: React.KeyboardEvent) => {
-                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Database')
-                          }
-                      },
-                      showChevron: true,
-                  },
-              ]
-            : []),
         {
             identifier: 'DataManagement',
             id: 'Data management',
@@ -378,8 +361,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-primary h-px " />
 
-                        <div className="p-1 flex flex-col gap-px items-center">
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                        {/* 
+                            Extra padding to compensate for dev mode debug notice... 
+                            not sure how better to do this other than lower the notices z-index.. 
+                        */}
+                        <div
+                            className={`pt-1 px-1 flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''} ${
+                                isDev ? 'pb-10' : 'pb-2'
+                            }`}
+                        >
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}

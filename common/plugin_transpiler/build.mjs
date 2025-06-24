@@ -5,18 +5,15 @@ import { buildInParallel } from '@posthog/esbuilder'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-await buildInParallel(
-    [
-        {
-            entryPoints: ['src/index.ts'],
-            bundle: true,
-            outdir: 'dist',
-            absWorkingDir: __dirname,
-        },
-    ],
+await buildInParallel([
     {
-        async onBuildComplete() {
-            console.info('Build complete')
-        },
+        entryPoints: ['src/index.ts'],
+        bundle: true,
+        outdir: 'dist',
+        absWorkingDir: __dirname,
     }
-)
+], {
+    async onBuildComplete(config, buildResponse) {
+        console.log('Build complete')
+    }
+})

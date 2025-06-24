@@ -1,17 +1,17 @@
 import { IconCode, IconWarning, IconX } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { useEffect, useState } from 'react'
 
-export interface DebugNoticeProps {
-    isCollapsed?: boolean
-}
+import { NavbarButton } from '~/layout/navigation-3000/components/NavbarButton'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
-export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | null {
+export function DebugNotice(): JSX.Element | null {
     const [debugInfo, setDebugInfo] = useState<{ branch: string; revision: string } | undefined>()
     const [noticeHidden, setNoticeHidden] = useState(false)
+    const { isNavCollapsed } = useValues(navigation3000Logic)
 
     useEffect(() => {
         const bottomNotice = document.getElementById('bottom-notice')
@@ -34,11 +34,12 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
         return null
     }
 
-    if (isCollapsed) {
+    if (isNavCollapsed) {
         return (
-            <ButtonPrimitive
-                iconOnly
-                tooltip={
+            <NavbarButton
+                identifier="debug-notice"
+                icon={<IconBranch className="text-accent" />}
+                title={
                     <div className="font-mono">
                         <div>
                             <strong>DEBUG mode!</strong>
@@ -53,32 +54,31 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                     </div>
                 }
                 onClick={() => setNoticeHidden(true)}
-            >
-                <IconBranch className="text-secondary" />
-            </ButtonPrimitive>
+            />
         )
     }
     return (
-        <div className="border rounded bg-primary overflow-hidden w-full font-mono text-xs *:flex *:items-center *:gap-2 *:pl-2 *:pr-0.5 *:h-7 *:border-l-4">
-            <div className="border-brand-blue justify-between">
+        <div className="border rounded bg-primary overflow-hidden mb-1.5 w-full font-mono max-w-60 text-[13px]">
+            <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-blue justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton
                     icon={<IconX />}
                     tooltip="Dismiss"
                     tooltipPlacement="right"
-                    size="xsmall"
+                    size="small"
+                    noPadding
                     onClick={() => setNoticeHidden(true)}
                 />
             </div>
             <Tooltip title="Branch" placement="right">
-                <div className="w-fit border-brand-red truncate max-w-full">
-                    <IconBranch className="text-base" />
+                <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-red truncate max-w-full">
+                    <IconBranch className="text-lg" />
                     <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.branch}</span>
                 </div>
             </Tooltip>
             <Tooltip title="Revision" placement="right">
-                <div className="w-fit border-brand-yellow">
-                    <IconCode className="text-base" />
+                <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-yellow">
+                    <IconCode className="text-lg" />
                     <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.revision}</span>
                 </div>
             </Tooltip>

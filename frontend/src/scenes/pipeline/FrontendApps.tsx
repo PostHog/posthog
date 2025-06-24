@@ -11,7 +11,7 @@ import { PipelineStage, ProductKey } from '~/types'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { NewButton } from './NewButton'
 import { SiteApp } from './types'
-import { appColumn, nameColumn, usePipelinePluginBackedNodeMenuCommonItems } from './utils'
+import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export interface FrontendAppsProps {
     asLegacyList?: boolean
@@ -67,7 +67,7 @@ export function FrontendApps({ asLegacyList }: FrontendAppsProps): JSX.Element {
                                             overlay={
                                                 <LemonMenuOverlay
                                                     items={[
-                                                        ...usePipelinePluginBackedNodeMenuCommonItems(
+                                                        ...pipelinePluginBackedNodeMenuCommonItems(
                                                             frontendApp,
                                                             toggleEnabled,
                                                             loadPluginConfigs

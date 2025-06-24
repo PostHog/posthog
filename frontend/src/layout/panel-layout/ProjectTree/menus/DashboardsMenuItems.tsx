@@ -8,10 +8,12 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
+import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { CustomMenuProps } from '../types'
 
-export function DashboardsMenuItems({ MenuItem = DropdownMenuItem, onLinkClick }: CustomMenuProps): JSX.Element {
+export function DashboardsMenuItems({ MenuItem = DropdownMenuItem }: CustomMenuProps): JSX.Element {
     const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { mainContentRef } = useValues(panelLayoutLogic)
 
     return (
         <>
@@ -27,12 +29,14 @@ export function DashboardsMenuItems({ MenuItem = DropdownMenuItem, onLinkClick }
                             to={urls.dashboard(dashboard.id)}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                onLinkClick?.(false)
                                 router.actions.push(urls.dashboard(dashboard.id))
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
-                                    onLinkClick?.(true)
+                                    // small delay to fight dropdown menu from taking focus
+                                    setTimeout(() => {
+                                        mainContentRef?.current?.focus()
+                                    }, 10)
                                 }
                             }}
                         >

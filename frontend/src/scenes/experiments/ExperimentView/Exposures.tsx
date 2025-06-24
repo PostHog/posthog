@@ -12,7 +12,6 @@ import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
-import { modalsLogic } from '../modalsLogic'
 
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
@@ -25,7 +24,7 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 
 export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteria } = useValues(experimentLogic)
-    const { openExposureCriteriaModal } = useActions(modalsLogic)
+    const { openExposureCriteriaModal } = useActions(experimentLogic)
 
     const chartRef = useRef<Chart | null>(null)
 

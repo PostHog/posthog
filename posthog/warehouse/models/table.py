@@ -186,7 +186,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
+                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
 
                 result = sync_execute(
                     f"""DESCRIBE TABLE (
@@ -263,7 +263,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
+                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
 
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",

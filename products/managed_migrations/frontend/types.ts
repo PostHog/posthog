@@ -12,7 +12,7 @@ export interface BaseManagedMigration {
         email: string
     }
     created_at: string
-    status_message: string | null
+    error: string | null
     state?: {
         parts?: Array<{
             key: string

@@ -224,7 +224,7 @@ export function BillingLineGraph({
 
                             tooltipEl.style.top = `${tooltipY}px`
                             tooltipEl.style.left = `${tooltipX}px`
-                        } catch {
+                        } catch (e) {
                             hideBillingTooltip()
                         }
                     },

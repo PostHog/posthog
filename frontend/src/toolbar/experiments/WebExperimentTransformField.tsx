@@ -85,7 +85,6 @@ export function WebExperimentTransformField({
                                 }
                             }}
                             value={transform.html}
-                            maxRows={8}
                         />
                     </div>
                     <div className="mt-4">
@@ -115,7 +114,6 @@ export function WebExperimentTransformField({
                                 }
                             }}
                             value={transform.css || ''}
-                            maxRows={8}
                         />
                     </div>
                 </div>

@@ -31,7 +31,7 @@ export const wizardLogic = kea<wizardLogicType>([
                         })
                         actions.setView('success')
                         return response
-                    } catch {
+                    } catch (_) {
                         actions.setView('invalid')
 
                         return { success: false }

@@ -54,7 +54,6 @@ export const AccessRevoked = (): JSX.Element => {
                     organization: {
                         name: 'Test org',
                         teams: [],
-                        projects: [],
                     },
                     team: {
                         id: 1,
@@ -68,7 +67,6 @@ export const AccessRevoked = (): JSX.Element => {
                     membership_level: 15,
                     name: 'Test org',
                     teams: [],
-                    projects: [],
                 },
             ],
         },
@@ -91,7 +89,6 @@ export const NoSelectableProjects = (): JSX.Element => {
                     organization: {
                         name: 'Test org',
                         teams: [],
-                        projects: [],
                     },
                     team: null,
                 },
@@ -102,7 +99,6 @@ export const NoSelectableProjects = (): JSX.Element => {
                     membership_level: 1,
                     name: 'Test org',
                     teams: [],
-                    projects: [],
                 },
             ],
         },

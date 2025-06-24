@@ -17,17 +17,17 @@ LOGGER = structlog.get_logger()
 
 
 # Note: When pulling all fields, salesforce requires a 200 limit. We circumvent the pagination by using Id ordering.
-def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
+def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "User": {
             "name": "User",
             "table_name": "user",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -39,7 +39,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM User WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM User ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -48,12 +48,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "UserRole": {
             "name": "UserRole",
             "table_name": "user_role",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -65,7 +65,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM UserRole WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM UserRole ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -74,12 +74,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Lead": {
             "name": "Lead",
             "table_name": "lead",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -91,7 +91,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Lead WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Lead ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -100,12 +100,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Contact": {
             "name": "Contact",
             "table_name": "contact",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -117,7 +117,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Contact WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Contact ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -126,12 +126,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Campaign": {
             "name": "Campaign",
             "table_name": "campaign",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -143,7 +143,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Campaign WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Campaign ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -152,12 +152,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Product2": {
             "name": "Product2",
             "table_name": "product2",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -169,7 +169,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Product2 WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Product2 ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -178,12 +178,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Pricebook2": {
             "name": "Pricebook2",
             "table_name": "pricebook2",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -195,7 +195,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Pricebook2 WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Pricebook2 ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -204,12 +204,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "PricebookEntry": {
             "name": "PricebookEntry",
             "table_name": "pricebook_entry",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -221,7 +221,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM PricebookEntry WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM PricebookEntry ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -230,12 +230,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Order": {
             "name": "Order",
             "table_name": "order",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -247,7 +247,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Order WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Order ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -256,12 +256,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Opportunity": {
             "name": "Opportunity",
             "table_name": "opportunity",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -273,7 +273,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Opportunity WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Opportunity ORDER BY Id ASC LIMIT 200",
                 },
             },
@@ -282,12 +282,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Account": {
             "name": "Account",
             "table_name": "account",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -299,7 +299,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Account ORDER BY Id ASC LIMIT 200",
                 },
                 "response_actions": [],
@@ -309,12 +309,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Event": {
             "name": "Event",
             "table_name": "event",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -326,7 +326,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Event WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Event ORDER BY Id ASC LIMIT 200",
                 },
                 "response_actions": [],
@@ -336,12 +336,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Task": {
             "name": "Task",
             "table_name": "task",
-            "primary_key": "Id" if should_use_incremental_field else None,
+            "primary_key": "Id" if is_incremental else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
             }
-            if should_use_incremental_field
+            if is_incremental
             else "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -353,7 +353,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "initial_value": "2000-01-01T00:00:00.000+0000",
                         "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Task WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
                     }
-                    if should_use_incremental_field
+                    if is_incremental
                     else "SELECT FIELDS(ALL) FROM Task ORDER BY Id ASC LIMIT 200",
                 },
                 "response_actions": [],
@@ -366,15 +366,15 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
 
 
 class SalesforceEndpointPaginator(BasePaginator):
-    def __init__(self, instance_url, should_use_incremental_field: bool):
+    def __init__(self, instance_url, is_incremental: bool):
         super().__init__()
         self.instance_url = instance_url
-        self.should_use_incremental_field = should_use_incremental_field
+        self.is_incremental = is_incremental
 
     def __repr__(self):
         pairs = (
             f"{attr}={repr(getattr(self, attr))}"
-            for attr in ("should_use_incremental_field", "_has_next_page", "_model_name", "_last_record_id")
+            for attr in ("is_incremental", "_has_next_page", "_model_name", "_last_record_id")
         )
         return f"<SalesforceEndpointPaginator at {hex(id(self))}: {', '.join(pairs)}>"
 
@@ -389,9 +389,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         if not res or not res["records"]:
             self._has_next_page = False
             self.logger.debug(
-                "No more Salesforce pages",
-                instance_url=self.instance_url,
-                should_use_incremental_field=self.should_use_incremental_field,
+                "No more Salesforce pages", instance_url=self.instance_url, is_incremental=self.is_incremental
             )
             return
 
@@ -401,7 +399,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         self.logger.debug(
             "More Salesforce pages required",
             instance_url=self.instance_url,
-            should_use_incremental_field=self.should_use_incremental_field,
+            is_incremental=self.is_incremental,
             model_name=model_name,
             last_record_id=last_record["Id"],
         )
@@ -414,7 +412,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         if not self._has_next_page:
             return
 
-        if self.should_use_incremental_field:
+        if self.is_incremental:
             # Cludge: Need to get initial value for date filter
             query = request.params.get("q", "")
             date_match = re.search(r"SystemModstamp >= (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+?)\s", query)
@@ -422,7 +420,7 @@ class SalesforceEndpointPaginator(BasePaginator):
             self.logger.debug(
                 "Constructing incremental query",
                 instance_url=self.instance_url,
-                should_use_incremental_field=self.should_use_incremental_field,
+                is_incremental=self.is_incremental,
                 model_name=self._model_name,
                 last_record_id=self._last_record_id,
             )
@@ -436,7 +434,7 @@ class SalesforceEndpointPaginator(BasePaginator):
             self.logger.debug(
                 "Constructing non-incremental query",
                 instance_url=self.instance_url,
-                should_use_incremental_field=self.should_use_incremental_field,
+                is_incremental=self.is_incremental,
                 model_name=self._model_name,
                 last_record_id=self._last_record_id,
             )
@@ -456,20 +454,18 @@ def salesforce_source(
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
-    should_use_incremental_field: bool = False,
+    is_incremental: bool = False,
 ):
     config: RESTAPIConfig = {
         "client": {
             "base_url": instance_url,
             "auth": SalesforceAuth(refresh_token, access_token, instance_url),
-            "paginator": SalesforceEndpointPaginator(
-                instance_url=instance_url, should_use_incremental_field=should_use_incremental_field
-            ),
+            "paginator": SalesforceEndpointPaginator(instance_url=instance_url, is_incremental=is_incremental),
         },
         "resource_defaults": {
-            "primary_key": "id" if should_use_incremental_field else None,
+            "primary_key": "id" if is_incremental else None,
         },
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "resources": [get_resource(endpoint, is_incremental)],
     }
 
     yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)

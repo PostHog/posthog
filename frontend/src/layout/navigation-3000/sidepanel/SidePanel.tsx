@@ -196,7 +196,7 @@ export function SidePanel(): JSX.Element | null {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
-                ...theme?.sidebarStyle,
+                ...(theme?.sidebarStyle ?? {}),
             }}
         >
             <Resizer {...resizerLogicProps} />

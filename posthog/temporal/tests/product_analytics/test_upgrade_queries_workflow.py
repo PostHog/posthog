@@ -133,7 +133,6 @@ def setup_insights(team):
             "version": 4,
         },
         team=team,
-        deleted=True,  # soft-deleted insights should be migrated too
     )
 
     # no query
@@ -199,14 +198,9 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
 
         activity_environment.run(migrate_insights_batch, inputs)
 
-        # regular insight
         i3.refresh_from_db()
         assert i3.query["source"]["version"] == 6
         assert i3.query["source"]["interval"] == "day"
-
-        # soft-deleted insight
-        i4.refresh_from_db()
-        assert i4.query["source"]["series"][0]["version"] == 8
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

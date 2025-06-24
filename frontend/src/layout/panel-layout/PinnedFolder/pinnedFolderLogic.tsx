@@ -10,6 +10,8 @@ import type { pinnedFolderLogicType } from './pinnedFolderLogicType'
 export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
     path(['layout', 'panel-layout', 'PinnedFolder', 'pinnedFolderLogic']),
     actions({
+        showModal: true,
+        hideModal: true,
         setPinnedFolder: (id: string) => ({ id }),
         setSelectedFolder: (id: string) => ({ id }),
     }),
@@ -40,6 +42,14 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
             'products://',
             {
                 setSelectedFolder: (_, { id }) => id,
+            },
+        ],
+        modalVisible: [
+            false,
+            {
+                showModal: () => true,
+                hideModal: () => false,
+                setPinnedFolder: () => false,
             },
         ],
     })),

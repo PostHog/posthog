@@ -121,7 +121,7 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
 
         try {
             query = JSON.parse(node.attrs.query)
-        } catch {
+        } catch (e) {
             query = {
                 kind: NodeKind.DataTableNode,
                 source: {

@@ -5,7 +5,6 @@ import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
-import { modalsLogic } from '../modalsLogic'
 
 export function MetricSourceModal({
     experimentId,
@@ -14,17 +13,17 @@ export function MetricSourceModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { experiment, usesNewQueryRunner } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen, usesNewQueryRunner } =
+        useValues(experimentLogic({ experimentId }))
     const {
+        setExperiment,
         closePrimaryMetricSourceModal,
         closeSecondaryMetricSourceModal,
         openPrimaryMetricModal,
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
-    } = useActions(modalsLogic)
-    const { isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(modalsLogic)
+    } = useActions(experimentLogic({ experimentId }))
 
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
     const isOpen = isSecondary ? isSecondaryMetricSourceModalOpen : isPrimaryMetricSourceModalOpen

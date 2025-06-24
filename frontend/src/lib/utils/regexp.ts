@@ -2,7 +2,7 @@ export const isValidRegexp = (regex: string): boolean => {
     try {
         new RegExp(regex)
         return true
-    } catch {
+    } catch (e) {
         return false
     }
 }

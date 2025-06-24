@@ -1,5 +1,5 @@
 import { IconClock, IconEye, IconFilter, IconHide, IconRevert } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonButtonProps, LemonInput, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -255,7 +255,7 @@ export const RecordingsUniversalFilters = ({
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                         >
-                            <RecordingsUniversalFilterGroup totalFiltersCount={totalFiltersCount} />
+                            <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
                         </UniversalFilters>
                     </div>
                     {(totalFiltersCount ?? 0) > 0 && (
@@ -393,9 +393,11 @@ export const RecordingsUniversalFilters = ({
 }
 
 const RecordingsUniversalFilterGroup = ({
+    size = 'small',
     totalFiltersCount,
     showAddFilter = true,
 }: {
+    size?: LemonButtonProps['size']
     totalFiltersCount?: number
     showAddFilter?: boolean
 }): JSX.Element => {
@@ -424,6 +426,7 @@ const RecordingsUniversalFilterGroup = ({
                                     <span className="font-semibold">Applied filters:</span>
                                 )}
                                 <RecordingsUniversalFilterGroup
+                                    size={size}
                                     totalFiltersCount={totalFiltersCount}
                                     showAddFilter={showAddFilter}
                                 />

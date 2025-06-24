@@ -9,14 +9,12 @@ import { MetricSelectorStep } from './MetricSelectorStep'
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalFooter } from './RunningTimeCalculatorModalFooter'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
-import { modalsLogic } from '../modalsLogic'
 export function RunningTimeCalculatorModal(): JSX.Element {
     /**
      * Modal open/close is controlled from parent component.
      * This is a candidate for props (onClose, onSave)
      */
-    const { experimentId } = useValues(experimentLogic)
-    const { isCalculateRunningTimeModalOpen } = useValues(modalsLogic)
+    const { experimentId, isCalculateRunningTimeModalOpen } = useValues(experimentLogic)
     const {
         // Experiment Object
         experiment,
@@ -31,11 +29,10 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         uniqueUsers,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
 
-    const { updateExperiment } = useActions(experimentLogic)
+    const { closeCalculateRunningTimeModal, updateExperiment } = useActions(experimentLogic)
     const { setMinimumDetectableEffect, setExposureEstimateConfig } = useActions(
         runningTimeCalculatorLogic({ experimentId })
     )
-    const { closeCalculateRunningTimeModal } = useActions(modalsLogic)
 
     return (
         <LemonModal

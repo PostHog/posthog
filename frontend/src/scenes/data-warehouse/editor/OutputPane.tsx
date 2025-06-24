@@ -46,8 +46,6 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
-import { QueryInfo } from './sidebar/QueryInfo'
-import { QueryVariables } from './sidebar/QueryVariables'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -275,7 +273,7 @@ export function OutputPane(): JSX.Element {
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
     const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
@@ -397,18 +395,6 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
-                            ? [
-                                  {
-                                      key: OutputTab.Variables,
-                                      label: 'Variables',
-                                  },
-                                  {
-                                      key: OutputTab.Materialization,
-                                      label: 'Materialization',
-                                  },
-                              ]
-                            : []),
                     ].map((tab) => (
                         <div
                             key={tab.key}
@@ -669,7 +655,6 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    editorKey,
     setSourceQuery,
     exportContext,
     saveAsInsight,
@@ -678,26 +663,6 @@ const Content = ({
     setProgress,
     progress,
 }: any): JSX.Element | null => {
-    if (activeTab === OutputTab.Materialization) {
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryInfo codeEditorKey={editorKey} />
-                </div>
-            </TabScroller>
-        )
-    }
-
-    if (activeTab === OutputTab.Variables) {
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t max-w-1/2">
-                    <QueryVariables />
-                </div>
-            </TabScroller>
-        )
-    }
-
     if (responseLoading) {
         return (
             <div className="flex flex-1 p-2 w-full justify-center items-center border-t">

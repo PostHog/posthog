@@ -1,9 +1,6 @@
 import json
 from abc import abstractmethod
-import importlib
-import pkgutil
-import products
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -12,10 +9,6 @@ from pydantic import BaseModel, Field
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantContextualTool
-
-if TYPE_CHECKING:
-    from posthog.models.team.team import Team
-    from posthog.models.user import User
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
@@ -47,25 +40,6 @@ class search_documentation(BaseModel):
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
 
 
-def _import_max_tools() -> None:
-    """TRICKY: Dynamically import max_tools from all products"""
-    for module_info in pkgutil.iter_modules(products.__path__):
-        if module_info.name in ("conftest", "test"):
-            continue  # We mustn't import test modules in prod
-        try:
-            importlib.import_module(f"products.{module_info.name}.backend.max_tools")
-        except ModuleNotFoundError:
-            pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
-
-
-def _get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
-    """Get the tool class for a given tool name, handling circular import."""
-    _import_max_tools()  # Ensure max_tools are imported
-    from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
-
-    return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
-
-
 class MaxTool(BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
@@ -83,8 +57,7 @@ class MaxTool(BaseTool):
     """
 
     _context: dict[str, Any]
-    _team: Optional["Team"]
-    _user: Optional["User"]
+    _team_id: int | None
     _config: RunnableConfig
     _state: AssistantState
 
@@ -113,8 +86,7 @@ class MaxTool(BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self._team = config["configurable"]["team"]
-        self._user = config["configurable"]["user"]
+        self._team_id = config["configurable"].get("team_id", None)
         self._config = {
             "recursion_limit": 48,
             "callbacks": config.get("callbacks", []),
@@ -122,8 +94,7 @@ class MaxTool(BaseTool):
                 "thread_id": config["configurable"].get("thread_id"),
                 "trace_id": config["configurable"].get("trace_id"),
                 "distinct_id": config["configurable"].get("distinct_id"),
-                "team": self._team,
-                "user": self._user,
+                "team_id": self._team_id,
             },
         }
         return self._run_impl(*args, **kwargs)

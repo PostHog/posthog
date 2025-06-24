@@ -1,5 +1,14 @@
 import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonButtonProps,
+    LemonInput,
+    LemonModal,
+    LemonTab,
+    LemonTabs,
+    Popover,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -383,7 +392,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                             >
-                                <RecordingsUniversalFilterGroup />
+                                <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
                             </UniversalFilters>
                         </div>
                     </div>
@@ -493,7 +502,13 @@ export const RecordingsUniversalFiltersEmbed = ({
     )
 }
 
-const RecordingsUniversalFilterGroup = (): JSX.Element => {
+const RecordingsUniversalFilterGroup = ({
+    size = 'small',
+    totalFiltersCount,
+}: {
+    size?: LemonButtonProps['size']
+    totalFiltersCount?: number
+}): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
@@ -507,7 +522,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup />
+                        <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
 
                         <Popover
                             overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}

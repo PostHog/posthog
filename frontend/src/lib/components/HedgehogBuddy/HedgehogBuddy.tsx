@@ -395,9 +395,7 @@ export class HedgehogActor {
             this.setAnimation('stop')
         } else {
             let randomChoiceList = Object.keys(this.animations()).reduce((acc, key) => {
-                const newItems = range(this.animations()[key].randomChance || 0).map(() => key as AnimationName)
-                acc.push(...newItems)
-                return acc
+                return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)] as AnimationName[]
             }, [] as AnimationName[])
 
             randomChoiceList = this.hedgehogConfig.walking_enabled
@@ -837,7 +835,7 @@ export class HedgehogActor {
                                     }px`,
                                     backgroundSize: (SPRITE_SIZE / SPRITE_SIZE) * X_FRAMES * 100 + '%',
                                     filter: imageFilter as any,
-                                    ...this.mainAnimation.spriteInfo.style,
+                                    ...(this.mainAnimation.spriteInfo.style ?? {}),
                                 }}
                             />
                         ) : null}
@@ -874,7 +872,7 @@ export class HedgehogActor {
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
                                     }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
-                                    ...this.overlayAnimation.spriteInfo.style,
+                                    ...(this.overlayAnimation.spriteInfo.style ?? {}),
                                 }}
                             />
                         ) : null}

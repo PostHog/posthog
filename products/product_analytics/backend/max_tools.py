@@ -3,6 +3,7 @@ from collections.abc import Iterator
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.utils.types import AssistantState
+from posthog.models.team.team import Team
 
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -47,7 +48,8 @@ class EditCurrentInsightTool(MaxTool):
         if "current_query" not in self.context:
             raise ValueError("Context `current_query` is required for the `create_and_query_insight` tool")
 
-        graph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
+        team = Team.objects.get(id=self._team_id)
+        graph = InsightsAssistantGraph(team).compile_full_graph()
         state = self._state
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage):

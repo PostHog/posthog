@@ -230,7 +230,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
         },
         session_id_v7: {
             name: 'session_id_v7',
-            type: 'string',
+            type: 'integer',
             hogql_value: 'session_id_v7',
             schema_valid: true,
         },
@@ -788,7 +788,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         client_email: jsonConfig.client_email,
                         token_uri: jsonConfig.token_uri,
                     })
-                } catch {
+                } catch (e) {
                     actions.setConfigurationManualErrors({
                         json_config_file: 'The config file is not valid',
                     })

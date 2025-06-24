@@ -51,7 +51,6 @@ import { getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic, FORM_MODES } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
-import { modalsLogic } from '../modalsLogic'
 
 export function VariantTag({
     experimentId,
@@ -293,9 +292,14 @@ export function PageHeaderCustom(): JSX.Element {
         hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
     } = useValues(experimentLogic)
-    const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard } =
-        useActions(experimentLogic)
-    const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
+    const {
+        launchExperiment,
+        archiveExperiment,
+        createExposureCohort,
+        openShipVariantModal,
+        createExperimentDashboard,
+        openStopExperimentModal,
+    } = useActions(experimentLogic)
 
     const exposureCohortId = experiment?.exposure_cohort
 
@@ -471,10 +475,10 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function EditConclusionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { updateExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
-    const { closeEditConclusionModal } = useActions(modalsLogic)
-    const { isEditConclusionModalOpen } = useValues(modalsLogic)
+    const { experiment, isEditConclusionModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeEditConclusionModal, updateExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
 
     return (
         <LemonModal
@@ -515,10 +519,10 @@ export function EditConclusionModal({ experimentId }: { experimentId: Experiment
 }
 
 export function StopExperimentModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic({ experimentId }))
-    const { closeStopExperimentModal } = useActions(modalsLogic)
-    const { isStopExperimentModalOpen } = useValues(modalsLogic)
+    const { experiment, isStopExperimentModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeStopExperimentModal, endExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
 
     return (
         <LemonModal
@@ -561,10 +565,8 @@ export function StopExperimentModal({ experimentId }: { experimentId: Experiment
 }
 
 export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { shipVariant } = useActions(experimentLogic({ experimentId }))
-    const { closeShipVariantModal } = useActions(modalsLogic)
-    const { isShipVariantModalOpen } = useValues(modalsLogic)
+    const { experiment, isShipVariantModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeShipVariantModal, shipVariant } = useActions(experimentLogic({ experimentId }))
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()

@@ -19,7 +19,6 @@ import { getExperimentStatus } from '../experimentsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
-import { modalsLogic } from '../modalsLogic'
 
 export function Info(): JSX.Element {
     const {
@@ -28,14 +27,19 @@ export function Info(): JSX.Element {
         legacyPrimaryMetricsResults,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
+        isDescriptionModalOpen,
         statsMethod,
         usesNewQueryRunner,
         isExperimentDraft,
     } = useValues(experimentLogic)
-    const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
-        useActions(modalsLogic)
-    const { isDescriptionModalOpen } = useValues(modalsLogic)
+    const {
+        updateExperiment,
+        refreshExperimentResults,
+        openDescriptionModal,
+        closeDescriptionModal,
+        openEditConclusionModal,
+        openStatsEngineModal,
+    } = useActions(experimentLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 

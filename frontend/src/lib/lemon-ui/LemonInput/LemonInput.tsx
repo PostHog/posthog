@@ -78,7 +78,7 @@ export interface LemonInputPropsNumber
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
-export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function LemonInput(
+export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function _LemonInput(
     {
         className,
         onChange,

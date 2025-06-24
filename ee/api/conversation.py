@@ -84,7 +84,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["assistant_graph"] = AssistantGraph(self.team, cast(User, self.request.user)).compile_full_graph()
+        context["assistant_graph"] = AssistantGraph(self.team).compile_full_graph()
         return context
 
     def create(self, request: Request, *args, **kwargs):

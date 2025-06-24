@@ -100,19 +100,22 @@ export function aggregateBreakdownResult(
     if (breakdownList.length) {
         // Create mapping to determine breakdown ordering by first step counts
         const breakdownToOrderMap: Record<string | number, FunnelStep> = breakdownList
-            .reduce<{ breakdown_value: (string | number)[]; count: number }[]>((allEntries, breakdownSteps) => {
-                allEntries.push({
-                    breakdown_value: getBreakdownStepValues(breakdownSteps?.[0], -1).breakdown_value,
-                    count: breakdownSteps?.[0]?.count ?? 0,
-                })
-                return allEntries
-            }, [])
+            .reduce<{ breakdown_value: (string | number)[]; count: number }[]>(
+                (allEntries, breakdownSteps) => [
+                    ...allEntries,
+                    {
+                        breakdown_value: getBreakdownStepValues(breakdownSteps?.[0], -1).breakdown_value,
+                        count: breakdownSteps?.[0]?.count ?? 0,
+                    },
+                ],
+                []
+            )
             .sort((a, b) => b.count - a.count)
             .reduce(
-                (allEntries, breakdown, order) =>
-                    Object.assign(allEntries, {
-                        [breakdown.breakdown_value.join('_')]: { ...breakdown, order },
-                    }),
+                (allEntries, breakdown, order) => ({
+                    ...allEntries,
+                    [breakdown.breakdown_value.join('_')]: { ...breakdown, order },
+                }),
                 {}
             )
 
@@ -121,15 +124,18 @@ export function aggregateBreakdownResult(
             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
             breakdown: breakdownProperty,
             nested_breakdown: breakdownList
-                .reduce((allEntries, breakdownSteps) => {
-                    allEntries.push({
-                        ...breakdownSteps[i],
-                        order: breakdownToOrderMap[
-                            getBreakdownStepValues(breakdownSteps[i], i).breakdown_value.join('_')
-                        ].order,
-                    })
-                    return allEntries
-                }, [])
+                .reduce(
+                    (allEntries, breakdownSteps) => [
+                        ...allEntries,
+                        {
+                            ...breakdownSteps[i],
+                            order: breakdownToOrderMap[
+                                getBreakdownStepValues(breakdownSteps[i], i).breakdown_value.join('_')
+                            ].order,
+                        },
+                    ],
+                    []
+                )
                 .sort((a, b) => a.order - b.order),
             average_conversion_time: null,
             people: [],
@@ -539,7 +545,7 @@ export const appendToCorrelationConfig = (
 
     const oldCorrelationConfig = oldCurrentTeam.correlation_config
 
-    const configList = Array.from(new Set(currentValue.concat([configValue])))
+    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
 
     const correlationConfig = {
         ...oldCorrelationConfig,

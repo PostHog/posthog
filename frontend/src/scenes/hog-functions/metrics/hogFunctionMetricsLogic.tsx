@@ -56,7 +56,7 @@ export const hogFunctionMetricsLogic = kea<hogFunctionMetricsLogicType>([
                             result.series = []
                         }
                         return result
-                    } catch {
+                    } catch (e) {
                         // We don't want to be noisy here
                         return null
                     }

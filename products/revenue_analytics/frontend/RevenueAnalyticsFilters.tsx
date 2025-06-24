@@ -6,6 +6,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
@@ -61,6 +62,8 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
 
     const { setDates, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
 
+    const revenueAnalyticsFiltersEnabled = useFeatureFlag('REVENUE_ANALYTICS_FILTERS')
+
     return (
         <div
             className={cn(
@@ -81,14 +84,16 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         dateOptions={DATE_FILTER_DATE_OPTIONS}
                     />
 
-                    <PropertyFilters
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
-                        onChange={(filters) =>
-                            setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
-                        }
-                        propertyFilters={revenueAnalyticsFilter}
-                        pageKey="revenue-analytics"
-                    />
+                    {revenueAnalyticsFiltersEnabled && (
+                        <PropertyFilters
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
+                            onChange={(filters) =>
+                                setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
+                            }
+                            propertyFilters={revenueAnalyticsFilter}
+                            pageKey="revenue-analytics"
+                        />
+                    )}
                 </div>
 
                 <RevenueAnalyticsBreakdownBy />

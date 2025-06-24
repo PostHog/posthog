@@ -1,6 +1,5 @@
 import {
     ClientMetrics,
-    CODES,
     ConsumerGlobalConfig,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
@@ -17,7 +16,6 @@ import { Gauge, Histogram } from 'prom-client'
 import { isTestEnv } from '~/utils/env-utils'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -121,11 +119,9 @@ export class KafkaConsumer {
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
-    private podName: string
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.backgroundTask = []
-        this.podName = process.env.HOSTNAME || hostname()
 
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
@@ -233,41 +229,6 @@ export class KafkaConsumer {
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
             // Default settings
             'auto.offset.reset': 'earliest',
-        })
-
-        // Set up rebalancing event handlers
-        consumer.on('rebalance', (err, topicPartitions) => {
-            logger.info('🔁', 'kafka_consumer_rebalancing', { err, topicPartitions })
-
-            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                topicPartitions.forEach((tp) => {
-                    kafkaConsumerAssignment.set(
-                        {
-                            topic_name: tp.topic,
-                            partition_id: tp.partition.toString(),
-                            pod: this.podName,
-                            group_id: this.config.groupId,
-                        },
-                        1
-                    )
-                })
-            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                topicPartitions.forEach((tp) => {
-                    kafkaConsumerAssignment.set(
-                        {
-                            topic_name: tp.topic,
-                            partition_id: tp.partition.toString(),
-                            pod: this.podName,
-                            group_id: this.config.groupId,
-                        },
-                        0
-                    )
-                })
-            } else {
-                // We had a "real" error
-                logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
-                captureException(err)
-            }
         })
 
         consumer.on('event.log', (log) => {

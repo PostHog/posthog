@@ -1,7 +1,7 @@
 import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
+import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -29,6 +29,7 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
@@ -113,9 +114,12 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, showLayoutNavBar } =
+        useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned, isLayoutPanelVisible, isLayoutNavbarVisible } =
+        useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -142,6 +146,14 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
+    function handleNodeClick(): void {
+        if (isMobileLayout && (isLayoutNavbarVisible || isLayoutPanelVisible)) {
+            showLayoutPanel(false)
+            showLayoutNavBar(false)
+            clearActivePanelIdentifier()
+        }
+    }
+
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         // Determine the separator component based on MenuItem type
@@ -162,29 +174,17 @@ export function ProjectTree({
         const productMenu =
             showProductMenuItems && item.name === 'Product analytics' ? (
                 <>
-                    <ProductAnalyticsMenuItems
-                        MenuItem={MenuItem}
-                        MenuSeparator={MenuSeparator}
-                        onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
-                    />
+                    <ProductAnalyticsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
             ) : showProductMenuItems && item.name === 'Session replay' ? (
                 <>
-                    <SessionReplayMenuItems
-                        MenuItem={MenuItem}
-                        MenuSeparator={MenuSeparator}
-                        onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
-                    />
+                    <SessionReplayMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
             ) : showProductMenuItems && item.name === 'Dashboards' ? (
                 <>
-                    <DashboardsMenuItems
-                        MenuItem={MenuItem}
-                        MenuSeparator={MenuSeparator}
-                        onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
-                    />
+                    <DashboardsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
                     <MenuSeparator />
                 </>
             ) : null
@@ -390,6 +390,11 @@ export function ProjectTree({
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
                     )
+                    handleNodeClick()
+                }
+                if (!isLayoutPanelPinned || projectTreeMode === 'table') {
+                    clearActivePanelIdentifier()
+                    showLayoutPanel(false)
                 }
 
                 if (item?.record?.path) {
@@ -401,9 +406,6 @@ export function ProjectTree({
                         loadFolder(path)
                     }
                 }
-
-                // False, because we handle focus of content in LemonTree with mainContentRef prop
-                resetPanelLayout(false)
             }}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {

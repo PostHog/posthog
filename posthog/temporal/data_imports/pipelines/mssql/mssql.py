@@ -92,7 +92,7 @@ def get_schemas(config: MSSQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
 def _build_query(
     schema: str,
     table_name: str,
-    should_use_incremental_field: bool,
+    is_incremental: bool,
     incremental_field: str | None,
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
@@ -100,7 +100,7 @@ def _build_query(
 ) -> tuple[str, dict[str, Any]]:
     base_query = "SELECT {top} * FROM [{schema}].[{table_name}]"
 
-    if not should_use_incremental_field:
+    if not is_incremental:
         query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
         return query, {}
 
@@ -273,7 +273,7 @@ def _get_table_average_row_size(
     cursor: Cursor,
     schema: str,
     table_name: str,
-    should_use_incremental_field: bool,
+    is_incremental: bool,
     incremental_field: str | None,
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
@@ -282,7 +282,7 @@ def _get_table_average_row_size(
     query, args = _build_query(
         schema,
         table_name,
-        should_use_incremental_field,
+        is_incremental,
         incremental_field,
         incremental_field_type,
         db_incremental_field_last_value,
@@ -324,7 +324,7 @@ def _get_table_chunk_size(
     cursor: Cursor,
     schema: str,
     table_name: str,
-    should_use_incremental_field: bool,
+    is_incremental: bool,
     incremental_field: str | None,
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
@@ -335,7 +335,7 @@ def _get_table_chunk_size(
             cursor,
             schema,
             table_name,
-            should_use_incremental_field,
+            is_incremental,
             incremental_field,
             incremental_field_type,
             db_incremental_field_last_value,
@@ -462,7 +462,7 @@ def mssql_source(
     database: str,
     schema: str,
     table_names: list[str],
-    should_use_incremental_field: bool,
+    is_incremental: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Any | None,
     incremental_field: str | None = None,
@@ -486,7 +486,7 @@ def mssql_source(
             inner_query, inner_query_args = _build_query(
                 schema,
                 table_name,
-                should_use_incremental_field,
+                is_incremental,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -499,7 +499,7 @@ def mssql_source(
                 cursor,
                 schema,
                 table_name,
-                should_use_incremental_field,
+                is_incremental,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -507,9 +507,7 @@ def mssql_source(
             )
             try:
                 partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name, logger)
-                    if should_use_incremental_field
-                    else None
+                    _get_partition_settings(cursor, schema, table_name, logger) if is_incremental else None
                 )
             except Exception as e:
                 logger.debug(f"_get_partition_settings: Error: {e}. Skipping partitioning.")
@@ -535,7 +533,7 @@ def mssql_source(
                 query, args = _build_query(
                     schema,
                     table_name,
-                    should_use_incremental_field,
+                    is_incremental,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,

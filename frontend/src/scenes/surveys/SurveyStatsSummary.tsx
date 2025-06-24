@@ -232,7 +232,7 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
     )
 }
 
-export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Element {
+function _SurveyStatsSummary(): JSX.Element {
     const {
         filterSurveyStatsByDistinctId,
         processedSurveyStats,
@@ -263,4 +263,6 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
             <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
         </SurveyStatsContainer>
     )
-})
+}
+
+export const SurveyStatsSummary = memo(_SurveyStatsSummary)

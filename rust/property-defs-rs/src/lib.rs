@@ -96,16 +96,21 @@ pub async fn update_consumer_loop(
         // the new mirror deployment should point all Postgres writes
         // at the new isolated "propdefs" DB instance in all envs.
         // THE ORIGINAL property-defs-rs deployment should NEVER DO THIS
-        let resolved_pool = if context.propdefs_pool.is_some() {
-            metrics::counter!(
-                V2_ISOLATED_DB_SELECTED,
-                &[(String::from("processor"), String::from("v2"))]
-            )
-            .increment(1);
-            context.propdefs_pool.as_ref().unwrap()
-        } else {
-            &context.pool
-        };
+        let mut resolved_pool = &context.pool;
+        if config.enable_mirror {
+            // for safely, the original propdefs deploy will not set the
+            // DATABASE_PROPDEFS_URL and local defaults set it the same
+            // as DATABASE_URL (the std posthog Cloud DB) so only if
+            // this context var != None will it be enabled
+            if let Some(resolved) = &context.propdefs_pool {
+                metrics::counter!(
+                    V2_ISOLATED_DB_SELECTED,
+                    &[(String::from("processor"), String::from("v2"))]
+                )
+                .increment(1);
+                resolved_pool = resolved;
+            }
+        }
 
         // conditionally enable new v2 batch write path. While the new write
         // path is being tested and not the default, THIS IS INDEPENDENT of
@@ -126,7 +131,6 @@ pub async fn update_consumer_loop(
 
             process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
         } else {
-            // TODO: eliminate this codepath now that v2 is live in production
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }
     }

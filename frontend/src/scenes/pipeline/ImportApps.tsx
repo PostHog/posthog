@@ -6,7 +6,7 @@ import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUti
 
 import { importAppsLogic } from './importAppsLogic'
 import { ImportApp } from './types'
-import { appColumn, nameColumn, usePipelinePluginBackedNodeMenuCommonItems } from './utils'
+import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function ImportApps(): JSX.Element {
     const { loading, importApps } = useValues(importAppsLogic)
@@ -31,7 +31,7 @@ export function ImportApps(): JSX.Element {
                                     overlay={
                                         <LemonMenuOverlay
                                             items={[
-                                                ...usePipelinePluginBackedNodeMenuCommonItems(
+                                                ...pipelinePluginBackedNodeMenuCommonItems(
                                                     importApp,
                                                     toggleEnabled,
                                                     loadPluginConfigs

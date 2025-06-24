@@ -73,7 +73,7 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
     )
 }
 
-export const SurveyResponseFilters = React.memo(function SurveyResponseFilters(): JSX.Element {
+function _SurveyResponseFilters(): JSX.Element {
     const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
@@ -227,4 +227,6 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </div>
     )
-})
+}
+
+export const SurveyResponseFilters = React.memo(_SurveyResponseFilters)

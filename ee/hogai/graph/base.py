@@ -11,7 +11,6 @@ from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
-from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
@@ -19,11 +18,9 @@ from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistan
 
 class AssistantNode(ABC):
     _team: Team
-    _user: User
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team):
         self._team = team
-        self._user = user
 
     def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         """

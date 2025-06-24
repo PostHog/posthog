@@ -286,14 +286,14 @@ def has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, p
 def _get_rows_to_sync(
     table: bigquery.Table,
     client: bigquery.Client,
-    should_use_incremental_field: bool,
+    is_incremental: bool,
     db_incremental_field_last_value: typing.Any,
     logger: FilteringBoundLogger,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> int:
     try:
-        if not should_use_incremental_field:
+        if not is_incremental:
             table = client.get_table(table)
             if table.num_rows:
                 logger.debug(f"_get_rows_to_sync: table.num_rows={table.num_rows}")
@@ -301,11 +301,7 @@ def _get_rows_to_sync(
                 return table.num_rows
 
         inner_query = _get_query(
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-            table,
-            incremental_field,
-            incremental_field_type,
+            is_incremental, db_incremental_field_last_value, table, incremental_field, incremental_field_type
         )
 
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
@@ -332,13 +328,13 @@ def _get_rows_to_sync(
 
 
 def _get_query(
-    should_use_incremental_field: bool,
+    is_incremental: bool,
     db_incremental_field_last_value: typing.Any,
     bq_table: bigquery.Table,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> str:
-    if should_use_incremental_field:
+    if is_incremental:
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
 
@@ -368,7 +364,7 @@ def bigquery_source(
     dataset_project_id: str | None,
     client_email: str,
     token_uri: str,
-    should_use_incremental_field: bool,
+    is_incremental: bool,
     bq_destination_table_id: str,
     db_incremental_field_last_value: typing.Any,
     logger: FilteringBoundLogger,
@@ -401,7 +397,7 @@ def bigquery_source(
         rows_to_sync = _get_rows_to_sync(
             bq_table,
             bq_client,
-            should_use_incremental_field,
+            is_incremental,
             db_incremental_field_last_value,
             logger,
             incremental_field,
@@ -418,7 +414,7 @@ def bigquery_source(
         ) as bq_client:
             bq_table = bq_client.get_table(fully_qualified_table_name)
 
-            if should_use_incremental_field:
+            if is_incremental:
                 # This is only done because incremental syncs require progress tracking.
                 # This requirement means we need to enforce an order, as otherwise
                 # progress could move ahead of the current stream. Thus, we need to run
@@ -428,11 +424,7 @@ def bigquery_source(
                 # are paying a (potentially high) cost to run this query job and store
                 # this data, when we could instead give up tracking and read it.
                 query = _get_query(
-                    should_use_incremental_field,
-                    db_incremental_field_last_value,
-                    bq_table,
-                    incremental_field,
-                    incremental_field_type,
+                    is_incremental, db_incremental_field_last_value, bq_table, incremental_field, incremental_field_type
                 )
 
                 destination_table = bigquery.Table(bq_destination_table_id)
@@ -449,11 +441,7 @@ def bigquery_source(
                 # we already do this for all tables and views, so here we just handle the
                 # views or materialized views that are not incremental.
                 query = _get_query(
-                    should_use_incremental_field,
-                    db_incremental_field_last_value,
-                    bq_table,
-                    incremental_field,
-                    incremental_field_type,
+                    is_incremental, db_incremental_field_last_value, bq_table, incremental_field, incremental_field_type
                 )
 
                 destination_table = bigquery.Table(bq_destination_table_id)

@@ -151,7 +151,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                                     fileReader.readAsText(payload[field.name][0])
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch {
+                            } catch (e) {
                                 lemonToast.error('File is not valid')
                                 return
                             }

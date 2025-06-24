@@ -224,6 +224,12 @@ urlpatterns = [
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
+    opt_slash_path("e", capture.get_event),
+    opt_slash_path("engage", capture.get_event),
+    opt_slash_path("track", capture.get_event),
+    opt_slash_path("capture", capture.get_event),
+    opt_slash_path("batch", capture.get_event),
+    opt_slash_path("s", capture.get_event),  # session recordings
     opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),

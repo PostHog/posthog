@@ -28,7 +28,7 @@ class ArrayBatchIterator(BatchIterator[T]):
     def __init__(self, data: list[T], batch_size: int):
         super().__init__(batch_size)
         self.data = data
-        self._delegate = FunctionBatchIterator(self._batch_fn, batch_size, len(data))
+        self._delegate = FunctionBatchIterator(self._batch_fn, batch_size)
 
     def _batch_fn(self, batch_index: int, batch_size: int) -> list[T]:
         start = batch_index * batch_size
@@ -45,21 +45,18 @@ class FunctionBatchIterator(BatchIterator[T]):
     Useful for complex querying scenarios where each batch requires custom logic.
 
     The function should take (batch_index: int, batch_size: int) and return a list of items.
-    The iterator will continue until max_items is reached, ignoring empty batches.
+    Return an empty list to signal completion.
     """
 
-    def __init__(self, batch_function: Callable[[int, int], list[T]], batch_size: int, max_items: int):
+    def __init__(self, batch_function: Callable[[int, int], list[T]], batch_size: int):
         super().__init__(batch_size)
         self.batch_function = batch_function
-        self.max_items = max_items
-        self.max_batches = (self.max_items + self.batch_size - 1) // self.batch_size
 
     def __iter__(self) -> Iterator[tuple[int, list[T]]]:
-        for batch_index in range(self.max_batches):
+        batch_index = 0
+        while True:
             batch_data = self.batch_function(batch_index, self.batch_size)
-            if batch_data:
-                start_item = batch_index * self.batch_size
-                end_item = start_item + len(batch_data)
-                if end_item > self.max_items:
-                    batch_data = batch_data[: self.max_items - start_item]
-                yield batch_index, batch_data
+            if not batch_data:
+                break
+            yield batch_index, batch_data
+            batch_index += 1

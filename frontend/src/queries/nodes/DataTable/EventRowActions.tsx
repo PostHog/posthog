@@ -1,5 +1,5 @@
 import { IconWarning } from '@posthog/icons'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

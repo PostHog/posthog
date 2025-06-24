@@ -274,7 +274,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                     continue
                                 }
                             }
-                        } catch {
+                        } catch (error) {
                             break
                         }
 

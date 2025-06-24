@@ -170,7 +170,9 @@ export function makeOpenKeyboardPlaceholder(
         {
             timestamp: context.timestamp,
             idSequence: context.idSequence,
-            styleOverride: shouldAbsolutelyPosition ? {} : { bottom: true },
+            styleOverride: {
+                ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
+            },
         }
     )
 }

@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 import traceback
@@ -20,12 +21,11 @@ from posthog.clickhouse.client.connection import (
     ClickHouseUser,
 )
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, QueryTags, AccessMethod
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
 from posthog.exceptions import ClickhouseAtCapacity
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST, API_QUERIES_ON_ONLINE_CLUSTER
-from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -129,25 +129,26 @@ def sync_execute(
             flush_persons_and_events()
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
-    tags = get_query_tags()
-    is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
+
+    is_personal_api_key = get_query_tag_value("access_method") == "personal_api_key"
 
     # When someone uses an API key, always put their query to the offline cluster
     # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_personal_api_key or tags.kind == "celery"):
+    if workload == Workload.DEFAULT and (is_personal_api_key or get_query_tag_value("kind") == "celery"):
         workload = Workload.OFFLINE
 
+    tag_id: str = get_query_tag_value("id") or ""
     # Make sure we always have process_query_task on the online cluster
-    tags_id: str = tags.id or ""
-    if tags_id == "posthog.tasks.tasks.process_query_task":
+    if tag_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
         ch_user = ClickHouseUser.APP
 
+    chargeable = get_query_tag_value("chargeable") or 0
     # Customer is paying for API
     if (
         team_id
         and workload == Workload.OFFLINE
-        and tags.chargeable
+        and chargeable
         and is_cloud()
         and team_id in API_QUERIES_ON_ONLINE_CLUSTER
     ):
@@ -157,7 +158,7 @@ def sync_execute(
         workload = get_default_clickhouse_workload_type()
 
     if team_id is not None:
-        tags.team_id = team_id
+        tag_queries(team_id=team_id)
 
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
     query_id = validated_client_query_id()
@@ -166,22 +167,19 @@ def sync_execute(
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
         **(settings or {}),
     }
-    tags.query_settings = core_settings
-    query_type = tags.query_type or "Other"
+    tags["query_settings"] = core_settings
+    query_type = tags.get("query_type", "Other")
     if ch_user == ClickHouseUser.DEFAULT:
         if is_personal_api_key:
             ch_user = ClickHouseUser.API
-        elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
+        elif tags.get("kind", "") == "request" and "api/" in tag_id and "capture" not in tag_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
-
-    # update tags if inside temporal (should not)
-    update_query_tags_with_temporal_info()
 
     while True:
         settings = {
             **core_settings,
-            "log_comment": tags.to_json(),
+            "log_comment": json.dumps(tags, separators=(",", ":")),
             "query_id": query_id,
         }
         if workload == Workload.OFFLINE:
@@ -193,9 +191,9 @@ def sync_execute(
         start_time = perf_counter()
         try:
             QUERY_STARTED_COUNTER.labels(
-                team_id=str(team_id or ""),
-                access_method=tags.access_method or "other",
-                chargeable=str(tags.chargeable or "0"),
+                team_id=str(tags.get("team_id", "0")),
+                access_method=tags.get("access_method", "other"),
+                chargeable=str(tags.get("chargeable", "0")),
             ).inc()
             with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
                 result = client.execute(
@@ -213,22 +211,22 @@ def sync_execute(
                 exception_type=exception_type,
                 query_type=query_type,
                 workload=workload.value if workload else "None",
-                chargeable=str(tags.chargeable or "0"),
+                chargeable=chargeable,
             ).inc()
             err = wrap_query_error(e)
             if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                 workload = Workload.ONLINE
-                tags.clickhouse_exception_type = exception_type
-                tags.workload = str(workload)
+                tags["clickhouse_exception_type"] = exception_type
+                tags["workload"] = str(workload)
                 continue
             raise err from e
         finally:
             execution_time = perf_counter() - start_time
 
             QUERY_FINISHED_COUNTER.labels(
-                team_id=str(team_id or ""),
-                access_method=tags.access_method or "other",
-                chargeable=str(tags.chargeable or "0"),
+                team_id=str(tags.get("team_id", "0")),
+                access_method=tags.get("access_method", "other"),
+                chargeable=str(tags.get("chargeable", "0")),
             ).inc()
 
             if query_counter := getattr(thread_local_storage, "query_counter", None):
@@ -274,7 +272,7 @@ def _prepare_query(
     query: str,
     args: QueryArgs,
     workload: Workload = Workload.DEFAULT,
-) -> tuple[str, Optional[QueryArgs], QueryTags]:
+):
     """
     Given a string query with placeholders we do one of two things:
 
@@ -296,7 +294,7 @@ def _prepare_query(
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
-    prepared_args: Optional[QueryArgs] = None
+    prepared_args: Any = QueryArgs
     if isinstance(args, list | tuple | types.GeneratorType):
         # If we get one of these it means we have an insert, let the clickhouse
         # client handle substitution here.
@@ -307,10 +305,12 @@ def _prepare_query(
         # clickhouse client uses to signal no substitution is desired. Expected
         # args balue are `None` or `{}` for instance
         rendered_sql = query
+        prepared_args = None
     else:
         # Else perform the substitution so we can perform operations on the raw
         # non-templated SQL
         rendered_sql = substitute_params(query, args)
+        prepared_args = None
 
     if "--" in rendered_sql or "/*" in rendered_sql:
         # This can take a very long time with e.g. large funnel queries
@@ -326,17 +326,16 @@ def _prepare_query(
     return annotated_sql, prepared_args, tags
 
 
-def _annotate_tagged_query(query, workload: Workload) -> tuple[str, QueryTags]:
+def _annotate_tagged_query(query, workload: Workload):
     """
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    tags = get_query_tags()
-    tags.workload = workload
+    tags = {**get_query_tags(), "workload": str(workload)}
     # Annotate the query with information on the request/task
-    if tags.kind:
-        user_id = f" user_id:{tags.user_id}" if tags.user_id else ""
-        query = f"/*{user_id} {tags.kind}:{tags.id.replace('/', '_') if tags.id else ''} */ {query}"
+    if "kind" in tags:
+        user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
+        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} */ {query}"
 
     return query, tags
 

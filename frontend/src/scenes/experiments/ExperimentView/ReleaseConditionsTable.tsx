@@ -8,12 +8,10 @@ import { groupsModel } from '~/models/groupsModel'
 import { Experiment, FeatureFlagGroupType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
 
 export function ReleaseConditionsModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-    const { closeReleaseConditionsModal } = useActions(modalsLogic)
-    const { isReleaseConditionsModalOpen } = useValues(modalsLogic)
+    const { experiment, isReleaseConditionsModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeReleaseConditionsModal } = useActions(experimentLogic({ experimentId }))
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
     const { featureFlag, nonEmptyVariants } = useValues(_featureFlagLogic)
@@ -61,8 +59,7 @@ export function ReleaseConditionsModal({ experimentId }: { experimentId: Experim
 
 export function ReleaseConditionsTable(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
-    const { openReleaseConditionsModal } = useActions(modalsLogic)
+    const { reportExperimentReleaseConditionsViewed, openReleaseConditionsModal } = useActions(experimentLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const columns: LemonTableColumns<FeatureFlagGroupType> = [

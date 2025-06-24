@@ -2,7 +2,7 @@ import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reduc
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { asyncSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
+import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

@@ -272,8 +272,10 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             return acc
         }
 
-        acc[key] = typeof value === 'number' ? Math.round(value) : value
-        return acc
+        return {
+            ...acc,
+            [key]: typeof value === 'number' ? Math.round(value) : value,
+        }
     }, {} as Record<string, any>)
 
     return (

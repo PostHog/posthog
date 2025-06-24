@@ -69,7 +69,7 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> list[i
     logger = get_internal_logger()
     failed: list[int] = []
 
-    insights = Insight.objects_including_soft_deleted.filter(id__in=inputs.insight_ids)
+    insights = Insight.objects.filter(id__in=inputs.insight_ids)
 
     for insight in insights:
         try:

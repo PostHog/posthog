@@ -521,7 +521,7 @@ export const redirects: Record<
             const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
             const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
             Object.assign(query.source as EventsQuery, { before, after })
-        } catch {
+        } catch (e) {
             lemonToast.error('Invalid event timestamp')
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
