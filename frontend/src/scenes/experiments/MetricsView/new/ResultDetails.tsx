@@ -147,7 +147,9 @@ export function ResultDetails({
     ]
 
     const dataSource = [
-        { ...result.baseline, key: 'control' } as ExperimentVariantResult & { key: string },
+        ...(result.baseline
+            ? [{ ...result.baseline, key: 'control' } as ExperimentVariantResult & { key: string }]
+            : []),
         ...(result.variant_results || []),
     ]
 

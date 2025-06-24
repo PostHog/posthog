@@ -3,6 +3,43 @@ import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, val
 import { generateViolinPath } from '../legacy/violinUtils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
+function VariantGradient({
+    metricIndex,
+    variantKey,
+    isSecondary,
+    lower,
+    upper,
+    colors,
+}: {
+    metricIndex: number
+    variantKey: string
+    isSecondary: boolean
+    lower: number
+    upper: number
+    colors: any
+}): JSX.Element {
+    return (
+        <linearGradient
+            id={`gradient-${metricIndex}-${variantKey}-${isSecondary ? 'secondary' : 'primary'}`}
+            x1="0"
+            x2="1"
+            y1="0"
+            y2="0"
+        >
+            {lower < 0 && upper > 0 ? (
+                <>
+                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
+                    <stop offset={`${(-lower / (upper - lower)) * 100}%`} stopColor={colors.BAR_NEGATIVE} />
+                    <stop offset={`${(-lower / (upper - lower)) * 100}%`} stopColor={colors.BAR_POSITIVE} />
+                    <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
+                </>
+            ) : (
+                <stop offset="100%" stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE} />
+            )}
+        </linearGradient>
+    )
+}
+
 export function VariantBar({
     variantResult,
     index,
@@ -62,33 +99,14 @@ export function VariantBar({
 
                     {/* Gradient definition for both violin and rectangular bars */}
                     <defs>
-                        <linearGradient
-                            id={`gradient-${metricIndex}-${variantResult.key}-${isSecondary ? 'secondary' : 'primary'}`}
-                            x1="0"
-                            x2="1"
-                            y1="0"
-                            y2="0"
-                        >
-                            {lower < 0 && upper > 0 ? (
-                                <>
-                                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_NEGATIVE}
-                                    />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_POSITIVE}
-                                    />
-                                    <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
-                                </>
-                            ) : (
-                                <stop
-                                    offset="100%"
-                                    stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
-                                />
-                            )}
-                        </linearGradient>
+                        <VariantGradient
+                            metricIndex={metricIndex}
+                            variantKey={variantResult.key}
+                            isSecondary={isSecondary}
+                            lower={lower}
+                            upper={upper}
+                            colors={colors}
+                        />
                     </defs>
 
                     {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
