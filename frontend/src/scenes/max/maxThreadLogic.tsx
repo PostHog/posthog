@@ -303,6 +303,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                             }
                                             checkPathname()
                                         })
+                                        // Empty message effectively means "just resume without new user content"
                                         actions.askMax('')
                                         parsedResponse.content = parsedResponse.content.replace(
                                             toolResult.page_key,
