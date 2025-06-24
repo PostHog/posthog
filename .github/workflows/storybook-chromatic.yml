@@ -33,6 +33,39 @@ jobs:
                         - '.github/workflows/storybook-chromatic.yml'
                         - 'playwright.config.ts'
 
+    build-storybook:
+        name: Build Storybook
+        runs-on: depot-ubuntu-24.04-16 # We're only doing this once, so we can afford to use a larger instance
+        timeout-minutes: 15
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            - name: Build Storybook
+              run: |
+                  bin/turbo --filter=@posthog/storybook prepare
+                  pnpm --filter=@posthog/storybook build --test
+
+            - name: Upload Storybook build artifact
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+                  retention-days: 1
+
     storybook-chromatic:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
@@ -80,8 +113,8 @@ jobs:
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
-        needs: changes
-        timeout-minutes: 30
+        needs: [changes, build-storybook]
+        timeout-minutes: 20
         container:
             image: mcr.microsoft.com/playwright:v1.45.0
         strategy:
@@ -230,11 +263,12 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm install http-server wait-on -g
 
-            - name: Build Storybook
+            - name: Download Storybook build artifact
               if: needs.changes.outputs.frontend == 'true'
-              run: |
-                  bin/turbo --filter=@posthog/storybook prepare
-                  pnpm --filter=@posthog/storybook build --test
+              uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
 
             - name: Serve Storybook in the background
               if: needs.changes.outputs.frontend == 'true'
