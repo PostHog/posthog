@@ -457,6 +457,7 @@ async def materialize_model(
                 data=batch,
                 mode=mode,
                 schema_mode=schema_mode,
+                engine="rust",
             )
 
             row_count = row_count + batch.num_rows
