@@ -22,6 +22,7 @@ import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
+import type { DragEvent } from 'react'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
@@ -50,8 +51,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             reactFlowInstance,
         }),
         onDragStart: true,
-        onDragOver: (event: React.DragEvent) => ({ event }),
-        onDrop: (event: React.DragEvent) => ({ event }),
+        onDragOver: (event: DragEvent) => ({ event }),
+        onDrop: (event: DragEvent) => ({ event }),
         setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
     }),
