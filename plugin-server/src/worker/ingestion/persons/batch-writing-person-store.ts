@@ -589,11 +589,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         if (existingPersonUpdate) {
             // Merge the properties and changesets from both updates
-            const mergedPersonUpdate: PersonUpdate = {
-                ...existingPersonUpdate,
-                properties: { ...existingPersonUpdate.properties, ...person.properties },
-                property_changeset: { ...existingPersonUpdate.property_changeset, ...person.property_changeset },
-                needs_write: existingPersonUpdate.needs_write || person.needs_write,
+            const mergedPersonUpdate = this.mergeUpdateIntoPersonUpdate(existingPersonUpdate, {
+                properties: person.properties,
+                is_identified: person.is_identified,
+            } as Partial<InternalPerson>)
+
+            // Handle fields that are specific to PersonUpdate
+            mergedPersonUpdate.property_changeset = {
+                ...existingPersonUpdate.property_changeset,
+                ...person.property_changeset,
             }
 
             this.personUpdateCache.set(this.getPersonUuidCacheKey(teamId, person.uuid), mergedPersonUpdate)
@@ -665,38 +669,40 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (!existingUpdate) {
             // Create new PersonUpdate from the person and apply the update
             personUpdate = fromInternalPerson(person, distinctId)
-
-            // Track property changes in changeset and merge into full properties
-            if (update.properties) {
-                personUpdate.property_changeset = { ...personUpdate.property_changeset, ...update.properties }
-                personUpdate.properties = { ...personUpdate.properties, ...update.properties }
-            }
-
-            // Apply other updates (excluding properties which we handled above)
-            const { properties, ...otherUpdates } = update
-            Object.assign(personUpdate, otherUpdates)
-
-            personUpdate.needs_write = true
+            personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update)
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         } else {
             // Merge updates into existing cached PersonUpdate
-            personUpdate = existingUpdate
-
-            // Track property changes in changeset and merge into full properties
-            if (update.properties) {
-                personUpdate.property_changeset = { ...personUpdate.property_changeset, ...update.properties }
-                personUpdate.properties = { ...personUpdate.properties, ...update.properties }
-            }
-
-            // Apply other updates (excluding properties which we handled above)
-            const { properties, ...otherUpdates } = update
-            Object.assign(personUpdate, otherUpdates)
-
-            personUpdate.needs_write = true
+            personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update)
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache
         return [toInternalPerson(personUpdate), [], false]
+    }
+
+    /**
+     * Helper method to merge an update into a PersonUpdate
+     * Handles properties, changeset, and is_identified merging with proper logic
+     */
+    private mergeUpdateIntoPersonUpdate(personUpdate: PersonUpdate, update: Partial<InternalPerson>): PersonUpdate {
+        // Track property changes in changeset and merge into full properties
+        if (update.properties) {
+            personUpdate.property_changeset = { ...personUpdate.property_changeset, ...update.properties }
+            personUpdate.properties = { ...personUpdate.properties, ...update.properties }
+        }
+
+        // Apply other updates (excluding properties which we handled above)
+        const { properties, is_identified, ...otherUpdates } = update
+        Object.assign(personUpdate, otherUpdates)
+
+        // Handle is_identified specially with || operator
+        if (is_identified !== undefined) {
+            personUpdate.is_identified = personUpdate.is_identified || is_identified
+        }
+
+        personUpdate.needs_write = true
+
+        return personUpdate
     }
 
     private addPersonPropertiesUpdateToBatch(
