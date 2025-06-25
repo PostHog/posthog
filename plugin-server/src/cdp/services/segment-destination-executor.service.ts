@@ -263,9 +263,7 @@ export class SegmentDestinationExecutorService {
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${
-                                this.serverConfig.CDP_FETCH_RETRIES
-                            }`
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
                         // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
