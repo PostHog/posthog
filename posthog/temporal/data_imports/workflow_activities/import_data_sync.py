@@ -737,6 +737,11 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             source = doit_source(
                 doit_config,
                 schema.name,
+                logger=logger,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
