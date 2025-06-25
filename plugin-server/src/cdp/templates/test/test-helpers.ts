@@ -12,12 +12,13 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionQueueParametersFetchResponse,
+    HogFunctionTemplate,
+    HogFunctionTemplateCompiled,
     HogFunctionType,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
 import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
-import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
