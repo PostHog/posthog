@@ -7,6 +7,7 @@ import { performQuery } from '~/queries/query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
+import { Scene } from 'scenes/sceneTypes'
 
 jest.mock('~/queries/query')
 
@@ -29,6 +30,8 @@ function getDataTableQuery(extras?: {
         ...(extras?.showOpenEditorButton !== undefined ? { showOpenEditorButton: extras.showOpenEditorButton } : {}),
     })
 }
+
+const tags = { scene: Scene.Error404 }
 
 describe('dataTableLogic', () => {
     let logic: ReturnType<typeof dataTableLogic.build>
@@ -62,7 +65,11 @@ describe('dataTableLogic', () => {
         })
 
         expect(performQuery).toHaveBeenCalledWith(
-            setLatestVersionsOnQuery({ kind: 'EventsQuery', select: ['*', 'event', 'timestamp'] }),
+            setLatestVersionsOnQuery({
+                kind: 'EventsQuery',
+                select: ['*', 'event', 'timestamp'],
+                tags,
+            }),
             { signal: expect.any(Object) },
             'blocking',
             expect.any(String),
