@@ -59,12 +59,15 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
         # Pattern header
         markdown_lines.extend(
             [
+                "",
                 f"## {pattern['pattern_name']}",
                 "",
                 pattern["pattern_description"],
                 "",
             ]
         )
+
+
 
         # Pattern stats
         stats = pattern["stats"]
@@ -74,15 +77,28 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
         success_count = int(stats["segments_success_ratio"] * stats["occurences"])
 
         markdown_lines.extend(
-            [
-                f"- **How bad it is:** {pattern['severity']}",
-                f"- **How many sessions affected:** {sessions_percentage} ({sessions_affected} out of {total_sessions})",
-                f"- **How often user succeeds, despite the pattern:** {success_percentage} ({success_count} out of {stats['occurences']})",
+            [   
+                f"**How severe it is:** {pattern['severity'][0].upper()}{pattern['severity'][1:]}",
                 "",
-                "### Examples",
+                f"**How many sessions affected:** {sessions_percentage} ({sessions_affected} out of {total_sessions})",
                 "",
+                f"**How often user succeeds, despite the pattern:** {success_percentage} ({success_count} out of {stats['occurences']})",
+                ""
             ]
         )
+
+        # Right after pattern description
+        markdown_lines.extend([
+            "**🔍 How we detect this:**",
+        ])
+        for indicator in pattern.get("indicators", []):
+            markdown_lines.append(f"- {indicator}")
+        markdown_lines.append("")
+
+        markdown_lines.extend([
+            "### Examples",
+            "",
+        ])
 
         # Events examples
         for event_data in pattern["events"]:
