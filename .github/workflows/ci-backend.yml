@@ -419,17 +419,18 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
-                  if [ -d ~/saml-deps ]; then
+                  if [ -d ~/saml-deps ] && [ "$(ls -A ~/saml-deps 2>/dev/null)" ]; then
                       echo "Restoring SAML dependencies from cache"
-                      sudo cp ~/saml-deps/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+                      sudo dpkg -i ~/saml-deps/*.deb || true
+                      sudo apt-get install -f -y --no-install-recommends
+                  else
+                      echo "Installing SAML dependencies"
+                      sudo apt-get update
+                      sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                      
+                      mkdir -p ~/saml-deps
+                      cp /var/cache/apt/archives/*.deb ~/saml-deps/ 2>/dev/null || true
                   fi
-
-                  sudo apt-get update
-                  sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-                  mkdir -p ~/saml-deps
-                  cp /var/cache/apt/archives/libxml*.deb ~/saml-deps/ 2>/dev/null || true
-                  cp /var/cache/apt/archives/libxmlsec*.deb ~/saml-deps/ 2>/dev/null || true
 
             - name: Install pnpm
               if: ${{ needs.changes.outputs.backend == 'true' }}
