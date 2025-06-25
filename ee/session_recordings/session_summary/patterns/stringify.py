@@ -3,12 +3,13 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 
-def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
+def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_path: str) -> str:
     """
     Convert EnrichedSessionGroupSummaryPatternsList JSON data to markdown format.
 
     Args:
         json_data: Dictionary containing patterns data
+        session_ids_file_path: Path to session_ids_processed.json file
 
     Returns:
         Formatted markdown string
@@ -16,7 +17,12 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
     patterns = json_data.get("patterns", [])
     
     if not patterns:
-        return "# Group Summary Patterns\n\nNo patterns found."
+        return "# Session Summary Report\n\nNo patterns found."
+    
+    # Load total sessions count
+    with open(session_ids_file_path, "r") as f:
+        session_ids = json.load(f)
+    total_sessions = len(session_ids)
     
     # Sort patterns by severity: critical, medium, high
     # TODO: Implement in actual summary also
@@ -27,19 +33,18 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
     
     # Add issues to review summary
     if patterns:
-        markdown_lines.extend([
-            "**Issues to review:**"
-        ])
-        
+        markdown_lines.extend(["**Issues to review:**"])
+
         for pattern in patterns:
             stats = pattern["stats"]
-            sessions_percentage = f"{stats['sessions_affected_ratio'] * 100:.0f}%"
-            success_percentage = f"{stats['segments_success_ratio'] * 100:.0f}%"
-            
+            sessions_affected = stats["sessions_affected"]
+            sessions_percentage = f"{sessions_affected / total_sessions * 100:.0f}%"
+            failure_percentage = f"{(1 - stats['segments_success_ratio']) * 100:.0f}%"
+
             markdown_lines.append(
-                f"- {pattern['pattern_name']} ({pattern['severity']}, {sessions_percentage} sessions affected, {success_percentage} success rate)"
+                f"- {pattern['pattern_name']} ({pattern['severity']}, {sessions_percentage} sessions affected, {failure_percentage} failure rate)"
             )
-        
+
         markdown_lines.append("")
 
     for pattern in patterns:
@@ -56,8 +61,7 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
         # Pattern stats
         stats = pattern["stats"]
         sessions_affected = stats["sessions_affected"]
-        total_sessions = sessions_affected  # Based on the ratio being 1.0 in examples
-        sessions_percentage = f"{stats['sessions_affected_ratio'] * 100:.0f}%"
+        sessions_percentage = f"{sessions_affected / total_sessions * 100:.0f}%"
         success_percentage = f"{stats['segments_success_ratio'] * 100:.0f}%"
         success_count = int(stats["segments_success_ratio"] * stats["occurences"])
 
@@ -119,12 +123,13 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
     return "\n".join(markdown_lines)
 
 
-def save_patterns_to_markdown(json_file_path: str, output_file_path: str = None) -> str:
+def save_patterns_to_markdown(json_file_path: str, session_ids_file_path: str, output_file_path: str = None) -> str:
     """
     Load JSON patterns file and save as markdown.
 
     Args:
         json_file_path: Path to the JSON file containing patterns
+        session_ids_file_path: Path to session_ids_processed.json file
         output_file_path: Optional path for output markdown file
 
     Returns:
@@ -135,7 +140,7 @@ def save_patterns_to_markdown(json_file_path: str, output_file_path: str = None)
         json_data = json.load(f)
 
     # Convert to markdown
-    markdown_content = convert_patterns_to_markdown(json_data)
+    markdown_content = convert_patterns_to_markdown(json_data, session_ids_file_path)
 
     # Determine output path
     if output_file_path is None:
@@ -152,15 +157,16 @@ def save_patterns_to_markdown(json_file_path: str, output_file_path: str = None)
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) < 2:
-        print("Usage: python stringify.py <json_file_path> [output_file_path]")
+    if len(sys.argv) < 3:
+        print("Usage: python stringify.py <json_file_path> <session_ids_file_path> [output_file_path]")
         sys.exit(1)
 
     json_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+    session_ids_file = sys.argv[2]
+    output_file = sys.argv[3] if len(sys.argv) > 3 else None
 
     try:
-        result_path = save_patterns_to_markdown(json_file, output_file)
+        result_path = save_patterns_to_markdown(json_file, session_ids_file, output_file)
         print(f"Markdown file saved to: {result_path}")
     except Exception as e:
         print(f"Error: {e}")
