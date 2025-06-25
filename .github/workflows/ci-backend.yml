@@ -127,20 +127,22 @@ jobs:
             - name: Cache SAML dependencies
               uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
               with:
-                  path: |
-                      /var/cache/apt/archives
-                      /var/lib/apt/lists
-                  key: apt-saml-${{ runner.os }}
-                  restore-keys: |
-                      apt-saml-${{ runner.os }}
+                  path: ~/saml-deps
+                  key: saml-deps-${{ runner.os }}
 
             - name: Install SAML (python3-saml) dependencies
               run: |
-                  # Skip apt update if cache hit
-                  if [ ! -f /var/lib/apt/lists/lock ]; then
-                      sudo apt-get update
+                  if [ -d ~/saml-deps ]; then
+                      echo "Restoring SAML dependencies from cache"
+                      sudo cp ~/saml-deps/*.deb /var/cache/apt/archives/ 2>/dev/null || true
                   fi
+
+                  sudo apt-get update
                   sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+                  mkdir -p ~/saml-deps
+                  cp /var/cache/apt/archives/libxml*.deb ~/saml-deps/ 2>/dev/null || true
+                  cp /var/cache/apt/archives/libxmlsec*.deb ~/saml-deps/ 2>/dev/null || true
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -410,22 +412,24 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
               with:
-                  path: |
-                      /var/cache/apt/archives
-                      /var/lib/apt/lists
-                  key: apt-saml-${{ runner.os }}
-                  restore-keys: |
-                      apt-saml-${{ runner.os }}
+                  path: ~/saml-deps
+                  key: saml-deps-${{ runner.os }}
 
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
-                  # Skip apt update if cache hit
-                  if [ ! -f /var/lib/apt/lists/lock ]; then
-                      sudo apt-get update
+                  if [ -d ~/saml-deps ]; then
+                      echo "Restoring SAML dependencies from cache"
+                      sudo cp ~/saml-deps/*.deb /var/cache/apt/archives/ 2>/dev/null || true
                   fi
+
+                  sudo apt-get update
                   sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+                  mkdir -p ~/saml-deps
+                  cp /var/cache/apt/archives/libxml*.deb ~/saml-deps/ 2>/dev/null || true
+                  cp /var/cache/apt/archives/libxmlsec*.deb ~/saml-deps/ 2>/dev/null || true
 
             - name: Install pnpm
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -666,20 +670,22 @@ jobs:
             - name: Cache SAML dependencies
               uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
               with:
-                  path: |
-                      /var/cache/apt/archives
-                      /var/lib/apt/lists
-                  key: apt-saml-${{ runner.os }}
-                  restore-keys: |
-                      apt-saml-${{ runner.os }}
+                  path: ~/saml-deps
+                  key: saml-deps-${{ runner.os }}
 
             - name: Install SAML (python3-saml) dependencies
               run: |
-                  # Skip apt update if cache hit
-                  if [ ! -f /var/lib/apt/lists/lock ]; then
-                      sudo apt-get update
+                  if [ -d ~/saml-deps ]; then
+                      echo "Restoring SAML dependencies from cache"
+                      sudo cp ~/saml-deps/*.deb /var/cache/apt/archives/ 2>/dev/null || true
                   fi
+
+                  sudo apt-get update
                   sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+                  mkdir -p ~/saml-deps
+                  cp /var/cache/apt/archives/libxml*.deb ~/saml-deps/ 2>/dev/null || true
+                  cp /var/cache/apt/archives/libxmlsec*.deb ~/saml-deps/ 2>/dev/null || true
 
             - name: Install python dependencies
               shell: bash
