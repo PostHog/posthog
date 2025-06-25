@@ -33,7 +33,6 @@ import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { groupsModel } from '~/models/groupsModel'
 
 let uniqueNode = 0
 
@@ -121,21 +120,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             setColumns(columns.map((c, i) => (i === index ? newColumn : c)))
         }
     }
-
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const taxonomicGroupTypes = isGroupsQuery(query.source)
-        ? [
-              `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
-              TaxonomicFilterGroupType.HogQLExpression,
-              ...groupsTaxonomicTypes,
-          ]
-        : [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.EventFeatureFlags,
-              TaxonomicFilterGroupType.PersonProperties,
-              ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
-              ...groupsTaxonomicTypes,
-          ]
+    const { taxonomicFilterGroups } = useValues(dataTableLogic)
 
     return (
         <LemonModal
@@ -199,7 +184,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                     <TaxonomicFilter
                                         height={height}
                                         width={width}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        taxonomicGroupTypes={taxonomicFilterGroups}
                                         value={undefined}
                                         onChange={(group, value) => {
                                             const column = isGroupsQuery(query.source)

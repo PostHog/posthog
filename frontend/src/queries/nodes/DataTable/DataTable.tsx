@@ -72,7 +72,6 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
-import { groupsModel } from '~/models/groupsModel'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -91,14 +90,6 @@ interface DataTableProps {
     */
     dataAttr?: string
 }
-
-const staticEventGroupTypes = [
-    TaxonomicFilterGroupType.HogQLExpression,
-    TaxonomicFilterGroupType.EventProperties,
-    TaxonomicFilterGroupType.PersonProperties,
-    TaxonomicFilterGroupType.EventFeatureFlags,
-]
-const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
 
 let uniqueNode = 0
 
@@ -153,9 +144,15 @@ export function DataTable({
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
-    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
-        dataTableLogic(dataTableLogicProps)
-    )
+    const {
+        dataTableRows,
+        columnsInQuery,
+        columnsInResponse,
+        queryWithDefaults,
+        canSort,
+        sourceFeatures,
+        taxonomicFilterGroups,
+    } = useValues(dataTableLogic(dataTableLogicProps))
 
     const {
         showActions,
@@ -185,10 +182,6 @@ export function DataTable({
     const columnsInLemonTable = sourceFeatures.has(QueryFeature.columnsInResponse)
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
-
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const eventGroupTypes = [...staticEventGroupTypes, ...groupsTaxonomicTypes]
-    const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -229,7 +222,7 @@ export function DataTable({
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
-                            groupTypes={groupTypes}
+                            groupTypes={taxonomicFilterGroups}
                             metadataSource={query.source}
                             renderValue={() => <>Edit column</>}
                             type="tertiary"
@@ -303,7 +296,7 @@ export function DataTable({
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value=""
-                            groupTypes={groupTypes}
+                            groupTypes={taxonomicFilterGroups}
                             metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
@@ -334,7 +327,7 @@ export function DataTable({
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value=""
-                            groupTypes={groupTypes}
+                            groupTypes={taxonomicFilterGroups}
                             metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
