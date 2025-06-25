@@ -126,7 +126,7 @@
     (SELECT DISTINCT persons.properties___email AS prop
      FROM
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+               nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
