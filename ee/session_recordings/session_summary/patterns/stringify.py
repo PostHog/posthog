@@ -3,13 +3,14 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 
-def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_path: str) -> str:
+def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_path: str, domain: str) -> str:
     """
     Convert EnrichedSessionGroupSummaryPatternsList JSON data to markdown format.
 
     Args:
         json_data: Dictionary containing patterns data
         session_ids_file_path: Path to session_ids_processed.json file
+        domain: Domain name for the report title
 
     Returns:
         Formatted markdown string
@@ -17,7 +18,7 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
     patterns = json_data.get("patterns", [])
 
     if not patterns:
-        return "# Session Summary Report\n\nNo patterns found."
+        return f"# Session Summaries Report - {domain}\n\nNo patterns found."
 
     # Load total sessions count
     with open(session_ids_file_path, "r") as f:
@@ -29,7 +30,7 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
     severity_order = {"critical": 0, "high": 1, "medium": 2}
     patterns.sort(key=lambda p: severity_order.get(p["severity"]))
 
-    markdown_lines = ["# Session Summary Report", ""]
+    markdown_lines = [f"# Session Summaries Report - {domain}", ""]
 
     # Add issues to review summary
     severity_icons = {
@@ -130,13 +131,14 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
     return "\n".join(markdown_lines)
 
 
-def save_patterns_to_markdown(json_file_path: str, session_ids_file_path: str, output_file_path: str = None) -> str:
+def save_patterns_to_markdown(json_file_path: str, session_ids_file_path: str, domain: str, output_file_path: str = None) -> str:
     """
     Load JSON patterns file and save as markdown.
 
     Args:
         json_file_path: Path to the JSON file containing patterns
         session_ids_file_path: Path to session_ids_processed.json file
+        domain: Domain name for the report title
         output_file_path: Optional path for output markdown file
 
     Returns:
@@ -147,7 +149,7 @@ def save_patterns_to_markdown(json_file_path: str, session_ids_file_path: str, o
         json_data = json.load(f)
 
     # Convert to markdown
-    markdown_content = convert_patterns_to_markdown(json_data, session_ids_file_path)
+    markdown_content = convert_patterns_to_markdown(json_data, session_ids_file_path, domain)
 
     # Determine output path
     if output_file_path is None:
@@ -164,16 +166,17 @@ def save_patterns_to_markdown(json_file_path: str, session_ids_file_path: str, o
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) < 3:
-        print("Usage: python stringify.py <json_file_path> <session_ids_file_path> [output_file_path]")
+    if len(sys.argv) < 4:
+        print("Usage: python stringify.py <json_file_path> <session_ids_file_path> <domain> [output_file_path]")
         sys.exit(1)
 
     json_file = sys.argv[1]
     session_ids_file = sys.argv[2]
-    output_file = sys.argv[3] if len(sys.argv) > 3 else None
+    domain = sys.argv[3]
+    output_file = sys.argv[4] if len(sys.argv) > 4 else None
 
     try:
-        result_path = save_patterns_to_markdown(json_file, session_ids_file, output_file)
+        result_path = save_patterns_to_markdown(json_file, session_ids_file, domain, output_file)
         print(f"Markdown file saved to: {result_path}")
     except Exception as e:
         print(f"Error: {e}")
