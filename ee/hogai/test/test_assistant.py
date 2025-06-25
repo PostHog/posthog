@@ -208,7 +208,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             messages=[AssistantMessage(content="Foobar")],
         ),
     )
-    def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_funnel_planner_run):
+    def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_query_planner_run):
         output, _ = self._run_assistant_graph(
             InsightsAssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
@@ -300,7 +300,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
         ),
     )
-    def test_reasoning_messages_with_substeps_added(self, _mock_funnel_planner_run):
+    def test_reasoning_messages_with_substeps_added(self, _mock_query_planner_run):
         output, _ = self._run_assistant_graph(
             InsightsAssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
@@ -1719,3 +1719,80 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(messages[0]["data"], {"content": "First response", "type": "ai"})
         self.assertEqual(messages[1]["type"], "message")
         self.assertEqual(messages[1]["data"], {"content": "Second response", "type": "ai"})
+
+    def test_chunk_reasoning_headline(self):
+        """Test _chunk_reasoning_headline method with various scenarios."""
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        # Test 1: Start of headline - should return None and start chunking
+        reasoning = {"summary": [{"text": "**Analyzing user data"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertIsNone(result)
+        self.assertEqual(assistant._reasoning_headline_chunk, "Analyzing user data")
+        self.assertIsNone(assistant._last_reasoning_headline)
+
+        # Test 2: Continue headline - should return None and continue chunking
+        reasoning = {"summary": [{"text": " to find patterns"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertIsNone(result)
+        self.assertEqual(assistant._reasoning_headline_chunk, "Analyzing user data to find patterns")
+        self.assertIsNone(assistant._last_reasoning_headline)
+
+        # Test 3: End of headline - should return complete headline and reset
+        reasoning = {"summary": [{"text": " and insights**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "Analyzing user data to find patterns and insights")
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+        self.assertEqual(assistant._last_reasoning_headline, "Analyzing user data to find patterns and insights")
+
+        # Test 4: Complete headline in one chunk - should return complete headline immediately
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**Complete headline in one chunk**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "Complete headline in one chunk")
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+        self.assertEqual(assistant._last_reasoning_headline, "Complete headline in one chunk")
+
+        # Test 5: Malformed reasoning - missing summary key
+        assistant._reasoning_headline_chunk = "Some partial text"
+        reasoning = {}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertIsNone(result)
+        self.assertIsNone(assistant._reasoning_headline_chunk)  # Should reset on error
+
+        # Test 6: Malformed reasoning - empty summary array
+        assistant._reasoning_headline_chunk = "Some partial text"
+        reasoning = {"summary": []}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertIsNone(result)
+        self.assertIsNone(assistant._reasoning_headline_chunk)  # Should reset on error
+
+        # Test 7: Malformed reasoning - missing text key
+        assistant._reasoning_headline_chunk = "Some partial text"
+        reasoning = {"summary": [{}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertIsNone(result)
+        self.assertIsNone(assistant._reasoning_headline_chunk)  # Should reset on error
+
+        # Test 8: No bold markers in text - should return None
+        assistant._reasoning_headline_chunk = None
+        reasoning = {"summary": [{"text": "Regular text without bold markers"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertIsNone(result)
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+
+        # Test 9: Empty text content
+        assistant._reasoning_headline_chunk = None
+        reasoning = {"summary": [{"text": ""}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertIsNone(result)
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+
+        # Test 10: Only bold markers, no content
+        assistant._reasoning_headline_chunk = None
+        reasoning = {"summary": [{"text": "****"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "")  # Should return empty headline
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+        self.assertEqual(assistant._last_reasoning_headline, "")

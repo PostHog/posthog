@@ -493,7 +493,16 @@ class Assistant:
             # The headline is either beginning or ending with bold text in this chunk
             if self._reasoning_headline_chunk is None:
                 # If we don't have a headline, we should start reading it
-                self._reasoning_headline_chunk = summary_text_chunk[2:]  # Remove the ** from start
+                remaining_text = summary_text_chunk[index_of_bold_in_text + 2 :]  # Remove the ** from start
+                # Check if there's another ** in the remaining text (complete headline in one chunk)
+                end_index = remaining_text.find("**")
+                if end_index != -1:
+                    # Complete headline in one chunk
+                    self._last_reasoning_headline = remaining_text[:end_index]
+                    return self._last_reasoning_headline
+                else:
+                    # Start of headline, continue chunking
+                    self._reasoning_headline_chunk = remaining_text
             else:
                 # If we already have a headline, it means we should wrap up
                 self._reasoning_headline_chunk += summary_text_chunk[:index_of_bold_in_text]  # Remove the ** from end
