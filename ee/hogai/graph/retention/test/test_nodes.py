@@ -30,7 +30,7 @@ class TestRetentionGeneratorNode(BaseTest):
         )
 
     def test_node_runs(self):
-        node = RetentionGeneratorNode(self.team)
+        node = RetentionGeneratorNode(self.team, self.user)
         with patch.object(RetentionGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: RetentionSchemaGeneratorOutput(query=self.schema).model_dump()

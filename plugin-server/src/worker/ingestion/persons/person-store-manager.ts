@@ -7,13 +7,18 @@ import { TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
-import { personShadowModeComparisonCounter } from './metrics'
+import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
-interface PersonUpdate {
+interface FinalStateEntry {
     person: InternalPerson
     versionDisparity: boolean
+    operations: Array<{
+        type: string
+        timestamp: number
+        distinctId: string
+    }>
 }
 
 export interface ShadowMetrics {
@@ -27,6 +32,11 @@ export interface ShadowMetrics {
         mainPerson: InternalPerson | null
         secondaryPerson: InternalPerson | null
         differences: string[]
+        operations: Array<{
+            type: string
+            timestamp: number
+            distinctId: string
+        }>
     }>
     concurrentModifications: Array<{
         key: string
@@ -62,7 +72,7 @@ export class PersonStoreManager {
 }
 
 export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
-    private finalStates: Map<string, PersonUpdate | null> = new Map()
+    private finalStates: Map<string, FinalStateEntry | null> = new Map()
     private shadowMetrics: ShadowMetrics
 
     constructor(
@@ -80,18 +90,36 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
     }
 
-    private getPersonKey(teamId: number, distinctId: string): string {
-        return `${teamId}:${distinctId}`
+    private getPersonKey(teamId: number, personUuid: string): string {
+        return `${teamId}:${personUuid}`
     }
 
     private updateFinalState(
         teamId: number,
         distinctId: string,
+        personUuid: string,
         person: InternalPerson | null,
-        versionDisparity: boolean
+        versionDisparity: boolean,
+        operationType: string
     ): void {
-        const key = this.getPersonKey(teamId, distinctId)
-        this.finalStates.set(key, person ? { person, versionDisparity } : null)
+        const key = this.getPersonKey(teamId, personUuid)
+        const existing = this.finalStates.get(key)
+
+        const operation = {
+            type: operationType,
+            timestamp: Date.now(),
+            distinctId,
+        }
+
+        if (person) {
+            this.finalStates.set(key, {
+                person,
+                versionDisparity,
+                operations: existing ? [...existing.operations, operation] : [operation],
+            })
+        } else {
+            this.finalStates.set(key, null)
+        }
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
@@ -142,10 +170,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             tx
         )
 
-        if (
-            distinctIds &&
-            this.secondaryStore.getCachedPersonForUpdate(teamId, distinctIds![0].distinctId) === undefined
-        ) {
+        if (distinctIds) {
             this.secondaryStore.setCachedPersonForUpdate(
                 teamId,
                 distinctIds[0].distinctId,
@@ -153,7 +178,14 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             )
         }
 
-        this.updateFinalState(teamId, distinctIds![0].distinctId, mainResult[0], false)
+        this.updateFinalState(
+            teamId,
+            distinctIds![0].distinctId,
+            mainResult[0].uuid,
+            mainResult[0],
+            false,
+            'createPerson'
+        )
 
         return mainResult
     }
@@ -164,13 +196,31 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const [[personResult, kafkaMessages, versionDisparity], _] = await Promise.all([
-            this.mainStore.updatePersonForUpdate(person, update, distinctId, tx),
-            this.secondaryStore.updatePersonForUpdate(person, update, distinctId, tx),
-        ])
+        const [[mainPersonResult, mainKafkaMessages, mainVersionDisparity], [secondaryPersonResult]] =
+            await Promise.all([
+                this.mainStore.updatePersonForUpdate(person, update, distinctId, tx),
+                this.secondaryStore.updatePersonForUpdate(person, update, distinctId, tx),
+            ])
 
-        this.updateFinalState(person.team_id, distinctId, personResult, versionDisparity)
-        return [personResult, kafkaMessages, versionDisparity]
+        // Compare results to ensure consistency between stores
+        this.compareUpdateResults(
+            'updatePersonForUpdate',
+            person.team_id,
+            distinctId,
+            mainPersonResult,
+            secondaryPersonResult,
+            mainVersionDisparity
+        )
+
+        this.updateFinalState(
+            person.team_id,
+            distinctId,
+            mainPersonResult.uuid,
+            mainPersonResult,
+            mainVersionDisparity,
+            'updatePersonForUpdate'
+        )
+        return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
 
     async updatePersonForMerge(
@@ -179,13 +229,31 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const [[personResult, kafkaMessages, versionDisparity], _] = await Promise.all([
-            this.mainStore.updatePersonForMerge(person, update, distinctId, tx),
-            this.secondaryStore.updatePersonForMerge(person, update, distinctId, tx),
-        ])
+        const [[mainPersonResult, mainKafkaMessages, mainVersionDisparity], [secondaryPersonResult]] =
+            await Promise.all([
+                this.mainStore.updatePersonForMerge(person, update, distinctId, tx),
+                this.secondaryStore.updatePersonForMerge(person, update, distinctId, tx),
+            ])
 
-        this.updateFinalState(person.team_id, distinctId, personResult, versionDisparity)
-        return [personResult, kafkaMessages, versionDisparity]
+        // Compare results to ensure consistency between stores
+        this.compareUpdateResults(
+            'updatePersonForMerge',
+            person.team_id,
+            distinctId,
+            mainPersonResult,
+            secondaryPersonResult,
+            mainVersionDisparity
+        )
+
+        this.updateFinalState(
+            person.team_id,
+            distinctId,
+            mainPersonResult.uuid,
+            mainPersonResult,
+            mainVersionDisparity,
+            'updatePersonForMerge'
+        )
+        return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
 
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
@@ -193,7 +261,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
         // Clear cache for the person
         this.secondaryStore.clearCache(person.team_id, distinctId)
-        this.updateFinalState(person.team_id, distinctId, null, false)
+        this.updateFinalState(person.team_id, distinctId, person.uuid, null, false, 'deletePerson')
 
         return kafkaMessages
     }
@@ -205,6 +273,13 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.addDistinctId(person, distinctId, version, tx)
+
+        // Cache the person for this new distinct ID in secondary store
+        this.secondaryStore.setCachedPersonForUpdate(person.team_id, distinctId, fromInternalPerson(person, distinctId))
+
+        // Track that this distinct ID now points to the person
+        this.updateFinalState(person.team_id, distinctId, person.uuid, person, false, 'addDistinctId')
+
         return mainResult
     }
 
@@ -215,6 +290,10 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
+        this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+
+        this.updateFinalState(source.team_id, distinctId, source.uuid, source, false, 'moveDistinctIds')
+        this.updateFinalState(target.team_id, distinctId, target.uuid, target, false, 'moveDistinctIds')
 
         return mainResult
     }
@@ -259,8 +338,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.mainStore.reportBatch()
         this.secondaryStore.reportBatch()
 
-        // Log metrics if available
-        if (this.shadowMetrics) {
+        // Log metrics only if we actually made comparisons
+        if (this.shadowMetrics && this.shadowMetrics.totalComparisons > 0) {
             const logicErrorRate =
                 this.shadowMetrics.totalComparisons > 0
                     ? (
@@ -291,7 +370,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
             // Log logic errors with high priority
             if (this.shadowMetrics.logicErrors.length > 0) {
-                logger.error('Shadow mode detected logic errors in batch writing store', {
+                logger.info('Shadow mode detected logic errors in batch writing store', {
                     logicErrorCount: this.shadowMetrics.logicErrors.length,
                     totalComparisons: this.shadowMetrics.totalComparisons,
                     errorRate: logicErrorRate,
@@ -300,6 +379,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                         differences: error.differences,
                         mainPersonUuid: error.mainPerson?.uuid,
                         secondaryPersonUuid: error.secondaryPerson?.uuid,
+                        operations: error.operations,
                     })),
                 })
             }
@@ -330,8 +410,6 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     compareFinalStates(): void {
-        const batchUpdateCache = this.secondaryStore.getUpdateCache()
-
         // Initialize metrics
         this.shadowMetrics.totalComparisons = 0
         this.shadowMetrics.sameOutcomeSameBatch = 0
@@ -343,7 +421,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
         // Compare each person we tracked in finalStates with what's in the batch cache
         for (const [key, mainUpdate] of this.finalStates.entries()) {
-            const secondaryPersonUpdate = batchUpdateCache.get(key)
+            // Parse the key to extract teamId and personUuid
+            const [teamIdStr, personUuid] = key.split(':')
+            const teamId = parseInt(teamIdStr, 10)
+
+            const secondaryPersonUpdate = this.secondaryStore.getCachedPersonForUpdateByUuid(teamId, personUuid)
             const secondaryPerson = secondaryPersonUpdate ? toInternalPerson(secondaryPersonUpdate) : null
             const mainPerson = mainUpdate?.person || null
             const versionDisparity = mainUpdate?.versionDisparity || false
@@ -368,6 +450,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                     mainPerson,
                     secondaryPerson,
                     differences: this.findDifferences(mainComparable, secondaryComparable),
+                    operations: mainUpdate?.operations || [],
                 })
             } else if (!sameOutcome && versionDisparity) {
                 // Different outcome, different batch (concurrent modification by another pod)
@@ -390,6 +473,44 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                     secondaryPerson,
                 })
             }
+        }
+    }
+
+    private compareUpdateResults(
+        methodName: string,
+        teamId: number,
+        distinctId: string,
+        mainPerson: InternalPerson,
+        secondaryPerson: InternalPerson,
+        mainVersionDisparity: boolean
+    ): void {
+        const key = this.getPersonKey(teamId, distinctId)
+
+        // Compare the person results (excluding version for primary comparison)
+        const mainComparable = this.getComparablePerson(mainPerson)
+        const secondaryComparable = this.getComparablePerson(secondaryPerson)
+        const samePersonResult = this.deepEqual(mainComparable, secondaryComparable)
+
+        if (!samePersonResult) {
+            const differences = this.findDifferences(mainComparable, secondaryComparable, 'person')
+
+            // Track inconsistent results in metrics
+            personShadowModeReturnIntermediateOutcomeCounter.labels(methodName, 'inconsistent').inc()
+
+            logger.info(`${methodName} returned inconsistent results between stores`, {
+                key,
+                teamId,
+                distinctId,
+                methodName,
+                samePersonResult,
+                differences,
+                mainPersonUuid: mainPerson?.uuid,
+                secondaryPersonUuid: secondaryPerson?.uuid,
+                mainVersionDisparity,
+            })
+        } else {
+            // Track consistent results in metrics
+            personShadowModeReturnIntermediateOutcomeCounter.labels(methodName, 'consistent').inc()
         }
     }
 
@@ -461,7 +582,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             return differences
         }
         if (obj1 == null || obj2 == null) {
-            differences.push(`${path}: ${obj1} !== ${obj2}`)
+            differences.push(`${path}: ${this.stringifyValue(obj1)} !== ${this.stringifyValue(obj2)}`)
             return differences
         }
 
@@ -471,7 +592,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
 
         if (typeof obj1 !== 'object') {
-            differences.push(`${path}: ${obj1} !== ${obj2}`)
+            differences.push(`${path}: ${this.stringifyValue(obj1)} !== ${this.stringifyValue(obj2)}`)
             return differences
         }
 
@@ -483,6 +604,19 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             return differences
         }
 
+        // Handle arrays
+        if (Array.isArray(obj1) && Array.isArray(obj2)) {
+            if (obj1.length !== obj2.length) {
+                differences.push(`${path}: array length mismatch ${obj1.length} !== ${obj2.length}`)
+            } else {
+                for (let i = 0; i < obj1.length; i++) {
+                    differences.push(...this.findDifferences(obj1[i], obj2[i], `${path}[${i}]`))
+                }
+            }
+            return differences
+        }
+
+        // Handle regular objects
         const keys1 = Object.keys(obj1)
         const keys2 = Object.keys(obj2)
         const allKeys = new Set([...keys1, ...keys2])
@@ -501,7 +635,36 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         return differences
     }
 
-    getFinalStates(): Map<string, PersonUpdate | null> {
+    private stringifyValue(value: any): string {
+        if (value === null) {
+            return 'null'
+        }
+        if (value === undefined) {
+            return 'undefined'
+        }
+        if (typeof value === 'string') {
+            return `"${value}"`
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            return String(value)
+        }
+        if (typeof value === 'function') {
+            return '[Function]'
+        }
+        if (typeof value === 'symbol') {
+            return '[Symbol]'
+        }
+        if (typeof value === 'object') {
+            try {
+                return JSON.stringify(value)
+            } catch (error) {
+                return '[Circular or non-serializable object]'
+            }
+        }
+        return String(value)
+    }
+
+    getFinalStates(): Map<string, FinalStateEntry | null> {
         return this.finalStates
     }
 }

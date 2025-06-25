@@ -24,7 +24,7 @@ export class HogFlowActionRunnerConditionalBranch {
             // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
             const filterResults = filterFunctionInstrumented({
                 fn: invocation.hogFlow,
-                filters: condition.filter,
+                filters: condition.filters,
                 filterGlobals,
                 eventUuid: invocation.state.event.uuid,
             })

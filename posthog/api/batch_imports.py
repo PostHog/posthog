@@ -3,6 +3,8 @@ from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+import posthoganalytics
+import uuid
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -220,7 +222,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
     start_date = serializers.SerializerMethodField()
     end_date = serializers.SerializerMethodField()
     content_type = serializers.SerializerMethodField()
-    error = serializers.CharField(source="display_status_message", allow_null=True)
+    status_message = serializers.CharField(source="display_status_message", allow_null=True)
 
     class Meta:
         model = BatchImport
@@ -233,7 +235,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             "end_date",
             "created_by",
             "created_at",
-            "error",
+            "status_message",
             "state",
         ]
 
@@ -312,9 +314,43 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def create(self, request: Request, **kwargs) -> Response:
         """Create a new managed migration/batch import."""
+        existing_running_import = BatchImport.objects.filter(
+            team_id=self.team_id, status=BatchImport.Status.RUNNING
+        ).first()
+
+        if existing_running_import:
+            return Response(
+                {
+                    "error": "Cannot create a new batch import while another import is already running for this organization.",
+                    "detail": f"Please wait for the current import (ID: {existing_running_import.id}) to complete or pause it before starting a new one.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         migration = serializer.save()
+
+        source_type = request.data.get("source_type", "unknown")
+        content_type = request.data.get("content_type", "unknown")
+
+        distinct_id = (
+            request.user.distinct_id
+            if request.user.is_authenticated and request.user.distinct_id
+            else str(uuid.uuid4())
+        )
+
+        posthoganalytics.capture(
+            distinct_id,
+            "batch import created",
+            properties={
+                "batch_import_id": migration.id,
+                "source_type": source_type,
+                "content_type": content_type,
+                "team_id": self.team_id,
+                "$process_person_profile": False,
+            },
+        )
 
         response_serializer = BatchImportResponseSerializer(migration)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

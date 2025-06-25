@@ -39,8 +39,7 @@ export function ExceptionCard({ issue, issueLoading, label, event, eventLoading 
             props={
                 {
                     properties: event?.properties,
-                    timestamp: event?.timestamp,
-                    id: issue?.id ?? 'error',
+                    id: event?.uuid ?? issue?.id ?? 'error',
                 } as ErrorPropertiesLogicProps
             }
         >

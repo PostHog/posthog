@@ -352,11 +352,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         # Grab uuids for this batch of distinct IDs
+        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
+        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
+        # don't insert people that are already in the cohort efficiently.
         uuids = [
             str(uuid)
             for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id, id__in=person_ids_qs)
-            .exclude(id__in=CohortPeople.objects.filter(cohort_id=self.id).values_list("person_id", flat=True))
             .values_list("uuid", flat=True)
         ]
 
@@ -364,7 +366,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def insert_users_by_list(
         self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
-    ) -> None:
+    ) -> int:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
 
@@ -392,10 +394,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return self._get_uuids_for_distinct_ids_batch(batch_distinct_ids, team_id)
 
         # Use FunctionBatchIterator to process distinct IDs in batches
-        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size)
+        batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
 
         # Call the batching method with ClickHouse insertion enabled
-        self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(
         self,
@@ -420,7 +422,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def _insert_users_list_with_batching(
         self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
-    ) -> None:
+    ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
 
@@ -429,6 +431,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
+
+        Returns:
+            Number of batches processed.
         """
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
@@ -467,6 +472,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.save()
+
+            return current_batch_index + 1
         except Exception as err:
             if settings.DEBUG:
                 raise
@@ -477,6 +484,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.save()
             # Add batch index context to the exception
             capture_exception(err, additional_properties={"batch_index": current_batch_index})
+
+            return current_batch_index + 1
 
     def to_dict(self) -> dict:
         people_data = [

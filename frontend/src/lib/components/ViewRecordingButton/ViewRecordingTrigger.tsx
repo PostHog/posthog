@@ -67,5 +67,5 @@ export default function ViewRecordingTrigger({
     const disabledReason = sessionId ? undefined : 'No session ID provided'
     const link = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
-    return children(onClick, disabledReason, link, maybeUnwatchedIndicator)
+    return children(onClick, link, disabledReason, maybeUnwatchedIndicator)
 }

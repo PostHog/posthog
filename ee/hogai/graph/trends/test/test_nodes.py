@@ -20,7 +20,7 @@ class TestTrendsGeneratorNode(BaseTest):
         self.schema = AssistantTrendsQuery(series=[])
 
     def test_node_runs(self):
-        node = TrendsGeneratorNode(self.team)
+        node = TrendsGeneratorNode(self.team, self.user)
         with patch.object(TrendsGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: TrendsSchemaGeneratorOutput(query=self.schema).model_dump()

@@ -897,6 +897,12 @@ class _Printer(Visitor):
             constant_lambda = lambda left_op, right_op: (
                 left_op <= right_op if left_op is not None and right_op is not None else False
             )
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.InCohort:
+            op = f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            op = f"{left} NOT IN COHORT {right}"
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 

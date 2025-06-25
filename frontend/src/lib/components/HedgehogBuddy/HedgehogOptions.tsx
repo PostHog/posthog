@@ -184,7 +184,7 @@ function HedgehogColor(): JSX.Element {
                         <HedgehogBuddyStatic skin={option} />
                     </LemonButton>
                 ))}
-                {[...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
+                {Object.keys(COLOR_TO_FILTER_MAP).map((option) => (
                     <LemonButton
                         key={option}
                         className={clsx(

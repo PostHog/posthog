@@ -27,7 +27,7 @@ impl ConfigContext {
         Self {
             config: context.state.config.clone(),
             reader: context.state.reader.clone(),
-            redis: context.state.redis.clone(),
+            redis: context.state.redis_reader.clone(),
             headers: context.headers.clone(),
         }
     }
@@ -781,6 +781,42 @@ mod tests {
             assert!(config.script_config.is_none()); // Should not have script config when script is empty
         } else {
             panic!("Expected SessionRecordingField::Config without script_config");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_empty_domains_allowed() {
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.recording_domains = Some(vec![]); // Empty domains list
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        // Should return config (enabled) when recording_domains is empty list
+        if let Some(SessionRecordingField::Config(_)) = result {
+            // Test passes if we reach this point
+        } else {
+            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_no_domains_allowed() {
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.recording_domains = None; // No domains list
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        // Should return config (enabled) when recording_domains is empty list
+        if let Some(SessionRecordingField::Config(_)) = result {
+            // Test passes if we reach this point
+        } else {
+            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
         }
     }
 }
