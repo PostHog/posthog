@@ -124,10 +124,23 @@ jobs:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
+            - name: Cache SAML dependencies
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: |
+                      /var/cache/apt/archives
+                      /var/lib/apt/lists
+                  key: apt-saml-${{ runner.os }}
+                  restore-keys: |
+                      apt-saml-${{ runner.os }}
+
             - name: Install SAML (python3-saml) dependencies
               run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  # Skip apt update if cache hit
+                  if [ ! -f /var/lib/apt/lists/lock ]; then
+                      sudo apt-get update
+                  fi
+                  sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -393,11 +406,26 @@ jobs:
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
+            - name: Cache SAML dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: |
+                      /var/cache/apt/archives
+                      /var/lib/apt/lists
+                  key: apt-saml-${{ runner.os }}
+                  restore-keys: |
+                      apt-saml-${{ runner.os }}
+
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  # Skip apt update if cache hit
+                  if [ ! -f /var/lib/apt/lists/lock ]; then
+                      sudo apt-get update
+                  fi
+                  sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -435,9 +463,9 @@ jobs:
               uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
               with:
                   path: .pytest_cache
-                  key: pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}-${{ github.ref }}
+                  key: pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   restore-keys: |
-                      pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}-
+                      pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                       pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-
                       pytest-cache-${{ matrix.segment }}-
 
@@ -550,12 +578,6 @@ jobs:
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
-            - name: Save pytest cache
-              if: ${{ needs.changes.outputs.backend == 'true' && success() }}
-              uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
-              with:
-                  path: .pytest_cache
-                  key: pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}-${{ github.ref }}
 
             # Post tests
             - name: Show docker compose logs on failure
@@ -641,10 +663,23 @@ jobs:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
+            - name: Cache SAML dependencies
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: |
+                      /var/cache/apt/archives
+                      /var/lib/apt/lists
+                  key: apt-saml-${{ runner.os }}
+                  restore-keys: |
+                      apt-saml-${{ runner.os }}
+
             - name: Install SAML (python3-saml) dependencies
               run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  # Skip apt update if cache hit
+                  if [ ! -f /var/lib/apt/lists/lock ]; then
+                      sudo apt-get update
+                  fi
+                  sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
               shell: bash
