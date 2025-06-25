@@ -633,12 +633,15 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     schema = batch.schema
     columns_to_cast = {}
 
+    precision = 38
+    scale = 38 - 1
+
     for field in schema:
         if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
             if field.type.precision > 38:
                 original_scale = field.type.scale
-                new_scale = min(original_scale, 38 - 1)
-                columns_to_cast[field.name] = (pa.decimal128(38, new_scale), pa.float64())
+                new_scale = min(original_scale, scale)
+                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
 
     if not columns_to_cast:
         return batch
@@ -648,15 +651,19 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     for field in batch.schema:
         if field.name in columns_to_cast:
             column_data = batch[field.name]
-            decimal128_type, float64_type = columns_to_cast[field.name]
+            decimal128_type = columns_to_cast[field.name]
             try:
                 cast_column_decimal = pc.cast(column_data, decimal128_type)
                 new_fields.append(field.with_type(decimal128_type))
                 new_columns.append(cast_column_decimal)
             except Exception:
-                cast_column_float = pc.cast(column_data, float64_type)
-                new_fields.append(field.with_type(float64_type))
-                new_columns.append(cast_column_float)
+                reduced_decimal_type = pa.decimal128(precision, scale)
+
+                string_column = pc.cast(column_data, pa.string())
+                truncated_string = pc.utf8_slice_codeunits(typing.cast(pa.StringArray, string_column), 0, precision)
+                cast_column_reduced = pc.cast(truncated_string, reduced_decimal_type)
+                new_fields.append(field.with_type(reduced_decimal_type))
+                new_columns.append(pa.chunked_array([cast_column_reduced]))
         else:
             new_fields.append(field)
             new_columns.append(batch[field.name])

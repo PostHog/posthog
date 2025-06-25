@@ -992,8 +992,11 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
         assert "regular_column" in table.column_names
 
         high_precision_column = table.column("high_precision_decimal")
-        assert pa.types.is_floating(high_precision_column.type)
-        assert high_precision_column.type == pa.float64()
+        # Should be Decimal128 with reduced precision, not float64
+        assert pa.types.is_decimal(high_precision_column.type)
+        assert isinstance(high_precision_column.type, pa.Decimal128Type)
+        assert high_precision_column.type.precision == 38
+        assert high_precision_column.type.scale == 37
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
