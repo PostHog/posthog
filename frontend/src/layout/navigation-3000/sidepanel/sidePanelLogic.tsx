@@ -57,7 +57,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (selectedTab === SidePanelTab.Max && sidePanelOpen)) {
+                if (
+                    (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
+                        !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) ||
+                    (sidePanelOpen && selectedTab === SidePanelTab.Max)
+                ) {
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
