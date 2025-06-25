@@ -1,6 +1,8 @@
 <events_input_format>
 You'll receive a list of events with columns:
 
+- event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
+- event_index: Index of the event in the session - helps understand sequence
 - event: Type of event (e.g., $pageview, $autocapture) - signals user actions or system events
 - timestamp: When the event occurred - helps track sequence and time between actions
 - elements_chain_href: URL fragment interacted with - shows specific link or element targets
@@ -12,8 +14,6 @@ You'll receive a list of events with columns:
 - $elements_chain_ids: IDs of the elements that are part of the interaction
 - $exception_types: Type of the exception occured, if applicable
 - $exception_values: Short description of the exception occured, if applicable
-- event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
-- event_index: Index of the event in the session - helps understand sequence
 
 Event columns are provided in the order the data for each event. So, the first element of the event is the event name, the second element is the timestamp, etc.
 

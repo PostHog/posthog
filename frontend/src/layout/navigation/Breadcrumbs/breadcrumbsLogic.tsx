@@ -89,7 +89,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                             )
-                        } catch (e) {
+                        } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return an empty array below
                         }
                     }
@@ -116,7 +116,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                             )
-                        } catch (e) {
+                        } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return null below
                         }
                     }

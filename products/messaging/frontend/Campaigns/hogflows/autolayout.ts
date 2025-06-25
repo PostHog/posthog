@@ -1,8 +1,8 @@
-import { Edge, Node, Position } from '@xyflow/react'
+import { Edge, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
-import type { HogFlowAction, HogFlowEdge } from './types'
+import type { HogFlowActionNode } from './types'
 
 /**
  * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm
@@ -26,10 +26,7 @@ const getElkPortSide = (position: Position): string => {
 
 const elk = new ELK()
 
-export const getFormattedNodes = async (
-    nodes: Node<HogFlowAction>[],
-    edges: Edge<HogFlowEdge>[]
-): Promise<Node<HogFlowAction>[]> => {
+export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[]): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
@@ -37,6 +34,7 @@ export const getFormattedNodes = async (
         'elk.spacing.edgeEdge': `${NODE_GAP}`,
         'elk.spacing.edgeNode': `${NODE_GAP}`,
         'elk.direction': 'DOWN',
+        'elk.layered.nodePlacement.strategy': 'SIMPLE',
         'elk.alignment': 'CENTER',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
         'elk.padding': '[left=0, top=0, right=0, bottom=0]',
@@ -58,10 +56,12 @@ export const getFormattedNodes = async (
                 ...node,
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
+                targetPosition: 'top',
+                sourcePosition: 'bottom',
                 properties: {
                     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
                 },
-                ports: [{ id: node.id }, ...handles],
+                ports: [...handles],
             }
         }),
         edges: edges.map((edge) => ({
@@ -95,5 +95,5 @@ export const getFormattedNodes = async (
     return layoutedGraph.children?.map((node) => ({
         ...node,
         position: { x: node.x, y: node.y },
-    })) as Node<HogFlowAction>[]
+    })) as HogFlowActionNode[]
 }
