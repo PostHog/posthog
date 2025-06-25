@@ -192,25 +192,24 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
                     current_event = _enriched_event_from_session_summary_event(pattern_assigned_event, event)
                     events_in_segment = segment_key_actions["events"]
                     events_in_segment_count = len(events_in_segment)
-                    # Find and enrichprevious events
+                    # Find and enrich previous events
                     if event_index == 0:
                         # If the captured event is the first in the segment, there are no previous events
                         previous_events_in_segment = []
                     else:
-                        # Get and enrich all the previous events
+                        # TODO: Move 3 to a constant
                         previous_events_in_segment = [
                             _enriched_event_from_session_summary_event(pattern_assigned_event, previous_event)
-                            for previous_event in events_in_segment[:event_index]
+                            for previous_event in events_in_segment[max(0, event_index - 3) : event_index]
                         ]
                     # Find and enrich next events
                     if event_index == events_in_segment_count - 1:
                         # If the captured event is the last in the segment, there are no next events
                         next_events_in_segment = []
                     else:
-                        # Get and enrich all the next events
                         next_events_in_segment = [
                             _enriched_event_from_session_summary_event(pattern_assigned_event, next_event)
-                            for next_event in events_in_segment[event_index + 1 :]
+                            for next_event in events_in_segment[event_index + 1 : event_index + 4]
                         ]
                     event_segment_context = PatternAssignedEventSegmentContext(
                         previous_events_in_segment=previous_events_in_segment,
