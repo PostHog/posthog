@@ -27,7 +27,7 @@ impl ConfigContext {
         Self {
             config: context.state.config.clone(),
             reader: context.state.reader.clone(),
-            redis: context.state.redis.clone(),
+            redis: context.state.redis_reader.clone(),
             headers: context.headers.clone(),
         }
     }

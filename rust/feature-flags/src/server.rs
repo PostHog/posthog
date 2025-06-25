@@ -21,6 +21,7 @@ where
     F: Future<Output = ()> + Send + 'static,
 {
     // Create separate Redis clients for reading and writing
+    // NB: if either of these URLs don't exist in the config, we default to the writer
     let redis_reader_client = match RedisClient::new(config.get_redis_reader_url().to_string()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
@@ -33,7 +34,7 @@ where
         }
     };
 
-    let _redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
+    let redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!(
@@ -44,10 +45,6 @@ where
             return;
         }
     };
-
-    // For backwards compatibility, use the reader client as the primary Redis client
-    // for services that don't distinguish between reads and writes yet
-    let redis_client = redis_reader_client.clone();
 
     let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
         Ok(client) => {
@@ -118,7 +115,7 @@ where
 
     let billing_limiter = match RedisLimiter::new(
         Duration::from_secs(5),
-        redis_client.clone(),
+        redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
         QuotaResource::FeatureFlags,
@@ -131,14 +128,14 @@ where
         }
     };
 
-    // You can decide which client to pass to the router, or pass both if needed
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
-        redis_client.clone(),
+        redis_reader_client.clone(), // NB: the cookieless manager only reads from redis, so it's safe to just use the reader client
     ));
 
     let app = router::router(
-        redis_client,
+        redis_reader_client,
+        redis_writer_client,
         reader,
         writer,
         cohort_cache,
