@@ -436,6 +436,8 @@ async def materialize_model(
         delta_table: deltalake.DeltaTable | None = None
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+            batch = _transform_unsupported_decimals(batch, logger)
+
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
                     table_uri=table_uri,
@@ -448,9 +450,6 @@ async def materialize_model(
             if index == 0:
                 mode = "overwrite"
                 schema_mode = "overwrite"
-
-            # Filter to downcast high-precision decimal columns
-            batch = _transform_unsupported_decimals(batch, logger)
 
             await logger.adebug(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
@@ -617,16 +616,25 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     if not columns_to_cast:
         return batch
 
-    for column_name, (decimal128_type, float64_type) in columns_to_cast.items():
-        column_data = batch[column_name]
-        try:
-            cast_column = pc.cast(column_data, decimal128_type)
-            batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, cast_column)
-        except Exception:
-            cast_column = pc.cast(column_data, float64_type)
-            batch = batch.set_column(batch.schema.get_field_index(column_name), column_name, cast_column)
+    new_columns = []
+    new_fields = []
+    for field in batch.schema:
+        if field.name in columns_to_cast:
+            column_data = batch[field.name]
+            decimal128_type, float64_type = columns_to_cast[field.name]
+            try:
+                cast_column_decimal = pc.cast(column_data, decimal128_type)
+                new_fields.append(field.with_type(decimal128_type))
+                new_columns.append(cast_column_decimal)
+            except Exception:
+                cast_column_float = pc.cast(column_data, float64_type)
+                new_fields.append(field.with_type(float64_type))
+                new_columns.append(cast_column_float)
+        else:
+            new_fields.append(field)
+            new_columns.append(batch[field.name])
 
-    return batch
+    return pa.Table.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=batch.schema.metadata))
 
 
 def _get_credentials():
