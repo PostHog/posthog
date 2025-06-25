@@ -78,17 +78,17 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
                 const cssLeftOffset = isDesktop ? 48 - 1 : 16 - 1 // 3rem-1px : 1rem-1px
 
                 // The avatar is positioned within the container with mr-4 (16px) from right edge
-                // and the avatar itself is 40px wide
+                // and the avatar itself is 44px wide
                 let finalX: number
                 if (isRightSide) {
-                    // For right side: windowWidth - cssRightOffset - containerWidth + (containerWidth - 16 - 40)
-                    finalX = windowWidth - cssRightOffset - 16 - 40 // Direct positioning from right edge
+                    // For right side: windowWidth - cssRightOffset - containerWidth + (containerWidth - 16 - 46)
+                    finalX = windowWidth - cssRightOffset - 16 - 44 // Direct positioning from right edge
                 } else {
-                    // For left side: cssLeftOffset + (containerWidth - 16 - 40)
-                    finalX = cssLeftOffset + containerWidth - 16 - 40 - 40 // Position accounting for container layout
+                    // For left side: cssLeftOffset + (containerWidth - 16 - 46)
+                    finalX = cssLeftOffset + containerWidth - 16 - 32 - 44 // Position accounting for container layout
                 }
 
-                const finalY = windowHeight - 16 - 40 + 8 // bottom offset - avatar height - mb-2
+                const finalY = windowHeight - 16 - 44 + 8 // bottom offset - avatar height - mb-2
 
                 // Animate to final position
                 setDragPosition({ x: finalX, y: finalY })
