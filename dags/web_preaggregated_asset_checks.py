@@ -24,6 +24,7 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.hogql.database.schema.web_analytics_s3 import get_s3_web_stats_structure, get_s3_web_bounces_structure
 
 
 logger = structlog.get_logger(__name__)
@@ -109,21 +110,25 @@ def stats_hourly_has_data() -> AssetCheckResult:
 
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
-        # Get the export path - follow same pattern as export_web_analytics_data
         if DEBUG:
-            # For local development, use Minio with s3() function for proper authentication
             s3_endpoint = "http://objectstorage:19000"
             bucket = "posthog"
             key = f"{export_type}_export.native"
         else:
-            # For production, use S3 URL (same pattern as export method)
             s3_endpoint = "https://s3.amazonaws.com"
             bucket = OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET
             key = f"{export_type}_export.native"
 
+        if export_type == "web_stats_daily":
+            table_structure = get_s3_web_stats_structure().strip()
+        elif export_type == "web_bounces_daily":
+            table_structure = get_s3_web_bounces_structure().strip()
+        else:
+            raise ValueError(f"Unknown export type: {export_type}")
+
         try:
-            # Try to query the export file with chdb using s3() function for proper AWS auth
-            s3_query = f"SELECT COUNT(*) as row_count FROM s3('{s3_endpoint}/{bucket}/{key}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native')"
+            # Try to query the export file with chdb using s3() function with proper structure
+            s3_query = f"SELECT COUNT(*) as row_count FROM s3('{s3_endpoint}/{bucket}/{key}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native', '{table_structure}')"
             result = chdb.query(s3_query)
             row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
 
@@ -178,7 +183,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
 
             if "table structure cannot be extracted" in error_msg.lower():
                 status = "format_issue"
-                description = f"Export file exists on {env_type} but chdb cannot determine structure - this is expected for Native format"
+                description = f"Export file exists on {env_type} but chdb cannot determine structure - this should not happen with explicit structure"
             else:
                 status = "parse_error"
                 description = f"Error parsing export file on {env_type}: {error_msg}"
