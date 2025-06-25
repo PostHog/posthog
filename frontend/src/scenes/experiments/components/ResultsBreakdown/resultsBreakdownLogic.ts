@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -43,6 +43,8 @@ const filterFunnelSteps = (steps: FunnelStep[], variants: string[]): FunnelStep[
 export type ResultBreakdownLogicProps = {
     experiment: Experiment
     metric?: ExperimentMetric
+    metricIndex: number
+    isPrimary: boolean
 }
 
 /**
@@ -54,6 +56,8 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         experiment: {} as Experiment,
         metric: {} as ExperimentMetric,
     } as ResultBreakdownLogicProps),
+
+    key((props) => `${props.experiment.id}-${props.metricIndex}-${props.isPrimary ? 'primary' : 'secondary'}`),
 
     path((key) => ['scenes', 'experiment', 'experimentResultBreakdownLogic', key]),
 
