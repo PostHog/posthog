@@ -32,7 +32,7 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const Step = getHogFlowStep(action.type)
 
     return (
-        <HogFlowEditorPanel position="right-top" className="min-w-[300px] max-w-[500px]">
+        <HogFlowEditorPanel position="right-top" className="w-120">
             <div className="flex justify-between items-center px-2 my-2">
                 <h3 className="flex gap-1 items-center mb-0 font-semibold">
                     <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step

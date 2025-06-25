@@ -36,8 +36,6 @@ export function HogFlowEditorTestPanel(): JSX.Element {
         hogFlowEditorTestLogic(logicProps)
     )
 
-    console.log('sampleGlobals', sampleGlobals)
-
     const inactive = !expanded
 
     if (inactive) {
@@ -110,7 +108,7 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                                 Object.keys(sampleGlobals.event.properties).length > 0 && (
                                     <div className="mt-3">
                                         <div className="mb-2 text-sm">Event properties</div>
-                                        <div className="overflow-y-auto p-2 max-h-32 rounded bg-surface-primary">
+                                        <div className="overflow-y-auto p-2 max-h-32 rounded border bg-surface-primary">
                                             <pre className="text-xs whitespace-pre-wrap text-muted">
                                                 {JSON.stringify(sampleGlobals.event.properties, null, 2)}
                                             </pre>
