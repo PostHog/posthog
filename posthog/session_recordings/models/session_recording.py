@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import models
 
 from posthog.models.person.missing_person import MissingPerson
-from posthog.models.person.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -78,7 +78,7 @@ class SessionRecording(UUIDModel):
         else:
             # Try to load from Clickhouse
             metadata = SessionReplayEvents().get_metadata(
-                team=self.team,
+                team_id=self.team.pk,
                 session_id=self.session_id,
                 recording_start_time=self.start_time,
             )
@@ -134,7 +134,7 @@ class SessionRecording(UUIDModel):
             return
 
         try:
-            self.person = Person.objects.get(
+            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
                 persondistinctid__distinct_id=self.distinct_id,
                 persondistinctid__team_id=self.team.pk,
                 team=self.team,

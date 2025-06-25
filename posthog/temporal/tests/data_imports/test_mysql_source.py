@@ -31,7 +31,7 @@ import uuid
 import pymysql
 import pytest
 
-from posthog.temporal.data_imports.pipelines.mysql.mysql import _get_partition_settings
+from posthog.temporal.data_imports.pipelines.mysql.mysql import MySQLSourceConfig, _get_partition_settings
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import IncrementalFieldType
@@ -307,3 +307,151 @@ async def test_mysql_source_incremental(
     assert sorted(res.results, key=operator.itemgetter(0)) == sorted(
         TEST_DATA + NEW_TEST_DATA, key=operator.itemgetter(0)
     )
+
+
+def test_mysql_sql_source_config_loads():
+    job_inputs = {
+        "host": "host.com",
+        "port": "1111",
+        "user": "Username",
+        "schema": "schema",
+        "database": "database",
+        "password": "password",
+        "using_ssl": False,
+    }
+    config = MySQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 1111
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is None
+    assert config.using_ssl is False
+
+
+def test_mysql_source_config_loads_int_port():
+    job_inputs = {
+        "host": "host.com",
+        "port": 1111,
+        "user": "Username",
+        "schema": "schema",
+        "database": "database",
+        "password": "password",
+    }
+    config = MySQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 1111
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is None
+    assert config.using_ssl is True
+
+
+def test_mysql_source_config_loads_with_ssh_tunnel():
+    job_inputs = {
+        "host": "host.com",
+        "port": "1111",
+        "user": "Username",
+        "schema": "schema",
+        "database": "database",
+        "password": "password",
+        "ssh_tunnel_host": "other-host.com",
+        "ssh_tunnel_enabled": "True",
+        "ssh_tunnel_port": "55550",
+        "ssh_tunnel_auth_type": "password",
+        "ssh_tunnel_auth_type_password": "password",
+        "ssh_tunnel_auth_type_username": "username",
+    }
+    config = MySQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 1111
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.enabled is True
+    assert config.ssh_tunnel.port == 55550
+    assert config.ssh_tunnel.auth.type == "password"
+    assert config.ssh_tunnel.auth.username == "username"
+    assert config.ssh_tunnel.auth.password == "password"
+    assert config.ssh_tunnel.host == "other-host.com"
+
+
+def test_mysql_source_config_loads_with_nested_dict_enabled_tunnel():
+    job_inputs = {
+        "host": "host.com",
+        "port": 1111,
+        "database": "database",
+        "user": "Username",
+        "password": "password",
+        "schema": "schema",
+        "ssh_tunnel": {
+            "host": "other-host.com",
+            "port": "55550",
+            "enabled": "True",
+            "auth": {
+                "type": "password",
+                "username": "username",
+                "password": "password",
+            },
+        },
+    }
+
+    config = MySQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 1111
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.enabled is True
+    assert config.ssh_tunnel.host == "other-host.com"
+    assert config.ssh_tunnel.port == 55550
+    assert config.ssh_tunnel.auth.type == "password"
+    assert config.ssh_tunnel.auth.username == "username"
+    assert config.ssh_tunnel.auth.password == "password"
+
+
+def test_mysql_source_config_loads_with_nested_dict_disabled_tunnel():
+    job_inputs = {
+        "host": "host.com",
+        "port": 1111,
+        "database": "database",
+        "user": "Username",
+        "password": "password",
+        "schema": "schema",
+        "ssh_tunnel": {
+            "host": None,
+            "port": None,
+            "enabled": False,
+            "auth": {
+                "type": None,
+                "username": None,
+                "password": None,
+                "private_key": None,
+                "passphrase": None,
+            },
+        },
+    }
+
+    config = MySQLSourceConfig.from_dict(job_inputs)
+
+    assert config.host == "host.com"
+    assert config.port == 1111
+    assert config.user == "Username"
+    assert config.password == "password"
+    assert config.database == "database"
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.enabled is False
+    assert config.ssh_tunnel.host is None
+    assert config.ssh_tunnel.port is None
+    assert config.ssh_tunnel.auth.type is None
+    assert config.ssh_tunnel.auth.private_key is None
+    assert config.ssh_tunnel.auth.passphrase is None
+    assert config.ssh_tunnel.auth.username is None
+    assert config.ssh_tunnel.auth.password is None

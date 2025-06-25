@@ -41,12 +41,12 @@ def create_clickhouse_tables():
     if num_tables == num_expected_tables:
         return
 
+    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(table_queries)
+
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
         run_clickhouse_statement_in_parallel(kafka_table_queries)
-
-    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
 
     mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(mv_queries)
@@ -94,7 +94,7 @@ def reset_clickhouse_tables():
     )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    TABLES_TO_CREATE_DROP = [
+    TABLES_TO_CREATE_DROP: list[str] = [
         TRUNCATE_EVENTS_TABLE_SQL(),
         TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
@@ -111,7 +111,7 @@ def reset_clickhouse_tables():
         TRUNCATE_APP_METRICS_TABLE_SQL,
         TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
         TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
-        TRUNCATE_EXCHANGE_RATE_TABLE_SQL,
+        TRUNCATE_EXCHANGE_RATE_TABLE_SQL(),
         TRUNCATE_SESSIONS_TABLE_SQL(),
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
@@ -163,12 +163,11 @@ def django_db_setup(django_db_setup, django_db_keepdb):
     yield
 
     if django_db_keepdb:
-        reset_clickhouse_tables()
+        # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
+        if not settings.IN_EVAL_TESTING:
+            reset_clickhouse_tables()
     else:
-        try:
-            database.drop_database()
-        except:
-            pass
+        database.drop_database()
 
 
 @pytest.fixture

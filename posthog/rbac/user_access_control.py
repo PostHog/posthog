@@ -13,7 +13,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.scopes import APIScopeObject, API_SCOPE_OBJECTS
+from posthog.scopes import APIScopeObject, API_SCOPE_OBJECTS
 
 
 if TYPE_CHECKING:

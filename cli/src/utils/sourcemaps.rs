@@ -64,8 +64,12 @@ pub struct ChunkUpload {
 }
 
 impl SourcePair {
+    pub fn has_chunk_id(&self) -> bool {
+        self.chunk_id.is_some()
+    }
+
     pub fn set_chunk_id(&mut self, chunk_id: String) -> Result<()> {
-        if self.chunk_id.is_some() {
+        if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
         let (new_source_content, source_adjustment) = {
@@ -156,8 +160,8 @@ pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
     let mut pairs = Vec::new();
     for entry in WalkDir::new(directory).into_iter().filter_map(|e| e.ok()) {
         let entry_path = entry.path().canonicalize()?;
-        info!("Processing file: {}", entry_path.display());
         if is_javascript_file(&entry_path) {
+            info!("Processing file: {}", entry_path.display());
             let source = SourceFile::load(&entry_path)?;
             let sourcemap_path = guess_sourcemap_path(&source.path);
             if sourcemap_path.exists() {

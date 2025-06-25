@@ -18,6 +18,7 @@ export interface TraceDataLogicProps {
     traceId: string
     query: DataTableNode
     cachedResults?: AnyResponseType | null
+    searchQuery: string
 }
 
 function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
@@ -43,7 +44,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
     connect((props: TraceDataLogicProps) => ({
         values: [
             llmObservabilityTraceLogic,
-            ['eventId'],
+            ['eventId', 'searchQuery'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError'],
         ],
@@ -60,6 +61,127 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
             (s) => [s.trace],
             (trace): LLMTraceEvent[] =>
                 trace ? trace.events.filter((event) => !FEEDBACK_EVENTS.has(event.event)) : [],
+        ],
+        filteredEvents: [
+            (s) => [s.showableEvents, s.searchQuery],
+            (showableEvents, searchQuery): LLMTraceEvent[] => {
+                if (!searchQuery.trim()) {
+                    return showableEvents
+                }
+
+                const query = searchQuery.toLowerCase().trim()
+                return showableEvents.filter((event) => {
+                    // Search in event title
+                    const title = event.properties.$ai_span_name || event.event || ''
+                    if (title.toLowerCase().includes(query)) {
+                        return true
+                    }
+
+                    // Search in model name
+                    const model = event.properties.$ai_model || ''
+                    if (model.toLowerCase().includes(query)) {
+                        return true
+                    }
+
+                    // Search in provider
+                    const provider = event.properties.$ai_provider || ''
+                    if (provider.toLowerCase().includes(query)) {
+                        return true
+                    }
+
+                    // Search in input content
+                    const input = JSON.stringify(
+                        event.properties.$ai_input || event.properties.$ai_input_state || ''
+                    ).toLowerCase()
+                    if (input.includes(query)) {
+                        return true
+                    }
+
+                    // Search in output content
+                    const output = JSON.stringify(
+                        event.properties.$ai_output ||
+                            event.properties.$ai_output_choices ||
+                            event.properties.$ai_output_state ||
+                            ''
+                    ).toLowerCase()
+                    if (output.includes(query)) {
+                        return true
+                    }
+
+                    // Search in error messages
+                    const error = JSON.stringify(event.properties.$ai_error || '').toLowerCase()
+                    if (error.includes(query)) {
+                        return true
+                    }
+
+                    return false
+                })
+            },
+        ],
+        filteredTree: [
+            (s, p) => [p.traceId, s.trace, s.searchQuery, s.filteredEvents],
+            (traceId, trace, searchQuery, filteredEvents): TraceTreeNode[] => {
+                if (!searchQuery.trim()) {
+                    return restoreTree(trace?.events || [], traceId)
+                }
+                return restoreTree(filteredEvents, traceId)
+            },
+        ],
+        mostRelevantEvent: [
+            (s) => [s.filteredEvents, s.searchQuery],
+            (filteredEvents, searchQuery): LLMTraceEvent | null => {
+                if (!searchQuery.trim() || !filteredEvents.length) {
+                    return null
+                }
+
+                const query = searchQuery.toLowerCase().trim()
+
+                // Score events by relevance (sort of doing a random scoring for now but i feel like this is directionally correct)
+                const scoredEvents = filteredEvents.map((event) => {
+                    let score = 0
+
+                    // Higher score for generation events
+                    if (event.event === '$ai_generation') {
+                        score += 10
+                    }
+
+                    // Higher score for title matches
+                    const title = event.properties.$ai_span_name || event.event || ''
+                    if (title.toLowerCase().includes(query)) {
+                        score += 5
+                    }
+
+                    // Score for model matches
+                    const model = event.properties.$ai_model || ''
+                    if (model.toLowerCase().includes(query)) {
+                        score += 3
+                    }
+
+                    // Score for input/output content matches
+                    const input = JSON.stringify(
+                        event.properties.$ai_input || event.properties.$ai_input_state || ''
+                    ).toLowerCase()
+                    if (input.includes(query)) {
+                        score += 2
+                    }
+
+                    const output = JSON.stringify(
+                        event.properties.$ai_output ||
+                            event.properties.$ai_output_choices ||
+                            event.properties.$ai_output_state ||
+                            ''
+                    ).toLowerCase()
+                    if (output.includes(query)) {
+                        score += 2
+                    }
+
+                    return { event, score }
+                })
+
+                // Return the highest scoring event
+                const best = scoredEvents.sort((a, b) => b.score - a.score)[0]
+                return best?.event || null
+            },
         ],
         metricEvents: [
             (s) => [s.trace],
@@ -92,10 +214,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                 return showableEvents.find((event) => event.id === eventId) || null
             },
         ],
-        tree: [
-            (s, p) => [p.traceId, s.trace],
-            (traceId, trace): TraceTreeNode[] => restoreTree(trace?.events || [], traceId),
-        ],
+        tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],
     }),
 ])
 

@@ -48,8 +48,8 @@ interface InsightsLabelProps {
 
 interface MathTagProps {
     math: string | undefined
-    mathProperty: string | undefined
-    mathHogQL: string | undefined
+    mathProperty: string | undefined | null
+    mathHogQL: string | undefined | null
     mathGroupTypeIndex: number | null | undefined
 }
 

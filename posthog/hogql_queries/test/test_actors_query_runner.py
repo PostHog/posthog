@@ -41,6 +41,7 @@ from freezegun import freeze_time
 from django.test import override_settings
 from unittest.mock import patch
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -178,6 +179,80 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(select=["properties.email as email"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
+
+    def test_persons_query_order_by_person_display_name(self):
+        _create_person(
+            properties={"email": "tom@posthog.com"},
+            distinct_ids=["2", "some-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "arthur@posthog.com"},
+            distinct_ids=["7", "another-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "chris@posthog.com"},
+            distinct_ids=["3", "yet-another-random-uid"],
+            team=self.team,
+        )
+        flush_persons_and_events()
+        test_cases = [
+            (
+                "ascending",
+                ["person_display_name -- Person ASC"],
+                ["arthur@posthog.com", "chris@posthog.com", "tom@posthog.com"],
+            ),
+            (
+                "descending",
+                ["person_display_name -- Person DESC"],
+                ["tom@posthog.com", "chris@posthog.com", "arthur@posthog.com"],
+            ),
+            ("no ordering", [], ["tom@posthog.com", "arthur@posthog.com", "chris@posthog.com"]),
+        ]
+        for msg, order_by, expected in test_cases:
+            with self.subTest(msg):
+                runner = self._create_runner(ActorsQuery(select=["person_display_name -- Person"], orderBy=order_by))
+                results = runner.calculate().results
+                response_order = [person[0]["display_name"] for person in results]
+                self.assertEqual(response_order, expected)
+
+    def test_persons_query_order_by_person_display_name_when_column_is_not_selected(self):
+        _create_person(
+            properties={"email": "tom@posthog.com", "name": "Tom"},
+            distinct_ids=["2", "some-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "arthur@posthog.com", "name": "Arthur"},
+            distinct_ids=["7", "another-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "chris@posthog.com", "name": "Chris"},
+            distinct_ids=["3", "yet-another-random-uid"],
+            team=self.team,
+        )
+        flush_persons_and_events()
+        test_cases = [
+            (
+                "ascending",
+                ["person_display_name -- Person ASC"],
+                ["Arthur", "Chris", "Tom"],
+            ),
+            (
+                "descending",
+                ["person_display_name -- Person DESC"],
+                ["Tom", "Chris", "Arthur"],
+            ),
+            ("no ordering", [], ["Tom", "Arthur", "Chris"]),
+        ]
+        for msg, order_by, expected in test_cases:
+            with self.subTest(msg):
+                runner = self._create_runner(ActorsQuery(select=["properties.name"], orderBy=order_by))
+                results = runner.calculate().results
+                response_order = [person[0] for person in results]
+                self.assertEqual(response_order, expected)
 
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
@@ -536,3 +611,85 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Verify that execute_hogql_query was called with the correct modifiers
         called_modifiers: HogQLQueryModifiers = spy_execute_hogql_query.call_args[1]["modifiers"]
         self.assertEqual(called_modifiers.personsOnEventsMode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+
+    def test_person_display_name_default(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"user@email.com"}
+
+    def test_person_display_name_custom(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User", "numeric_prop": 123},
+        )
+        self.team.person_display_name_properties = ["name", "numeric_prop"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        PropertyDefinition.objects.create(
+            team_id=self.team.pk,
+            name="numeric_prop",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.PERSON,
+        )
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User"}
+
+    def test_person_display_name_fallback(self):
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        self.team.person_display_name_properties = ["nonexistent"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {str(person.uuid)}
+
+    def test_person_display_name_with_spaces_in_property_name(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User With Spaces"}
+
+    def test_select_property_name_with_spaces(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        flush_persons_and_events()
+        query = ActorsQuery(select=['properties."Property With Spaces"'])
+        runner = self._create_runner(query)
+
+        response = runner.calculate()
+
+        self.assertEqual(response.results[0][0], "Test User With Spaces")

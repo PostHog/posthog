@@ -63,6 +63,7 @@ describe('SessionBatchManager', () => {
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
+            metadataSwitchoverDate: new Date('2025-01-02'),
         })
     })
 
@@ -79,7 +80,8 @@ describe('SessionBatchManager', () => {
             mockOffsetManager,
             mockFileStorage,
             mockMetadataStore,
-            mockConsoleLogStore
+            mockConsoleLogStore,
+            new Date('2025-01-02')
         )
 
         const secondBatch = manager.getCurrentBatch()

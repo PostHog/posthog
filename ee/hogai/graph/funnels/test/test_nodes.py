@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableLambda
 from ee.hogai.graph.funnels.nodes import FunnelGeneratorNode, FunnelPlannerNode, FunnelsSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
+    AssistantFunnelsFilter,
     AssistantFunnelsQuery,
     HumanMessage,
     VisualizationMessage,
@@ -15,7 +16,7 @@ from posthog.test.base import BaseTest
 
 class TestFunnelPlannerNode(BaseTest):
     def test_funnels_planner_prompt_has_tools(self):
-        node = FunnelPlannerNode(self.team)
+        node = FunnelPlannerNode(self.team, self.user)
         with patch.object(FunnelPlannerNode, "_model") as model_mock:
 
             def assert_prompt(prompt):
@@ -32,7 +33,7 @@ class TestFunnelsGeneratorNode(BaseTest):
         self.schema = AssistantFunnelsQuery(series=[])
 
     def test_node_runs(self):
-        node = FunnelGeneratorNode(self.team)
+        node = FunnelGeneratorNode(self.team, self.user)
         with patch.object(FunnelGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: FunnelsSchemaGeneratorOutput(query=self.schema).model_dump()
@@ -53,3 +54,8 @@ class TestFunnelsGeneratorNode(BaseTest):
                     plan="",
                 ),
             )
+
+    def test_schema_does_not_require_aggregation_by_hogql(self):
+        """Catches the regression where the schema set funnelAggregateByHogQL."""
+        schema = AssistantFunnelsQuery(series=[], funnelsFilter=AssistantFunnelsFilter())
+        self.assertIsNone(schema.funnelsFilter.funnelAggregateByHogQL)

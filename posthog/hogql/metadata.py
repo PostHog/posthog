@@ -152,7 +152,7 @@ class TableCollector(TraversingVisitor):
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if isinstance(node.table, ast.Field):
-            self.table_names.add(node.table.chain[0])
+            self.table_names.add(".".join([str(x) for x in node.table.chain]))
         else:
             self.visit(node.table)
 

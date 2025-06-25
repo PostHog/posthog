@@ -3,6 +3,7 @@ use thiserror::Error;
 
 // TBH this is probably need to be broken up somehow
 #[derive(Debug, Error, Clone)]
+#[non_exhaustive]
 pub enum VmError {
     #[error("Expected operation, got {0:?}")]
     NotAnOperation(Value),
@@ -68,4 +69,8 @@ pub enum VmError {
     InvalidRegex(String, String),
     #[error("Integer overflow")]
     IntegerOverflow,
+    #[error("Unknown symbol {0}")]
+    UnknownSymbol(String),
+    #[error("{0}")]
+    Other(String),
 }

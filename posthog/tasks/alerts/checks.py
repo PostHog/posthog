@@ -8,14 +8,12 @@ from dateutil.relativedelta import relativedelta
 from celery import shared_task
 from celery.canvas import chain
 from django.db import transaction
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
-from sentry_sdk import set_tag
+from posthog.clickhouse.query_tagging import tag_queries
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    conversion_to_query_based,
-)
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
@@ -37,7 +35,7 @@ from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
-from posthog.ph_client import ph_us_client
+from posthog.ph_client import ph_scoped_capture
 
 
 logger = structlog.get_logger(__name__)
@@ -45,7 +43,7 @@ logger = structlog.get_logger(__name__)
 
 class AlertCheckException(Exception):
     """
-    Required for custom exceptions to pass stack trace to sentry.
+    Required for custom exceptions to pass stack trace to error tracking.
     Subclassing through other ways doesn't transfer the traceback.
     https://stackoverflow.com/a/69963663/5540417
     """
@@ -92,7 +90,7 @@ def alerts_backlog_task() -> None:
         )
     ).count()
 
-    with ph_us_client() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
         capture_ph_event(
             ANIRUDH_DISTINCT_ID,
             "alert check backlog",
@@ -190,7 +188,7 @@ def check_alerts_task() -> None:
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
 def check_alert_task(alert_id: str) -> None:
-    with ph_us_client() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
         check_alert(alert_id, capture_ph_event)
 
 
@@ -291,7 +289,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
     TODO: Later separate notification mechanism from alert checking mechanism (when we move to CDP)
         so we can retry notification without re-computing insight.
     """
-    set_tag("alert_config_id", alert.id)
+    tag_queries(alert_config_id=str(alert.id))
     user = cast(User, alert.created_by)
 
     # Event to count alert checks
@@ -369,7 +367,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """
     insight = alert.insight
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         query = insight.query
         kind = get_from_dict_or_attr(query, "kind")
 

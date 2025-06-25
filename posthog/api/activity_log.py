@@ -292,8 +292,6 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         with timer("serialize"):
             serialized_data = ActivityLogSerializer(instance=page_of_data, many=True, context={"user": user}).data
 
-        timings = timer.get_all_timings()
-
         response = Response(
             status=status.HTTP_200_OK,
             data={
@@ -302,9 +300,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             },
         )
 
-        response.headers["Server-Timing"] = ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-        )
+        response.headers["Server-Timing"] = timer.to_header_string()
 
         return response
 

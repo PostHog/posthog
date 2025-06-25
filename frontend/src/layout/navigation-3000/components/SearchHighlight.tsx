@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 interface Props {
     string: string
     substring: string
@@ -13,7 +15,7 @@ interface Props {
 export function SearchHighlight({ string, substring, className }: Props): JSX.Element {
     const parts = string.split(new RegExp(`(${substring})`, 'gi'))
     return (
-        <div className={`truncate ${className}`}>
+        <div className={clsx('truncate flex-1', className)}>
             {parts.map((part, index) => (
                 <span
                     key={index}

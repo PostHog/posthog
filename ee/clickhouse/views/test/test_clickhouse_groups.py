@@ -186,6 +186,12 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_key="org:5",
             properties={"name": "Mr. Krabs"},
         )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:55",
+            properties={"name": "Mr. Krabs"},
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",

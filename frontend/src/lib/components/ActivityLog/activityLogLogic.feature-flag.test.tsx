@@ -455,7 +455,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 100% of email = someone@somewhere.dev on with null rollout change'
+                'peter changed the filter conditions to apply to 100% of Email address = …@somewhere.dev on with null rollout change'
             )
         })
 
@@ -525,7 +525,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 76% of Initial Browser = Chrome , and 99% of Initial Browser Version = 100 on with two changes'
+                'peter changed the filter conditions to apply to 76% of Initial browser = Chrome , and 99% of Initial browser version = 100 on with two changes'
             )
         })
 

@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { events, kea, path } from 'kea'
-import { loaders } from 'kea-loaders'
+import { kea, path } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { Variable } from '../../types'
@@ -8,7 +8,7 @@ import type { variableDataLogicType } from './variableDataLogicType'
 
 export const variableDataLogic = kea<variableDataLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variableDataLogic']),
-    loaders(({ values }) => ({
+    lazyLoaders(({ values }) => ({
         variables: [
             [] as Variable[],
             {
@@ -20,17 +20,12 @@ export const variableDataLogic = kea<variableDataLogicType>([
                     try {
                         await api.insightVariables.delete(variableId)
                         lemonToast.success('Variable deleted successfully')
-                    } catch (error) {
+                    } catch {
                         lemonToast.error('Failed to delete variable')
                     }
-                    return [...values.variables.filter((variable) => variable.id !== variableId)]
+                    return values.variables.filter((variable) => variable.id !== variableId)
                 },
             },
         ],
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.getVariables()
-        },
     })),
 ])

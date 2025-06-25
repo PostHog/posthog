@@ -14,6 +14,21 @@
   LIMIT 50000
   '''
 # ---
+# name: TestDatabase.test_database_warehouse_joins_persons_poe_v2_source_key_ast_call
+  '''
+  
+  SELECT events__some_field.key AS key 
+  FROM events LEFT JOIN (
+  SELECT groups.key AS key, key AS events__some_field___key 
+  FROM (
+  SELECT groups.group_type_index AS index, groups.group_key AS key 
+  FROM groups 
+  WHERE equals(groups.team_id, 420) 
+  GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), events__some_field.events__some_field___key) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestDatabase.test_serialize_database_no_person_on_events
   '''
   {
@@ -129,7 +144,9 @@
                   "fields": [
                       "id",
                       "created_at",
-                      "properties"
+                      "properties",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type"
                   ],
                   "hogql_value": "poe",
                   "id": null,
@@ -216,7 +233,9 @@
                       "team_id",
                       "properties",
                       "is_identified",
-                      "pdi"
+                      "pdi",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
                   "id": "person",
@@ -531,6 +550,7 @@
           },
           "id": "events",
           "name": "events",
+          "row_count": null,
           "type": "posthog"
       },
       "groups": {
@@ -588,6 +608,7 @@
           },
           "id": "groups",
           "name": "groups",
+          "row_count": null,
           "type": "posthog"
       },
       "persons": {
@@ -669,6 +690,7 @@
           },
           "id": "persons",
           "name": "persons",
+          "row_count": null,
           "type": "posthog"
       },
       "sessions": {
@@ -1136,6 +1158,7 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
           "type": "posthog"
       },
       "query_log": {
@@ -1283,6 +1306,7 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "row_count": null,
           "type": "posthog"
       }
   }
@@ -1403,7 +1427,9 @@
                   "fields": [
                       "id",
                       "created_at",
-                      "properties"
+                      "properties",
+                      "$virt_initial_referring_domain_type",
+                      "$virt_initial_channel_type"
                   ],
                   "hogql_value": "poe",
                   "id": null,
@@ -1775,6 +1801,7 @@
           },
           "id": "events",
           "name": "events",
+          "row_count": null,
           "type": "posthog"
       },
       "groups": {
@@ -1832,6 +1859,7 @@
           },
           "id": "groups",
           "name": "groups",
+          "row_count": null,
           "type": "posthog"
       },
       "persons": {
@@ -1913,6 +1941,7 @@
           },
           "id": "persons",
           "name": "persons",
+          "row_count": null,
           "type": "posthog"
       },
       "sessions": {
@@ -2380,6 +2409,7 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
           "type": "posthog"
       },
       "query_log": {
@@ -2527,6 +2557,7 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "row_count": null,
           "type": "posthog"
       }
   }

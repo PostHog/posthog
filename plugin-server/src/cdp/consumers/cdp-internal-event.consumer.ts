@@ -1,19 +1,21 @@
 import { Message } from 'node-rdkafka'
 
 import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
+import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
-import { counterParseError } from './cdp-base.consumer'
-import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
+import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
 
-export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
+export class CdpInternalEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
-    protected topic = KAFKA_CDP_INTERNAL_EVENTS
-    protected groupId = 'cdp-internal-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
+
+    constructor(hub: Hub) {
+        super(hub, KAFKA_CDP_INTERNAL_EVENTS, 'cdp-internal-events-consumer')
+    }
 
     // This consumer always parses from kafka
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
@@ -29,7 +31,7 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
 
                             const [teamHogFunctions, team] = await Promise.all([
                                 this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, ['internal_destination']),
-                                this.hub.teamManager.fetchTeam(event.team_id),
+                                this.hub.teamManager.getTeam(event.team_id),
                             ])
 
                             if (!teamHogFunctions.length || !team) {

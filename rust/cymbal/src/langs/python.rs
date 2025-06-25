@@ -89,6 +89,7 @@ impl From<&RawPythonFrame> for Frame {
             resolve_failure: None,
             junk_drawer: None,
             context: raw.get_context(),
+            release: None,
         }
     }
 }

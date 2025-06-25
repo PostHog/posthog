@@ -5,15 +5,14 @@ import { beforeUnload } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { parseEncodedSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
-import { deduplicateSnapshots } from '../player/snapshot-processing/deduplicate-snapshots'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
@@ -30,7 +29,7 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
         return {
             version: '2023-04-28',
             data: {
-                id: '', // This wasn't available in previous version
+                id: '', // This wasn't available in a previous version
                 person: data.data.person || undefined,
                 snapshots: Object.entries(data.data.snapshotsByWindowId)
                     .flatMap(([windowId, snapshots]) => {
@@ -52,7 +51,7 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
  *
  * This method waits for the dataLogic to be mounted and returns it
  *
- * in practice, it will only wait for 1-2 retries
+ * in practice, it will only wait for 1-2 retries,
  * but a timeout is provided to avoid waiting forever when something breaks
  */
 const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
@@ -83,7 +82,7 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
 export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePlaybackSceneLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackSceneLogic']),
     connect(() => ({
-        actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
 
@@ -136,14 +135,16 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 return
             }
 
-            const snapshots = deduplicateSnapshots(
-                await parseEncodedSnapshots(values.sessionRecording.snapshots, values.sessionRecording.id)
-            )
+            const snapshots = values.sessionRecording.snapshots
 
             // Simulate a loaded source and sources so that nothing extra gets loaded
+            dataLogic.cache.snapshotsBySource = {
+                'file-file': {
+                    snapshots: snapshots,
+                    source: { source: 'file' },
+                },
+            }
             dataLogic.actions.loadSnapshotsForSourceSuccess({
-                snapshots: snapshots,
-                untransformed_snapshots: snapshots,
                 source: { source: 'file' },
             })
             dataLogic.actions.loadSnapshotSourcesSuccess([{ source: 'file' }])

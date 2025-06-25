@@ -1,0 +1,17 @@
+{
+    "name": "@posthog/products-links",
+    "dependencies": {
+        "qrcode.react": "^4.2.0"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*"
+    }
+}

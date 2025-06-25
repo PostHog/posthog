@@ -35,10 +35,10 @@ const featureFlagMatchMapping = {
 }
 
 export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
-    const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
-        relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
-    )
-    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups }))
+    const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
+    const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters, pagination } =
+        useValues(relatedFlagsLogic)
+    const { setSearchTerm, setFilters } = useActions(relatedFlagsLogic)
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
@@ -232,7 +232,12 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                     />
                 </div>
             </div>
-            <LemonTable columns={columns} loading={relatedFeatureFlagsLoading} dataSource={filteredMappedFlags} />
+            <LemonTable
+                columns={columns}
+                loading={relatedFeatureFlagsLoading}
+                dataSource={filteredMappedFlags}
+                pagination={pagination}
+            />
         </>
     )
 }

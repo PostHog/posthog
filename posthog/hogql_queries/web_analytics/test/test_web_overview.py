@@ -1,11 +1,13 @@
 from typing import Optional
 from unittest.mock import MagicMock, patch
+from datetime import datetime, UTC
 
 from freezegun import freeze_time
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models import Action, Element, Cohort
 from posthog.models.utils import uuid7
 from posthog.schema import (
@@ -19,9 +21,8 @@ from posthog.schema import (
     ActionConversionGoal,
     BounceRatePageViewMode,
     WebOverviewQueryResponse,
-    RevenueTrackingConfig,
     RevenueCurrencyPropertyConfig,
-    RevenueTrackingEventItem,
+    RevenueAnalyticsEventItem,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -31,6 +32,8 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import print_ast
 
 
 @snapshot_clickhouse_queries
@@ -653,16 +656,15 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_revenue(self):
         s1 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_tracking_config = RevenueTrackingConfig(
-            baseCurrency=CurrencyCode.GBP,
-            events=[
-                RevenueTrackingEventItem(
-                    eventName="purchase",
-                    revenueProperty="revenue",
-                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
-                )
-            ],
-        ).model_dump()
+        self.team.base_currency = CurrencyCode.GBP.value
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName="purchase",
+                revenueProperty="revenue",
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
+            )
+        ]
+        self.team.revenue_analytics_config.save()
         self.team.save()
 
         self._create_events(
@@ -697,13 +699,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_tracking_config = {
-            "events": [
-                {"eventName": "purchase1", "revenueProperty": "revenue"},
-                {"eventName": "purchase2", "revenueProperty": "revenue"},
-            ]
-        }
-        self.team.save()
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase1", revenueProperty="revenue"),
+            RevenueAnalyticsEventItem(eventName="purchase2", revenueProperty="revenue"),
+        ]
+        self.team.revenue_analytics_config.save()
 
         self._create_events(
             [
@@ -756,8 +756,10 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_revenue_conversion_event(self):
         s1 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
-        self.team.save()
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+        ]
+        self.team.revenue_analytics_config.save()
 
         self._create_events(
             [
@@ -789,13 +791,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_tracking_config = {
-            "events": [
-                {"eventName": "purchase1", "revenueProperty": "revenue"},
-                {"eventName": "purchase2", "revenueProperty": "revenue"},
-            ]
-        }
-        self.team.save()
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase1", revenueProperty="revenue"),
+            RevenueAnalyticsEventItem(eventName="purchase2", revenueProperty="revenue"),
+        ]
+        self.team.revenue_analytics_config.save()
 
         self._create_events(
             [
@@ -837,8 +837,10 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled(self):
         s1 = str(uuid7("2023-12-01"))
 
-        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
-        self.team.save()
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+        ]
+        self.team.revenue_analytics_config.save()
 
         self._create_events(
             [
@@ -856,8 +858,10 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled(self):
         s1 = str(uuid7("2023-12-01"))
 
-        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
-        self.team.save()
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+        ]
+        self.team.revenue_analytics_config.save()
 
         action = Action.objects.create(
             team=self.team,
@@ -946,3 +950,126 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
         assert conversion_rate.previous is None
         assert conversion_rate.changeFromPreviousPct is None
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_it_should_use_preaggregated_tables_with_fixed_dates_and_no_other_filters(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables for historical data"
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_current_date(self):
+        today = datetime.now(UTC).date().isoformat()
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to=today),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(),
+            "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)",
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_cannot_use_preaggregated_tables_with_unsupported_properties(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[{"key": "unsupported_property", "value": "value"}],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertFalse(
+            pre_agg_builder.can_use_preaggregated_tables(),
+            "Should not use pre-aggregated tables with unsupported properties",
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_cannot_use_preaggregated_tables_with_conversion_goal(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            conversionGoal=CustomEventConversionGoal(customEventName="custom_event"),
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertFalse(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should not use pre-aggregated tables with conversion goal"
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_supported_properties(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[{"key": "$host", "value": "app.posthog.com"}],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
+        )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_preaggregated_queries_use_utc_filtering(self):
+        # Set team timezone to something other than UTC
+        self.team.timezone = "America/New_York"  # UTC-5 (or UTC-4 during DST)
+        self.team.save()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        hogql_query = pre_agg_builder.get_query()
+
+        context_with_tz = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=True),
+        )
+        sql_with_tz = print_ast(hogql_query, context=context_with_tz, dialect="clickhouse")
+
+        context_utc = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+
+        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_bounces_combined.period_bucket," not in sql_utc
+
+        assert "toTimeZone(web_bounces_combined.period_bucket," in sql_with_tz
+        # Simplified approach - just check timezone conversion exists
+
+    @snapshot_clickhouse_queries
+    def test_preaggregated_query_sql_snapshot_with_timezone(self):
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
+
+        hogql_query = pre_agg_builder.get_query()
+
+        context_utc = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+
+        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+
+        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_bounces_combined.period_bucket, " not in sql_utc

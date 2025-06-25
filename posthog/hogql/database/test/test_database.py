@@ -133,6 +133,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             credential=credentials,
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "UnknownDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            row_count=100,
         )
 
         database = create_hogql_database(team=self.team)
@@ -141,6 +142,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
+        assert table.row_count == 100
 
         field = table.fields.get("id")
         assert field is not None
@@ -206,6 +208,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={
                 "id-hype": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
             },
+            row_count=100,
         )
 
         database = create_hogql_database(team=self.team)
@@ -214,6 +217,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
+        assert table.row_count == 100
 
         field = table.fields.get("id-hype")
         assert field is not None
@@ -367,7 +371,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
     def test_database_group_type_mappings(self):
@@ -554,6 +558,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             team=self.team,
             source_table_name="persons",
             source_table_key="properties.email",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+        )
+
+        db = create_hogql_database(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        poe = cast(Table, db.events.fields["poe"])
+
+        assert poe.fields["some_field"] is not None
+
+        printed = print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
+        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_database_warehouse_joins_persons_poe_v2_source_key_ast_call(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="toString(properties.email)",
             joining_table_name="groups",
             joining_table_key="key",
             field_name="some_field",

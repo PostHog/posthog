@@ -1,9 +1,7 @@
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
@@ -54,7 +52,6 @@ export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
     return (
         <div className="flex gap-4">
             <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
@@ -105,23 +102,19 @@ export function SurveyOverview(): JSX.Element {
                         </span>
                     </SurveyOption>
                 )}
-                {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && (
-                    <SurveyOption label="Partial responses">
-                        {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
-                    </SurveyOption>
-                )}
+                <SurveyOption label="Partial responses">
+                    {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
+                </SurveyOption>
                 <LemonDivider />
                 <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             </dl>
             <div className="flex flex-col items-center">
                 {survey.type !== SurveyType.API ? (
-                    <div className="mt-6 px-4">
-                        <SurveyFormAppearance
-                            previewPageIndex={selectedPageIndex || 0}
-                            survey={survey}
-                            handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
-                        />
-                    </div>
+                    <SurveyFormAppearance
+                        previewPageIndex={selectedPageIndex || 0}
+                        survey={survey}
+                        handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
+                    />
                 ) : (
                     <div className="mt-2 space-y-2">
                         <div className="p-4 border rounded">

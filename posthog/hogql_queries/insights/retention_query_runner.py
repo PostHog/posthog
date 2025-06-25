@@ -191,7 +191,11 @@ class RetentionQueryRunner(QueryRunner):
         self, property_name: str, breakdown_type: str, group_type_index: int | None = None
     ) -> ast.Expr:
         if breakdown_type == "person":
-            properties_chain = ["person", "properties", property_name]
+            if property_name.startswith("$virt_"):
+                # Virtual properties exist as expression fields on the persons table
+                properties_chain = ["person", property_name]
+            else:
+                properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
             properties_chain = [f"groups_{group_type_index}", "properties", property_name]
         else:

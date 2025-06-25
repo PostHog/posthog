@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getRelativeNextPath } from 'lib/utils'
 
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
@@ -34,7 +35,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         await api.create(`api/users/verify_email/`, { token, uuid })
                         actions.setView('success')
                         await breakpoint(2000)
-                        window.location.href = '/'
+
+                        const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+
+                        location.href = nextUrl || '/'
                         return { success: true, token, uuid }
                     } catch (e: any) {
                         actions.setView('invalid')

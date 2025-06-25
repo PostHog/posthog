@@ -48,6 +48,7 @@ export function renderColumn(
 ): JSX.Element | string {
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+    key = key.split('--')[0].trim()
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -110,7 +111,7 @@ export function renderColumn(
                         />
                     )
                 }
-            } catch (e) {
+            } catch {
                 // do nothing
             }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
@@ -263,6 +264,14 @@ export function renderColumn(
         }
 
         return <PersonDisplay {...displayProps} />
+    } else if (key === 'person_display_name') {
+        const displayProps: PersonDisplayProps = {
+            withIcon: true,
+            person: { id: value.id },
+            displayName: value.display_name,
+            noPopover: true,
+        }
+        return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
         return <GroupActorDisplay actor={value} />
     } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
@@ -319,7 +328,7 @@ export function renderColumn(
     ) {
         try {
             return <JSONViewer src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
-        } catch (e) {
+        } catch {
             // do nothing
         }
     }

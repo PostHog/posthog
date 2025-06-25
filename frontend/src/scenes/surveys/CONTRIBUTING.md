@@ -77,6 +77,26 @@ Using reserved ngrok domains is recommended to:
 
 One caveat: **reserved ngrok domains are only available for paid ngrok users.**
 
+### Testing survey usage_report
+
+The function [get_teams_with_survey_responses_count_in_period](https://github.com/PostHog/posthog/blob/master/posthog/tasks/usage_report.py#L790) is used to get the number of survey responses in a given period. We use that for billing.
+
+Here's how to run it in the Django shell:
+
+```python
+# In python manage.py shell
+from posthog.tasks.usage_report import get_teams_with_survey_responses_count_in_period
+from datetime import datetime, timedelta, timezone
+
+# Define the period for the last 60 days
+now = datetime.now(tz=timezone.utc)
+start_time = now - timedelta(days=60)
+end_time = now
+
+results = get_teams_with_survey_responses_count_in_period(start_time, end_time)
+print(results)
+```
+
 ## Debugging
 
 ### posthog-js logs

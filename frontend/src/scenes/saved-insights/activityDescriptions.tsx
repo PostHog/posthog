@@ -232,6 +232,7 @@ const insightActionsMapping: Record<
     dashboard_tiles: () => null,
     query_status: () => null,
     user_access_level: () => null,
+    _create_in_folder: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {

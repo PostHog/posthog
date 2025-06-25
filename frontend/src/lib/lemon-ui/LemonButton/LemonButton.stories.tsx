@@ -95,7 +95,7 @@ export const TextOnly = (): JSX.Element => {
 }
 
 export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">
@@ -110,7 +110,7 @@ export const Sizes = (): JSX.Element => {
 }
 
 export const SizesIconOnly = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">
@@ -446,6 +446,18 @@ WithTooltip.args = {
             This is example with a link: <Link to="https://posthog.com">Go home</Link>
         </>
     ),
+}
+
+export const WithTooltipPlacementAndArrowOffset: Story = BasicTemplate.bind({})
+WithTooltipPlacementAndArrowOffset.args = {
+    ...Default.args,
+    tooltip: (
+        <>
+            This is example with a link: <Link to="https://posthog.com">Go home</Link>
+        </>
+    ),
+    tooltipPlacement: 'top-start',
+    tooltipArrowOffset: 30,
 }
 
 export const More_ = (): JSX.Element => {

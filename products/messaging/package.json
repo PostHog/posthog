@@ -3,11 +3,16 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
+        "@xyflow/react": "*",
         "clsx": "*",
+        "elkjs": "*",
         "fuse.js": "*",
         "kea": "*",
+        "kea-forms": "*",
         "kea-loaders": "*",
+        "kea-subscriptions": "*",
         "kea-router": "*",
-        "react": "*"
+        "react": "*",
+        "zod": "*"
     }
 }

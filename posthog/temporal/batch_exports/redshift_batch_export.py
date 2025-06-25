@@ -372,7 +372,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         done_ranges: list[DateRange] = details.done_ranges
 
         model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
 
         data_interval_start = (
@@ -624,6 +624,10 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 "PostgreSQLConnectionError",
                 # Column missing in Redshift, likely the schema was altered.
                 "UndefinedColumn",
+                # Raised by our PostgreSQL client when a given feature is not supported.
+                # This can also happen when merging tables with a different number of columns:
+                # "Target relation and source relation must have the same number of columns"
+                "FeatureNotSupported",
             ],
             finish_inputs=finish_inputs,
         )

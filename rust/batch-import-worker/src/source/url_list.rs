@@ -19,6 +19,7 @@ impl UrlList {
         allow_internal_ips: bool,
         timeout: Duration,
         retries: usize,
+        validate_urls: bool,
     ) -> Result<Self, Error> {
         let resolver = Arc::new(common_dns::PublicIPv4Resolver {});
 
@@ -37,8 +38,10 @@ impl UrlList {
         };
 
         // Validate the passed urls, and assert they all support range requests
-        for url in &source.urls {
-            source.assert_valid_url(url).await?;
+        if validate_urls {
+            for url in &source.urls {
+                source.assert_valid_url(url).await?;
+            }
         }
 
         Ok(source)
@@ -76,18 +79,13 @@ impl UrlList {
             .map_err(|e| Error::msg(format!("Failed to parse Content-Length header: {}", e)))?;
 
         content_lenth
-            .parse::<usize>()
-            .map_err(|e| Error::msg(format!("Failed to parse Content-Length as usize: {}", e)))?;
+            .parse::<u64>()
+            .map_err(|e| Error::msg(format!("Failed to parse Content-Length as u64: {}", e)))?;
 
         Ok(())
     }
 
-    async fn get_chunk_inner(
-        &self,
-        key: &str,
-        offset: usize,
-        size: usize,
-    ) -> Result<Vec<u8>, Error> {
+    async fn get_chunk_inner(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
         // Ensure the passed key is in our list of URLs
         if !self.urls.contains(&key.to_string()) {
             return Err(Error::msg("Key not found"));
@@ -114,7 +112,7 @@ impl DataSource for UrlList {
         Ok(self.urls.clone())
     }
 
-    async fn size(&self, key: &str) -> Result<usize, Error> {
+    async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
         // Ensure the passed key is in our list of URLs
         if !self.urls.contains(&key.to_string()) {
             return Err(Error::msg("Key not found"));
@@ -137,13 +135,14 @@ impl DataSource for UrlList {
                     .map_err(|e| Error::msg(format!("Failed to parse content length: {}", e)))
             })
             .and_then(|length| {
-                length.parse::<usize>().map_err(|e| {
-                    Error::msg(format!("Failed to parse content length as usize: {}", e))
+                length.parse::<u64>().map_err(|e| {
+                    Error::msg(format!("Failed to parse content length as u64: {}", e))
                 })
             })
+            .map(Some)
     }
 
-    async fn get_chunk(&self, key: &str, offset: usize, size: usize) -> Result<Vec<u8>, Error> {
+    async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
         let mut retries = self.retries;
         loop {
             match self.get_chunk_inner(key, offset, size).await {
@@ -187,7 +186,7 @@ mod test {
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
         let url_count = urls.len();
-        let source = UrlList::new(urls, true, Duration::from_secs(10), 1)
+        let source = UrlList::new(urls, true, Duration::from_secs(10), 1, true)
             .await
             .unwrap();
         let keys = source.keys().await.unwrap();
@@ -207,7 +206,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -222,7 +221,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -236,7 +235,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -252,7 +251,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -268,12 +267,12 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0)
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0, true)
             .await
             .unwrap();
         let size = source.size(&urls[0]).await.unwrap();
 
-        assert_eq!(size, TEST_CONTENTS.len());
+        assert_eq!(size, Some(TEST_CONTENTS.len() as u64));
     }
 
     #[tokio::test]
@@ -294,7 +293,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0)
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0, true)
             .await
             .unwrap();
         let chunk = source.get_chunk(&urls[0], 0, 100).await.unwrap();

@@ -20,7 +20,13 @@ const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
 const DropdownMenuSub = DropdownMenuPrimitive.Sub
 
-const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup
+const DropdownMenuRadioGroup = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+})
+DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
 
 const DropdownMenuItemIndicator = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.ItemIndicator>,
@@ -33,12 +39,14 @@ const DropdownMenuItemIndicator = React.forwardRef<
         radio: 'relative',
     }
     return (
-        <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
-            {intent === 'checkbox' && <IconCheck />}
-            {intent === 'radio' && (
-                <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
-            )}
-        </DropdownMenuPrimitive.ItemIndicator>
+        <div className="size-4">
+            <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
+                {intent === 'checkbox' && <IconCheck />}
+                {intent === 'radio' && (
+                    <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
+                )}
+            </DropdownMenuPrimitive.ItemIndicator>
+        </div>
     )
 })
 DropdownMenuItemIndicator.displayName = DropdownMenuPrimitive.ItemIndicator.displayName
@@ -49,7 +57,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
         inset?: boolean
     }
 >(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
 })
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName
 
@@ -125,7 +133,7 @@ const DropdownMenuItem = React.forwardRef<
         inset?: boolean
     }
 >(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+    return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
 })
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName
 
@@ -171,7 +179,7 @@ const DropdownMenuLabel = React.forwardRef<
     }
 >(
     ({ className, inset, children, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-8', className)} asChild {...props}>
+        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-7', className)} asChild {...props}>
             <Label intent="menu">{children}</Label>
         </DropdownMenuPrimitive.Label>
     )

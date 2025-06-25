@@ -112,7 +112,7 @@ def fetch_v2_snapshots(recording: SessionRecording) -> list[dict[str, Any]]:
     if blocks:
         for block in blocks:
             try:
-                decompressed_block = v2_client().fetch_block(block["url"])
+                decompressed_block = v2_client().fetch_block(block.url)
                 if decompressed_block:
                     # Parse the block using the same line parsing logic as v1
                     raw_snapshots = parse_jsonl_with_broken_newlines(decompressed_block)

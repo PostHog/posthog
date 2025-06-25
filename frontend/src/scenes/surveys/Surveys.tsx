@@ -24,7 +24,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
@@ -39,6 +39,7 @@ import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
+    settingSectionId: 'environment-surveys',
 }
 
 export function Surveys(): JSX.Element {
@@ -66,6 +67,9 @@ export function Surveys(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
+                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                            Have any questions or feedback?
+                        </LemonButton>
                         <LemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
@@ -87,18 +91,21 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </>
                 }
+                className="flex gap-2 justify-between items-center min-w-full"
                 caption={
                     <>
-                        Check out our
-                        <Link
-                            data-attr="survey-help"
-                            to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
-                            target="_blank"
-                        >
-                            {' '}
-                            surveys docs
-                        </Link>{' '}
-                        to learn more.
+                        <div>
+                            Check out our
+                            <Link
+                                data-attr="survey-help"
+                                to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+                                target="_blank"
+                            >
+                                {' '}
+                                surveys docs
+                            </Link>{' '}
+                            to learn more.
+                        </div>
                     </>
                 }
                 tabbedPage
@@ -119,20 +126,7 @@ export function Surveys(): JSX.Element {
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions
-                        logicKey="surveys"
-                        type="destination"
-                        subTemplateId="survey-response"
-                        filters={{
-                            events: [
-                                {
-                                    id: 'survey sent',
-                                    type: 'events',
-                                    order: 0,
-                                },
-                            ],
-                        }}
-                    />
+                    <LinkedHogFunctions type="destination" subTemplateIds={['survey-response']} />
                 </>
             )}
 
@@ -157,14 +151,14 @@ export function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex flex-wrap justify-between gap-2 mb-4">
+                                <div className="flex flex-wrap gap-2 justify-between mb-4">
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
                                         onChange={setSearchTerm}
                                         value={searchTerm || ''}
                                     />
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex gap-2 items-center">
                                         <span>
                                             <b>Status</b>
                                         </span>

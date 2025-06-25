@@ -22,6 +22,7 @@ from posthog.cache_utils import cache_for
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
+from products.messaging.backend.providers.mailjet import MailjetProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -184,6 +185,19 @@ class OauthIntegration:
                 id_path="instance_url",
                 name_path="instance_url",
             )
+        elif kind == "salesforce-sandbox":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            return OauthConfig(
+                authorize_url="https://test.salesforce.com/services/oauth2/authorize",
+                token_url="https://test.salesforce.com/services/oauth2/token",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="full refresh_token",
+                id_path="instance_url",
+                name_path="instance_url",
+            )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Hubspot app not configured")
@@ -310,7 +324,6 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-
         res = requests.post(
             oauth_config.token_url,
             data={
@@ -325,7 +338,28 @@ class OauthIntegration:
         config: dict = res.json()
 
         if res.status_code != 200 or not config.get("access_token"):
-            raise Exception("Oauth error")
+            # Hack to try getting sandbox auth token instead of their salesforce production account
+            if kind == "salesforce":
+                oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
+                res = requests.post(
+                    oauth_config.token_url,
+                    data={
+                        "client_id": oauth_config.client_id,
+                        "client_secret": oauth_config.client_secret,
+                        "code": params["code"],
+                        "redirect_uri": OauthIntegration.redirect_uri(kind),
+                        "grant_type": "authorization_code",
+                    },
+                )
+
+                config = res.json()
+
+                if res.status_code != 200 or not config.get("access_token"):
+                    logger.error(f"Oauth error for {kind}", response=res.text)
+                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+            else:
+                logger.error(f"Oauth error for {kind}", response=res.text)
+                raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -632,7 +666,7 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
-                return []
+                return accounts
 
             data = response.json()
 
@@ -792,11 +826,42 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
-class MailIntegration:
+class EmailIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
+        if integration.kind != "email":
+            raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+
+    @property
+    def mailjet_provider(self) -> MailjetProvider:
+        return MailjetProvider()
+
+    @classmethod
+    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+        mailjet = MailjetProvider()
+        mailjet.create_email_domain(domain, team_id=team_id)
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="email",
+            integration_id=domain,
+            defaults={
+                "config": {
+                    "domain": domain,
+                    "mailjet_verified": False,
+                    "aws_ses_verified": False,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
 
     @classmethod
     def integration_from_keys(
@@ -809,7 +874,6 @@ class MailIntegration:
             defaults={
                 "config": {
                     "api_key": api_key,
-                    # TODO: Add support for other email vendors
                     "vendor": "mailjet",
                 },
                 "sensitive_config": {
@@ -818,12 +882,26 @@ class MailIntegration:
                 "created_by": created_by,
             },
         )
-
         if integration.errors:
             integration.errors = ""
             integration.save()
 
         return integration
+
+    def verify(self):
+        domain = self.integration.config.get("domain")
+
+        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+
+        if verification_result.get("status") == "success":
+            updated_config = {"mailjet_verified": True}
+
+            # Merge the new config with existing config
+            updated_config = {**self.integration.config, **updated_config}
+            self.integration.config = updated_config
+            self.integration.save()
+
+        return verification_result
 
 
 class LinearIntegration:

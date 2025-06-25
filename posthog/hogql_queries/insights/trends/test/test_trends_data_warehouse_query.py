@@ -1,6 +1,7 @@
 from datetime import datetime
 from freezegun import freeze_time
 from pathlib import Path
+from django.test import override_settings
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -16,6 +17,7 @@ from posthog.schema import (
     DataWarehouseEventsModifier,
     TrendsQuery,
     TrendsFilter,
+    EventsNode,
 )
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.test.base import BaseTest, _create_event
@@ -522,3 +524,78 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         # Should only match the row where both prop_1='a' AND prop_2='e'
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
+    def test_trends_data_warehouse_all_time(self):
+        table_name = self.setup_data_warehouse()
+
+        # Create an event before the first data warehouse row
+        # This tests that the query uses the earliest timestamp from the data warehouse not the events
+        # when no EventsNode is present in the series
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2020-01-01 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        self.assertEqual(1, len(response.results))
+
+        self.assertEqual("2023-01-01", response.results[0]["days"][0])
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
+    def test_trends_events_and_data_warehouse_all_time(self):
+        table_name = self.setup_data_warehouse()
+
+        # Create an event before the first data warehouse row
+        # This tests that the query uses the minimum earliest timestamp when multiple series are present
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2022-12-01 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                ),
+                EventsNode(
+                    event="$pageview",
+                ),
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        self.assertEqual(2, len(response.results))
+
+        self.assertEqual("2022-12-01", response.results[0]["days"][0])
+        self.assertEqual("2022-12-01", response.results[1]["days"][0])

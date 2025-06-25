@@ -49,6 +49,8 @@ export default defineConfig({
 
         /* Locate elements defined by `data-attr-something` with `page.getByTestId('something')` */
         testIdAttribute: 'data-attr',
+
+        screenshot: 'only-on-failure',
     },
 
     /* Configure projects for major browsers */

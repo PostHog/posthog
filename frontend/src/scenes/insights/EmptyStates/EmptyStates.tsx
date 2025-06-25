@@ -120,7 +120,7 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
             type="secondary"
             active
             to={urls.debugQuery(query)}
-            className="max-w-80 mt-4"
+            className="max-w-80"
         >
             Open in query debugger
         </LemonButton>
@@ -527,9 +527,16 @@ export interface InsightErrorStateProps {
     title?: string
     query?: Record<string, any> | Node | null
     queryId?: string | null
+    fixWithAIComponent?: JSX.Element
 }
 
-export function InsightErrorState({ excludeDetail, title, query, queryId }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({
+    excludeDetail,
+    title,
+    query,
+    queryId,
+    fixWithAIComponent,
+}: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -577,7 +584,10 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                 </div>
             )}
 
-            <QueryDebuggerButton query={query} />
+            <div className="flex gap-2 mt-4">
+                <QueryDebuggerButton query={query} />
+                {fixWithAIComponent ?? null}
+            </div>
             <QueryIdDisplay queryId={queryId} />
         </div>
     )

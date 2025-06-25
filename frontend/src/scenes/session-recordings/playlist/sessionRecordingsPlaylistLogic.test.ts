@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { playlistLogic } from './playlistLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
@@ -130,6 +131,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 updateSearchParams: true,
             })
             logic.mount()
+            playlistLogic.mount()
+            playlistLogic.actions.setIsFiltersExpanded(false)
         })
 
         describe('core assumptions', () => {
@@ -720,6 +723,29 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
                 logic.actions.resetFilters()
             }).toMatchValues({ totalFiltersCount: 0 })
+        })
+    })
+
+    describe('set filters', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('resets date_to when given a relative date_from', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    date_from: '2021-10-01',
+                    date_to: '2021-10-10',
+                })
+                logic.actions.setFilters({
+                    date_from: '-7d',
+                })
+            }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
         })
     })
 

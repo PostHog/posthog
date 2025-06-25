@@ -9,11 +9,10 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { FEATURE_FLAGS } from '~/lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { Breakdown, BreakdownFilter } from '~/queries/schema/schema-general'
 import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
@@ -133,10 +132,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
     }),
     selectors({
-        isMultipleBreakdownsEnabled: [
-            (s, p) => [s.featureFlags, p.isTrends],
-            (flags, isTrends) => isTrends && multipleBreakdownsEnabled(flags),
-        ],
+        isMultipleBreakdownsEnabled: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         isAddBreakdownDisabled: [
@@ -148,7 +144,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     !isDataWarehouseSeries &&
                     (!breakdown_type || isMultipleBreakdownType(breakdown_type))
                 ) {
-                    return breakdowns && breakdowns.length >= 3
+                    return !!breakdowns && breakdowns.length >= 3
                 }
 
                 return !Array.isArray(breakdown) && breakdown != null
@@ -532,10 +528,6 @@ function checkBreakdownExists(
     return !!breakdowns?.find(
         (savedBreakdown) => savedBreakdown.property === lookupValue && savedBreakdown.type === lookupType
     )
-}
-
-export const multipleBreakdownsEnabled = (flags: FeatureFlagsSet): boolean => {
-    return !!flags[FEATURE_FLAGS.MULTIPLE_BREAKDOWNS]
 }
 
 export function isSingleBreakdown(breakdownFilter?: BreakdownFilter | null): boolean {

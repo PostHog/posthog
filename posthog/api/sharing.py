@@ -18,6 +18,7 @@ from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
+from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
@@ -120,6 +121,8 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         if recording_id:
             # NOTE: Recordings are a special case as we don't want to query CH just for this.
             context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
+
+        context["insight_variables"] = InsightVariable.objects.filter(team=self.team)
 
         return context
 
@@ -265,6 +268,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
             "get_team": lambda: resource.team,
+            "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 

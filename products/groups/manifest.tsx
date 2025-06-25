@@ -16,4 +16,5 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         // TODO: create group node entries in the backend
     },
+    treeItemsProducts: [],
 }

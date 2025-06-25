@@ -1,14 +1,24 @@
 use super::homedir::{ensure_homedir_exists, posthog_home_dir};
 use anyhow::{Context, Error};
 use inquire::{validator::Validation, CustomUserError};
+use reqwest::Url;
 use tracing::info;
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Token {
+    pub host: Option<String>,
     pub token: String,
     pub env_id: String,
+}
+
+impl Token {
+    pub fn get_host(&self, host: Option<&str>) -> String {
+        self.host
+            .clone()
+            .unwrap_or_else(|| host.unwrap_or("https://us.posthog.com").to_string())
+    }
 }
 
 pub trait CredentialProvider {
@@ -56,9 +66,14 @@ pub struct EnvVarProvider;
 
 impl CredentialProvider for EnvVarProvider {
     fn get_credentials(&self) -> Result<Token, Error> {
+        let host = std::env::var("POSTHOG_CLI_HOST").ok();
         let token = std::env::var("POSTHOG_CLI_TOKEN").context("While trying to read env var")?;
         let env_id = std::env::var("POSTHOG_CLI_ENV_ID").context("While trying to read env var")?;
-        Ok(Token { token, env_id })
+        Ok(Token {
+            host,
+            token,
+            env_id,
+        })
     }
 
     fn store_credentials(&self, _token: Token) -> Result<(), Error> {
@@ -68,6 +83,14 @@ impl CredentialProvider for EnvVarProvider {
     fn report_location(&self) -> String {
         unimplemented!("We should never try to save a credential to the env");
     }
+}
+
+pub fn host_validator(host: &str) -> Result<Validation, CustomUserError> {
+    if host.is_empty() || Url::parse(host).is_err() {
+        return Ok(Validation::Invalid("Host must be a valid URL".into()));
+    }
+
+    Ok(Validation::Valid)
 }
 
 pub fn token_validator(token: &str) -> Result<Validation, CustomUserError> {

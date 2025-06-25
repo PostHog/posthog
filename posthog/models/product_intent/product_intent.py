@@ -170,6 +170,14 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         return self.team.ingested_event
 
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
+        # If the intent is already activated, we don't need to check again
+        if self.activated_at:
+            return True
+
+        # Update the last activation check time
+        self.activation_last_checked_at = datetime.now(tz=UTC)
+        self.save()
+
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
@@ -186,6 +194,7 @@ class ProductIntent(UUIDModel, RootTeamMixin):
             if not skip_reporting:
                 self.report_activation(self.product_type)
             return True
+
         return False
 
     def report_activation(self, product_key: str) -> None:

@@ -10,7 +10,7 @@ from posthog.exceptions import Conflict
 class MaxCoreMemorySerializer(serializers.ModelSerializer):
     class Meta:
         model = CoreMemory
-        fields = ["id", "text"]
+        fields = ["id", "text", "scraping_status"]
 
     text = serializers.CharField(allow_blank=True)
 

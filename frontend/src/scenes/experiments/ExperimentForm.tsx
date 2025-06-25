@@ -31,16 +31,10 @@ import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
+    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
         useValues(experimentLogic)
-    const {
-        addVariant,
-        removeExperimentGroup,
-        setExperiment,
-        createExperiment,
-        setExperimentType,
-        validateFeatureFlag,
-    } = useActions(experimentLogic)
+    const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
+        useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -50,9 +44,19 @@ const ExperimentFormFields = (): JSX.Element => {
 
     return (
         <div>
-            {hasPrimaryMetricSet && (
+            {hasPrimaryMetricSet && formMode !== 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
                     Fill out the details below to create your experiment based off of the insight.
+                </LemonBanner>
+            )}
+            {formMode === 'duplicate' && (
+                <LemonBanner type="info" className="my-4">
+                    We'll copy all settings, including metrics and exposure configuration, from the&nbsp;
+                    <Link target="_blank" className="font-semibold items-center" to={urls.experiment(experiment.id)}>
+                        original experiment
+                        <IconOpenInNew fontSize="18" />
+                    </Link>
+                    .
                 </LemonBanner>
             )}
             <div className="deprecated-space-y-8">
@@ -62,6 +66,11 @@ const ExperimentFormFields = (): JSX.Element => {
                             placeholder="Pricing page conversion"
                             data-attr="experiment-name"
                             onBlur={() => {
+                                // bail if feature flag key is already set
+                                if (experiment.feature_flag_key) {
+                                    return
+                                }
+
                                 setExperiment({
                                     feature_flag_key: generateFeatureFlagKey(
                                         experiment.name,
@@ -279,7 +288,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                                                 <LemonButton
                                                                     size="small"
                                                                     icon={<IconTrash />}
-                                                                    onClick={() => removeExperimentGroup(index)}
+                                                                    onClick={() => removeVariant(index)}
                                                                 />
                                                             </Tooltip>
                                                         )}
@@ -309,12 +318,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     </>
                 )}
             </div>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => createExperiment(true)}
-            >
+            <LemonButton className="mt-2" type="primary" data-attr="save-experiment" onClick={() => submitExperiment()}>
                 Save as draft
             </LemonButton>
         </div>

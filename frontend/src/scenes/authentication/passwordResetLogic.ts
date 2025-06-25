@@ -123,5 +123,10 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 actions.validateResetToken({ uuid, token })
             }
         },
+        '/reset': (_, { email }) => {
+            if (email) {
+                actions.setRequestPasswordResetValue('email', email)
+            }
+        },
     })),
 ])

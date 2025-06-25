@@ -20,10 +20,22 @@ pub fn inject(directory: &Path) -> Result<()> {
         bail!("No source files found");
     }
     info!("Found {} pairs", pairs.len());
+    let mut skipped_pairs = 0;
     for pair in &mut pairs {
+        if pair.has_chunk_id() {
+            skipped_pairs += 1;
+            continue;
+        }
         let chunk_id = uuid::Uuid::now_v7().to_string();
         pair.set_chunk_id(chunk_id)?;
     }
+    if skipped_pairs > 0 {
+        info!(
+            "Skipped {} pairs because chunk IDs already exist",
+            skipped_pairs
+        );
+    }
+
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
         pair.save()?;

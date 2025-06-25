@@ -20,7 +20,6 @@ import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
@@ -59,7 +58,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             heatmapDataLogic,
             ['heatmapEmpty'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setHrefMatchType']],
     })),
 
     actions({
@@ -97,20 +96,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                         return []
                     }
 
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT distinct properties.$current_url AS urls
-                                     FROM events
-                                     WHERE timestamp >= now() - INTERVAL 7 DAY
-                                       AND timestamp <= now()
-                                       AND properties.$current_url like '%${hogql.identifier(
-                                           values.browserSearchTerm
-                                       )}%'
-                                     ORDER BY timestamp DESC
-                                         limit 100`,
-                    }
+                    const query = hogql`
+                        SELECT distinct properties.$current_url AS urls
+                        FROM events
+                        WHERE timestamp >= now() - INTERVAL 7 DAY
+                        AND timestamp <= now()
+                        AND properties.$current_url like '%${hogql.identifier(values.browserSearchTerm)}%'
+                        ORDER BY timestamp DESC
+                        LIMIT 100`
 
-                    const res = await api.query(query)
+                    const res = await api.queryHogQL(query)
 
                     return res.results?.map((x) => x[0]) as string[]
                 },
@@ -121,20 +116,17 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as { url: string; count: number }[] | null,
             {
                 loadTopUrls: async () => {
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$current_url AS url, count() as count
-                                     FROM events
-                                     WHERE timestamp >= now() - INTERVAL 7 DAY
-                                       AND event in ('$pageview'
-                                         , '$autocapture')
-                                       AND timestamp <= now()
-                                     GROUP BY properties.$current_url
-                                     ORDER BY count DESC
-                                         LIMIT 10`,
-                    }
+                    const query = hogql`
+                        SELECT properties.$current_url AS url, count() as count
+                        FROM events
+                        WHERE timestamp >= now() - INTERVAL 7 DAY
+                        AND event in ('$pageview', '$autocapture')
+                        AND timestamp <= now()
+                        GROUP BY properties.$current_url
+                        ORDER BY count DESC
+                        LIMIT 10`
 
-                    const res = await api.query(query)
+                    const res = await api.queryHogQL(query)
 
                     return res.results?.map((x) => ({ url: x[0], count: x[1] })) as { url: string; count: number }[]
                 },
@@ -270,7 +262,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     // this is a very loose check, but `http:/blaj` is not valid for PostHog
                     // but survives new URL(http:/blaj)
                     return browserUrl.includes('://')
-                } catch (e) {
+                } catch {
                     return false
                 }
             },
@@ -295,6 +287,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
                 actions.setHref(replayIframeData.url)
+                // TODO we need to be able to handle regex values
+                actions.setHrefMatchType('exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -427,6 +421,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
                 actions.setHref(url)
+                // TODO we need to be able to handle regex values
+                actions.setHrefMatchType('exact')
             }
         },
 
@@ -444,11 +440,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             cache.errorTimeout = setTimeout(() => {
                 actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
             }, 7500)
-
-            clearTimeout(cache.warnTimeout)
-            cache.warnTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
-            }, 3000)
         },
 
         stopTrackingLoading: () => {

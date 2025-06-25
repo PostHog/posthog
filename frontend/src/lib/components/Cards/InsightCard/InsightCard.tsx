@@ -151,11 +151,11 @@ function InsightCardInternal(
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
+            style={{ ...divProps?.style, ...theme?.boxStyle }}
             ref={mergedRefs}
         >
             {isVisible ? (
-                <ErrorBoundary tags={{ feature: 'insight' }}>
+                <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                     <BindLogic logic={insightLogic} props={insightLogicProps}>
                         <InsightMeta
                             insight={insight}

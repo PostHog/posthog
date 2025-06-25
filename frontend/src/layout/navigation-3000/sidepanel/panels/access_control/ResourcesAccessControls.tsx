@@ -43,7 +43,7 @@ export function ResourcesAccessControls(): JSX.Element {
     // Default table
     const defaultColumns: LemonTableColumns<DefaultResourceAccessControls> = [
         {
-            title: 'Global Defaults',
+            title: '',
             key: 'default',
             width: 0,
             render: () => 'All roles and members',
@@ -122,7 +122,7 @@ export function ResourcesAccessControls(): JSX.Element {
                 <div className="space-y-6">
                     {/* Default permissions table */}
                     <div className="space-y-2">
-                        <h3>Global defaults</h3>
+                        <h3>Project defaults</h3>
                         <LemonTable columns={defaultColumns} dataSource={[defaultResourceAccessControls]} />
                     </div>
 

@@ -32,7 +32,7 @@ export class GroupsManagerService {
     private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {
         const teamIds = await Promise.all(
             teams.map(async (teamId) => {
-                if (await this.hub.organizationManager.hasAvailableFeature(teamId, 'group_analytics')) {
+                if (await this.hub.teamManager.hasAvailableFeature(teamId, 'group_analytics')) {
                     return teamId
                 }
             })
@@ -65,7 +65,7 @@ export class GroupsManagerService {
 
         if (teamsToLoad.length) {
             const result = await this.hub.postgres.query(
-                PostgresUse.COMMON_READ,
+                PostgresUse.PERSONS_READ,
                 `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
                 [teamsToLoad],
                 'fetchGroupTypes'
@@ -108,7 +108,7 @@ export class GroupsManagerService {
 
         return (
             await this.hub.postgres.query(
-                PostgresUse.COMMON_READ,
+                PostgresUse.PERSONS_READ,
                 `SELECT team_id, group_type_index, group_key, group_properties
             FROM posthog_group
             WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)`,

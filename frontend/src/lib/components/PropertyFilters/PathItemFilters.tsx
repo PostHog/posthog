@@ -68,12 +68,7 @@ export function PathItemFilters({
                                     Add exclusion
                                 </LemonButton>
                             ) : (
-                                <PropertyFilterButton
-                                    item={filter}
-                                    onClose={() => {
-                                        remove(index)
-                                    }}
-                                >
+                                <PropertyFilterButton item={filter} onClose={() => remove(index)}>
                                     {filter.value.toString()}
                                 </PropertyFilterButton>
                             )}

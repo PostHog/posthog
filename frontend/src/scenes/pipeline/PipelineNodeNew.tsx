@@ -9,7 +9,9 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
+import { BatchExportConfiguration } from 'scenes/data-pipelines/batch-exports/BatchExportConfiguration'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
+import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,8 +20,6 @@ import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { NewDestinations } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
-import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
-import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
@@ -97,7 +97,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
         }
         return (
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-                <PipelineBatchExportConfiguration service={batchExportDestination} />
+                <BatchExportConfiguration service={batchExportDestination} />
             </PayGateMini>
         )
     }

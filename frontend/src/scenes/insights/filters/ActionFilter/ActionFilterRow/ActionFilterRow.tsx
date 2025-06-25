@@ -73,6 +73,7 @@ export enum MathAvailability {
     All,
     ActorsOnly,
     FunnelsOnly,
+    CalendarHeatmapOnly,
     None,
 }
 
@@ -136,6 +137,8 @@ export interface ActionFilterRowProps {
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     /** Whether to add left padding to the filters div to align with suffix content */
     filtersLeftPadding?: boolean
+    /** Doc link to show in the tooltip of the New Filter button */
+    addFilterDocLink?: string
 }
 
 export function ActionFilterRow({
@@ -168,6 +171,7 @@ export function ActionFilterRow({
     allowedMathTypes,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     filtersLeftPadding = false,
+    addFilterDocLink,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -332,6 +336,7 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
+                tooltipDocLink={addFilterDocLink}
             />
         </IconWithCount>
     )
@@ -696,6 +701,7 @@ export function ActionFilterRow({
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
+                        addFilterDocLink={addFilterDocLink}
                     />
                 </div>
             )}
@@ -757,6 +763,7 @@ function useMathSelectorOptions({
         staticMathDefinitions,
         funnelMathDefinitions,
         staticActorsOnlyMathDefinitions,
+        calendarHeatmapMathDefinitions,
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
@@ -772,6 +779,8 @@ function useMathSelectorOptions({
         definitions = funnelMathDefinitions
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
         definitions = staticActorsOnlyMathDefinitions
+    } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
+        definitions = calendarHeatmapMathDefinitions
     }
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
@@ -830,7 +839,11 @@ function useMathSelectorOptions({
             }
         })
 
-    if (mathAvailability !== MathAvailability.ActorsOnly && mathAvailability !== MathAvailability.FunnelsOnly) {
+    if (
+        mathAvailability !== MathAvailability.ActorsOnly &&
+        mathAvailability !== MathAvailability.FunnelsOnly &&
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly
+    ) {
         // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
         const shouldShowCountPerUser =
             !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
@@ -906,6 +919,7 @@ function useMathSelectorOptions({
 
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
         (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
     ) {
         options.push({

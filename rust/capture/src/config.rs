@@ -2,6 +2,7 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
 use health::HealthStrategy;
+use tracing::Level;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CaptureMode {
@@ -85,6 +86,12 @@ pub struct Config {
 
     #[envconfig(default = "ALL")]
     pub healthcheck_strategy: HealthStrategy,
+
+    #[envconfig(default = "false")]
+    pub is_mirror_deploy: bool,
+
+    #[envconfig(default = "info")]
+    pub log_level: Level,
 }
 
 #[derive(Envconfig, Clone)]
@@ -110,7 +117,7 @@ pub struct KafkaConfig {
     pub kafka_client_ingestion_warning_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_exceptions_topic: String,
-    #[envconfig(default = "events_plugin_ingestion")]
+    #[envconfig(default = "exceptions_ingestion")]
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]
     pub kafka_replay_overflow_topic: String,

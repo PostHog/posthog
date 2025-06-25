@@ -3,6 +3,8 @@ import './EditorScene.scss'
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useRef, useState } from 'react'
 
@@ -31,6 +33,7 @@ export function EditorScene(): JSX.Element {
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
     const sidebarRef = useRef(null)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const editorSizingLogicProps = {
         editorSceneRef: ref,
@@ -66,7 +69,7 @@ export function EditorScene(): JSX.Element {
     })
 
     const { queryInput, sourceQuery, dataLogicKey } = useValues(logic)
-    const { setSourceQuery, setResponse } = useActions(logic)
+    const { setSourceQuery, setResponse, setDataError } = useActions(logic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -90,6 +93,9 @@ export function EditorScene(): JSX.Element {
         autoLoad: false,
         onData: (data) => {
             setResponse(data ?? null)
+        },
+        onError: (error) => {
+            setDataError(error)
         },
     }
 
@@ -120,10 +126,16 @@ export function EditorScene(): JSX.Element {
                                             props={{ key: codeEditorKey, monaco, editor }}
                                         >
                                             <div
+                                                data-attr="editor-scene"
                                                 className="EditorScene w-full h-full flex flex-row overflow-hidden"
                                                 ref={ref}
                                             >
-                                                <EditorSidebar sidebarRef={sidebarRef} codeEditorKey={codeEditorKey} />
+                                                {!featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] && (
+                                                    <EditorSidebar
+                                                        sidebarRef={sidebarRef}
+                                                        codeEditorKey={codeEditorKey}
+                                                    />
+                                                )}
                                                 <QueryWindow
                                                     onSetMonacoAndEditor={(monaco, editor) =>
                                                         setMonacoAndEditor([monaco, editor])

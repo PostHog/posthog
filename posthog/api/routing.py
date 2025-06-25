@@ -18,7 +18,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
 )
 from posthog.models.organization import Organization
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -122,13 +122,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if self.sharing_enabled_actions:
             authentication_classes.append(SharingAccessTokenAuthentication)
 
-        authentication_classes.extend(
-            [
-                JwtAuthentication,
-                PersonalAPIKeyAuthentication,
-                SessionAuthentication,
-            ]
-        )
+        authentication_classes.extend([JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication])
 
         return [auth() for auth in authentication_classes]
 

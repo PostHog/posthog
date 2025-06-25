@@ -12,45 +12,26 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 
 import { maxGlobalLogic, ToolDefinition } from './maxGlobalLogic'
+import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends ToolDefinition {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
     initialMaxPrompt?: string
     onMaxOpen?: () => void
-}
-
-function generateBurstPoints(spikeCount: number, spikiness: number): string {
-    if (spikiness < 0 || spikiness > 1) {
-        throw new Error('Spikiness must be between 0 and 1')
-    }
-    if (spikeCount < 1) {
-        throw new Error('Spikes must be at least 1')
-    }
-
-    let points = ''
-    const outerRadius = 50
-    const innerRadius = 50 * (1 - spikiness)
-
-    for (let i = 0; i < spikeCount * 2; i++) {
-        const radius = i % 2 === 0 ? outerRadius : innerRadius
-        const angle = (Math.PI * i) / spikeCount
-        const x = 50 + radius * Math.cos(angle)
-        const y = 50 + radius * Math.sin(angle)
-        points += `${x},${y} `
-    }
-
-    return points.trim()
+    className?: string
 }
 
 export function MaxTool({
     name,
     displayName,
     context,
+    introOverride,
     callback,
     children: Children,
     initialMaxPrompt,
     onMaxOpen,
+    className,
 }: MaxToolProps): JSX.Element {
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { user } = useValues(userLogic)
@@ -61,11 +42,11 @@ export function MaxTool({
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, context, callback })
+        registerTool({ name, displayName, context, introOverride, callback })
         return () => {
             deregisterTool(name)
         }
-    }, [name, displayName, JSON.stringify(context), callback, registerTool, deregisterTool])
+    }, [name, displayName, JSON.stringify(context), introOverride, callback, registerTool, deregisterTool])
 
     let content: JSX.Element
     if (!isMaxAvailable) {
@@ -117,10 +98,12 @@ export function MaxTool({
     }
     return (
         <div
-            className={
+            className={clsx(
+                'relative flex flex-col',
                 // Rounding is +1px to account for the border
-                isMaxOpen ? 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]' : ''
-            }
+                isMaxOpen && 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
+                className
+            )}
         >
             {content}
         </div>

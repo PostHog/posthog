@@ -24,19 +24,26 @@ const TooltipContent = (): JSX.Element | null => {
         return null
     }
 
-    const updatedAgoString =
+    const usersOnlineString = `${humanFriendlyNumber(liveUserCount)} ${
+        liveUserCount === 1 ? 'user has' : 'users have'
+    } been seen recently`
+    const inTeamString = currentTeam ? ` in ${currentTeam.name}` : ''
+    const updatedString =
         liveUserUpdatedSecondsAgo === 0
-            ? ' (updated just now)'
+            ? 'updated just now'
             : liveUserUpdatedSecondsAgo == null
             ? ''
-            : ` (updated ${liveUserUpdatedSecondsAgo} seconds ago)`
+            : `updated ${liveUserUpdatedSecondsAgo} seconds ago`
 
-    const usersOnlineString = `${humanFriendlyNumber(liveUserCount)} ${
-        liveUserCount === 1 ? 'user is' : 'users are'
-    } online`
-    const inTeamString = currentTeam ? ` in ${currentTeam.name}` : ''
-    const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
-    return <>{tooltip}</>
+    return (
+        <div>
+            <div>
+                {usersOnlineString}
+                {inTeamString}
+            </div>
+            {updatedString && <div>({updatedString})</div>}
+        </div>
+    )
 }
 
 export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
@@ -48,11 +55,16 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     }
 
     return (
-        <Tooltip title={<TooltipContent />} interactive={true} delayMs={0}>
+        <Tooltip
+            title={<TooltipContent />}
+            interactive={true}
+            delayMs={0}
+            docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+        >
             <div className="flex flex-row items-center justify-center">
                 <div className={clsx('live-user-indicator', liveUserCount > 0 ? 'online' : 'offline')} />
                 <span className="whitespace-nowrap" data-attr="web-analytics-live-user-count">
-                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> online
+                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> recently online
                 </span>
             </div>
         </Tooltip>

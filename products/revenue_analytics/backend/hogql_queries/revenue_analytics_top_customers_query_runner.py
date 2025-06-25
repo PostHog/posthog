@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
@@ -7,6 +9,8 @@ from posthog.schema import (
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 
 
 class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
@@ -15,17 +19,13 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
     cached_response: CachedRevenueAnalyticsTopCustomersQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
-        _, customer_subquery = self.revenue_subqueries()
-        if customer_subquery is None:
-            return ast.SelectQuery.empty()
-
         is_monthly_grouping = self.query.groupBy == "month"
 
         # This query is missing amount/month columns
         # as we're adding them conditionally below based on the groupBy value
         base_query = ast.SelectQuery(
             select=[
-                ast.Alias(alias="name", expr=ast.Field(chain=["customers", "name"])),
+                ast.Alias(alias="name", expr=ast.Constant(value="")),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["inner", "customer_id"])),
                 # If grouping all months together, we'll use the sum of the amount
                 # Otherwise, we'll use the amount for the specific month
@@ -40,23 +40,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
                     expr=ast.Field(chain=["inner", "month"]) if is_monthly_grouping else ast.Constant(value="all"),
                 ),
             ],
-            select_from=ast.JoinExpr(
-                table=self.inner_query(),
-                alias="inner",
-                next_join=ast.JoinExpr(
-                    table=customer_subquery,
-                    alias="customers",
-                    join_type="INNER JOIN",
-                    constraint=ast.JoinConstraint(
-                        constraint_type="ON",
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["customers", "id"]),
-                            right=ast.Field(chain=["inner", "customer_id"]),
-                            op=ast.CompareOperationOp.Eq,
-                        ),
-                    ),
-                ),
-            ),
+            select_from=ast.JoinExpr(table=self.inner_query(), alias="inner"),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["amount"]), order="DESC")],
             # Only need to group if we're grouping all months together
             group_by=[
@@ -70,12 +54,33 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
             limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )
 
+        # If there's a way to join with the customer table, then do it
+        _, customer_subquery, _, _ = self.revenue_subqueries
+        if customer_subquery is not None:
+            base_query.select[0] = ast.Alias(
+                alias="name", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "name"])
+            )
+            select_from = cast(ast.JoinExpr, base_query.select_from)
+            select_from.next_join = ast.JoinExpr(
+                table=customer_subquery,
+                alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+                join_type="LEFT JOIN",
+                constraint=ast.JoinConstraint(
+                    constraint_type="ON",
+                    expr=ast.CompareOperation(
+                        left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                        right=ast.Field(chain=["inner", "customer_id"]),
+                        op=ast.CompareOperationOp.Eq,
+                    ),
+                ),
+            )
+
         return base_query
 
     def inner_query(self) -> ast.SelectQuery:
-        charge_subquery, _ = self.revenue_subqueries()
-        if charge_subquery is None:
-            # Empty query because there are no charges, but still include the right columns
+        _, _, invoice_subquery, _ = self.revenue_subqueries
+        if invoice_subquery is None:
+            # Empty query because there are no invoice items, but still include the right columns
             # to make sure the outer query works
             return ast.SelectQuery(
                 select=[
@@ -108,9 +113,12 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
                     ),
                 ),
             ],
-            select_from=ast.JoinExpr(table=charge_subquery),
+            select_from=self.append_joins(
+                ast.JoinExpr(alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), table=invoice_subquery),
+                self.joins_for_properties,
+            ),
+            where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
             group_by=[ast.Field(chain=["customer_id"]), ast.Field(chain=["month"])],
-            where=self.timestamp_where_clause(),
             # Top 20 by month only to avoid too many rows
             limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )

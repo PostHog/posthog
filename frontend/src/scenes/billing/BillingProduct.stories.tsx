@@ -186,6 +186,7 @@ export const BillingProductTemporarilyFree = (): JSX.Element => {
         percentage_usage: 0,
         projected_usage: 76723,
         projected_amount_usd: null,
+        projected_amount_usd_with_limit: null,
         unit: 'row',
         addons: [],
         contact_support: false,

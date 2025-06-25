@@ -1,0 +1,69 @@
+{
+    "cache_key": "cache_ff3681af45bf90896cfea5a701aa3fbf",
+    "cache_target_age": "2025-06-04T14:39:45.256584Z",
+    "calculation_trigger": null,
+    "credible_intervals": {
+        "control": [0.23676884629536582, 0.3650951721229643],
+        "test-1": [0.350373407355112, 0.46516893753150507],
+        "test-2": [0.2430427139744995, 0.38105129282680306]
+    },
+    "insight": [],
+    "is_cached": true,
+    "kind": "ExperimentQuery",
+    "last_refresh": "2025-06-03T14:39:45.256584Z",
+    "metric": {
+        "conversion_window": null,
+        "conversion_window_unit": null,
+        "kind": "ExperimentMetric",
+        "metric_type": "funnel",
+        "name": null,
+        "series": [
+            {
+                "custom_name": null,
+                "event": "signup completed",
+                "fixedProperties": null,
+                "kind": "EventsNode",
+                "limit": null,
+                "math": null,
+                "math_group_type_index": null,
+                "math_hogql": null,
+                "math_property": null,
+                "math_property_revenue_currency": null,
+                "math_property_type": null,
+                "name": null,
+                "orderBy": null,
+                "properties": null,
+                "response": null
+            }
+        ]
+    },
+    "next_allowed_client_refresh": "2025-06-03T14:40:45.256584Z",
+    "p_value": 0.0030372158042796535,
+    "probability": {
+        "control": 0.0055,
+        "test-1": 0.994,
+        "test-2": 0.5898
+    },
+    "query_status": null,
+    "significance_code": "significant",
+    "significant": true,
+    "stats_version": 2,
+    "timezone": "UTC",
+    "variants": [
+        {
+            "failure_count": 135.0,
+            "key": "control",
+            "success_count": 57.0
+        },
+        {
+            "failure_count": 165.0,
+            "key": "test-1",
+            "success_count": 113.0
+        },
+        {
+            "failure_count": 117.0,
+            "key": "test-2",
+            "success_count": 52.0
+        }
+    ]
+}

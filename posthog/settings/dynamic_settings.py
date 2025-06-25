@@ -163,16 +163,6 @@ CONSTANCE_CONFIG = {
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
         str,
     ),
-    "SENTRY_AUTH_TOKEN": (
-        get_from_env("SENTRY_AUTH_TOKEN", default=""),
-        "Used to enable Sentry error tracking in PostHog",
-        str,
-    ),
-    "SENTRY_ORGANIZATION": (
-        get_from_env("SENTRY_ORGANIZATION", default=""),
-        "Used to enable Sentry error tracking in PostHog",
-        str,
-    ),
     "REDIRECT_APP_TO_US": (
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
@@ -210,8 +200,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
-    "SENTRY_AUTH_TOKEN",
-    "SENTRY_ORGANIZATION",
     "REDIRECT_APP_TO_US",
 )
 
@@ -221,5 +209,4 @@ SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
-    "SENTRY_AUTH_TOKEN",
 ]

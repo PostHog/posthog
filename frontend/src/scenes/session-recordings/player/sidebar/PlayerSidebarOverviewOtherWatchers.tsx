@@ -28,7 +28,7 @@ function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType })
         <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
             <ProfileBubbles people={metadata.viewers.map((v) => ({ email: v }))} />
             <span>
-                {count} other ${varyingText} watched this recording.
+                {count} other {varyingText} watched this recording.
             </span>
         </div>
     )

@@ -9,7 +9,7 @@ import {
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { FilterableInspectorListItemTypes, PerformanceEvent } from '~/types'
+import { PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {
     it('hides context events when no other events', () => {
@@ -59,7 +59,7 @@ describe('filtering inspector list items', () => {
                 trackedWindow: null,
                 hasEventsToDisplay: true,
             }).map((item) => item.type)
-        ).toEqual(['browser-visibility', 'offline-status', 'comment', 'events'])
+        ).toEqual(['browser-visibility', 'offline-status', 'events'])
     })
 
     it.each([
@@ -81,17 +81,44 @@ describe('filtering inspector list items', () => {
         expect(filteredItems).toHaveLength(expectedLength)
     })
 
+    it.each([
+        [true, 2],
+        [false, 0],
+    ])('hides/shows comment items when %s', (enabled, expectedLength) => {
+        const filteredItems = filterInspectorListItems({
+            allItems: [
+                {
+                    type: 'doctor',
+                } as InspectorListItemDoctor,
+                {
+                    type: 'comment',
+                    source: 'notebook',
+                } as InspectorListItemComment,
+                {
+                    type: 'comment',
+                    source: 'annotation',
+                } as InspectorListItemComment,
+            ],
+            miniFiltersByKey: { comment: { enabled } as unknown as SharedListMiniFilter },
+            showOnlyMatching: false,
+            allowMatchingEventsFilter: false,
+            trackedWindow: null,
+            hasEventsToDisplay: true,
+        })
+        expect(filteredItems).toHaveLength(expectedLength)
+    })
+
     it('filters by window id', () => {
         expect(
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         windowId: 'this window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         windowId: 'a different window',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
@@ -110,7 +137,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: 'an event' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
@@ -131,7 +158,7 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
@@ -149,16 +176,16 @@ describe('filtering inspector list items', () => {
             filterInspectorListItems({
                 allItems: [
                     {
-                        type: FilterableInspectorListItemTypes.EVENTS,
+                        type: 'events',
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                         highlightColor: 'primary',
                     } as unknown as InspectorListItemEvent,
                     {
-                        type: FilterableInspectorListItemTypes.NETWORK,
+                        type: 'network',
                         data: { event: '$pageview' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemPerformance,
                     {
-                        type: FilterableInspectorListItemTypes.DOCTOR,
+                        type: 'doctor',
                         data: { event: '$pageview' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemDoctor,
                 ],

@@ -13,7 +13,6 @@ import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
@@ -54,7 +53,7 @@ describe('eachMessageWebhooksHandlers', () => {
             'testTag'
         )
         await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -89,7 +88,6 @@ describe('eachMessageWebhooksHandlers', () => {
         const hookCannon = new HookCommander(
             hub.postgres,
             hub.teamManager,
-            hub.organizationManager,
             hub.rustyHook,
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
@@ -97,11 +95,8 @@ describe('eachMessageWebhooksHandlers', () => {
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
         await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
-        const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
-        organizationManager['availableProductFeaturesCache'].set(2, [
-            [{ name: 'Group Analytics', key: 'group_analytics' }],
-            Date.now(),
-        ])
+        const team = await hub.teamManager.getTeam(2)
+        team!.available_features = ['group_analytics'] // NOTE: Hacky but this will be removed soon
 
         actionManager['ready'] = true
         actionManager['actionCache'] = {
@@ -146,7 +141,7 @@ describe('eachMessageWebhooksHandlers', () => {
             actionMatcher,
             hookCannon,
             groupTypeManager,
-            organizationManager,
+            hub.teamManager,
             hub.postgres
         )
 

@@ -4,7 +4,7 @@ test.describe('Command Bar', () => {
     test('Handles keyboard shortcuts', async ({ page }) => {
         /** Show/hide search */
         // show search
-        await page.locator('[data-attr="menu-item-search-button"]').waitFor()
+        await page.locator('[data-attr="tree-navbar-search-button"]').waitFor()
         await page.keyboard.press('Control+K')
         await expect(page.locator('[data-attr=search-bar-input]')).toBeVisible()
 

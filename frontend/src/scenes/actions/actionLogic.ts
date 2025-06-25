@@ -41,7 +41,9 @@ export const actionLogic = kea<actionLogicType>([
             null as HogFunctionType[] | null,
             {
                 loadMatchingHogFunctions: async () => {
-                    const res = await api.hogFunctions.list({ filters: { actions: [{ id: `${props.id}` }] } })
+                    const res = await api.hogFunctions.list({
+                        filter_groups: [{ actions: [{ id: `${props.id}`, type: 'actions' }] }],
+                    })
 
                     return res.results
                 },

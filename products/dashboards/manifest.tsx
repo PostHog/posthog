@@ -21,15 +21,18 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         dashboard: {
+            name: 'Dashboard',
             icon: <IconDashboard />,
             href: (ref: string) => urls.dashboard(ref),
+            iconColor: ['var(--product-dashboards-light)'],
+            filterKey: 'dashboard',
         },
     },
     treeItemsNew: [
         {
             path: `Dashboard`,
             type: 'dashboard',
-            href: () => urls.dashboards() + '#newDashboard=modal',
+            href: urls.dashboards() + '#newDashboard=modal',
         },
     ],
 }
