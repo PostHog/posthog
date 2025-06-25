@@ -165,6 +165,7 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
                 [
                     "",
                     "&nbsp;",
+                     "",
                 ]
             )
 
