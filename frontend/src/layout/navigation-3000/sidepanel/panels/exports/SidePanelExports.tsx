@@ -80,7 +80,7 @@ const ExportsContent = (): JSX.Element => {
                                     {asset.export_format === ExporterFormat.CSV && (
                                         <span className="text-xs text-secondary mt-1">
                                             {' '}
-                                            · {ROW_LIMIT_IN_THOUSANDS} row limit
+                                            · {ROW_LIMIT_IN_THOUSANDS}k row limit
                                         </span>
                                     )}
                                 </div>
