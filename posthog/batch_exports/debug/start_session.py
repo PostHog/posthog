@@ -1,6 +1,7 @@
 import argparse
 import datetime as dt
 import os
+import typing
 
 import django
 import IPython
@@ -97,9 +98,9 @@ class BatchExportDebug:
             output_format_arrow_string_as_string="true",
         )
 
-    def load_s3_files(
+    def iter_s3_files(
         self, batch_export_id: str, data_interval_start: str | dt.datetime, data_interval_end: str | dt.datetime
-    ) -> pa.Table:
+    ) -> typing.Generator[pa.Table, None, None]:
         if isinstance(data_interval_start, dt.datetime):
             start = data_interval_start.isoformat()
         else:
@@ -115,12 +116,15 @@ class BatchExportDebug:
             base_dir=f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}", recursive=True
         )
 
-        tables = []
         for file_info in self.s3fs.get_file_info(file_selector):
             with self.s3fs.open_input_file(file_info.path) as f:
                 reader = ipc.RecordBatchStreamReader(f)
-                tables.append(reader.read_all())
+                yield reader.read_all()
 
+    def load_s3_files(
+        self, batch_export_id: str, data_interval_start: str | dt.datetime, data_interval_end: str | dt.datetime
+    ) -> pa.Table:
+        tables = list(self.iter_s3_files(batch_export_id, data_interval_start, data_interval_end))
         return pa.concat_tables(tables)
 
     def load_data_from_clickhouse(
