@@ -53,6 +53,8 @@ def _capture_environments_rollback_event(
         groups=groups(context.organization),
     )
 
+    posthoganalytics.flush()
+
 
 def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
     """
