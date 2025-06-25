@@ -1,6 +1,6 @@
 import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
+import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -78,7 +78,7 @@ export function PinnedFolder(): JSX.Element {
                         </div>
                         <div className="flex items-center gap-px">
                             {pinnedFolder === 'shortcuts://' ? (
-                                <ItemSelectModal
+                                <ItemSelectModalButton
                                     buttonProps={{
                                         iconOnly: true,
                                         tooltip: 'Add shortcut',
