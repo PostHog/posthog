@@ -72,6 +72,7 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
+import { groupsModel } from '~/models/groupsModel'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -91,7 +92,7 @@ interface DataTableProps {
     dataAttr?: string
 }
 
-const eventGroupTypes = [
+const staticEventGroupTypes = [
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
@@ -185,6 +186,8 @@ export function DataTable({
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
 
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const eventGroupTypes = [...staticEventGroupTypes, ...groupsTaxonomicTypes]
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
