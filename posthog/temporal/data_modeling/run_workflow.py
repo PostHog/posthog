@@ -616,8 +616,8 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
     if not columns_to_cast:
         return batch
 
-    new_columns = []
-    new_fields = []
+    new_columns: list[pa.ChunkedArray] = []
+    new_fields: list[pa.Field] = []
     for field in batch.schema:
         if field.name in columns_to_cast:
             column_data = batch[field.name]
@@ -634,7 +634,10 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
             new_fields.append(field)
             new_columns.append(batch[field.name])
 
-    return pa.Table.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=batch.schema.metadata))
+    new_metadata: dict[str | bytes, str | bytes] | None = (
+        typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
+    )
+    return pa.Table.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
 def _get_credentials():
