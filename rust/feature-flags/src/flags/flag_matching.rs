@@ -508,9 +508,16 @@ impl FeatureFlagMatcher {
             let property_override_match_timer =
                 common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
 
-            let property_overrides = precomputed_property_overrides
-                .get(&flag.key)
-                .unwrap_or(&None); // Safe fallback: if flag not in map, treat as no overrides.  Shouldn't happen, but is here to avoid panics
+            let property_overrides = match precomputed_property_overrides.get(&flag.key) {
+                Some(overrides) => overrides,
+                None => {
+                    error!(
+                        "Flag '{}' not found in precomputed_property_overrides map during override evaluation - this indicates a logic bug",
+                        flag.key
+                    );
+                    &None // Safe fallback: treat as no overrides to avoid panics
+                }
+            };
 
             match self.match_flag_exclusively_with_overrides(
                 flag,
@@ -601,10 +608,16 @@ impl FeatureFlagMatcher {
                 .map(|flag| {
                     // If the overrides for this flag are not in the pre-computed map, assume no overrides
                     // this shouldn't happen, but it's here to avoid panics
-                    let property_overrides = precomputed_property_overrides
-                        .get(&flag.key)
-                        .unwrap_or(&None)
-                        .clone();
+                    let property_overrides = match precomputed_property_overrides.get(&flag.key) {
+                        Some(overrides) => overrides.clone(),
+                        None => {
+                            error!(
+                                "Flag '{}' not found in precomputed_property_overrides map during parallel evaluation - this indicates a logic bug",
+                                flag.key
+                            );
+                            None // Safe fallback: treat as no overrides to avoid panics
+                        }
+                    };
                     (
                         flag.key.clone(),
                         self.get_match(flag, property_overrides, hash_key_overrides.clone()),

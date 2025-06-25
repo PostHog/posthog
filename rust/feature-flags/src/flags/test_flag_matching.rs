@@ -4040,10 +4040,11 @@ mod tests {
         // and overrides for condition 2 (which won't match the email).
         let flag_result = result.flags.get(&flag.key).unwrap();
         assert!(flag_result.enabled);
+        assert_eq!(flag_result.reason.condition_index, Some(0));
 
         // Test case 2: Complete overrides for condition 2
         // This should use overrides and match condition 2
-        let complete_overrides_match = HashMap::from([
+        let email_override_match = HashMap::from([
             ("email".to_string(), json!("flag-test@example.com")), // Matches condition 2
         ]);
 
@@ -4061,7 +4062,7 @@ mod tests {
         let result2 = matcher2
             .evaluate_all_feature_flags(
                 flags.clone(),
-                Some(complete_overrides_match),
+                Some(email_override_match),
                 None,
                 None,
                 Uuid::new_v4(),
@@ -4071,8 +4072,10 @@ mod tests {
         assert!(!result2.errors_while_computing_flags);
         let flag_result2 = result2.flags.get(&flag.key).unwrap();
 
-        // Should match condition 2 since email matches and rollout is 100%
+        // Will match condition 1 again; this is because the overrides are not sufficient to match condition 1, so
+        // it will go to the DB to get the properties and then match condition 1 again (since we evaluate conditions in order)
         assert!(flag_result2.enabled);
+        assert_eq!(flag_result2.reason.condition_index, Some(0));
 
         // Test case 3: Complete overrides for condition 2 with non-matching value
         // This should use overrides and not match condition 2
@@ -4104,6 +4107,7 @@ mod tests {
         assert!(!result3.errors_while_computing_flags);
         let flag_result3 = result3.flags.get(&flag.key).unwrap();
         assert!(flag_result3.enabled); // Should be true because condition 1 matches (email override doesn't affect condition 1 properties)
+        assert_eq!(flag_result3.reason.condition_index, Some(0));
 
         // Should not match condition 2 since email doesn't match, but condition 1 still matches
         // because it only depends on app_version, focus, and os (which come from DB and still match)
@@ -4139,6 +4143,7 @@ mod tests {
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
         assert!(flag_result4.enabled);
+        assert_eq!(flag_result4.reason.condition_index, Some(0));
     }
 
     #[tokio::test]
