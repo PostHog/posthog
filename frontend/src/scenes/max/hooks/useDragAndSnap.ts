@@ -48,6 +48,10 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
         }
 
         const handleMouseUp = (e: MouseEvent): void => {
+            if (e.button !== 0) {
+                return
+            }
+
             setMouseDownPosition(null)
 
             if (!isDragging) {
@@ -122,7 +126,7 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
     }, [isDragging, dragOffset, onPositionChange, hasDragged, mouseDownPosition])
 
     const handleMouseDown = (e: React.MouseEvent): void => {
-        if (disabled) {
+        if (disabled || e.button !== 0) {
             return
         }
 
