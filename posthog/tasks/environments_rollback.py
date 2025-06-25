@@ -1,3 +1,4 @@
+# ruff: noqa: T201
 import json
 from dataclasses import dataclass
 from structlog import get_logger
@@ -47,6 +48,7 @@ def _capture_environments_rollback_event(
         properties.update(additional_properties)
 
     logger.info("environments_rollback_migration: Capturing event", event_name=event_name, properties=properties)
+    print(f"environments_rollback_migration: Capturing event: {event_name} with properties: {properties}")
     posthoganalytics.capture(
         str(context.user.distinct_id),
         event_name,
@@ -55,8 +57,10 @@ def _capture_environments_rollback_event(
     )
 
     logger.info("environments_rollback_migration: Flushing posthoganalytics")
+    print("environments_rollback_migration: Flushing posthoganalytics")
     posthoganalytics.flush()
     logger.info("environments_rollback_migration: Flushed posthoganalytics")
+    print("environments_rollback_migration: Flushed posthoganalytics")
 
 
 def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
@@ -66,6 +70,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
     """
     try:
         logger.info("environments_rollback_migration: Starting migration")
+        print("environments_rollback_migration: Starting migration")
         organization = Organization.objects.get(id=organization_id)
         user = User.objects.get(id=user_id)
         membership = user.organization_memberships.get(organization=organization)
@@ -74,11 +79,13 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
         )
 
         logger.info("environments_rollback_migration: Getting teams")
+        print("environments_rollback_migration: Getting teams")
         # Get all teams for this organization
         all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
         teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
 
         logger.info("environments_rollback_migration: Verifying teams")
+        print("environments_rollback_migration: Verifying teams")
         # Verify each source-target pair belongs to the same project
         teams_by_id = {team.id: team for team in teams}
         for source_id_str, target_id in environment_mappings.items():
@@ -110,12 +117,14 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
         ]
 
         logger.info("environments_rollback_migration: Updating models starting")
+        print("environments_rollback_migration: Updating models starting")
         with transaction.atomic():
             # Update all models to point to their target teams
             for source_id_str, target_id in environment_mappings.items():
                 logger.info(
                     "environments_rollback_migration: Updating models", source_id=source_id_str, target_id=target_id
                 )
+                print(f"environments_rollback_migration: Updating models: {source_id_str} to {target_id}")
                 source_id = int(source_id_str)
 
                 if source_id == target_id:
@@ -133,6 +142,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
 
                 try:
                     logger.info("environments_rollback_migration: Creating new project")
+                    print("environments_rollback_migration: Creating new project")
                     new_project = Project.objects.create(
                         id=source_team.id, name=new_project_name, organization=organization
                     )
@@ -140,6 +150,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                     logger.exception(
                         "environments_rollback_migration: Project ID conflict", source_id=source_id, target_id=target_id
                     )
+                    print(f"environments_rollback_migration: Project ID conflict: {source_team.id}")
                     _capture_environments_rollback_event(
                         "organization environments rollback project id conflict",
                         context,
@@ -154,6 +165,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                 source_team.save()
 
         logger.info("environments_rollback_migration: Updating models completed")
+        print("environments_rollback_migration: Updating models completed")
 
         _capture_environments_rollback_event("organization environments rollback completed", context)
 
@@ -162,6 +174,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
             organization_id=organization_id,
             environment_mappings=environment_mappings,
         )
+        print("environments_rollback_migration: Environments rollback migration completed successfully")
 
     except Exception as e:
         logger.exception(
@@ -170,5 +183,6 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
             environment_mappings=environment_mappings,
             error=str(e),
         )
+        print(f"environments_rollback_migration: Environments rollback migration failed: {e}")
 
         raise
