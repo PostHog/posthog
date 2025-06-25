@@ -138,7 +138,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                     value={experiment.exposure_criteria?.multiple_handling || 'exclude'}
                     onChange={(value) => {
                         setExposureCriteria({
-                            multiple_handling: value as 'exclude' | 'first_seen' | 'last_seen',
+                            multiple_handling: value as 'exclude' | 'first_seen',
                         })
                     }}
                     options={[
@@ -164,8 +164,6 @@ export function ExposureCriteriaModal(): JSX.Element {
                 <div className="text-xs text-muted mt-1">
                     {experiment.exposure_criteria?.multiple_handling === 'first_seen' &&
                         'Users exposed to multiple variants will be analyzed using their first seen variant.'}
-                    {experiment.exposure_criteria?.multiple_handling === 'last_seen' &&
-                        'Users exposed to multiple variants will be analyzed using their last seen variant.'}
                     {(!experiment.exposure_criteria?.multiple_handling ||
                         experiment.exposure_criteria?.multiple_handling === 'exclude') &&
                         'Users exposed to multiple variants will be excluded from the analysis (recommended).'}

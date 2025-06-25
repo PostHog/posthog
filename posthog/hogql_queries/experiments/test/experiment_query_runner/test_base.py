@@ -2075,11 +2075,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 MultipleHandling.FIRST_SEEN,
                 {"control_count": 4, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
             ],
-            [
-                "last_seen",
-                MultipleHandling.LAST_SEEN,
-                {"control_count": 3, "test_count": 4, "control_exposure": 2, "test_exposure": 2},
-            ],
         ]
     )
     @freeze_time("2020-01-01T12:00:00Z")

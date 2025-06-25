@@ -1052,7 +1052,6 @@ class EventsQueryPersonColumn(BaseModel):
 class MultipleHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"
-    LAST_SEEN = "last_seen"
 
 
 class ExperimentExposureTimeSeries(BaseModel):

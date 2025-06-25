@@ -335,14 +335,6 @@ class ExperimentQueryRunner(QueryRunner):
                         "variant_property": variant_property_field,
                     },
                 )
-            case MultipleHandling.LAST_SEEN:
-                # Use variant from latest exposure (maximum timestamp)
-                return parse_expr(
-                    "argMax({variant_property}, timestamp)",
-                    placeholders={
-                        "variant_property": variant_property_field,
-                    },
-                )
             case _:
                 # Fallback to exclude behavior for safety
                 return parse_expr(

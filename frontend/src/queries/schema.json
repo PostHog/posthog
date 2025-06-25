@@ -9588,7 +9588,7 @@
                     "type": "boolean"
                 },
                 "multiple_handling": {
-                    "enum": ["exclude", "first_seen", "last_seen"],
+                    "enum": ["exclude", "first_seen"],
                     "type": "string"
                 }
             },
