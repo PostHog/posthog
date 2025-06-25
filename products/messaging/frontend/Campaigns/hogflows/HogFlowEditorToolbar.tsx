@@ -1,11 +1,10 @@
 import { IconDrag } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { HogFlowAction } from './types'
-import { HogFlowEditorPanel } from './components/HogFlowEditorPanel'
 
 export const TOOLBAR_NODES_TO_SHOW: HogFlowAction['type'][] = [
     'message',
