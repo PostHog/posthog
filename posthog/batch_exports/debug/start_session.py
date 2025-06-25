@@ -1,12 +1,18 @@
 import argparse
 import datetime as dt
+import os
 
+import django
 import IPython
 import pyarrow as pa
 import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from django.conf import settings
 
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+django.setup()
+
+# ruff: noqa: E402
 from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.batch_exports.bigquery_batch_export import bigquery_default_fields
 from posthog.temporal.batch_exports.postgres_batch_export import postgres_default_fields
