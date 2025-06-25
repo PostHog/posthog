@@ -74,6 +74,7 @@ from posthog.schema import (
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
     IntervalType,
+    MultipleHandling,
 )
 
 
@@ -119,6 +120,13 @@ class ExperimentQueryRunner(QueryRunner):
             self.stats_method = self.experiment.stats_config.get("method", "bayesian")
             if self.stats_method not in ["bayesian", "frequentist"]:
                 self.stats_method = "bayesian"
+
+        # Determine how to handle entities exposed to multiple variants
+        if self.experiment.exposure_criteria and self.experiment.exposure_criteria.get("multiple_handling"):
+            self.multiple_handling = self.experiment.exposure_criteria.get("multiple_handling")
+        else:
+            # Default to "exclude" if not specified (maintains backwards compatibility)
+            self.multiple_handling = MultipleHandling.EXCLUDE
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -273,13 +281,7 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Alias(alias="entity_id", expr=ast.Field(chain=[self.entity_key])),
             ast.Alias(
                 alias="variant",
-                expr=parse_expr(
-                    "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
-                    placeholders={
-                        "variant_property": ast.Field(chain=["properties", feature_flag_variant_property]),
-                        "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                    },
-                ),
+                expr=self._get_variant_selection_expr(feature_flag_variant_property),
             ),
             ast.Alias(
                 alias="first_exposure_time",
@@ -309,6 +311,47 @@ class ExperimentQueryRunner(QueryRunner):
             where=ast.And(exprs=exposure_conditions),
             group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
+
+    def _get_variant_selection_expr(self, feature_flag_variant_property: str) -> ast.Expr:
+        """
+        Returns the appropriate variant selection expression based on multiple_handling configuration.
+        """
+        variant_property_field = ast.Field(chain=["properties", feature_flag_variant_property])
+        match self.multiple_handling:
+            case MultipleHandling.EXCLUDE:
+                # Current behavior: assign MULTIPLE_VARIANT_KEY when multiple variants detected
+                return parse_expr(
+                    "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
+                    placeholders={
+                        "variant_property": variant_property_field,
+                        "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                    },
+                )
+            case MultipleHandling.FIRST_SEEN:
+                # Use variant from earliest exposure (minimum timestamp)
+                return parse_expr(
+                    "argMin({variant_property}, timestamp)",
+                    placeholders={
+                        "variant_property": variant_property_field,
+                    },
+                )
+            case MultipleHandling.LAST_SEEN:
+                # Use variant from latest exposure (maximum timestamp)
+                return parse_expr(
+                    "argMax({variant_property}, timestamp)",
+                    placeholders={
+                        "variant_property": variant_property_field,
+                    },
+                )
+            case _:
+                # Fallback to exclude behavior for safety
+                return parse_expr(
+                    "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
+                    placeholders={
+                        "variant_property": variant_property_field,
+                        "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                    },
+                )
 
     def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
@@ -641,8 +684,9 @@ class ExperimentQueryRunner(QueryRunner):
             settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
-        # NOTE: For now, remove the $multiple variant
-        response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
+        # Remove the $multiple variant only when using exclude handling
+        if self.multiple_handling == MultipleHandling.EXCLUDE:
+            response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
