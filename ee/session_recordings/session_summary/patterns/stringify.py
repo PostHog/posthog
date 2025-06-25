@@ -15,37 +15,43 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
         Formatted markdown string
     """
     patterns = json_data.get("patterns", [])
-    
+
     if not patterns:
         return "# Session Summary Report\n\nNo patterns found."
-    
+
     # Load total sessions count
     with open(session_ids_file_path, "r") as f:
         session_ids = json.load(f)
     total_sessions = len(session_ids)
-    
+
     # Sort patterns by severity: critical, medium, high
     # TODO: Implement in actual summary also
     severity_order = {"critical": 0, "high": 1, "medium": 2}
     patterns.sort(key=lambda p: severity_order.get(p["severity"]))
-    
+
     markdown_lines = ["# Session Summary Report", ""]
-    
+
     # Add issues to review summary
-    if patterns:
-        markdown_lines.extend(["**Issues to review:**"])
+    severity_icons = {
+        "critical": "🔴",
+        "high": "🟠",
+        "medium": "🟡",
+    }
+    markdown_lines.extend(["## 📊 Issues to review", ""])
+    markdown_lines.extend(["| Pattern | Severity | Sessions | Failure Rate |"])
+    markdown_lines.extend(["|---------|----------|----------|--------------|"])
 
-        for pattern in patterns:
-            stats = pattern["stats"]
-            sessions_affected = stats["sessions_affected"]
-            sessions_percentage = f"{sessions_affected / total_sessions * 100:.0f}%"
-            failure_percentage = f"{(1 - stats['segments_success_ratio']) * 100:.0f}%"
+    for pattern in patterns:
+        stats = pattern["stats"]
+        sessions_affected = stats["sessions_affected"]
+        sessions_percentage = f"{sessions_affected / total_sessions * 100:.0f}%"
+        failure_percentage = f"{(1 - stats['segments_success_ratio']) * 100:.0f}%"
+        severity_icon = severity_icons.get(pattern["severity"], "")
 
-            markdown_lines.append(
-                f"- {pattern['pattern_name']} ({pattern['severity']}, {sessions_percentage} sessions affected, {failure_percentage} failure rate)"
-            )
-
-        markdown_lines.append("")
+        markdown_lines.append(
+            f"| {pattern['pattern_name']} | {severity_icon} {pattern['severity']} | "
+            f"{sessions_percentage} ({sessions_affected}) | {failure_percentage} |"
+        )
 
     for pattern in patterns:
         # Pattern header
