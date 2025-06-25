@@ -75,7 +75,7 @@ def start_session(team_id: int, batch_export_id: str):
         batch_exports = list(BatchExport.objects.select_related("destination").filter(team_id=team_id, deleted=False))
 
     be = BatchExportDebug(batch_exports, s3fs)  # noqa: F841
-    IPython.embed()
+    IPython.embed(colors="Linux")
 
 
 class BatchExportDebug:
