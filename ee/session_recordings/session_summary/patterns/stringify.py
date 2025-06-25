@@ -23,7 +23,24 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
     severity_order = {"critical": 0, "high": 1, "medium": 2}
     patterns.sort(key=lambda p: severity_order.get(p["severity"]))
     
-    markdown_lines = ["# Group Summary Patterns", ""]
+    markdown_lines = ["# Session Summary Report", ""]
+    
+    # Add issues to review summary
+    if patterns:
+        markdown_lines.extend([
+            "**Issues to review:**"
+        ])
+        
+        for pattern in patterns:
+            stats = pattern["stats"]
+            sessions_percentage = f"{stats['sessions_affected_ratio'] * 100:.0f}%"
+            success_percentage = f"{stats['segments_success_ratio'] * 100:.0f}%"
+            
+            markdown_lines.append(
+                f"- {pattern['pattern_name']} ({pattern['severity']}, {sessions_percentage} sessions affected, {success_percentage} success rate)"
+            )
+        
+        markdown_lines.append("")
 
     for pattern in patterns:
         # Pattern header
