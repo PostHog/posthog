@@ -10,7 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/Workflows/types'
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -39,7 +39,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -3514,11 +3514,11 @@ const api = {
             queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
         }
     ): Promise<HogQLQueryResponse<T>> {
-        const hogQLQuery: HogQLQuery = {
+        const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
-        }
+        })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
             data: {

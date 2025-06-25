@@ -1,1 +1,1 @@
-0775_survey_is_publicly_shareable
+0776_move_stripe_to_append

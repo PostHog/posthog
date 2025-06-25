@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import faulthandler
 import functools
 import signal
 
@@ -17,22 +18,23 @@ from posthog.constants import (
     DATA_MODELING_TASK_QUEUE,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
     DATA_WAREHOUSE_TASK_QUEUE,
-    MAX_AI_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
+    MAX_AI_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.batch_exports import (
-    ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
-    WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
-)
+from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES, WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
 from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
+)
+from posthog.temporal.product_analytics import (
+    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import (
@@ -43,14 +45,7 @@ from posthog.temporal.session_recordings import (
     ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
     WORKFLOWS as SESSION_RECORDINGS_WORKFLOWS,
 )
-from posthog.temporal.product_analytics import (
-    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
-    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
-)
-from posthog.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
-)
+from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 
@@ -174,6 +169,9 @@ class Command(BaseCommand):
 
         structlog.reset_defaults()
 
+        # enable faulthandler to print stack traces on segfaults
+        faulthandler.enable()
+
         logger.info(f"Starting Temporal Worker with options: {options}")
 
         metrics_port = int(options["metrics_port"])
@@ -219,10 +217,6 @@ class Command(BaseCommand):
 
             loop = runner.get_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
-                )
                 loop.add_signal_handler(
                     sig,
                     functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),

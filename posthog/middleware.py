@@ -78,7 +78,7 @@ class AllowIPMiddleware:
     def get_forwarded_for(self, request: HttpRequest):
         forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if forwarded_for is not None:
-            return [ip.strip() for ip in forwarded_for.split(",")]
+            return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
             return []
 

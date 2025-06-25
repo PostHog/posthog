@@ -2,9 +2,9 @@ import dataclasses
 from datetime import datetime
 
 import hashlib
-from typing import Any
+from typing import Any, cast
 
-from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime
+from ee.session_recordings.session_summary.utils import generate_full_event_id, get_column_index, prepare_datetime
 
 
 @dataclasses.dataclass(frozen=True)
@@ -43,7 +43,7 @@ class SessionSummaryPromptData:
         raw_session_metadata: dict[str, Any],
         raw_session_columns: list[str],
         session_id: str,
-    ) -> dict[str, list[str | int | list[str] | None]]:
+    ) -> tuple[dict[str, list[str | int | list[str] | None]], dict[str, str]]:
         """
         Create session summary prompt data from session data, and return a mapping of event ids to events
         to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
@@ -52,29 +52,30 @@ class SessionSummaryPromptData:
             raise ValueError(f"No session events provided for summarizing session_id {session_id}")
         if not raw_session_metadata:
             raise ValueError(f"No session metadata provided for summarizing session_id {session_id}")
-        self.columns = [*raw_session_columns, "event_id", "event_index"]
+        self.columns = ["event_id", "event_index", *raw_session_columns]
         self.metadata = self._prepare_metadata(raw_session_metadata)
         simplified_events_mapping: dict[str, list[Any]] = {}
+        event_ids_mapping: dict[str, str] = {}
         # Pick indexes as we iterate over arrays
+        event_id_index, event_index_index = 0, 1
         window_id_index = get_column_index(self.columns, "$window_id")
         current_url_index = get_column_index(self.columns, "$current_url")
         timestamp_index = get_column_index(self.columns, "timestamp")
-        event_id_index = len(self.columns) - 2
-        event_index_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for i, event in enumerate(raw_session_events):
             # Copy the event to avoid mutating the original, add new columns for event_id and event_index
-            simplified_event: list[str | datetime | list[str] | int | None] = [*list(event), None, None]
+            event_uuid = cast(str, event[-1])  # UUID should come last as we use it to generate event_id, but not after
+            simplified_event: list[str | datetime | list[str] | int | None] = [None, None, *list(event[:-1])]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
-                event_timestamp = event[timestamp_index]
+                event_timestamp = simplified_event[timestamp_index]
                 if not isinstance(event_timestamp, datetime):
                     raise ValueError(f"Timestamp is not a datetime: {event_timestamp}")
                 # All timestamps are stringified, so no datetime in the output type
                 simplified_event[timestamp_index] = event_timestamp.isoformat()
             # Simplify Window IDs
             if window_id_index is not None:
-                event_window_id = event[window_id_index]
+                event_window_id = simplified_event[window_id_index]
                 if event_window_id is None:
                     # Non-browser events (like Python SDK ones) could have no window ID
                     simplified_event[window_id_index] = None
@@ -84,7 +85,7 @@ class SessionSummaryPromptData:
                     simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
             # Simplify URLs
             if current_url_index is not None:
-                event_current_url = event[current_url_index]
+                event_current_url = simplified_event[current_url_index]
                 if event_current_url is None:
                     # Non-browser events (like Python SDK ones) could have no URL
                     simplified_event[current_url_index] = None
@@ -92,6 +93,8 @@ class SessionSummaryPromptData:
                     raise ValueError(f"Current URL is not a string: {event_current_url}")
                 else:
                     simplified_event[current_url_index] = self._simplify_url(event_current_url)
+            # Generate full event ID from session and event UUIDs to be able to track them across sessions
+            full_event_id = generate_full_event_id(session_id=session_id, event_uuid=event_uuid)
             # Generate a hex for each event to make sure we can identify repeated events, and identify the event
             event_id = self._get_deterministic_hex(simplified_event)
             if event_id in simplified_events_mapping:
@@ -100,8 +103,10 @@ class SessionSummaryPromptData:
             simplified_event[event_id_index] = event_id
             simplified_event[event_index_index] = i
             simplified_events_mapping[event_id] = simplified_event
+            # Store full event ID into the mapping to avoid providing full IDs to LLM (6 tokens vs 52 tokens per event)
+            event_ids_mapping[event_id] = full_event_id
         self.results = list(simplified_events_mapping.values())
-        return simplified_events_mapping
+        return simplified_events_mapping, event_ids_mapping
 
     @staticmethod
     def _prepare_metadata(raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
