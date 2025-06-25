@@ -16,7 +16,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
     const { selectAction } = useActions(actionsTabLogic)
 
     return (
-        <div className="flex flex-col h-full overflow-y-scroll deprecated-space-y-px mb-2">
+        <div className="flex flex-col h-full overflow-y-auto deprecated-space-y-px mb-2">
             {actions.length ? (
                 actions.map((action, index) => (
                     <Fragment key={action.id}>
