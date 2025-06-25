@@ -987,6 +987,8 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     dataColorTheme?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */

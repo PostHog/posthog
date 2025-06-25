@@ -834,7 +834,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 posthoganalytics.tag("insight_id", str(insight_id))
             if dashboard_id:
                 posthoganalytics.tag("dashboard_id", str(dashboard_id))
-            if tags := self.query.tags:
+            if tags := getattr(self.query, "tags", None):
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
                 if tags.scene:

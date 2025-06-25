@@ -5943,6 +5943,10 @@
                     },
                     "type": "array"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -11368,6 +11372,10 @@
                     },
                     "type": "array"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -12713,6 +12721,10 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -12777,6 +12789,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -12843,6 +12859,10 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -12907,6 +12927,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -12973,6 +12997,10 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -13037,6 +13065,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -13330,6 +13362,10 @@
                         "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -14251,6 +14287,10 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -18318,6 +18358,10 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -19874,6 +19918,10 @@
                     "$ref": "#/definitions/StickinessFilter",
                     "description": "Properties specific to the stickiness insight"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -20626,6 +20674,10 @@
                         "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
                 },
                 "trendsFilter": {
                     "$ref": "#/definitions/TrendsFilter",

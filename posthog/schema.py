@@ -9576,6 +9576,7 @@ class StickinessQuery(BaseModel):
     stickinessFilter: Optional[StickinessFilter] = Field(
         default=None, description="Properties specific to the stickiness insight"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -9646,6 +9647,7 @@ class TrendsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -9775,6 +9777,7 @@ class CalendarHeatmapQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10012,6 +10015,7 @@ class FunnelsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10057,6 +10061,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[CalendarHeatmapResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10102,6 +10107,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[FunnelsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10147,6 +10153,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10192,6 +10199,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10237,6 +10245,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10282,6 +10291,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10353,6 +10363,7 @@ class LifecycleQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10507,6 +10518,7 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10773,6 +10785,7 @@ class PathsQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
