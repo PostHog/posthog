@@ -400,7 +400,7 @@
         },
         {
             "key": "enhanced_persons",
-            "name": "Enhanced persons",
+            "name": "Identified",
             "description": "Enhance your user data with properties and attribution data. Great for tracking user behavior across devices and sessions and tracking person changes over time.",
             "unit": null,
             "limit": null,
@@ -1323,7 +1323,7 @@
                     "usage_limit": null
                 },
                 {
-                    "name": "Enhanced persons",
+                    "name": "Identified",
                     "description": "Enhance your user data with properties and attribution data. Great for tracking user behavior across devices and sessions and tracking person changes over time.",
                     "price_description": null,
                     "image_url": "None",
@@ -1355,7 +1355,7 @@
                             "features": [
                                 {
                                     "key": "enhanced_persons",
-                                    "name": "Enhanced persons",
+                                    "name": "Identified",
                                     "description": "Enhance your user data with properties and attribution data. Great for tracking user behavior across devices and sessions and tracking person changes over time.",
                                     "unit": null,
                                     "limit": null,
@@ -1383,7 +1383,7 @@
                             "features": [
                                 {
                                     "key": "enhanced_persons",
-                                    "name": "Enhanced persons",
+                                    "name": "Identified",
                                     "description": "Enhance your user data with properties and attribution data. Great for tracking user behavior across devices and sessions and tracking person changes over time.",
                                     "unit": null,
                                     "limit": null,
@@ -1404,7 +1404,7 @@
                     "features": [
                         {
                             "key": "enhanced_persons",
-                            "name": "Enhanced persons",
+                            "name": "Identified",
                             "description": "Enhance your user data with properties and attribution data. Great for tracking user behavior across devices and sessions and tracking person changes over time.",
                             "images": null,
                             "icon_key": null,
