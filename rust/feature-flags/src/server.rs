@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_database::get_pool;
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
@@ -12,6 +11,7 @@ use tokio::net::TcpListener;
 
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
+use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::router;
 use common_cookieless::CookielessManager;
@@ -21,6 +21,7 @@ where
     F: Future<Output = ()> + Send + 'static,
 {
     // Create separate Redis clients for reading and writing
+    // NB: if either of these URLs don't exist in the config, we default to the writer
     let redis_reader_client = match RedisClient::new(config.get_redis_reader_url().to_string()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
@@ -33,7 +34,7 @@ where
         }
     };
 
-    let _redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
+    let redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!(
@@ -45,44 +46,14 @@ where
         }
     };
 
-    // For backwards compatibility, use the reader client as the primary Redis client
-    // for services that don't distinguish between reads and writes yet
-    let redis_client = redis_reader_client.clone();
-
-    let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
-        Ok(client) => {
-            tracing::info!("Successfully created read Postgres client");
-            Arc::new(client)
-        }
+    // Create database pools
+    let database_pools = match DatabasePools::from_config(&config).await {
+        Ok(pools) => Arc::new(pools),
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                url = %config.read_database_url,
-                max_connections = config.max_pg_connections,
-                "Failed to create read Postgres client"
-            );
+            tracing::error!("Failed to create database pools: {}", e);
             return;
         }
     };
-
-    let writer =
-        // TODO - we should have a dedicated URL for both this and the reader – the reader will read
-        // from the replica, and the writer will write to the main database.
-        match get_pool(&config.write_database_url, config.max_pg_connections).await {
-            Ok(client) => {
-                tracing::info!("Successfully created write Postgres client");
-                Arc::new(client)
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    url = %config.write_database_url,
-                    max_connections = config.max_pg_connections,
-                    "Failed to create write Postgres client"
-                );
-                return;
-            }
-        };
 
     let geoip_service = match GeoIpClient::new(config.get_maxmind_db_path()) {
         Ok(service) => Arc::new(service),
@@ -97,7 +68,7 @@ where
     };
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
-        reader.clone(),
+        database_pools.non_persons_reader.clone(),
         Some(config.cache_max_cohort_entries),
         Some(config.cache_ttl_seconds),
     ));
@@ -110,15 +81,15 @@ where
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
-    // Start database pool monitoring
-    let db_monitor = DatabasePoolMonitor::new(reader.clone(), writer.clone());
+    // Start database pool monitoring for both flag matching and persons databases
+    let db_monitor = DatabasePoolMonitor::new_with_pools(database_pools.clone());
     tokio::spawn(async move {
         db_monitor.start_monitoring().await;
     });
 
     let billing_limiter = match RedisLimiter::new(
         Duration::from_secs(5),
-        redis_client.clone(),
+        redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
         QuotaResource::FeatureFlags,
@@ -131,16 +102,15 @@ where
         }
     };
 
-    // You can decide which client to pass to the router, or pass both if needed
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
-        redis_client.clone(),
+        redis_reader_client.clone(), // NB: the cookieless manager only reads from redis, so it's safe to just use the reader client
     ));
 
     let app = router::router(
-        redis_client,
-        reader,
-        writer,
+        redis_reader_client,
+        redis_writer_client,
+        database_pools,
         cohort_cache,
         geoip_service,
         health,

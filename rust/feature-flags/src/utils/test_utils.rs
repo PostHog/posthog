@@ -1,6 +1,6 @@
 use crate::{
     cohorts::cohort_models::{Cohort, CohortId},
-    config::{Config, DEFAULT_TEST_CONFIG},
+    config::Config,
     flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
@@ -137,7 +137,8 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
 }
 
 pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
-    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    let default_config = Config::default();
+    let config = config.unwrap_or(&default_config);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
             .await
@@ -146,7 +147,8 @@ pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client +
 }
 
 pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
-    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    let default_config = Config::default();
+    let config = config.unwrap_or(&default_config);
     Arc::new(
         get_pool(&config.write_database_url, config.max_pg_connections)
             .await

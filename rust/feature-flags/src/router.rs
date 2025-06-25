@@ -6,7 +6,6 @@ use axum::{
     Router,
 };
 use common_cookieless::CookielessManager;
-use common_database::Client as DatabaseClient;
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
@@ -22,15 +21,16 @@ use crate::{
     api::endpoint,
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
+    database_pools::DatabasePools,
     metrics::utils::team_id_label_filter,
 };
 
 #[derive(Clone)]
 pub struct State {
-    pub redis: Arc<dyn RedisClient + Send + Sync>,
-    pub reader: Arc<dyn DatabaseClient + Send + Sync>,
-    pub writer: Arc<dyn DatabaseClient + Send + Sync>,
-    pub cohort_cache_manager: Arc<CohortCacheManager>,
+    pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    pub database_pools: Arc<DatabasePools>,
+    pub cohort_cache: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
     pub billing_limiter: RedisLimiter,
@@ -39,10 +39,10 @@ pub struct State {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<R, D>(
-    redis: Arc<R>,
-    reader: Arc<D>,
-    writer: Arc<D>,
+pub fn router<RR, RW>(
+    redis_reader: Arc<RR>,
+    redis_writer: Arc<RW>,
+    database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
@@ -51,14 +51,14 @@ pub fn router<R, D>(
     config: Config,
 ) -> Router
 where
-    R: RedisClient + Send + Sync + 'static,
-    D: DatabaseClient + Send + Sync + 'static,
+    RR: RedisClient + Send + Sync + 'static,
+    RW: RedisClient + Send + Sync + 'static,
 {
     let state = State {
-        redis,
-        reader,
-        writer,
-        cohort_cache_manager: cohort_cache,
+        redis_reader,
+        redis_writer,
+        database_pools: database_pools.clone(),
+        cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
         billing_limiter,
@@ -100,7 +100,10 @@ where
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
         let recorder_handle = setup_metrics_recorder();
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
+        router.route(
+            "/metrics",
+            get(move || std::future::ready(recorder_handle.render())),
+        )
     } else {
         router
     }

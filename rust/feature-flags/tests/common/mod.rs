@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_database::get_pool;
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
@@ -76,23 +75,19 @@ impl ServerHandle {
         }
 
         tokio::spawn(async move {
-            let redis_client = Arc::new(mock_client);
-            let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
-            {
-                Ok(client) => Arc::new(client),
-                Err(e) => {
-                    tracing::error!("Failed to create read Postgres client: {}", e);
-                    return;
-                }
-            };
-            let writer = match get_pool(&config.write_database_url, config.max_pg_connections).await
-            {
-                Ok(client) => Arc::new(client),
-                Err(e) => {
-                    tracing::error!("Failed to create write Postgres client: {}", e);
-                    return;
-                }
-            };
+            let redis_reader_client = Arc::new(mock_client);
+            let redis_writer_client = redis_reader_client.clone();
+
+            // Create database pools
+            let database_pools =
+                match feature_flags::database_pools::DatabasePools::from_config(&config).await {
+                    Ok(pools) => Arc::new(pools),
+                    Err(e) => {
+                        tracing::error!("Failed to create database pools: {}", e);
+                        return;
+                    }
+                };
+
             let geoip_service = match common_geoip::GeoIpClient::new(config.get_maxmind_db_path()) {
                 Ok(service) => Arc::new(service),
                 Err(e) => {
@@ -102,7 +97,7 @@ impl ServerHandle {
             };
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
-                    reader.clone(),
+                    database_pools.non_persons_reader.clone(),
                     Some(config.cache_max_cohort_entries),
                     Some(config.cache_ttl_seconds),
                 ),
@@ -116,7 +111,7 @@ impl ServerHandle {
 
             let billing_limiter = RedisLimiter::new(
                 Duration::from_secs(5),
-                redis_client.clone(),
+                redis_reader_client.clone(),
                 QUOTA_LIMITER_CACHE_KEY.to_string(),
                 None,
                 QuotaResource::FeatureFlags,
@@ -126,13 +121,13 @@ impl ServerHandle {
 
             let cookieless_manager = Arc::new(common_cookieless::CookielessManager::new(
                 config.get_cookieless_config(),
-                redis_client.clone(),
+                redis_reader_client.clone(),
             ));
 
             let app = feature_flags::router::router(
-                redis_client,
-                reader,
-                writer,
+                redis_reader_client,
+                redis_writer_client,
+                database_pools,
                 cohort_cache,
                 geoip_service,
                 health,
