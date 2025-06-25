@@ -17,9 +17,10 @@ export const LastRefreshText = (): JSX.Element => {
     return (
         <div className="flex items-center gap-1">
             {lastDashboardRefresh && dayjs().diff(dayjs(lastDashboardRefresh), 'hour') < 24 ? (
-                <span>
-                    Last refreshed <TZLabel time={lastDashboardRefresh} />
-                </span>
+                <div className="flex items-center gap-1">
+                    <span>Last refreshed</span>
+                    <TZLabel time={lastDashboardRefresh} />
+                </div>
             ) : (
                 'Refresh'
             )}
