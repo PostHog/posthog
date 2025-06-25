@@ -1,7 +1,12 @@
 import json
+from datetime import UTC, datetime, timedelta
+from typing import Optional, cast
 from zoneinfo import ZoneInfo
-from posthog.constants import ExperimentNoResultsErrorKeys
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -12,32 +17,6 @@ from posthog.hogql_queries.experiments import (
     CONTROL_VARIANT_KEY,
     MULTIPLE_VARIANT_KEY,
 )
-from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
-    are_results_significant_v2_count,
-    calculate_credible_intervals_v2_count,
-    calculate_probabilities_v2_count,
-)
-from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
-    are_results_significant_v2_continuous,
-    calculate_credible_intervals_v2_continuous,
-    calculate_probabilities_v2_continuous,
-)
-from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
-    calculate_probabilities_v2 as calculate_probabilities_v2_funnel,
-    are_results_significant_v2 as are_results_significant_v2_funnel,
-    calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
-)
-
-from posthog.hogql_queries.experiments.utils import (
-    get_frequentist_experiment_result_new_format,
-    get_legacy_funnels_variant_results,
-    get_legacy_trends_variant_results,
-    get_new_variant_results,
-    split_baseline_and_test_variants,
-)
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 from posthog.hogql_queries.experiments.base_query_utils import (
     conversion_window_to_seconds,
     event_or_action_to_filter,
@@ -49,26 +28,53 @@ from posthog.hogql_queries.experiments.funnel_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
 )
-from rest_framework.exceptions import ValidationError
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    are_results_significant_v2 as are_results_significant_v2_funnel,
+)
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
+)
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    calculate_probabilities_v2 as calculate_probabilities_v2_funnel,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
+    are_results_significant_v2_continuous,
+    calculate_credible_intervals_v2_continuous,
+    calculate_probabilities_v2_continuous,
+)
+from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
+    are_results_significant_v2_count,
+    calculate_credible_intervals_v2_count,
+    calculate_probabilities_v2_count,
+)
+from posthog.hogql_queries.experiments.utils import (
+    get_bayesian_experiment_result_new_format,
+    get_frequentist_experiment_result_new_format,
+    get_legacy_funnels_variant_results,
+    get_legacy_trends_variant_results,
+    get_new_variant_results,
+    split_baseline_and_test_variants,
+)
+from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.experiment import Experiment
 from posthog.schema import (
     ActionsNode,
     CachedExperimentQueryResponse,
+    DateRange,
     EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
-    ExperimentQueryResponse,
-    ExperimentStatsBase,
-    ExperimentSignificanceCode,
     ExperimentQuery,
+    ExperimentQueryResponse,
+    ExperimentSignificanceCode,
+    ExperimentStatsBase,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
-    DateRange,
     IntervalType,
 )
-from typing import Optional, cast
-from datetime import datetime, timedelta, UTC
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -645,7 +651,24 @@ class ExperimentQueryRunner(QueryRunner):
     def calculate(self) -> ExperimentQueryResponse:
         sorted_results = self._evaluate_experiment_query()
 
-        if self.stats_method == "frequentist":
+        # Check if we should use the new Bayesian method
+        use_new_bayesian_method = self.experiment.stats_config and self.experiment.stats_config.get(
+            "use_new_bayesian_method", False
+        )
+        if self.stats_method == "bayesian" and use_new_bayesian_method:
+            bayesian_variants = get_new_variant_results(sorted_results)
+
+            self._validate_event_variants(bayesian_variants)
+
+            control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
+
+            return get_bayesian_experiment_result_new_format(
+                metric=self.metric,
+                control_variant=control_variant,
+                test_variants=test_variants,
+            )
+
+        elif self.stats_method == "frequentist":
             frequentist_variants = get_new_variant_results(sorted_results)
 
             self._validate_event_variants(frequentist_variants)
@@ -658,6 +681,7 @@ class ExperimentQueryRunner(QueryRunner):
                 test_variants=test_variants,
             )
 
+        # Legacy stats methods
         else:
             variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
             match self.metric:
