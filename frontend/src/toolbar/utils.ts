@@ -154,16 +154,21 @@ export function inBounds(min: number, value: number, max: number): number {
 }
 
 export function elementIsVisible(element: HTMLElement): boolean {
-    const style = window.getComputedStyle(element)
-    return (
-        style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        style.opacity !== '0' &&
-        style.height !== '0px' &&
-        style.width !== '0px' &&
-        !!element.parentElement &&
-        elementIsVisible(element.parentElement)
-    )
+    try {
+        const style = window.getComputedStyle(element)
+        return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            style.height !== '0px' &&
+            style.width !== '0px' &&
+            !!element.parentElement &&
+            elementIsVisible(element.parentElement)
+        )
+    } catch {
+        // if we can't get the computed style, we'll assume the element is visible
+        return true
+    }
 }
 
 export function getAllClickTargets(
