@@ -33,15 +33,56 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 
 
 class BatchExportsDebugger:
+    """Debugger for batch exports.
+
+    This allows quick access to batch exports data and metadata for debugging.
+    This debugger was designed with the following workflow in mind:
+
+    1. Initialize the debugger with the ID of the team we are debugging.
+    2. Inspect batch exports for the team in the `loaded_batch_exports`
+       attribute.
+    3. If we don't know which batch export we want to work with, we can
+       narrow down the batch exports loaded by calling
+       `load_batch_exports` and load a new (narrower) set of batch exports.
+    4. If we know which batch export we want work with, set it by calling
+       `BatchExportsDebugger.set_batch_export_from_loaded` with the ID, name,
+       or index of the batch export. By default, the debugger will  the first
+       batch export in `loaded_batch_exports`, so if you managed to narrow
+       down `loaded_batch_exports` to just one, you don't need to set anything.
+    5. We are done with the setup, and the next steps will depend on your
+       specific debugging needs: Check the batch export latest run with
+       `get_latest_run`, load the data for the run in the staging S3 bucket with
+       `load_s3_files`, compare that with the data you get from ClickHouse using
+       `load_data_from_clickhouse`.
+
+    Attributes:
+        team_id: The ID of the team we are debugging.
+        batch_export: The working batch export we are debugging. An instance of
+            the `BatchExport` Django model.
+        loaded_batch_exports: The batch exports we have loaded for the team. The
+            working batch export is by default the first loaded.
+    """
+
     def __init__(
         self,
         team_id: int,
-        batch_exports: list[BatchExport],
-        s3fs: fs.S3FileSystem,
+        initial_batch_export: BatchExport | None = None,
     ):
+        if settings.TEST or settings.DEBUG:
+            endpoint_url = settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
+        else:
+            endpoint_url = None
+
         self.team_id = team_id
-        self.s3fs = s3fs
-        self.batch_exports = batch_exports
+        self.loaded_batch_exports = tuple(BatchExport.objects.filter(team_id=team_id))
+        self._batch_export = initial_batch_export or None
+
+        self.s3fs = fs.S3FileSystem(
+            access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            secret_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            region=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
+            endpoint_override=endpoint_url,
+        )
         self.clickhouse_client = ClickHouseClient(
             url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
             user=settings.CLICKHOUSE_USER,
@@ -53,13 +94,62 @@ class BatchExportsDebugger:
             output_format_arrow_string_as_string="true",
         )
 
-    def filter_batch_exports(
+    @property
+    def batch_export(self):
+        """Working batch export."""
+        if self._batch_export is None:
+            self._batch_export = self.loaded_batch_exports[0]
+
+        assert self._batch_export is not None
+        return self._batch_export
+
+    def set_batch_export_from_loaded(self, batch_export: BatchExport | str | int | uuid.UUID | None = None):
+        """Set working batch export from loaded batch exports.
+
+        Multiple type parameters are allowed as described in `get_batch_export`.
+        """
+        self._batch_export = self.get_batch_export(batch_export)
+
+    @functools.singledispatchmethod
+    def get_batch_export(self, batch_export: BatchExport | str | int | uuid.UUID | None = None) -> BatchExport:
+        """Get a single batch export from loaded batch exports.
+
+        Can pass a `BatchExport` instance (which will just be returned), a batch
+        export id, a batch export name, or an index on `self.batch_exports`. If
+        nothing is passed, we return the first batch export in
+        `self.batch_exports`, which is useful when we have already narrowed down
+        to one batch export using `self.filter_batch_exports`.
+        """
+        if batch_export is None:
+            return self.batch_export
+
+        raise TypeError(f"Unsupported type for `batch_export`: '{type(batch_export)}'")
+
+    @get_batch_export.register
+    def _(self, batch_export: BatchExport) -> BatchExport:
+        return batch_export
+
+    @get_batch_export.register
+    def _(self, batch_export: str) -> BatchExport:
+        return next(be for be in self.loaded_batch_exports if str(be.id) == batch_export or be.name == batch_export)
+
+    @get_batch_export.register
+    def _(self, batch_export: uuid.UUID) -> BatchExport:
+        return next(be for be in self.loaded_batch_exports if be.id == batch_export)
+
+    @functools.singledispatchmethod
+    def _(self, batch_export: int) -> collections.abc.Generator[BatchExportRun, None, None]:
+        yield from BatchExportRun.objects.filter(batch_export=self.loaded_batch_exports[batch_export])
+
+    def load_batch_exports(
         self,
+        id: str | None = None,
         deleted: bool | None = False,
         name: str | None = None,
         destination: str | None = None,
         paused: bool | None = None,
-    ) -> list[BatchExport]:
+    ) -> tuple[BatchExport, ...]:
+        """Filter batch exports in the debugger context."""
         filters = {}
         if deleted is not None:
             filters["deleted"] = deleted
@@ -73,45 +163,23 @@ class BatchExportsDebugger:
         if paused is not None:
             filters["paused"] = paused
 
-        self.batch_exports = list(
+        if id is not None:
+            filters["id"] = id
+
+        self.loaded_batch_exports = tuple(
             BatchExport.objects.select_related("destination").filter(team_id=self.team_id, **filters)
         )
-        return self.batch_exports
-
-    @functools.singledispatchmethod
-    def get_batch_export(self, batch_export: BatchExport | str | int | uuid.UUID) -> BatchExport:
-        """Get a single batch export from loaded batch exports.
-
-        Can pass a `BatchExport` instance (which will just be returned), a batch
-        export id, a batch export name, or an index on `self.batch_exports`.
-        """
-        raise TypeError(f"Unsupported type for `batch_export`: '{type(batch_export)}'")
-
-    @get_batch_export.register
-    def _(self, batch_export: BatchExport) -> BatchExport:
-        return batch_export
-
-    @get_batch_export.register
-    def _(self, batch_export: str) -> BatchExport:
-        return next(be for be in self.batch_exports if str(be.id) == batch_export or be.name == batch_export)
-
-    @get_batch_export.register
-    def _(self, batch_export: uuid.UUID) -> BatchExport:
-        return next(be for be in self.batch_exports if be.id == batch_export)
-
-    @functools.singledispatchmethod
-    def _(self, batch_export: int) -> collections.abc.Generator[BatchExportRun, None, None]:
-        yield from BatchExportRun.objects.filter(batch_export=self.batch_exports[batch_export])
+        return self.loaded_batch_exports
 
     def iter_runs(
         self,
-        batch_export: BatchExport | str | int | uuid.UUID,
         status: str | list[str] | None = None,
         order_by: str = "last_updated_at",
         descending: bool = True,
+        offset: int = 0,
     ) -> collections.abc.Generator[BatchExportRun, None, None]:
         """Iterate over batch export runs."""
-        batch_export = self.get_batch_export(batch_export)
+        batch_export = self.batch_export
         sign = "-" if descending else ""
 
         filters = {}
@@ -130,14 +198,32 @@ class BatchExportsDebugger:
         if query:
             queryset = queryset.filter(query)
 
-        yield from queryset.order_by(f"{sign}last_updated_at")
+        yield from queryset.order_by(f"{sign}{order_by}")[offset:]
 
     def get_latest_run(
-        self, batch_export: BatchExport | str | int | uuid.UUID, status: str | list[str] | None = None
+        self,
+        status: str | list[str] | None = None,
+        offset: int = 0,
+        order_by: str = "last_updated_at",
     ) -> BatchExportRun:
-        return next(self.iter_runs(batch_export, status, order_by="last_updated_at", descending=True))
+        """Get the latest run for a batch export.
 
-    def iter_s3_files(self, batch_export_run: BatchExportRun) -> collections.abc.Generator[pa.Table, None, None]:
+        By default, we order runs by `last_updated_at`, but this can be modified.
+
+        Examples:
+            Get the latest updated run that failed:
+
+            >>> bedbg = BatchExportsDebugger(team_id) # doctest: +SKIP
+            >>> bedbg.get_latest_run(status="failed") # doctest: +SKIP
+
+            Get the latest created run:
+
+            >>> bedbg = BatchExportsDebugger(team_id) # doctest: +SKIP
+            >>> bedbg.get_latest_run(order_by="created_at") # doctest: +SKIP
+        """
+        return next(self.iter_runs(status, order_by=order_by, descending=True, offset=offset))
+
+    def iter_run_s3_data(self, batch_export_run: BatchExportRun) -> collections.abc.Generator[pa.Table, None, None]:
         folder = _get_s3_staging_folder(
             batch_export_run.batch_export.id,
             batch_export_run.data_interval_start.isoformat(),
@@ -152,11 +238,12 @@ class BatchExportsDebugger:
                 reader = ipc.RecordBatchStreamReader(f)
                 yield reader.read_all()
 
-    def load_s3_files(self, batch_export_run: BatchExportRun) -> pa.Table:
-        tables = list(self.iter_s3_files(batch_export_run))
+    def load_run_s3_data(self, batch_export_run: BatchExportRun) -> pa.Table:
+        """Load data in S3 stage for a given batch export run."""
+        tables = list(self.iter_run_s3_data(batch_export_run))
         return pa.concat_tables(tables)
 
-    def iter_data_from_clickhouse(
+    def iter_run_data_from_clickhouse(
         self,
         batch_export_run: BatchExportRun,
     ) -> collections.abc.Generator[pa.Table, None, None]:
@@ -250,11 +337,10 @@ class BatchExportsDebugger:
         for record_batch in self.clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters):
             yield pa.Table.from_batches((record_batch,))
 
-        def load_data_from_clickhouse(
-            self,
-            batch_export_run: BatchExportRun,
-            filters: list[dict[str, str | list[str]]] | None = None,
-            **parameters,
-        ) -> pa.Table:
-            tables = list(self.iter_data_from_clickhouse(batch_export_run, filters, is_backfill, **parameters))
-            return pa.concat_tables(tables)
+    def load_run_data_from_clickhouse(
+        self,
+        batch_export_run: BatchExportRun,
+    ) -> pa.Table:
+        """Load data in ClickHouse for a given batch export run."""
+        tables = list(self.iter_run_data_from_clickhouse(batch_export_run))
+        return pa.concat_tables(tables)
