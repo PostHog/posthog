@@ -93,17 +93,15 @@ export function filterFunctionInstrumented(options: {
             count: 1,
         })
 
-        if (eventUuid) {
-            logs.push({
-                team_id: fn.team_id,
-                log_source: fnKind === 'HogFunction' ? 'hog_function' : 'hog_flow',
-                log_source_id: fn.id,
-                instance_id: new UUIDT().toString(),
-                timestamp: DateTime.now(),
-                level: 'error',
-                message: `Error filtering event ${eventUuid}: ${error.message}`,
-            })
-        }
+        logs.push({
+            team_id: fn.team_id,
+            log_source: fnKind === 'HogFunction' ? 'hog_function' : 'hog_flow',
+            log_source_id: fn.id,
+            instance_id: new UUIDT().toString(),
+            timestamp: DateTime.now(),
+            level: 'error',
+            message: `Error filtering event ${eventUuid}: ${error.message}`,
+        })
         result.error = error.message
     } finally {
         const duration = performance.now() - start

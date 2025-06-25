@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -20,13 +20,8 @@ import {
 import { PropertyGroupFilter } from '~/types'
 
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
-import { HogFlow } from '../types'
 import { CampaignLogicProps } from '../../campaignLogic'
 import { campaignLogic } from '../../campaignLogic'
-
-export interface HogFlowEditorTestLogicProps {
-    id: HogFlow['id']
-}
 
 export interface HogflowTestInvocation {
     globals: string
@@ -45,7 +40,7 @@ export interface HogflowTestResult {
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     path((key) => ['products', 'messaging', 'frontend', 'Campaigns', 'hogflows', 'actions', 'workflowTestLogic', key]),
-    props({} as HogFlowEditorTestLogicProps),
+    props({} as CampaignLogicProps),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
         values: [campaignLogic(props), ['campaign']],
@@ -55,7 +50,6 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         toggleExpanded: true,
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
-        setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
@@ -79,12 +73,6 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 setTestResultMode: (_, { mode }) => mode,
             },
         ],
-        sampleGlobals: [
-            null as CyclotronJobInvocationGlobals | null,
-            {
-                setSampleGlobals: (_, { sampleGlobals }) => sampleGlobals,
-            },
-        ],
         sampleGlobalsError: [
             null as string | null,
             {
@@ -104,7 +92,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     selectors(({ values }) => ({
         canLoadSampleGlobals: [
             () => [],
-            () => {
+            (): boolean => {
                 return (
                     !!values.campaign.trigger?.filters?.events?.length ||
                     !!values.campaign.trigger?.filters?.actions?.length ||
@@ -253,43 +241,6 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     forms(({ actions, values }) => ({
         testInvocation: {
             defaults: {
-                globals: JSON.stringify(
-                    {
-                        event: {
-                            uuid: uuid(),
-                            distinct_id: uuid(),
-                            timestamp: dayjs().toISOString(),
-                            elements_chain: '',
-                            url: `${window.location.origin}/project/1/events/`,
-                            event: '$pageview',
-                            properties: {
-                                $current_url: window.location.href.split('#')[0],
-                                $browser: 'Chrome',
-                                this_is_an_example_event: true,
-                            },
-                        },
-                        person: {
-                            id: uuid(),
-                            properties: {
-                                email: 'example@posthog.com',
-                            },
-                            name: 'Example person',
-                            url: `${window.location.origin}/person/${uuid()}`,
-                        },
-                        groups: {},
-                        project: {
-                            id: 1,
-                            name: 'Default project',
-                            url: `${window.location.origin}/project/1`,
-                        },
-                        source: {
-                            name: values.campaign.name ?? 'Unnamed',
-                            url: window.location.href.split('#')[0],
-                        },
-                    },
-                    null,
-                    2
-                ),
                 mock_async_functions: true,
             } as HogflowTestInvocation,
             errors: (data: HogflowTestInvocation) => {
@@ -322,21 +273,46 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            if (values.expanded && !values.fetchCancelled && values.sampleGlobals) {
-                actions.receiveExampleGlobals(values.sampleGlobals)
-            }
-        },
-        setSampleGlobals: ({ sampleGlobals }) => {
-            actions.receiveExampleGlobals(sampleGlobals)
-        },
-        receiveExampleGlobals: ({ globals }) => {
-            if (!globals) {
-                return
-            }
-            actions.setTestInvocationValue('globals', JSON.stringify(globals, null, 2))
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
         cancelSampleGlobalsLoading: () => {
             // Just mark as cancelled - we'll ignore any results that come back
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        actions.loadSampleGlobalsSuccess({
+            event: {
+                uuid: uuid(),
+                distinct_id: uuid(),
+                timestamp: dayjs().toISOString(),
+                elements_chain: '',
+                url: `${window.location.origin}/project/1/events/`,
+                event: '$pageview',
+                properties: {
+                    $current_url: window.location.href.split('#')[0],
+                    $browser: 'Chrome',
+                    this_is_an_example_event: true,
+                },
+            },
+            person: {
+                id: uuid(),
+                properties: {
+                    email: 'example@posthog.com',
+                },
+                name: 'Example person',
+                url: `${window.location.origin}/person/${uuid()}`,
+            },
+            groups: {},
+            project: {
+                id: 1,
+                name: 'Default project',
+                url: `${window.location.origin}/project/1`,
+            },
+            source: {
+                name: values.campaign.name ?? 'Unnamed',
+                url: window.location.href.split('#')[0],
+            },
+        })
+    }),
 ])
