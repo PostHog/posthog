@@ -104,14 +104,20 @@ describe('maxContextLogic', () => {
             await expectLogic(logic).toMatchValues({
                 contextInsights: [],
                 contextDashboards: [],
+                contextEvents: [],
+                contextActions: [],
             })
 
             logic.actions.addOrUpdateContextInsight(mockInsight)
             logic.actions.addOrUpdateContextDashboard(mockDashboard)
+            logic.actions.addOrUpdateContextEvent(mockEvent)
+            logic.actions.addOrUpdateContextAction(mockAction)
 
             await expectLogic(logic).toMatchValues({
                 contextInsights: [expectedTransformedInsight],
                 contextDashboards: [expectedTransformedDashboard],
+                contextEvents: [mockEvent],
+                contextActions: [mockAction],
             })
         })
 
@@ -133,6 +139,31 @@ describe('maxContextLogic', () => {
             })
         })
 
+        it('automatically adds insights to context when autoAdd is true', async () => {
+            await expectLogic(logic).toMatchValues({
+                contextInsights: [],
+                activeInsights: [],
+            })
+
+            // Add insight with autoAdd=true
+            logic.actions.addOrUpdateActiveInsight(mockInsight, true)
+
+            await expectLogic(logic).toMatchValues({
+                activeInsights: [expectedTransformedInsight],
+                contextInsights: [expectedTransformedInsight],
+            })
+
+            logic.actions.resetContext()
+
+            // Add insight with autoAdd=false
+            logic.actions.addOrUpdateActiveInsight(mockInsight, false)
+
+            await expectLogic(logic).toMatchValues({
+                activeInsights: [expectedTransformedInsight],
+                contextInsights: [],
+            })
+        })
+
         it('manages active dashboard', async () => {
             await expectLogic(logic).toMatchValues({
                 activeDashboard: null,
@@ -151,6 +182,21 @@ describe('maxContextLogic', () => {
             })
         })
 
+        it('automatically adds dashboard to context when set as active', async () => {
+            await expectLogic(logic).toMatchValues({
+                contextDashboards: [],
+                activeDashboard: null,
+            })
+
+            // Set active dashboard - this should trigger loadAndProcessDashboard
+            logic.actions.setActiveDashboard(mockDashboard)
+
+            await expectLogic(logic).toMatchValues({
+                activeDashboard: expectedTransformedDashboard,
+                contextDashboards: [expectedTransformedDashboard],
+            })
+        })
+
         it('resets all context', async () => {
             logic.actions.addOrUpdateContextInsight(mockInsight)
             logic.actions.addOrUpdateContextDashboard(mockDashboard)
@@ -161,6 +207,8 @@ describe('maxContextLogic', () => {
             await expectLogic(logic).toMatchValues({
                 contextInsights: [expectedTransformedInsight],
                 contextDashboards: [expectedTransformedDashboard],
+                contextEvents: [mockEvent],
+                contextActions: [mockAction],
                 useCurrentPageContext: true,
             })
 
@@ -320,6 +368,7 @@ describe('maxContextLogic', () => {
                                     query: { kind: 'TrendsQuery' },
                                 },
                             ],
+                            filters: mockDashboard.filters,
                         },
                     ],
                     events: [
