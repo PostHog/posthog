@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -16,28 +16,31 @@ interface MarketingAnalyticsTableProps {
     insightProps: InsightLogicProps
 }
 
+// TODO: refactor this component to support column actions (`...` button) to be more explicit on the different actions
+// Also we need to centralize the column names and orderBy fields whether in the backend or frontend
 export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy } = useActions(marketingAnalyticsLogic)
     const { marketingAnalyticsOrderBy, conversion_goals } = useValues(marketingAnalyticsLogic)
 
     // Create a new query object with the orderBy field when sorting state changes
     const queryWithOrderBy = useMemo(() => {
-        if (query.source.kind !== 'MarketingAnalyticsTableQuery') {
+        if (query.source.kind !== NodeKind.MarketingAnalyticsTableQuery) {
             return query
+        }
+
+        const source: MarketingAnalyticsTableQuery = {
+            ...query.source,
+            orderBy: marketingAnalyticsOrderBy
+                ? [`${marketingAnalyticsOrderBy[0]} ${marketingAnalyticsOrderBy[1]}`]
+                : undefined,
         }
 
         return {
             ...query,
-            source: {
-                ...query.source,
-                orderBy: marketingAnalyticsOrderBy
-                    ? [`${marketingAnalyticsOrderBy[0]} ${marketingAnalyticsOrderBy[1]}`]
-                    : undefined,
-            } as MarketingAnalyticsTableQuery,
+            source,
         }
     }, [query, marketingAnalyticsOrderBy])
 
-    // Custom sortable cell component for marketing analytics
     const MarketingSortableCell = useCallback(
         (name: string, orderByField: string): QueryContextColumnTitleComponent =>
             function MarketingSortableCell() {

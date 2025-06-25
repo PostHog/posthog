@@ -457,7 +457,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.MarketingAnalyticsTableQuery]: {
         name: 'Marketing Analytics Table',
-        icon: IconPieChart,
+        icon: IconHogQL,
         inMenu: false,
     },
 }

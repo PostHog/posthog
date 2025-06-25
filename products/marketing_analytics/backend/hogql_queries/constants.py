@@ -1,7 +1,6 @@
 # Marketing Analytics Constants and Configuration
 
 # Magic values
-DEFAULT_CURRENCY = "USD"
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
 FALLBACK_COST_VALUE = 999999999

@@ -84,32 +84,14 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     },
                 }
 
+                // Override the schema with the schema from the data warehouse
                 if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
+                    const schema = data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>
                     const overrideSchema: Record<ConversionGoalSchema, string> = {
-                        utm_campaign_name:
-                            (data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>)[
-                                UTM_CAMPAIGN_NAME_SCHEMA_FIELD
-                            ] ||
-                            newFilter.schema.utm_campaign_name ||
-                            'utm_campaign',
-                        utm_source_name:
-                            (data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>)[
-                                UTM_SOURCE_NAME_SCHEMA_FIELD
-                            ] ||
-                            newFilter.schema.utm_source_name ||
-                            'utm_source',
-                        timestamp_field:
-                            (data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>)[
-                                TIMESTAMP_FIELD_SCHEMA_FIELD
-                            ] ||
-                            newFilter.schema.timestamp_field ||
-                            'timestamp',
-                        distinct_id_field:
-                            (data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>)[
-                                DISTINCT_ID_FIELD_SCHEMA_FIELD
-                            ] ||
-                            newFilter.schema.distinct_id_field ||
-                            'distinct_id',
+                        utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
+                        utm_source_name: schema[UTM_SOURCE_NAME_SCHEMA_FIELD],
+                        timestamp_field: schema[TIMESTAMP_FIELD_SCHEMA_FIELD],
+                        distinct_id_field: schema[DISTINCT_ID_FIELD_SCHEMA_FIELD],
                     }
                     newFilter.schema = overrideSchema
                 }

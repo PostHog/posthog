@@ -4573,7 +4573,7 @@ export interface ExternalDataSource {
     source_type: ExternalDataSourceType
     prefix: string
     latest_error: string | null
-    last_run_at?: string | null
+    last_run_at?: Dayjs
     revenue_analytics_enabled: boolean
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
@@ -4596,7 +4596,7 @@ export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
     should_sync: boolean
-    last_synced_at?: string | null
+    last_synced_at?: Dayjs
 }
 
 export type SchemaIncrementalFieldsResponse = IncrementalField[]

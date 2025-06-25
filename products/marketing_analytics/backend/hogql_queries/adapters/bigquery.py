@@ -2,7 +2,7 @@
 
 from typing import Optional
 from .base import MarketingSourceAdapter, ValidationResult, QueryContext
-from ..constants import TABLE_COLUMNS, MARKETING_ANALYTICS_SCHEMA, DEFAULT_CURRENCY
+from ..constants import TABLE_COLUMNS, MARKETING_ANALYTICS_SCHEMA
 from ..utils import get_source_map_field
 
 
@@ -143,7 +143,7 @@ class BigQueryAdapter(MarketingSourceAdapter):
             # Handle currency conversion with BigQuery-specific logic
             total_cost_field = get_source_map_field(source_map, "total_cost")
             currency_field = get_source_map_field(source_map, "currency")
-            base_currency = context.base_currency or DEFAULT_CURRENCY
+            base_currency = context.base_currency
 
             # BigQuery often stores costs in micros, handle conversion
             cost_select = self._build_bigquery_cost_select(total_cost_field, currency_field, base_currency)

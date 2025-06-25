@@ -670,7 +670,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             )?.results
                             return {
                                 ...query,
-                                offset: (query.offset || 0) + (typedResults?.length || 0),
+                                offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
                             } as
                                 | EventsQuery

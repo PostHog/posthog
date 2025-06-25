@@ -770,7 +770,6 @@ export const WebQuery = ({
     }
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
-        // Use the dedicated MarketingAnalyticsTable component
         return <MarketingAnalyticsTable query={query} insightProps={insightProps} />
     }
 

@@ -14,7 +14,6 @@ from posthog.schema import (
 )
 
 from .constants import (
-    DEFAULT_CURRENCY,
     DEFAULT_LIMIT,
     PAGINATION_EXTRA,
     FALLBACK_COST_VALUE,
@@ -90,7 +89,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 date_range=self.query_date_range,
                 team=self.team,
                 global_filters=get_global_property_conditions(self.query, self.team),
-                base_currency=getattr(self.team, "primary_currency", DEFAULT_CURRENCY),
+                base_currency=self.team.base_currency,
             )
 
             # Build the union query string using the factory

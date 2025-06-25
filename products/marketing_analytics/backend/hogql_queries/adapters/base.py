@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Optional, Any
 import structlog
 
+from posthog.models.team.team import DEFAULT_CURRENCY
+
 logger = structlog.get_logger(__name__)
 
 
@@ -28,7 +30,7 @@ class QueryContext:
     date_range: Any  # QueryDateRange
     team: Any
     global_filters: list[Any] = None
-    base_currency: str = "USD"
+    base_currency: str = DEFAULT_CURRENCY
 
     def __post_init__(self):
         if self.global_filters is None:

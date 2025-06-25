@@ -2442,14 +2442,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
-                        limit: 200, // Changed from 100 to 20 for easier pagination testing
+                        limit: 20,
                     } as MarketingAnalyticsTableQuery,
                     full: true,
                     embedded: false,
-                    showActions: true,
-                    // Hide specific controls
-                    showPropertyFilter: false,
-                    showColumnConfigurator: false,
                     showOpenEditorButton: false,
                 }
             },
