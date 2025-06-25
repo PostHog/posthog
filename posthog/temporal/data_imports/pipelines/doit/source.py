@@ -100,7 +100,7 @@ def doit_source(
                 date = parser.parse(db_incremental_field_last_value)
                 start = date.strftime("%Y-%m-%d")
 
-            end = date.now().strftime("%Y-%m-%d")
+            end = datetime.datetime.now().strftime("%Y-%m-%d")
 
             request_uri = f"{request_uri}?startDate={start}&endDate={end}"
 
