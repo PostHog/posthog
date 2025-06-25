@@ -429,6 +429,18 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Restore pytest cache
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              id: pytest-cache
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .pytest_cache
+                  key: pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}-${{ github.ref }}
+                  restore-keys: |
+                      pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}-
+                      pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-
+                      pytest-cache-${{ matrix.segment }}-
+
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
@@ -538,6 +550,12 @@ jobs:
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
+            - name: Save pytest cache
+              if: ${{ needs.changes.outputs.backend == 'true' && success() }}
+              uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .pytest_cache
+                  key: pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}-${{ github.ref }}
 
             # Post tests
             - name: Show docker compose logs on failure
