@@ -75,7 +75,7 @@ function EditKeyModal(): JSX.Element {
                         <LemonInput placeholder='For example "Reports bot" or "Zapier"' maxLength={40} />
                     </LemonField>
                     <ScopeAccessSelector
-                        accessType={editingKey.access_type ?? 'all'}
+                        accessType={editingKey.access_type}
                         organizations={allOrganizations}
                         teams={allTeams ?? undefined}
                     />

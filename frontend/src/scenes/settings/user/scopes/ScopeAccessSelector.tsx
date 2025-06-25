@@ -7,14 +7,14 @@ import type { OrganizationBasicType, TeamBasicType } from '~/types'
 type Props = {
     organizations: Pick<OrganizationBasicType, 'id' | 'name'>[]
     teams?: Pick<TeamBasicType, 'id' | 'name' | 'organization' | 'api_token'>[]
-    accessType: 'all' | 'organizations' | 'teams'
+    accessType?: 'all' | 'organizations' | 'teams'
 }
 
 const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
             <LemonField name="access_type" className="mt-4 mb-2">
-                {({ value, onChange, error }) => (
+                {({ value, onChange }) => (
                     <div className="flex flex-col gap-2 md:flex-row items-start md:items-center justify-between">
                         <LemonLabel>Organization & project access</LemonLabel>
                         <LemonSegmentedButton
@@ -33,7 +33,6 @@ const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.E
                             ]}
                             size="small"
                         />
-                        {error && <div className="text-danger">{error}</div>}
                     </div>
                 )}
             </LemonField>

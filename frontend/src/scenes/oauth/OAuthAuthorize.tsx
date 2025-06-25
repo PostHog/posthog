@@ -61,7 +61,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
                     <div className="flex flex-col gap-6 bg-bg-light border border-border rounded p-6 shadow">
                         <ScopeAccessSelector
-                            accessType={oauthAuthorization.access_type ?? 'all'}
+                            accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
                             teams={allTeams ?? undefined}
                         />
