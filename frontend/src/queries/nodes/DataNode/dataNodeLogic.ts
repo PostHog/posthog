@@ -123,31 +123,31 @@ function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNod
     }
 }
 
-function addTags<T extends Record<string, any>>(query: DataNode<T>, activeScene: string | null): DataNode<T> {
+function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T> {
+    // find the currently mounted scene logic to get the active scene, but don't use the kea connect()
+    // method to do this as we don't want to mount the sceneLogic if it isn't already mounted
+    const mountedSceneLogic = sceneLogic.findMounted()
+    const activeScene = mountedSceneLogic?.values.activeScene
+
     const tags = query.tags ? { ...query.tags } : {}
     if (!tags.scene && activeScene) {
         tags.scene = activeScene
     }
-    return {
+    const result: DataNode<T> = {
         ...query,
         tags,
     }
+    if (result.tags && Object.keys(result.tags).length === 0) {
+        delete result.tags // Remove empty tags object
+    }
+    return result
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
     connect((props: DataNodeLogicProps) => ({
-        values: [
-            userLogic,
-            ['user'],
-            teamLogic,
-            ['currentTeam', 'currentTeamId'],
-            featureFlagLogic,
-            ['featureFlags'],
-            sceneLogic,
-            ['activeScene'],
-        ],
+        values: [userLogic, ['user'], teamLogic, ['currentTeam', 'currentTeamId'], featureFlagLogic, ['featureFlags']],
         actions: [
             dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
             [
@@ -234,7 +234,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
-                    const query = addTags(overrideQuery ?? props.query, values.activeScene)
+                    const query = addTags(overrideQuery ?? props.query)
 
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
