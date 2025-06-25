@@ -406,11 +406,12 @@ export function VariablesSummary({
                     return (
                         <div key={key} className="flex items-center gap-2">
                             <span>
-                                {variable.code_name}: {variable.value ? <b>{variable.value}</b> : <i>null</i>}
+                                {variable.code_name}:{' '}
+                                {variable.value ? <strong>{variable.value}</strong> : <em>null</em>}
                             </span>
                             {hasOverride && (
                                 <LemonTag type="highlight">
-                                    Overridden: {overrideValue ? <b>{overrideValue}</b> : <i>null</i>}
+                                    Overridden: {overrideValue ? <strong>{overrideValue}</strong> : <em>null</em>}
                                 </LemonTag>
                             )}
                         </div>
