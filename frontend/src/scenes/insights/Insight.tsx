@@ -21,7 +21,7 @@ export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }
 
-export function Insight({ insightId }: InsightSceneProps): JSX.Element {
+export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
 

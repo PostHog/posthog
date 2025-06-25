@@ -62,11 +62,7 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
-            'PathsQuery'
-        )
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
     it('persists edit mode in the url', async () => {
