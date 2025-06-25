@@ -1,7 +1,7 @@
 import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -81,6 +81,34 @@ function CinemaMode(): JSX.Element {
     )
 }
 
+function CommentOnRecordingButton(): JSX.Element {
+    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
+    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={() => setIsCommenting(!isCommenting)}
+            tooltip={
+                isCommenting ? (
+                    <>
+                        Stop commenting <KeyboardShortcut c />
+                    </>
+                ) : (
+                    <>
+                        Comment on this recording <KeyboardShortcut c />
+                    </>
+                )
+            }
+            data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
+            active={isCommenting}
+            icon={<IconComment className="text-xl" />}
+        >
+            Comment
+        </LemonButton>
+    )
+}
+
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { isZenMode } = useValues(playerSettingsLogic)
@@ -102,7 +130,12 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isZenMode && <>{playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}</>}
+                    {!isZenMode && (
+                        <>
+                            <CommentOnRecordingButton />
+                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                        </>
+                    )}
                     {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaMode />}
                     <FullScreen />
                 </div>
