@@ -62,6 +62,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
     const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
 
+    if (!insight?.query) {
+        return null
+    }
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <div className="Insight">
