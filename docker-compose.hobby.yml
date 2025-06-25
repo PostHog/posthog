@@ -288,6 +288,16 @@ services:
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
+    feature-flags:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - db
+            - redis
+
 volumes:
     zookeeper-data:
     zookeeper-datalog:
