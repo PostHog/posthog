@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_serializer
 from enum import Enum
 
 import yaml
@@ -16,40 +16,6 @@ class _SeverityLevel(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
-
-
-class SessionGroupSummaryPattern(BaseModel):
-    """Schema for validating individual pattern from LLM output"""
-
-    pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
-    pattern_name: str = Field(..., description="Human-readable name for the pattern", min_length=1)
-    pattern_description: str = Field(..., description="Detailed description of the pattern", min_length=1)
-    severity: _SeverityLevel = Field(..., description="Severity level of the pattern")
-    indicators: list[str] = Field(..., description="List of indicators that signal this pattern", min_items=1)
-
-    class Config:
-        json_encoders = {_SeverityLevel: lambda v: v.value}
-
-
-class SessionGroupSummaryPatternsList(BaseModel):
-    """Schema for validating LLM output for patterns extraction"""
-
-    patterns: list[SessionGroupSummaryPattern] = Field(..., description="List of patterns to validate", min_items=1)
-
-
-class RawSessionGroupPatternAssignment(BaseModel):
-    """Schema for validating individual pattern with events assigned from LLM output"""
-
-    pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
-    event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_items=0)
-
-
-class RawSessionGroupPatternAssignmentsList(BaseModel):
-    """Schema for validating LLM output for patterns with events assigned"""
-
-    patterns: list[RawSessionGroupPatternAssignment] = Field(
-        ..., description="List of pattern assignments to validate", min_items=0
-    )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -85,12 +51,87 @@ class PatternAssignedEventSegmentContext:
     segment_name: str
     segment_outcome: str
     segment_success: bool
+    segment_index: int
     previous_events_in_segment: list[EnrichedPatternAssignedEvent]
     target_event: EnrichedPatternAssignedEvent
     next_events_in_segment: list[EnrichedPatternAssignedEvent]
 
 
-def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -> SessionGroupSummaryPatternsList:
+class RawSessionGroupSummaryPattern(BaseModel):
+    """Schema for validating individual pattern from LLM output"""
+
+    pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
+    pattern_name: str = Field(..., description="Human-readable name for the pattern", min_length=1)
+    pattern_description: str = Field(..., description="Detailed description of the pattern", min_length=1)
+    severity: _SeverityLevel = Field(..., description="Severity level of the pattern")
+    indicators: list[str] = Field(..., description="List of indicators that signal this pattern", min_items=1)
+
+    @field_serializer("severity")
+    def serialize_severity(self, severity: _SeverityLevel) -> str:
+        """Convert enum to string value for JSON serialization"""
+        return severity.value
+
+
+class EnrichedSessionGroupSummaryPatternStats(BaseModel):
+    """How many pattern ocurrences, how pattern affected the success rate of segments, and similar"""
+
+    occurences: int = Field(..., description="How many times the pattern occurred")
+    sessions_affected: int = Field(..., description="How many sessions were affected by the pattern")
+    sessions_affected_ratio: float = Field(
+        ...,
+        description="How many sessions were affected by the pattern (ratio of sessions affected to total sessions)",
+        ge=0.0,
+        le=1.0,
+    )
+    segments_success_ratio: float = Field(
+        ..., description="How many segments with noticed pattern were successful", ge=0.0, le=1.0
+    )
+
+
+class EnrichedSessionGroupSummaryPattern(RawSessionGroupSummaryPattern):
+    """Enriched pattern with events context"""
+
+    events: list[PatternAssignedEventSegmentContext] = Field(
+        ..., description="List of events assigned to the pattern", min_items=0
+    )
+    stats: EnrichedSessionGroupSummaryPatternStats = Field(..., description="Calculated stats for the pattern")
+
+    @field_serializer("events")
+    def serialize_events(self, events: list[PatternAssignedEventSegmentContext]) -> list[dict]:
+        """Convert dataclass events to dicts for JSON serialization"""
+        return [dataclasses.asdict(event) for event in events]
+
+
+class RawSessionGroupSummaryPatternsList(BaseModel):
+    """Schema for validating LLM output for patterns extraction"""
+
+    patterns: list[RawSessionGroupSummaryPattern] = Field(..., description="List of patterns to validate", min_items=1)
+
+
+class EnrichedSessionGroupSummaryPatternsList(BaseModel):
+    """Enriched patterns with events context ready to be dipsplayed in UI"""
+
+    patterns: list[EnrichedSessionGroupSummaryPattern] = Field(
+        ..., description="List of patterns with events context", min_items=1
+    )
+
+
+class RawSessionGroupPatternAssignment(BaseModel):
+    """Schema for validating individual pattern with events assigned from LLM output"""
+
+    pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
+    event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_items=0)
+
+
+class RawSessionGroupPatternAssignmentsList(BaseModel):
+    """Schema for validating LLM output for patterns with events assigned"""
+
+    patterns: list[RawSessionGroupPatternAssignment] = Field(
+        ..., description="List of pattern assignments to validate", min_items=0
+    )
+
+
+def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -> RawSessionGroupSummaryPatternsList:
     if not raw_content:
         raise SummaryValidationError(
             f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
@@ -103,7 +144,7 @@ def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -
         ) from err
     # Validate the LLM output against the schema
     try:
-        validated_patterns = SessionGroupSummaryPatternsList(**json_content)
+        validated_patterns = RawSessionGroupSummaryPatternsList(**json_content)
     except ValidationError as err:
         raise SummaryValidationError(
             f"Error validating LLM output against the schema when extracting patterns for sessions {sessions_identifier}: {err}"
@@ -236,8 +277,9 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
                             _enriched_event_from_session_summary_event(pattern_assigned_event, next_event)
                             for next_event in events_in_segment[event_index + 1 : event_index + 4]
                         ]
+                    segment_index = segment_key_actions["segment_index"]
                     segment_name, segment_outcome, segment_success = _get_segment_name_and_outcome_from_session_summary(
-                        target_segment_index=segment_key_actions["segment_index"], session_summary=session_summary
+                        target_segment_index=segment_index, session_summary=session_summary
                     )
                     event_segment_context = PatternAssignedEventSegmentContext(
                         previous_events_in_segment=previous_events_in_segment,
@@ -246,6 +288,7 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
                         segment_name=segment_name,
                         segment_outcome=segment_outcome,
                         segment_success=segment_success,
+                        segment_index=segment_index,
                     )
                     return event_segment_context
                 except Exception as err:
@@ -255,7 +298,7 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
     raise ValueError(f"Session summary with the required event ({pattern_assigned_event}) was not found")
 
 
-def combine_patterns_with_events_context(
+def combine_patterns_ids_with_events_context(
     combined_event_ids_mappings: dict[str, str],
     combined_patterns_assignments: dict[int, list[str]],
     session_summaries: list[SessionSummarySerializer],
@@ -281,6 +324,52 @@ def combine_patterns_with_events_context(
                 pattern_event_ids_mapping[pattern_id] = []
             pattern_event_ids_mapping[pattern_id].append(event_segment_context)
     return pattern_event_ids_mapping
+
+
+def _calculate_pattern_stats(
+    pattern_events: list[PatternAssignedEventSegmentContext], total_sessions_count: int
+) -> EnrichedSessionGroupSummaryPatternStats:
+    # First, let calculate how occurences and sessions affected are calculated
+    occurences = len(pattern_events)
+    sessions_affected = len({event.target_event.session_id for event in pattern_events})
+    sessions_affected_ratio = round(sessions_affected / total_sessions_count, 2)
+    # Next, let's calculate how the pattern affected the success rate of segments
+    # Keep only unique segments within pattern to avoid false stats
+    unique_segments: dict[str, PatternAssignedEventSegmentContext] = {}
+    for event in pattern_events:
+        segment_identifier = f"{event.target_event.session_id}_{event.segment_index}"
+        unique_segments[segment_identifier] = event
+    segments_count = len(unique_segments)
+    positive_outcomes = len([event for event in unique_segments.values() if event.segment_success is True])
+    segments_success_ratio = round(positive_outcomes / segments_count, 2) if segments_count > 0 else 0
+    return EnrichedSessionGroupSummaryPatternStats(
+        occurences=occurences,
+        sessions_affected=sessions_affected,
+        sessions_affected_ratio=sessions_affected_ratio,
+        segments_success_ratio=segments_success_ratio,
+    )
+
+
+def combine_patterns_with_events_context(
+    patterns: RawSessionGroupSummaryPatternsList,
+    pattern_id_to_event_context_mapping: dict[int, list[PatternAssignedEventSegmentContext]],
+    total_sessions_count: int,
+) -> EnrichedSessionGroupSummaryPatternsList:
+    combined_patterns = []
+    for pattern in patterns.patterns:
+        pattern_id = pattern.pattern_id
+        pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id), [])
+        if not pattern_events:
+            raise ValueError(
+                f"No events found for pattern {pattern_id} when combining patterns with events context: {pattern_id_to_event_context_mapping}"
+            )
+        enriched_pattern = EnrichedSessionGroupSummaryPattern(
+            **pattern.model_dump(),
+            events=pattern_events,
+            stats=_calculate_pattern_stats(pattern_events, total_sessions_count),
+        )
+        combined_patterns.append(enriched_pattern)
+    return EnrichedSessionGroupSummaryPatternsList(patterns=combined_patterns)
 
 
 def load_session_summary_from_string(session_summary_str: str) -> SessionSummarySerializer:

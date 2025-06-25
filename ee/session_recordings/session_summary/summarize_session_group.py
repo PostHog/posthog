@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from ee.session_recordings.session_summary.output_data import IntermediateSessionSummarySerializer
-from ee.session_recordings.session_summary.patterns.output_data import SessionGroupSummaryPatternsList
+from ee.session_recordings.session_summary.patterns.output_data import RawSessionGroupSummaryPatternsList
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
     PatternsPrompt,
@@ -78,7 +78,7 @@ def generate_session_group_patterns_extraction_prompt(
 
 
 def generate_session_group_patterns_assignment_prompt(
-    patterns: SessionGroupSummaryPatternsList,
+    patterns: RawSessionGroupSummaryPatternsList,
     session_summaries_str: list[str],
     extra_summary_context: ExtraSummaryContext | None,
 ) -> SessionSummaryPrompt:

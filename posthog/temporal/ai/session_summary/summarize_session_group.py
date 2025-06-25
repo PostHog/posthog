@@ -15,9 +15,10 @@ from ee.session_recordings.session_summary.llm.consume import (
 )
 from ee.session_recordings.session_summary.patterns.output_data import (
     RawSessionGroupPatternAssignmentsList,
-    SessionGroupSummaryPatternsList,
+    RawSessionGroupSummaryPatternsList,
     combine_event_ids_mappings_from_single_session_summaries,
     combine_patterns_assignments_from_single_session_summaries,
+    combine_patterns_ids_with_events_context,
     combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
@@ -137,7 +138,7 @@ def _get_session_group_single_session_summaries_inputs_from_redis(
 
 # TODO: Move to separate activities
 async def _generate_patterns_assignments_per_chunk(
-    patterns: SessionGroupSummaryPatternsList,
+    patterns: RawSessionGroupSummaryPatternsList,
     session_summaries_chunk_str: list[str],
     user_id: int,
     session_ids: list[str],
@@ -158,7 +159,7 @@ async def _generate_patterns_assignments_per_chunk(
 
 
 async def _generate_patterns_assignments(
-    patterns: SessionGroupSummaryPatternsList,
+    patterns: RawSessionGroupSummaryPatternsList,
     session_summaries_chunks_str: list[list[str]],
     user_id: int,
     session_ids: list[str],
@@ -196,7 +197,8 @@ async def _generate_patterns_assignments(
 async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
     """Summarize a group of sessions in one call"""
     redis_client = get_client()
-    session_ids = [s.session_id for s in inputs.single_session_summaries_inputs]
+    session_ids = list(dict.fromkeys([s.session_id for s in inputs.single_session_summaries_inputs]))
+    total_sessions_count = len(session_ids)
 
     # Get session summaries from Redis
     session_summaries_str = [
@@ -267,14 +269,27 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     with open("combined_patterns_assignments.json", "w") as f:
         f.write(json.dumps(combined_patterns_assignments))
 
-    # Combine patterns with full event ids (from DB) and previous/next events in the segment per each assigned event
-    pattern_event_context_mapping = combine_patterns_with_events_context(
+    # Combine patterns ids with full event ids (from DB) and previous/next events in the segment per each assigned event
+    pattern_id_to_event_context_mapping = combine_patterns_ids_with_events_context(
         combined_event_ids_mappings=combined_event_ids_mappings,
         combined_patterns_assignments=combined_patterns_assignments,
         session_summaries=session_summaries,
     )
     with open("pattern_event_ids_mapping.json", "w") as f:
-        f.write(json.dumps({k: [dataclasses.asdict(dv) for dv in v] for k, v in pattern_event_context_mapping.items()}))
+        f.write(
+            json.dumps(
+                {k: [dataclasses.asdict(dv) for dv in v] for k, v in pattern_id_to_event_context_mapping.items()}
+            )
+        )
+
+    # Combine patterns info (name, description, etc.) with enriched events context
+    patterns_with_events_context = combine_patterns_with_events_context(
+        patterns=patterns_extraction,
+        pattern_id_to_event_context_mapping=pattern_id_to_event_context_mapping,
+        total_sessions_count=total_sessions_count,
+    )
+    with open("patterns_with_events_context.json", "w") as f:
+        f.write(patterns_with_events_context.model_dump_json(exclude_none=True))
 
     # TODO: Enable after testing
     # summary_prompt = generate_session_group_summary_prompt(

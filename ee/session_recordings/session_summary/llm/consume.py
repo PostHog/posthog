@@ -18,7 +18,7 @@ from collections.abc import AsyncGenerator
 
 from ee.session_recordings.session_summary.patterns.output_data import (
     RawSessionGroupPatternAssignmentsList,
-    SessionGroupSummaryPatternsList,
+    RawSessionGroupSummaryPatternsList,
     load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
 )
@@ -109,7 +109,7 @@ def _convert_llm_content_to_session_summary_json_str(
 
 async def get_llm_session_group_patterns_extraction(
     prompt: PatternsPrompt, user_id: int, session_ids: list[str]
-) -> SessionGroupSummaryPatternsList:
+) -> RawSessionGroupSummaryPatternsList:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
