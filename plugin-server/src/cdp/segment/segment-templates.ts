@@ -269,6 +269,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 if (typeof val === 'object' && val['@path']) {
                     val = val['@path'].replace('$.', 'event.')
                     val = normalizeValue(val)
+                } else if (typeof defaultVal === 'object' && defaultVal['@template']) {
+                    defaultVal = `'${defaultVal['@template']}'`
                 } else if (typeof val === 'string') {
                     val = `'${val}'`
                 }
@@ -277,6 +279,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 if (typeof fallbackVal === 'object' && fallbackVal['@path']) {
                     fallbackVal = fallbackVal['@path'].replace('$.', 'event.')
                     fallbackVal = normalizeValue(fallbackVal)
+                } else if (typeof fallbackVal === 'object' && fallbackVal['@template']) {
+                    fallbackVal = `'${fallbackVal['@template']}'`
                 } else if (typeof fallbackVal === 'string') {
                     fallbackVal = `'${fallbackVal}'`
                 }

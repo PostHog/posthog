@@ -30587,7 +30587,7 @@ exports[`segment templates template segment-usermotion matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.event ?? [object Object]}",
+          "default": "{event.event ?? 'pageview'}",
           "description": "The name of the track() event or page() event",
           "key": "eventName",
           "label": "Event Name",
