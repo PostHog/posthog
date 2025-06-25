@@ -10,6 +10,7 @@ from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
+from opentelemetry import trace
 
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.error_tracking import get_suppression_rules
@@ -44,6 +45,7 @@ from posthog.utils import (
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 FLAG_EVALUATION_COUNTER = Counter(
     "flag_evaluation_total",
@@ -81,6 +83,7 @@ def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Op
         logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
 
+@tracer.start_as_current_span("get_base_config")
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict[str, Any]:
     use_remote_config = False
 
@@ -207,6 +210,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
 
 @csrf_exempt
+@tracer.start_as_current_span("get_decide")
 @timed("posthog_cloud_decide_endpoint")
 def get_decide(request: HttpRequest) -> HttpResponse:
     """Handle the /decide endpoint which provides configuration and feature flags to PostHog clients.
@@ -237,7 +241,8 @@ def get_decide(request: HttpRequest) -> HttpResponse:
 
     # --- 2. Parse request data and API version ---
     try:
-        data = load_data_from_request(request)
+        with tracer.start_as_current_span("load_data_from_request"):
+            data = load_data_from_request(request)
         api_version_string = request.GET.get("v")
         # NOTE: This does not support semantic versioning e.g. 2.1.0
         api_version = int(api_version_string) if api_version_string else 1
@@ -271,7 +276,10 @@ def get_decide(request: HttpRequest) -> HttpResponse:
 
     # --- 3. Authenticate the request ---
     token = get_token(data, request)
-    team = Team.objects.get_team_from_cache_or_token(token)
+    with tracer.start_as_current_span("get_team_from_cache_or_token"):
+        team = Team.objects.get_team_from_cache_or_token(token)
+        if team:
+            trace.get_current_span().set_attribute("team_id", team.id)
 
     # Handle personal API key authentication if team lookup failed
     if team is None and token:
@@ -287,6 +295,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
+        trace.get_current_span().set_attribute("project_id", project_id)
 
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
@@ -301,6 +310,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
                 ),
             )
         team = user.teams.get(id=project_id)
+        trace.get_current_span().set_attribute("team_id", team.id)
 
     # --- 4. Process authenticated requests ---
     if team:
@@ -371,6 +381,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     return cors_response(request, JsonResponse(response))
 
 
+@tracer.start_as_current_span("get_feature_flags_response_or_body")
 def get_feature_flags_response_or_body(
     request: HttpRequest,
     data: dict,
@@ -426,16 +437,17 @@ def get_feature_flags_response_or_body(
     }
 
     # Compute feature flags
-    feature_flags, _, feature_flag_payloads, errors, flags_details = get_all_feature_flags_with_details(
-        team,
-        distinct_id,
-        data.get("groups") or {},
-        hash_key_override=data.get("$anon_distinct_id"),
-        property_value_overrides=all_property_overrides,
-        group_property_value_overrides=(data.get("group_properties") or {}),
-        flag_keys=data.get("flag_keys_to_evaluate"),
-        only_evaluate_survey_feature_flags=only_evaluate_survey_feature_flags,
-    )
+    with tracer.start_as_current_span("get_all_feature_flags_with_details"):
+        feature_flags, _, feature_flag_payloads, errors, flags_details = get_all_feature_flags_with_details(
+            team,
+            distinct_id,
+            data.get("groups") or {},
+            hash_key_override=data.get("$anon_distinct_id"),
+            property_value_overrides=all_property_overrides,
+            group_property_value_overrides=(data.get("group_properties") or {}),
+            flag_keys=data.get("flag_keys_to_evaluate"),
+            only_evaluate_survey_feature_flags=only_evaluate_survey_feature_flags,
+        )
 
     # Record metrics and handle billing
     _record_feature_flag_metrics(team, feature_flags, errors, data)
@@ -444,6 +456,7 @@ def get_feature_flags_response_or_body(
     return _format_feature_flags_response(feature_flags, feature_flag_payloads, flags_details, errors, api_version)
 
 
+@tracer.start_as_current_span("_format_feature_flags_response")
 def _format_feature_flags_response(
     feature_flags: dict[str, Any],
     feature_flag_payloads: dict[str, Any],
@@ -453,6 +466,7 @@ def _format_feature_flags_response(
 ) -> dict[str, Any]:
     """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
+    trace.get_current_span().set_attribute("number_of_active_flags", len(active_flags))
 
     if api_version == 2:
         return {"featureFlags": active_flags}
@@ -471,6 +485,7 @@ def _format_feature_flags_response(
         return {"featureFlags": list(active_flags.keys())}
 
 
+@tracer.start_as_current_span("_format_feature_flag_details")
 def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
     if flags_details is None:
         return {}
@@ -515,6 +530,7 @@ def _get_reason_description(match: FeatureFlagMatch) -> str | None:
             return None
 
 
+@tracer.start_as_current_span("_record_feature_flag_metrics")
 def _record_feature_flag_metrics(
     team: Team,
     feature_flags: dict[str, Any],
