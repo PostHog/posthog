@@ -14,7 +14,7 @@ use rstest::rstest;
 impl PropertyFilter {
     /// Checks if the filter is a cohort filter
     pub fn is_cohort(&self) -> bool {
-        self.key == "cohort" && self.prop_type == PropertyType::Cohort
+        self.prop_type == PropertyType::Cohort
     }
 
     /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
@@ -125,7 +125,9 @@ impl FeatureFlag {
     /// OR if the flag has a super group or holdout group
     ///
     pub fn requires_db_properties(&self) -> bool {
-        self.get_group_type_index().is_some() || self.filters.super_groups.is_some()
+        self.get_group_type_index().is_some()
+            || self.filters.super_groups.is_some()
+            || self.requires_cohort_filters()
     }
 }
 
@@ -1715,6 +1717,42 @@ mod tests {
             version: Some(1),
         };
 
+        assert!(flag.requires_db_properties());
+    }
+
+    #[test]
+    fn test_requires_db_properties_if_requires_cohort_filters() {
+        let flag = FeatureFlag {
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "cohort".to_string(),
+                        value: Some(Value::from(1)),
+                        operator: Some(OperatorType::Exact),
+                        group_type_index: None,
+                        negation: Some(false),
+                        prop_type: PropertyType::Cohort,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            id: 1,
+            team_id: 1,
+            name: Some("Flag 1".to_string()),
+            key: "flag_1".to_string(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        assert!(flag.requires_cohort_filters());
         assert!(flag.requires_db_properties());
     }
 
