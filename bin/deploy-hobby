@@ -116,7 +116,9 @@ cd ..
 
 if [ -n "$3" ]
 then
-export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
+export TLS_BLOCK="{
+acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}"
 fi
 
 if [ "$REGISTRY_URL" == "" ]
