@@ -11,7 +11,6 @@ from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RA
 from ee.session_recordings.session_summary.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_extraction,
-    get_llm_session_group_summary,
     get_llm_single_session_summary,
 )
 from ee.session_recordings.session_summary.patterns.output_data import (
@@ -25,7 +24,6 @@ from ee.session_recordings.session_summary.summarize_session import ExtraSummary
 from ee.session_recordings.session_summary.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
     generate_session_group_patterns_extraction_prompt,
-    generate_session_group_summary_prompt,
     remove_excessive_content_from_session_summary_for_llm,
 )
 from posthog import constants
@@ -72,7 +70,9 @@ class SessionGroupSummaryOfSummariesInputs:
 
 
 @temporalio.activity.defn
-async def get_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
+async def get_llm_single_session_summary_activity(
+    inputs: SingleSessionSummaryInputs,
+) -> SessionGroupSummarySingleSessionOutput:
     """Summarize a single session in one call"""
     redis_client = get_client()
     llm_input = get_single_session_summary_llm_input_from_redis(
@@ -234,9 +234,7 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
         combined_patterns_assignments=combined_patterns_assignments,
     )
     with open("pattern_event_ids_mapping.json", "w") as f:
-        f.write(json.dumps({k: dataclasses.asdict(v) for k, v in pattern_event_ids_mapping.items()}))
-
-    print("")
+        f.write(json.dumps({k: [dataclasses.asdict(dv) for dv in v] for k, v in pattern_event_ids_mapping.items()}))
 
     # TODO: Enable after testing
     # summary_prompt = generate_session_group_summary_prompt(
