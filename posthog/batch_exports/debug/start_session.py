@@ -58,9 +58,9 @@ def make_parser():
 
 def start_session(team_id: int, batch_export_id: str):
     if settings.TEST or settings.DEBUG:
-        endpoint_url = "http://localhost:19000"
-    else:
         endpoint_url = settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
+    else:
+        endpoint_url = None
 
     s3fs = fs.S3FileSystem(
         access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -111,7 +111,9 @@ class BatchExportDebug:
             end = data_interval_end
 
         folder = _get_s3_staging_folder(batch_export_id, start, end)
-        file_selector = fs.FileSelector(base_dir=folder, recursive=True)
+        file_selector = fs.FileSelector(
+            base_dir=f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}", recursive=True
+        )
 
         tables = []
         for file_info in self.s3fs.get_file_info(file_selector):
