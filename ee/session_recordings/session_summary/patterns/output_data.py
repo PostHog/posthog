@@ -8,6 +8,7 @@ from ee.session_recordings.session_summary.utils import strip_raw_llm_content
 
 
 class _SeverityLevel(str, Enum):
+    LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
@@ -36,14 +37,14 @@ class RawSessionGroupPatternAssignment(BaseModel):
     """Schema for validating individual pattern with events assigned from LLM output"""
 
     pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
-    event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_items=1)
+    event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_items=0)
 
 
 class RawSessionGroupPatternAssignmentsList(BaseModel):
     """Schema for validating LLM output for patterns with events assigned"""
 
     patterns: list[RawSessionGroupPatternAssignment] = Field(
-        ..., description="List of pattern assignments to validate", min_items=1
+        ..., description="List of pattern assignments to validate", min_items=0
     )
 
 

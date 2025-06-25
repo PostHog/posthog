@@ -58,6 +58,8 @@ Review all provided session summaries and identify recurring themes across multi
 - **High**: Patterns causing significant user frustration or workflow interruption
 - **Medium**: Patterns creating minor friction but not preventing goal completion
 
+IMPORTANT: If you want to assign "Low" severity (not listed) - better skip the pattern alltogether.
+
 Pattern severity level should be higher if it happens often (medium-level pattern that happens in >50% sessions should be high, but not critical), and lower if it happens rarely (if blocking rendering issue happened 2 times out of 100, it should be high, but not critical).
 
 2.3. Ensure actionability of each pattern, as each pattern must pass the "So what?" test:

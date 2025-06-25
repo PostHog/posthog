@@ -2,7 +2,7 @@ patterns:
     - pattern_id: 1
       pattern_name: 'Example Pattern'
       pattern_description: 'The description of the pattern 1'
-      severity: 'medium' # medium | high | critical
+      severity: 'medium' # low | medium | high | critical
       indicators:
           - Repeated actions confirming the pattern 1
           - Other actions confirming the pattern 1
