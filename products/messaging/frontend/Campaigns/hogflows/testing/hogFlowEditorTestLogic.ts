@@ -44,7 +44,7 @@ export interface HogflowTestResult {
 }
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
-    path(['products', 'messaging', 'frontend', 'Campaigns', 'hogflows', 'actions', 'workflowTestLogic']),
+    path((key) => ['products', 'messaging', 'frontend', 'Campaigns', 'hogflows', 'actions', 'workflowTestLogic', key]),
     props({} as HogFlowEditorTestLogicProps),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
@@ -175,66 +175,6 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         ],
     })),
     loaders(({ actions, values }) => ({
-        testInvocation: [
-            {
-                globals: JSON.stringify(
-                    {
-                        event: {
-                            uuid: uuid(),
-                            distinct_id: uuid(),
-                            timestamp: dayjs().toISOString(),
-                            elements_chain: '',
-                            url: `${window.location.origin}/project/1/events/`,
-                            event: '$pageview',
-                            properties: {
-                                $current_url: window.location.href.split('#')[0],
-                                $browser: 'Chrome',
-                                this_is_an_example_event: true,
-                            },
-                        },
-                        person: {
-                            id: uuid(),
-                            properties: {
-                                email: 'example@posthog.com',
-                            },
-                            name: 'Example person',
-                            url: `${window.location.origin}/person/${uuid()}`,
-                        },
-                        groups: {},
-                        project: {
-                            id: 1,
-                            name: 'Default project',
-                            url: `${window.location.origin}/project/1`,
-                        },
-                        source: {
-                            name: values.campaign.name ?? 'Unnamed',
-                            url: window.location.href.split('#')[0],
-                        },
-                    },
-                    null,
-                    2
-                ),
-                mock_async_functions: true,
-            } as HogflowTestInvocation,
-            {
-                submitTestInvocation: async () => {
-                    try {
-                        const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {
-                            configuration: {},
-                            globals: JSON.parse(values.testInvocation.globals),
-                            mock_async_functions: values.testInvocation.mock_async_functions,
-                        })
-
-                        actions.setTestResult(apiResponse)
-                        return values.testInvocation
-                    } catch (error: any) {
-                        console.error('Workflow test error:', error)
-                        lemonToast.error('Error testing workflow')
-                        throw error
-                    }
-                },
-            },
-        ],
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
@@ -310,9 +250,48 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
         ],
     })),
-    forms(() => ({
+    forms(({ actions, values }) => ({
         testInvocation: {
-            defaults: {} as HogflowTestInvocation,
+            defaults: {
+                globals: JSON.stringify(
+                    {
+                        event: {
+                            uuid: uuid(),
+                            distinct_id: uuid(),
+                            timestamp: dayjs().toISOString(),
+                            elements_chain: '',
+                            url: `${window.location.origin}/project/1/events/`,
+                            event: '$pageview',
+                            properties: {
+                                $current_url: window.location.href.split('#')[0],
+                                $browser: 'Chrome',
+                                this_is_an_example_event: true,
+                            },
+                        },
+                        person: {
+                            id: uuid(),
+                            properties: {
+                                email: 'example@posthog.com',
+                            },
+                            name: 'Example person',
+                            url: `${window.location.origin}/person/${uuid()}`,
+                        },
+                        groups: {},
+                        project: {
+                            id: 1,
+                            name: 'Default project',
+                            url: `${window.location.origin}/project/1`,
+                        },
+                        source: {
+                            name: values.campaign.name ?? 'Unnamed',
+                            url: window.location.href.split('#')[0],
+                        },
+                    },
+                    null,
+                    2
+                ),
+                mock_async_functions: true,
+            } as HogflowTestInvocation,
             errors: (data: HogflowTestInvocation) => {
                 const errors: Record<string, string> = {}
                 try {
@@ -321,6 +300,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     errors.globals = 'Invalid JSON'
                 }
                 return errors
+            },
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            submit: async (testInvocation: HogflowTestInvocation) => {
+                try {
+                    const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {
+                        configuration: {},
+                        globals: JSON.parse(testInvocation.globals),
+                        mock_async_functions: testInvocation.mock_async_functions,
+                    })
+
+                    actions.setTestResult(apiResponse)
+                    return values.testInvocation
+                } catch (error: any) {
+                    console.error('Workflow test error:', error)
+                    lemonToast.error('Error testing workflow')
+                    throw error
+                }
             },
         },
     })),

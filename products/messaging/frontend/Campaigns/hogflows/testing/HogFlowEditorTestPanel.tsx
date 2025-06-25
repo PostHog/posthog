@@ -61,7 +61,7 @@ export function HogFlowEditorTestPanel(): JSX.Element {
             <Form logic={hogFlowEditorTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
                 <div className="max-w-[600px] max-h-[600px] overflow-y-auto gap-2 bg-surface-primary rounded-md shadow-md">
                     {/* Header */}
-                    <div className="flex w-full justify-between items-center px-2 my-2">
+                    <div className="flex justify-between items-center px-2 my-2 w-full">
                         <h3 className="flex gap-1 items-center mb-0 font-semibold">
                             <IconTestTube className="text-lg" />
                             Test workflow
@@ -101,10 +101,10 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                     <div className="p-2">
                         {/* Event Information */}
                         {sampleGlobals && (
-                            <div className="my-2 gap-2">
+                            <div className="gap-2 my-2">
                                 {/* Event Information */}
                                 {sampleGlobals.event && (
-                                    <div className="bg-surface-secondary rounded p-3">
+                                    <div className="p-3 rounded bg-surface-secondary">
                                         <div className="flex gap-1 items-center">
                                             {sampleGlobals.person && (
                                                 <Link to={url} className="flex gap-2 items-center">
@@ -113,7 +113,7 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                                                 </Link>
                                             )}
                                             <span className="text-muted">performed</span>
-                                            <div className="space-y-1 text-md font-semibold">
+                                            <div className="space-y-1 font-semibold text-md">
                                                 {sampleGlobals.event.event}
                                             </div>{' '}
                                             <div>
@@ -125,9 +125,9 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                                         {sampleGlobals.event.properties &&
                                             Object.keys(sampleGlobals.event.properties).length > 0 && (
                                                 <div className="mt-3">
-                                                    <div className="text-sm mb-2">Event properties</div>
-                                                    <div className="bg-surface-primary rounded p-2 max-h-32 overflow-y-auto">
-                                                        <pre className="text-xs text-muted whitespace-pre-wrap">
+                                                    <div className="mb-2 text-sm">Event properties</div>
+                                                    <div className="overflow-y-auto p-2 max-h-32 rounded bg-surface-primary">
+                                                        <pre className="text-xs whitespace-pre-wrap text-muted">
                                                             {JSON.stringify(sampleGlobals.event.properties, null, 2)}
                                                         </pre>
                                                     </div>
@@ -194,11 +194,11 @@ export function HogFlowEditorTestPanel(): JSX.Element {
                         {/* Test Kickoff */}
                         {!testResult && (
                             <div className="flex flex-col gap-2">
-                                <div className="text-muted text-sm">
+                                <div className="text-sm text-muted">
                                     Note: Delays will be skipped in test runs to speed up execution.
                                 </div>
 
-                                <div className="flex gap-4 items-center justify-between">
+                                <div className="flex gap-4 justify-between items-center">
                                     <LemonField name="mock_async_functions">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
