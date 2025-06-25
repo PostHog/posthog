@@ -212,9 +212,9 @@ export function MaxFloatingInput(): JSX.Element | null {
                     ? ''
                     : clsx(
                           getPositionClasses(),
-                          'border border-[var(--border-primary)] backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2',
-                          isFloatingMaxExpanded ? 'rounded-[var(--radius)] w-80' : 'rounded-full mr-4',
-                          !threadVisible ? 'p-1' : ''
+                          'border backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2',
+                          isFloatingMaxExpanded ? 'rounded-lg w-80' : 'rounded-full mr-4',
+                          !threadVisible && isFloatingMaxExpanded ? 'p-1' : 'p-0.5'
                       )
             }
             style={floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating ? {} : getAnimationStyle()}
