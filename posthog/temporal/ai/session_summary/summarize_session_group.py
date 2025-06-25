@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 from datetime import timedelta
 import json
+import uuid
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -194,13 +195,15 @@ async def _generate_patterns_assignments(
 async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
     """Summarize a group of sessions in one call"""
     redis_client = get_client()
+    session_ids = [s.session_id for s in inputs.single_session_summaries_inputs]
     # Get session summaries from Redis
     session_summaries_str = [
+        # TODO: Get values in batch?
         get_single_session_summary_output_from_redis(
             redis_client=redis_client,
-            redis_output_key=single_session_input.redis_output_key,
+            redis_output_key=s.redis_output_key,
         )
-        for single_session_input in inputs.single_session_summaries_inputs
+        for s in inputs.single_session_summaries_inputs
     ]
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
     intermediate_session_summaries_str = [
@@ -214,7 +217,7 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     )
     # Extract patterns from session summaries through LLM
     patterns_extraction = await get_llm_session_group_patterns_extraction(
-        prompt=patterns_prompt, user_id=inputs.user_id, session_ids=inputs.session_ids
+        prompt=patterns_prompt, user_id=inputs.user_id, session_ids=session_ids
     )
 
     # TODO: Remove after testing
@@ -230,13 +233,15 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
         patterns=patterns_extraction,
         session_summaries_chunks=session_summaries_chunks,
         user_id=inputs.user_id,
-        session_ids=inputs.session_ids,
+        session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
 
     # Collect data from Redis on single session summaries to be able to enrich the patterns collected
     single_session_summaries_inputs = _get_session_group_single_session_summaries_inputs_from_redis(
-        redis_input_keys=[session_summary.redis_input_key for session_summary in inputs.session_summaries]
+        redis_input_keys=[
+            single_session_input.redis_input_key for single_session_input in inputs.single_session_summaries_inputs
+        ]
     )
 
     # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
@@ -377,7 +382,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 )
         session_inputs: list[SingleSessionSummaryInputs] = []
         # Check summary generation results
-        for session_id, task in tasks.items():
+        for session_id, (task, single_session_input) in tasks.items():
             res = task.result()
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
@@ -476,6 +481,6 @@ def execute_summarize_session_group(
         local_reads_prod=local_reads_prod,
     )
     # Connect to Temporal and execute the workflow
-    workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}"
+    workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}:{uuid.uuid4()}"
     result = asyncio.run(_execute_workflow(inputs=session_group_input, workflow_id=workflow_id))
     return result

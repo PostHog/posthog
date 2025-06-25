@@ -3,6 +3,7 @@ from collections.abc import Generator
 from datetime import timedelta
 import json
 import time
+import uuid
 from redis import Redis
 import structlog
 import temporalio
@@ -174,7 +175,7 @@ def execute_summarize_session_stream(
         redis_output_key=redis_output_key,
     )
     # Connect to Temporal and start streaming the workflow
-    workflow_id = f"session-summary:single:stream:{session_id}:{user_id}:{shared_id}"
+    workflow_id = f"session-summary:single:stream:{session_id}:{user_id}:{shared_id}:{uuid.uuid4()}"
     handle = asyncio.run(_start_workflow(inputs=session_input, workflow_id=workflow_id))
     last_summary_state = ""
     while True:
