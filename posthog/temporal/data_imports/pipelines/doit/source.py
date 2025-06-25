@@ -99,6 +99,10 @@ def doit_source(
             elif isinstance(db_incremental_field_last_value, str):
                 date = parser.parse(db_incremental_field_last_value)
                 start = date.strftime("%Y-%m-%d")
+            else:
+                raise Exception(
+                    f"DoIt incremental type not recognised: {db_incremental_field_last_value.__class__.__name__}"
+                )
 
             end = datetime.datetime.now().strftime("%Y-%m-%d")
 
