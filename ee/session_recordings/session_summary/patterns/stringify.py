@@ -14,10 +14,15 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
         Formatted markdown string
     """
     patterns = json_data.get("patterns", [])
-
+    
     if not patterns:
         return "# Group Summary Patterns\n\nNo patterns found."
-
+    
+    # Sort patterns by severity: critical, medium, high
+    # TODO: Implement in actual summary also
+    severity_order = {"critical": 0, "high": 1, "medium": 2}
+    patterns.sort(key=lambda p: severity_order.get(p["severity"]))
+    
     markdown_lines = ["# Group Summary Patterns", ""]
 
     for pattern in patterns:
