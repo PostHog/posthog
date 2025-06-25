@@ -15,7 +15,7 @@ from posthog.redis import get_client
 logger = structlog.get_logger(__name__)
 
 # How long to store the DB data in Redis within Temporal session summaries jobs
-SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 900  # 15 minutes to keep alive for retries
+SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60  # 60 minutes to keep alive for retries and long-running workflows
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -34,28 +34,37 @@ class SingleSessionSummaryInputs:
 @temporalio.activity.defn
 async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
     """Fetch data from DB for a single session and store in Redis (to avoid hitting Temporal memory limits), return Redis key"""
-    summary_data = await prepare_data_for_single_session_summary(
-        session_id=inputs.session_id,
-        user_id=inputs.user_id,
-        team_id=inputs.team_id,
-        extra_summary_context=inputs.extra_summary_context,
-        local_reads_prod=inputs.local_reads_prod,
-    )
-    if summary_data.error_msg is not None:
-        # If we weren't able to collect the required data - retry
-        logger.exception(
-            f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
+    # Check if data is already in Redis
+    redis_client = get_client()
+    try:
+        # If data is still in Redis - it's within TTL, so no need to re-fetch it from DB
+        input_data = get_single_session_summary_llm_input_from_redis(
+            redis_client=redis_client,
+            redis_input_key=inputs.redis_input_key,
+        )
+    except ValueError:
+        # If not - fetch data from DB
+        summary_data = await prepare_data_for_single_session_summary(
             session_id=inputs.session_id,
             user_id=inputs.user_id,
+            team_id=inputs.team_id,
+            extra_summary_context=inputs.extra_summary_context,
+            local_reads_prod=inputs.local_reads_prod,
         )
-        raise ExceptionToRetry()
-    input_data = prepare_single_session_summary_input(
-        session_id=inputs.session_id,
-        user_id=inputs.user_id,
-        summary_data=summary_data,
-    )
-    # Connect to Redis and prepare the input
-    redis_client = get_client()
+        if summary_data.error_msg is not None:
+            # If we weren't able to collect the required data - retry
+            logger.exception(
+                f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
+                session_id=inputs.session_id,
+                user_id=inputs.user_id,
+            )
+            raise ExceptionToRetry()
+        input_data = prepare_single_session_summary_input(
+            session_id=inputs.session_id,
+            user_id=inputs.user_id,
+            summary_data=summary_data,
+        )
+    # Store the input in Redis (either initially or to update TTL)
     compressed_llm_input_data = compress_llm_input_data(input_data)
     redis_client.setex(
         inputs.redis_input_key,

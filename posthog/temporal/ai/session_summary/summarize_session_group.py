@@ -2,7 +2,6 @@ import asyncio
 import dataclasses
 from datetime import timedelta
 import json
-import uuid
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -429,7 +428,8 @@ def execute_summarize_session_group(
     Start the workflow and return the final summary for the group of sessions.
     """
     # Use shared identifier to be able to construct all the ids to check/debug
-    shared_id = uuid.uuid4()
+    # Using session ids instead of random UUID to be able to check the data in Redis
+    shared_id = "-".join(session_ids)
     # Prepare the input data
     redis_input_key_base = f"session-summary:group:get-input:{user_id}-{team.id}:{shared_id}"
     session_group_input = SessionGroupSummaryInputs(

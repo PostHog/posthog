@@ -3,7 +3,6 @@ from collections.abc import Generator
 from datetime import timedelta
 import json
 import time
-import uuid
 from redis import Redis
 import structlog
 import temporalio
@@ -159,7 +158,8 @@ def execute_summarize_session_stream(
     Start the workflow and yield summary state from the stream as it becomes available.
     """
     # Use shared identifier to be able to construct all the ids to check/debug
-    shared_id = uuid.uuid4()
+    # Using session id instead of random UUID to be able to check the data in Redis
+    shared_id = session_id
     # Prepare the input data
     redis_client = get_client()
     redis_input_key = f"session-summary:single:stream-input:{session_id}:{user_id}-{team.id}:{shared_id}"
