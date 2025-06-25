@@ -159,7 +159,7 @@ export function elementIsVisible(element: HTMLElement): boolean {
         return (
             style.display !== 'none' &&
             style.visibility !== 'hidden' &&
-            style.opacity !== '0' &&
+            parseFloat(style.opacity) !== 0 &&
             style.height !== '0px' &&
             style.width !== '0px' &&
             (element.parentElement ? elementIsVisible(element.parentElement) : true)
