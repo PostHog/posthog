@@ -8,10 +8,13 @@ use common_redis::Client as RedisClient;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+#[cfg(test)]
+use rstest::rstest;
+
 impl PropertyFilter {
     /// Checks if the filter is a cohort filter
     pub fn is_cohort(&self) -> bool {
-        self.key == "id" && self.prop_type == PropertyType::Cohort
+        self.key == "cohort" && self.prop_type == PropertyType::Cohort
     }
 
     /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
@@ -73,6 +76,27 @@ impl FeatureFlag {
             payloads
                 .as_object()
                 .and_then(|obj| obj.get(match_val).cloned())
+        })
+    }
+
+    /// Returns true if the flag has any cohort filters.
+    pub fn has_cohort_filters(&self) -> bool {
+        self.filters.groups.iter().any(|group| {
+            group.properties.as_ref().map_or(false, |properties| {
+                properties.iter().any(|filter| filter.is_cohort())
+            })
+        })
+    }
+
+    /// Returns true if the flag requires cohort filters to be evaluated.
+    ///
+    /// This is true if the flag has a rollout percentage set and the flag has cohort filters
+    ///
+    pub fn requires_cohort_filters(&self) -> bool {
+        self.filters.groups.iter().any(|group| {
+            group.rollout_percentage.is_some()
+                && group.rollout_percentage.unwrap() > 0.0
+                && self.has_cohort_filters()
         })
     }
 
@@ -277,7 +301,7 @@ mod tests {
         properties::property_models::{OperatorType, PropertyType},
     };
     use rand::Rng;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::time::Instant;
     use tokio::task;
 
@@ -1720,5 +1744,72 @@ mod tests {
         };
 
         assert!(!flag.requires_db_properties());
+    }
+
+    #[test]
+    fn test_does_not_have_cohort_filters_if_no_cohort_filter_set() {
+        let flag = FeatureFlag {
+            filters: FlagFilters {
+                groups: vec![],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            id: 1,
+            team_id: 1,
+            name: Some("Flag 1".to_string()),
+            key: "flag_1".to_string(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        assert!(!flag.has_cohort_filters());
+    }
+
+    #[rstest]
+    #[case(100.0, true)]
+    #[case(50.0, true)]
+    #[case(0.0, false)]
+    fn test_requires_cohort_filters_if_cohort_filter_set_and_rollout_percentage_not_zero(
+        #[case] rollout_percentage: f64,
+        #[case] expected: bool,
+    ) {
+        let flag = FeatureFlag {
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "cohort".to_string(),
+                        value: Some(Value::from(1)),
+                        operator: Some(OperatorType::Exact),
+                        group_type_index: None,
+                        negation: Some(false),
+                        prop_type: PropertyType::Cohort,
+                    }]),
+                    rollout_percentage: Some(rollout_percentage),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            id: 1,
+            team_id: 1,
+            name: Some("Flag 1".to_string()),
+            key: "flag_1".to_string(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        // All flags in this test *have* cohort filters. Not all require them.
+        assert!(flag.has_cohort_filters());
+        assert_eq!(flag.requires_cohort_filters(), expected);
     }
 }
