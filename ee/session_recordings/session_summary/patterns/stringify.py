@@ -37,7 +37,8 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
         "high": "🟠",
         "medium": "🟡",
     }
-    markdown_lines.extend(["## 📊 Issues to review", ""])
+    session_text = "session" if total_sessions == 1 else "sessions"
+    markdown_lines.extend([f"## 📊 Issues to review ({total_sessions} {session_text} scope)", ""])
     markdown_lines.extend(["| Pattern | Severity | Sessions | Failure Rate |"])
     markdown_lines.extend(["|---------|----------|----------|--------------|"])
 
