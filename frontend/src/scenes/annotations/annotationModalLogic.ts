@@ -1,4 +1,4 @@
-import { LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import {} from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
@@ -138,23 +138,6 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {
                 return annotations.length === 0 && !annotationsLoading
-            },
-        ],
-        scopeOptions: [
-            () => [],
-            (): LemonSelectOptions<AnnotationType['scope'] | null> => {
-                const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = Object.values(
-                    AnnotationScope
-                ).map((scope) => ({
-                    value: scope,
-                    label: annotationScopeToName[scope],
-                }))
-                // add any with value null as the first option
-                scopeOptions.unshift({
-                    value: null,
-                    label: 'Any',
-                })
-                return scopeOptions
             },
         ],
     })),

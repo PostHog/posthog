@@ -14,6 +14,21 @@ const isValidAnnotationScope = (scope: string): scope is AnnotationScope => {
     return Object.values(AnnotationScope).includes(scope as AnnotationScope)
 }
 
+export const annotationScopesMenuOptions = (): LemonSelectOptions<AnnotationType['scope'] | null> => {
+    const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = Object.values(AnnotationScope).map(
+        (scope) => ({
+            value: scope,
+            label: annotationScopeToName[scope],
+        })
+    )
+    // add any with value null as the first option
+    scopeOptions.unshift({
+        value: null,
+        label: 'Any',
+    })
+    return scopeOptions
+}
+
 export const annotationsLogic = kea<annotationsLogicType>([
     path(['scenes', 'annotations', 'annotationsLogic']),
     connect(() => ({
@@ -35,23 +50,6 @@ export const annotationsLogic = kea<annotationsLogicType>([
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {
                 return annotations.length === 0 && !annotationsLoading
-            },
-        ],
-        scopeOptions: [
-            () => [],
-            (): LemonSelectOptions<AnnotationType['scope'] | null> => {
-                const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = Object.values(
-                    AnnotationScope
-                ).map((scope) => ({
-                    value: scope,
-                    label: annotationScopeToName[scope],
-                }))
-                // add any with value null as the first option
-                scopeOptions.unshift({
-                    value: null,
-                    label: 'Any',
-                })
-                return scopeOptions
             },
         ],
         filteredAnnotations: [
