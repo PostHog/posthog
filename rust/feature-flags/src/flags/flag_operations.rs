@@ -5,11 +5,9 @@ use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
-use std::collections::HashSet;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-#[cfg(test)]
-use rstest::rstest;
 
 impl PropertyFilter {
     /// Checks if the filter is a cohort filter
@@ -41,6 +39,16 @@ impl PropertyFilter {
             return None;
         }
         self.key.parse::<FeatureFlagId>().ok()
+    }
+
+    /// Returns true if the filter requires DB properties to be evaluated.
+    ///
+    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters
+    pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
+        if self.is_cohort() || self.depends_on_feature_flag() {
+            return false;
+        }
+        !overrides.contains_key(&self.key)
     }
 }
 
@@ -79,26 +87,6 @@ impl FeatureFlag {
         })
     }
 
-    /// Returns true if the flag has any cohort filters.
-    pub fn has_cohort_filters(&self) -> bool {
-        self.filters.groups.iter().any(|group| {
-            group.properties.as_ref().map_or(false, |properties| {
-                properties.iter().any(|filter| filter.is_cohort())
-            })
-        })
-    }
-
-    /// Returns true if the flag requires cohort filters to be evaluated.
-    ///
-    /// This is true if the flag has a rollout percentage set and the flag has cohort filters
-    ///
-    pub fn requires_cohort_filters(&self) -> bool {
-        self.filters
-            .groups
-            .iter()
-            .any(|group| group.is_rolled_out_to_to_some() && self.has_cohort_filters())
-    }
-
     /// Extracts dependent FeatureFlagIds from the feature flag's filters
     ///
     /// # Returns
@@ -118,15 +106,13 @@ impl FeatureFlag {
         Ok(dependencies)
     }
 
-    /// Returns true if the flag requires DB properties to be evaluated.
+    /// Returns true if the flag requires DB preparation in order to evaluate the flag.
     ///
     /// This is true if the flag has a group type index set
-    /// OR if the flag has a super group or holdout group
-    ///
-    pub fn requires_db_properties(&self) -> bool {
-        self.get_group_type_index().is_some()
-            || self.filters.super_groups.is_some()
-            || self.requires_cohort_filters()
+    /// OR if the flag has a cohort filter
+    /// OR if the flag has a property filter and the property filter is not present in the overrides
+    pub fn requires_db_preparation(&self, overrides: &HashMap<String, Value>) -> bool {
+        self.filters.requires_db_properties(overrides) || self.filters.requires_cohort_filters()
     }
 }
 
@@ -298,7 +284,10 @@ impl FeatureFlagList {
 #[cfg(test)]
 mod tests {
     use crate::{
-        flags::flag_models::*,
+        flags::{
+            flag_models::*,
+            test_helpers::{create_simple_flag, create_simple_property_filter},
+        },
         properties::property_models::{OperatorType, PropertyType},
     };
     use rand::Rng;
@@ -1649,204 +1638,221 @@ mod tests {
     }
 
     #[test]
-    fn test_does_not_require_db_properties_if_no_group_type_index() {
-        let flag = FeatureFlag {
-            filters: FlagFilters::default(),
-            id: 1,
-            team_id: 1,
-            name: Some("Flag 1".to_string()),
-            key: "flag_1".to_string(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
+    fn test_require_db_preparation_if_group_type_index() {
+        let mut flag = create_simple_flag(
+            vec![create_simple_property_filter(
+                "some_property",
+                PropertyType::Person,
+                OperatorType::Exact,
+            )],
+            100.0,
+        );
+
+        let overrides = HashMap::from([(
+            "some_property".to_string(),
+            Value::String("value".to_string()),
+        )]);
 
         assert!(flag.get_group_type_index().is_none());
-        assert!(!flag.requires_db_properties());
-    }
+        assert!(!flag.requires_db_preparation(&overrides));
 
-    #[test]
-    fn test_requires_db_properties_if_group_type_index_set() {
-        let flag = FeatureFlag {
-            filters: FlagFilters {
-                groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: Some(0),
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            id: 1,
-            team_id: 1,
-            name: Some("Flag 1".to_string()),
-            key: "flag_1".to_string(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
+        flag.filters.aggregation_group_type_index = Some(0);
 
         assert!(flag.get_group_type_index().is_some());
-        assert!(flag.requires_db_properties());
+        assert!(flag.requires_db_preparation(&overrides));
     }
 
     #[test]
-    fn test_requires_db_properties_if_super_group_set() {
-        let flag = FeatureFlag {
-            filters: FlagFilters {
-                groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: Some(vec![FlagPropertyGroup {
-                    properties: None,
-                    rollout_percentage: None,
-                    variant: None,
-                }]),
-                holdout_groups: None,
-            },
-            id: 1,
-            team_id: 1,
-            name: Some("Flag 1".to_string()),
-            key: "flag_1".to_string(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
+    fn test_requires_db_preparation_if_cohort_filter_set() {
+        let flag = create_simple_flag(
+            vec![create_simple_property_filter(
+                "some_property",
+                PropertyType::Cohort,
+                OperatorType::Exact,
+            )],
+            100.0,
+        );
 
-        assert!(flag.requires_db_properties());
+        // Even though override matches the cohort filter, we still need to prepare the DB
+        let overrides = HashMap::from([(
+            "some_property".to_string(),
+            Value::String("value".to_string()),
+        )]);
+
+        assert!(flag.requires_db_preparation(&overrides));
     }
 
     #[test]
-    fn test_requires_db_properties_if_requires_cohort_filters() {
-        let flag = FeatureFlag {
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
-                        key: "cohort".to_string(),
-                        value: Some(Value::from(1)),
-                        operator: Some(OperatorType::Exact),
-                        group_type_index: None,
-                        negation: Some(false),
-                        prop_type: PropertyType::Cohort,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            id: 1,
-            team_id: 1,
-            name: Some("Flag 1".to_string()),
-            key: "flag_1".to_string(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
+    fn test_requires_db_preparation_if_not_enough_overrides() {
+        let flag = create_simple_flag(
+            vec![
+                create_simple_property_filter(
+                    "some_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                ),
+                create_simple_property_filter(
+                    "another_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                ),
+            ],
+            1.0,
+        );
 
-        assert!(flag.requires_cohort_filters());
-        assert!(flag.requires_db_properties());
+        {
+            let overrides = HashMap::from([
+                // Not enough overrides to evaluate locally
+                (
+                    "some_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+            ]);
+            assert!(flag.requires_db_preparation(&overrides));
+        }
+
+        {
+            let overrides = HashMap::from([
+                (
+                    "some_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+                (
+                    "another_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+            ]);
+            assert!(!flag.requires_db_preparation(&overrides));
+        }
     }
 
     #[test]
-    fn test_does_not_require_db_properties_if_holdout_group_set() {
-        let flag = FeatureFlag {
-            filters: FlagFilters {
-                groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: Some(vec![FlagPropertyGroup {
-                    properties: None,
-                    rollout_percentage: None,
-                    variant: None,
-                }]),
-            },
-            id: 1,
-            team_id: 1,
-            name: Some("Flag 1".to_string()),
-            key: "flag_1".to_string(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
+    fn test_requires_db_preparation_if_super_group_set_and_not_enough_overrides() {
+        let mut flag = create_simple_flag(vec![], 1.0);
+        flag.filters.super_groups = Some(vec![FlagPropertyGroup {
+            properties: Some(vec![
+                create_simple_property_filter(
+                    "some_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                ),
+                create_simple_property_filter(
+                    "another_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                ),
+            ]),
+            rollout_percentage: Some(1.0),
+            variant: None,
+        }]);
 
-        assert!(!flag.requires_db_properties());
+        {
+            let overrides = HashMap::from([
+                // Not enough overrides to evaluate locally
+                (
+                    "some_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+            ]);
+            assert!(flag.requires_db_preparation(&overrides));
+        }
+
+        {
+            let overrides = HashMap::from([
+                (
+                    "some_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+                (
+                    "another_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+            ]);
+            assert!(!flag.requires_db_preparation(&overrides));
+        }
     }
 
     #[test]
-    fn test_does_not_have_cohort_filters_if_no_cohort_filter_set() {
-        let flag = FeatureFlag {
-            filters: FlagFilters {
-                groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
+    fn test_requires_db_preparation_if_holdout_groups_set_and_not_enough_overrides() {
+        let mut flag = create_simple_flag(vec![], 100.0);
+        flag.filters.holdout_groups = Some(vec![
+            FlagPropertyGroup {
+                properties: Some(vec![create_simple_property_filter(
+                    "some_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                )]),
+                rollout_percentage: Some(100.0),
+                variant: None,
             },
-            id: 1,
-            team_id: 1,
-            name: Some("Flag 1".to_string()),
-            key: "flag_1".to_string(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
+            FlagPropertyGroup {
+                properties: Some(vec![create_simple_property_filter(
+                    "another_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                )]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            },
+        ]);
 
-        assert!(!flag.has_cohort_filters());
+        {
+            // Not enough overrides to evaluate locally
+            let overrides = HashMap::from([(
+                "some_property".to_string(),
+                Value::String("value".to_string()),
+            )]);
+
+            assert!(flag.requires_db_preparation(&overrides));
+        }
+        {
+            // Sufficient overrides to evaluate locally
+            let overrides = HashMap::from([
+                (
+                    "some_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+                (
+                    "another_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+            ]);
+            assert!(!flag.requires_db_preparation(&overrides));
+        }
     }
 
-    #[rstest]
-    #[case(100.0, true)]
-    #[case(50.0, true)]
-    #[case(0.0, false)]
-    fn test_requires_cohort_filters_if_cohort_filter_set_and_rollout_percentage_not_zero(
-        #[case] rollout_percentage: f64,
-        #[case] expected: bool,
-    ) {
-        let flag = FeatureFlag {
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
-                        key: "cohort".to_string(),
-                        value: Some(Value::from(1)),
-                        operator: Some(OperatorType::Exact),
-                        group_type_index: None,
-                        negation: Some(false),
-                        prop_type: PropertyType::Cohort,
-                    }]),
-                    rollout_percentage: Some(rollout_percentage),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            id: 1,
-            team_id: 1,
-            name: Some("Flag 1".to_string()),
-            key: "flag_1".to_string(),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
+    #[test]
+    fn test_filter_requires_db_property_if_override_not_present() {
+        let filter = create_simple_property_filter(
+            "some_property",
+            PropertyType::Person,
+            OperatorType::Exact,
+        );
 
-        // All flags in this test *have* cohort filters. Not all require them.
-        assert!(flag.has_cohort_filters());
-        assert_eq!(flag.requires_cohort_filters(), expected);
+        {
+            // Wrong override.
+            let overrides =
+                HashMap::from([("not_cohort".to_string(), Value::String("value".to_string()))]);
+
+            assert!(filter.requires_db_property(&overrides));
+        }
+
+        {
+            // Correct override.
+            let overrides = HashMap::from([(
+                "some_property".to_string(),
+                Value::String("value".to_string()),
+            )]);
+
+            assert!(!filter.requires_db_property(&overrides));
+        }
+    }
+
+    #[test]
+    fn test_filter_does_not_require_db_property_if_cohort_or_flag_filter() {
+        // Cohort filter.
+        let filter =
+            create_simple_property_filter("cohort", PropertyType::Cohort, OperatorType::Exact);
+        assert!(!filter.requires_db_property(&HashMap::new()));
     }
 }
