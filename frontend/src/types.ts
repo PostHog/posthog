@@ -372,6 +372,7 @@ export interface HedgehogConfig extends MinimalHedgehogConfig {
     interactions_enabled: boolean
     controls_enabled: boolean
     party_mode_enabled: boolean
+    fixed_direction?: 'left' | 'right'
 }
 
 export interface NotificationSettings {
@@ -2062,6 +2063,11 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+    /**
+     * The last time the dashboard was refreshed.
+     * Used to block the dashboard refresh button.
+     */
+    last_refresh?: string | null
 }
 
 export interface DashboardTemplateListParams {
@@ -4289,6 +4295,20 @@ export type APIScopeObject =
     | 'warehouse_view'
     | 'warehouse_table'
 
+export type APIScopeAction = 'read' | 'write'
+
+export type APIScope = {
+    key: APIScopeObject
+    objectPlural: string
+    info?: string | JSX.Element
+    disabledActions?: APIScopeAction[]
+    disabledWhenProjectScoped?: boolean
+    description?: string
+    warnings?: Partial<Record<APIScopeAction, string | JSX.Element>>
+}
+
+export type APIScopePreset = { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }
+
 export enum AccessControlLevel {
     None = 'none',
     Member = 'member',
@@ -5529,6 +5549,10 @@ export interface ProjectTreeRef {
     ref: string | null
 }
 
+export type OAuthApplicationPublicMetadata = {
+    name: string
+    client_id: string
+}
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
     dnsRecords: (

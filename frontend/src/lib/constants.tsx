@@ -156,7 +156,8 @@ export const FEATURE_FLAGS = {
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
     SESSIONS_BATCH_EXPORTS: 'sessions-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
-    ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
+    ARTIFICIAL_HOG: 'artificial-hog', // owner: #team-max-ai
+    FLOATING_ARTIFICIAL_HOG: 'floating-artificial-hog', // owner: #team-max-ai
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
@@ -287,6 +288,8 @@ export const FEATURE_FLAGS = {
     USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-product-analytics
     EXPERIMENTS_DEV_STATS_METHOD_TOGGLE: 'experiments-dev-stats-method-toggle', // owner: #team-experiments
     REPLAY_EXPORT_RAW_RECORDING: 'replay-export-raw-recording', // owner: @veryayskiy #team-replay
+    GOOGLE_SHEETS_DWH: 'google-shets-dwh', // owner: @Gilbert09 #team-data-warehouse
+    NEW_BAYESIAN_STATS_METHOD: 'new-bayesian-stats-method', // owner: @andehen #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

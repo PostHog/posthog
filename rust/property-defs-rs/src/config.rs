@@ -96,11 +96,6 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub enable_mirror: bool,
 
-    // TEMP: used to gate the new process_batch_v2 write path code in
-    // the current property-defs-rs deployments *and* new mirror
-    #[envconfig(default = "false")]
-    pub enable_v2: bool,
-
     #[envconfig(default = "100")]
     pub v2_ingest_batch_size: usize,
 
