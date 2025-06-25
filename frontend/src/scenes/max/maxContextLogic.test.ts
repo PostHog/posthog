@@ -2,6 +2,8 @@ import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -503,6 +505,171 @@ describe('maxContextLogic', () => {
                 contextInsights: [expectedTransformedInsight],
                 contextDashboards: [expectedTransformedDashboard],
             })
+        })
+    })
+
+    describe('loadAndProcessDashboard', () => {
+        const mockDashboardLogicInstance = {
+            mount: jest.fn(),
+            unmount: jest.fn(),
+            actions: {
+                loadDashboard: jest.fn(),
+            },
+            values: {
+                dashboard: mockDashboard,
+                refreshStatus: {},
+            },
+        }
+
+        beforeEach(() => {
+            jest.spyOn(dashboardLogic, 'build').mockReturnValue(mockDashboardLogicInstance as any)
+            mockDashboardLogicInstance.mount.mockClear()
+            mockDashboardLogicInstance.unmount.mockClear()
+            mockDashboardLogicInstance.actions.loadDashboard.mockClear()
+        })
+
+        it('adds preloaded dashboard to context without loading', async () => {
+            const dashboardData = {
+                id: 1,
+                preloaded: mockDashboard,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAndProcessDashboard(dashboardData)
+            }).toMatchValues({
+                contextDashboards: [expectedTransformedDashboard],
+            })
+
+            expect(dashboardLogic.build).not.toHaveBeenCalled()
+        })
+
+        it('loads dashboard when not preloaded', async () => {
+            const dashboardData = {
+                id: 1,
+                preloaded: null,
+            }
+
+            // Set the mock values that the function will read
+            mockDashboardLogicInstance.values.dashboard = mockDashboard
+            mockDashboardLogicInstance.values.refreshStatus = {}
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAndProcessDashboard(dashboardData)
+            }).toFinishAllListeners()
+
+            expect(dashboardLogic.build).toHaveBeenCalledWith({ id: 1 })
+            expect(mockDashboardLogicInstance.mount).toHaveBeenCalled()
+            expect(mockDashboardLogicInstance.actions.loadDashboard).toHaveBeenCalledWith({ action: 'initial_load' })
+            expect(mockDashboardLogicInstance.unmount).toHaveBeenCalled()
+
+            await expectLogic(logic).toMatchValues({
+                contextDashboards: [expectedTransformedDashboard],
+            })
+        })
+
+        it('loads dashboard when preloaded dashboard has no tiles', async () => {
+            const incompleteDashboard = {
+                ...mockDashboard,
+                tiles: undefined,
+            }
+            const dashboardData = {
+                id: 1,
+                preloaded: incompleteDashboard as any,
+            }
+
+            // Set the mock values that the function will read
+            mockDashboardLogicInstance.values.dashboard = mockDashboard
+            mockDashboardLogicInstance.values.refreshStatus = {}
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAndProcessDashboard(dashboardData)
+            }).toFinishAllListeners()
+
+            expect(dashboardLogic.build).toHaveBeenCalledWith({ id: 1 })
+            expect(mockDashboardLogicInstance.mount).toHaveBeenCalled()
+            expect(mockDashboardLogicInstance.actions.loadDashboard).toHaveBeenCalledWith({ action: 'initial_load' })
+            expect(mockDashboardLogicInstance.unmount).toHaveBeenCalled()
+        })
+    })
+
+    describe('loadAndProcessInsight', () => {
+        const mockInsightLogicInstance = {
+            mount: jest.fn(),
+            unmount: jest.fn(),
+            actions: {
+                loadInsight: jest.fn(),
+            },
+            values: {
+                insight: mockInsight as QueryBasedInsightModel,
+            },
+        }
+
+        beforeEach(() => {
+            jest.spyOn(insightLogic, 'build').mockReturnValue(mockInsightLogicInstance as any)
+            mockInsightLogicInstance.mount.mockClear()
+            mockInsightLogicInstance.unmount.mockClear()
+            mockInsightLogicInstance.actions.loadInsight.mockClear()
+        })
+
+        it('adds preloaded insight to context without loading', async () => {
+            const insightData = {
+                id: 'insight-1' as InsightShortId,
+                preloaded: mockInsight as QueryBasedInsightModel,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAndProcessInsight(insightData)
+            }).toMatchValues({
+                contextInsights: [expectedTransformedInsight],
+            })
+
+            expect(insightLogic.build).not.toHaveBeenCalled()
+        })
+
+        it('loads insight when not preloaded', async () => {
+            const insightData = {
+                id: 'insight-1' as InsightShortId,
+                preloaded: null,
+            }
+
+            // Set the mock values that the function will read
+            mockInsightLogicInstance.values.insight = mockInsight as QueryBasedInsightModel
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAndProcessInsight(insightData)
+            }).toFinishAllListeners()
+
+            expect(insightLogic.build).toHaveBeenCalledWith({ dashboardItemId: undefined })
+            expect(mockInsightLogicInstance.mount).toHaveBeenCalled()
+            expect(mockInsightLogicInstance.actions.loadInsight).toHaveBeenCalledWith('insight-1')
+            expect(mockInsightLogicInstance.unmount).toHaveBeenCalled()
+
+            await expectLogic(logic).toMatchValues({
+                contextInsights: [expectedTransformedInsight],
+            })
+        })
+
+        it('loads insight when preloaded insight has no query', async () => {
+            const incompleteInsight = {
+                ...mockInsight,
+                query: null,
+            }
+            const insightData = {
+                id: 'insight-1' as InsightShortId,
+                preloaded: incompleteInsight as any,
+            }
+
+            // Set the mock values that the function will read
+            mockInsightLogicInstance.values.insight = mockInsight as QueryBasedInsightModel
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAndProcessInsight(insightData)
+            }).toFinishAllListeners()
+
+            expect(insightLogic.build).toHaveBeenCalledWith({ dashboardItemId: undefined })
+            expect(mockInsightLogicInstance.mount).toHaveBeenCalled()
+            expect(mockInsightLogicInstance.actions.loadInsight).toHaveBeenCalledWith('insight-1')
+            expect(mockInsightLogicInstance.unmount).toHaveBeenCalled()
         })
     })
 })
