@@ -98,6 +98,15 @@ jobs:
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
+            - name: Restore mypy cache
+              if: needs.changes.outputs.python == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .mypy_cache
+                  key: mypy-cache-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  restore-keys: |
+                      mypy-cache-${{ runner.os }}-
+
             - name: Check static typing
               if: needs.changes.outputs.python == 'true'
               shell: bash -e {0}
