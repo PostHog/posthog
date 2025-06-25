@@ -410,7 +410,7 @@ export function VariablesSummary({
                             </span>
                             {hasOverride && (
                                 <LemonTag type="highlight">
-                                    Overriden: {overrideValue ? <b>{overrideValue}</b> : <i>null</i>}
+                                    Overridden: {overrideValue ? <b>{overrideValue}</b> : <i>null</i>}
                                 </LemonTag>
                             )}
                         </div>
