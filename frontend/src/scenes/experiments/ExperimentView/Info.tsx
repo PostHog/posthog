@@ -25,6 +25,9 @@ export function Info(): JSX.Element {
         experiment,
         featureFlags,
         legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
+        primaryMetricsResults,
+        secondaryMetricsResults,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
@@ -48,7 +51,13 @@ export function Info(): JSX.Element {
         return <></>
     }
 
-    const lastRefresh = legacyPrimaryMetricsResults?.[0]?.last_refresh
+    // Get the last refresh timestamp from either legacy or new results format
+    // Check both primary and secondary metrics for the most recent timestamp
+    const lastRefresh =
+        legacyPrimaryMetricsResults?.[0]?.last_refresh ||
+        legacySecondaryMetricsResults?.[0]?.last_refresh ||
+        primaryMetricsResults?.[0]?.last_refresh ||
+        secondaryMetricsResults?.[0]?.last_refresh
 
     return (
         <div>
