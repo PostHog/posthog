@@ -410,14 +410,18 @@ const getIconUrl = (id: string, slug: string | undefined) => {
 
 // hide all destinations for now
 const APPROVED_DESTINATIONS: string[] = [
-    // 'segment-mixpanel',
-    // 'segment-amplitude',
-    // 'segment-launchdarkly',
-    // 'segment-canny',
-    // 'segment-fullstory-cloud',
-    // 'segment-drip',
-    // 'segment-heap',
-    // 'segment-pipedrive',
+    'segment-mixpanel',
+    'segment-amplitude',
+    'segment-launchdarkly',
+    'segment-canny',
+    'segment-fullstory-cloud',
+    'segment-drip',
+    'segment-pipedrive',
+    'segment-inleads-ai',
+    'segment-koala-cloud',
+    'segment-pushwoosh',
+    'segment-schematic',
+    'segment-usermotion',
 ]
 
 const HIDDEN_DESTINATIONS = [
@@ -447,6 +451,7 @@ const HIDDEN_DESTINATIONS = [
     // broken destinations
     'segment-apolloio',
     'segment-toplyne-cloud',
+    'segment-heap-cloud',
 
     // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
     'segment-equals',
