@@ -2,7 +2,7 @@
 import { expectLogic, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { dayjs, now } from 'lib/dayjs'
+import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -409,7 +409,7 @@ describe('dashboardLogic', () => {
             dashboardEightlogic.mount()
 
             await expectLogic(dashboardEightlogic)
-                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toMatchValues({
                     dashboard: truth(({ tiles }) => {
                         return tiles.length === 1 && tiles[0].insight.id === 1001
@@ -430,7 +430,7 @@ describe('dashboardLogic', () => {
             dashboardEightlogic.mount()
 
             await expectLogic(dashboardEightlogic)
-                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toMatchValues({
                     dashboard: truth(({ tiles }) => {
                         return tiles.length === 1 && tiles[0].insight.id === 1001
