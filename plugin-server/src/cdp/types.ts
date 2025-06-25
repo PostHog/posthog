@@ -300,8 +300,6 @@ export type HogFlowInvocationContext = {
         startedAtTimestamp: number
     }
     actionStepCount?: number
-    mockDelays?: boolean
-    mockAsyncFunctions?: boolean
 }
 
 // Mostly copied from frontend types
