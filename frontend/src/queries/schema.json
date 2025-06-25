@@ -9586,6 +9586,10 @@
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "multiple_handling": {
+                    "enum": ["exclude", "first_seen", "last_seen"],
+                    "type": "string"
                 }
             },
             "type": "object"

@@ -1049,6 +1049,12 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class MultipleHandling(StrEnum):
+    EXCLUDE = "exclude"
+    FIRST_SEEN = "first_seen"
+    LAST_SEEN = "last_seen"
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6674,6 +6680,7 @@ class ExperimentExposureCriteria(BaseModel):
     )
     exposure_config: Optional[ExperimentEventExposureConfig] = None
     filterTestAccounts: Optional[bool] = None
+    multiple_handling: Optional[MultipleHandling] = None
 
 
 class ExperimentExposureQuery(BaseModel):

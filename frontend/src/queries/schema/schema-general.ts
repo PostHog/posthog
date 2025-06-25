@@ -2225,6 +2225,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentEventExposureConfig
+    multiple_handling?: 'exclude' | 'first_seen' | 'last_seen'
 }
 
 export interface ExperimentEventExposureConfig extends Node {
