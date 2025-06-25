@@ -88,12 +88,20 @@ export const Welcome: StoryFn = () => {
 
     return <Template />
 }
+Welcome.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
     return <Template />
 }
 WelcomeFeaturePreviewAutoEnrolled.parameters = {
     featureFlags: [],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const Thread: StoryFn = () => {
