@@ -7,25 +7,37 @@ import { HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
 
+import { HogExecutorService } from '../../hog-executor.service'
+import { HogFunctionTemplateManagerService } from '../../hog-function-templates/hog-function-template-manager.service'
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
 import { HogFlowActionRunnerDelay } from './action.delay'
+import { HogFlowActionRunnerFunction } from './action.function'
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
 import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
 import { findActionById, findNextAction } from './utils'
 
-// TODO: Add a bunch of tests for this class!
 export class HogFlowActionRunner {
     private hogFlowActionRunnerConditionalBranch: HogFlowActionRunnerConditionalBranch
     private hogFlowActionRunnerDelay: HogFlowActionRunnerDelay
     private hogFlowActionRunnerWaitUntilTimeWindow: HogFlowActionRunnerWaitUntilTimeWindow
     private hogFlowActionRunnerRandomCohortBranch: HogFlowActionRunnerRandomCohortBranch
+    private hogFlowActionRunnerFunction: HogFlowActionRunnerFunction
 
-    constructor(private hub: Hub) {
+    constructor(
+        private hub: Hub,
+        private hogFunctionExecutor: HogExecutorService,
+        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+    ) {
         this.hogFlowActionRunnerConditionalBranch = new HogFlowActionRunnerConditionalBranch()
         this.hogFlowActionRunnerDelay = new HogFlowActionRunnerDelay()
         this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
         this.hogFlowActionRunnerRandomCohortBranch = new HogFlowActionRunnerRandomCohortBranch()
+        this.hogFlowActionRunnerFunction = new HogFlowActionRunnerFunction(
+            this.hub,
+            this.hogFunctionExecutor,
+            this.hogFunctionTemplateManager
+        )
     }
 
     private findContinueAction(invocation: CyclotronJobInvocationHogFlow): HogFlowAction {
@@ -67,9 +79,6 @@ export class HogFlowActionRunner {
 
     // NOTE: Keeping as a promise response for now as we will be adding async work later
     async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
-        // HACK: Just keeping this async for now as we will definitely have async stuff here later
-        await Promise.resolve()
-
         if (!invocation.state.currentAction) {
             const triggerAction = invocation.hogFlow.actions.find((action) => action.type === 'trigger')
             if (!triggerAction) {
@@ -134,6 +143,9 @@ export class HogFlowActionRunner {
                     break
                 case 'random_cohort_branch':
                     actionResult = this.hogFlowActionRunnerRandomCohortBranch.run(invocation, action)
+                    break
+                case 'function':
+                    actionResult = await this.hogFlowActionRunnerFunction.run(invocation, action)
                     break
                 default:
                     throw new Error(`Action type ${action.type} not supported`)

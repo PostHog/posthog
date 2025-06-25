@@ -123,7 +123,7 @@ export class HogTransformerService {
             project: {
                 id: event.team_id,
                 name: 'WHERE TO GET THIS FROM??',
-                url: this.hub.SITE_URL ?? 'http://localhost:8000',
+                url: this.hub.SITE_URL,
             },
             event: {
                 uuid: event.uuid,

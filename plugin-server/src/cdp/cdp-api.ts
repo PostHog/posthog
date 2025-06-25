@@ -156,11 +156,7 @@ export class CdpApi {
             }
 
             globals = clickhouse_event
-                ? convertToHogFunctionInvocationGlobals(
-                      clickhouse_event,
-                      team,
-                      this.hub.SITE_URL ?? 'http://localhost:8000'
-                  )
+                ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
                 : globals
 
             if (!globals || !globals.event) {
@@ -193,7 +189,7 @@ export class CdpApi {
                 project: {
                     id: team.id,
                     name: team.name,
-                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                    url: `${this.hub.SITE_URL}/project/${team.id}`,
                     ...globals.project,
                 },
             }

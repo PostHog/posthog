@@ -55,7 +55,7 @@ export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
         external: {
             regex: { match: (regex, str) => new RE2(regex).test(str) },
             crypto,
-            ...(options?.external ?? {}),
+            ...options?.external,
         },
     })
 }
@@ -103,9 +103,9 @@ export const formatHogInput = (bytecode: any, globals: HogFunctionInvocationGlob
         }
 
         return ret
-    } else {
-        return bytecode
     }
+
+    return bytecode
 }
 
 const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
@@ -206,7 +206,7 @@ export class HogExecutorService {
             hogFunction: HogFunctionType,
             filters: HogFunctionType['filters'],
             filterGlobals: HogFunctionFilterGlobals
-        ) => {
+        ): boolean => {
             const filterResults = filterFunctionInstrumented({
                 fn: hogFunction,
                 filters,
@@ -268,8 +268,8 @@ export class HogExecutorService {
                     return
                 }
                 const invocation = _buildInvocation(hogFunction, {
-                    ...(hogFunction.inputs ?? {}),
-                    ...(hogFunction.encrypted_inputs ?? {}),
+                    ...hogFunction.inputs,
+                    ...hogFunction.encrypted_inputs,
                 })
                 if (!invocation) {
                     return
@@ -289,9 +289,9 @@ export class HogExecutorService {
                 }
 
                 const invocation = _buildInvocation(hogFunction, {
-                    ...(hogFunction.inputs ?? {}),
-                    ...(hogFunction.encrypted_inputs ?? {}),
-                    ...(mapping.inputs ?? {}),
+                    ...hogFunction.inputs,
+                    ...hogFunction.encrypted_inputs,
+                    ...mapping.inputs,
                 })
                 if (!invocation) {
                     return
@@ -405,8 +405,8 @@ export class HogExecutorService {
                     globals = invocation.state.globals
                 } else {
                     const inputs: HogFunctionType['inputs'] = {
-                        ...(invocation.hogFunction.inputs ?? {}),
-                        ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                        ...invocation.hogFunction.inputs,
+                        ...invocation.hogFunction.encrypted_inputs,
                     }
                     globals = buildGlobalsWithInputs(invocation.state.globals, inputs)
                 }
@@ -503,7 +503,7 @@ export class HogExecutorService {
                                 },
                             })
                         },
-                        ...(options.functions ?? {}),
+                        ...options.functions,
                     },
                 })
                 if (execRes.error) {

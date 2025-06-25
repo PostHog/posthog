@@ -7,6 +7,8 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 
+import { HogExecutorService } from '../../hog-executor.service'
+import { HogFunctionTemplateManagerService } from '../../hog-function-templates/hog-function-template-manager.service'
 import { HogFlowActionRunner } from './hogflow-action-runner'
 import { findActionById } from './utils'
 
@@ -18,7 +20,9 @@ describe('HogFlowActionRunner', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         const mockHub = {} as Hub
-        runner = new HogFlowActionRunner(mockHub)
+        const mockHogFunctionExecutor = {} as HogExecutorService
+        const mockHogFunctionTemplateManager = {} as HogFunctionTemplateManagerService
+        runner = new HogFlowActionRunner(mockHub, mockHogFunctionExecutor, mockHogFunctionTemplateManager)
     })
 
     const createHogInvocation = (
