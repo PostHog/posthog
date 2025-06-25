@@ -66,8 +66,7 @@ class SessionGroupSummarySingleSessionOutput:
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SessionGroupSummaryOfSummariesInputs:
-    session_ids: list[str]
-    session_summaries: list[SessionGroupSummarySingleSessionOutput]
+    single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
     extra_summary_context: ExtraSummaryContext | None = None
 
@@ -194,15 +193,24 @@ async def _generate_patterns_assignments(
 @temporalio.activity.defn
 async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
     """Summarize a group of sessions in one call"""
-    # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
+    redis_client = get_client()
+    # Get session summaries from Redis
     session_summaries_str = [
-        remove_excessive_content_from_session_summary_for_llm(session_summary.session_summary_str)
-        for session_summary in inputs.session_summaries
+        get_single_session_summary_output_from_redis(
+            redis_client=redis_client,
+            redis_output_key=single_session_input.redis_output_key,
+        )
+        for single_session_input in inputs.single_session_summaries_inputs
+    ]
+    # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
+    intermediate_session_summaries_str = [
+        remove_excessive_content_from_session_summary_for_llm(session_summary_str)
+        for session_summary_str in session_summaries_str
     ]
 
     # TODO: Rework as separate activities
     patterns_prompt = generate_session_group_patterns_extraction_prompt(
-        session_summaries=session_summaries_str, extra_summary_context=inputs.extra_summary_context
+        session_summaries=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
     )
     # Extract patterns from session summaries through LLM
     patterns_extraction = await get_llm_session_group_patterns_extraction(
@@ -215,7 +223,9 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
 
     # Split sessions summaries into chunks of 10 sessions each
     # TODO: Define in constants after testing optimal chunk size quality-wise
-    session_summaries_chunks = [session_summaries_str[i : i + 10] for i in range(0, len(session_summaries_str), 10)]
+    session_summaries_chunks = [
+        intermediate_session_summaries_str[i : i + 10] for i in range(0, len(intermediate_session_summaries_str), 10)
+    ]
     patterns_assignments_list_of_lists = await _generate_patterns_assignments(
         patterns=patterns_extraction,
         session_summaries_chunks=session_summaries_chunks,
@@ -307,7 +317,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     extra_summary_context=inputs.extra_summary_context,
                     local_reads_prod=inputs.local_reads_prod,
                 )
-                tasks[session_id] = tg.create_task(self._fetch_session_data(single_session_input)), single_session_input
+                tasks[single_session_input.session_id] = (
+                    tg.create_task(self._fetch_session_data(single_session_input)),
+                    single_session_input,
+                )
         session_inputs: list[SingleSessionSummaryInputs] = []
         # Check fetch results
         for session_id, (task, single_session_input) in tasks.items():
@@ -346,22 +359,24 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             # Let caller handle the error
             return err
 
-    async def _run_summaries(
-        self, inputs: list[SingleSessionSummaryInputs]
-    ) -> dict[str, SessionGroupSummarySingleSessionOutput]:
+    async def _run_summaries(self, inputs: list[SingleSessionSummaryInputs]) -> list[SingleSessionSummaryInputs]:
         """
         Generate per-session summaries.
         """
         if not inputs:
             raise ApplicationError("No sessions to summarize for group summary")
         # Summarize all sessions
-        summaries: dict[str, SessionGroupSummarySingleSessionOutput] = {}
         tasks = {}
         async with asyncio.TaskGroup() as tg:
-            for session_input in inputs:
+            for single_session_input in inputs:
                 # TODO: When stories summaries in Redis (>50) - rework to use tuples also
                 # to have the same taskgroun function for both fetch/summarize tasks
-                tasks[session_input.session_id] = tg.create_task(self._run_summary(session_input))
+                tasks[single_session_input.session_id] = (
+                    tg.create_task(self._run_summary(single_session_input)),
+                    single_session_input,
+                )
+        session_inputs: list[SingleSessionSummaryInputs] = []
+        # Check summary generation results
         for session_id, task in tasks.items():
             res = task.result()
             if isinstance(res, Exception):
@@ -370,9 +385,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     f"for user {inputs[0].user_id} in team {inputs[0].team_id}: {res}"
                 )
             else:
-                summaries[session_id] = res
+                # Store only successful generations
+                session_inputs.append(single_session_input)
         # Fail the workflow if too many sessions failed to summarize
-        if len(summaries) < len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
+        if len(session_inputs) < len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
             session_ids = [s.session_id for s in inputs]
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
@@ -381,12 +397,12 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             )
             temporalio.workflow.logger.error(exception_message)
             raise ApplicationError(exception_message)
-        return summaries
+        return session_inputs
 
     @temporalio.workflow.run
     async def run(self, inputs: SessionGroupSummaryInputs) -> str:
-        session_inputs = await self._fetch_session_group_data(inputs)
-        summaries = await self._run_summaries(session_inputs)
+        db_session_inputs = await self._fetch_session_group_data(inputs)
+        summaries_session_inputs = await self._run_summaries(db_session_inputs)
 
         # # TODO: Remove after testing
         # from pathlib import Path
@@ -410,8 +426,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         summary_of_summaries = await temporalio.workflow.execute_activity(
             get_llm_session_group_summary_activity,
             SessionGroupSummaryOfSummariesInputs(
-                session_ids=list(summaries.keys()),
-                session_summaries=list(summaries.values()),
+                single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
                 extra_summary_context=inputs.extra_summary_context,
             ),
