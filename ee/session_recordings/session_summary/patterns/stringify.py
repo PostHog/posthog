@@ -158,6 +158,15 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
                     "",
                 ]
             )
+        
+        # Add extra spacing between patterns (except for the last pattern)
+        if pattern != patterns[-1]:
+            markdown_lines.extend(
+                [
+                    "",
+                    "&nbsp;",
+                ]
+            )
 
     return "\n".join(markdown_lines)
 
