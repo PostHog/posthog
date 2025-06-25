@@ -243,60 +243,10 @@ export function CodeEditor({
         const overrideSuggestionWidgetStyling = (): void => {
             const style = document.createElement('style')
             style.textContent = `
-                .monaco-editor .suggest-widget {
-                    max-width: none !important;
-                    min-width: 600px !important;
-                    width: auto !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list {
-                    max-width: none !important;
-                    width: auto !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row {
-                    max-width: none !important;
-                    width: auto !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row .contents {
-                    max-width: none !important;
-                    width: auto !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row .contents .main {
-                    max-width: none !important;
-                    width: auto !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row .contents .main .left {
-                    max-width: none !important;
-                    min-width: 500px !important;
-                    width: auto !important;
-                    overflow: visible !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row .label-name {
-                    max-width: none !important;
-                    min-width: 500px !important;
-                    width: auto !important;
-                    overflow: visible !important;
-                    text-overflow: unset !important;
-                    white-space: nowrap !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row .monaco-icon-label {
-                    max-width: none !important;
-                    min-width: 500px !important;
-                    width: auto !important;
-                    overflow: visible !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row .monaco-icon-label .monaco-icon-label-description-container {
-                    max-width: none !important;
-                    width: auto !important;
-                    overflow: visible !important;
-                }
-                .monaco-editor .suggest-widget .monaco-list-row .monaco-icon-label .monaco-icon-label-description-container .label-name {
-                    max-width: none !important;
-                    min-width: 500px !important;
-                    width: auto !important;
-                    overflow: visible !important;
-                    text-overflow: unset !important;
-                    white-space: nowrap !important;
-                }
+            .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label>.contents>.main>.left>.monaco-icon-label {
+               flex-shrink: 0;
+            }
+
             `
             document.head.appendChild(style)
         }
