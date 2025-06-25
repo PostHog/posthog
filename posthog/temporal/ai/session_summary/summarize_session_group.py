@@ -14,7 +14,13 @@ from ee.session_recordings.session_summary.llm.consume import (
     get_llm_session_group_summary,
     get_llm_single_session_summary,
 )
-from ee.session_recordings.session_summary.patterns.output_data import SessionGroupSummaryPatternsList
+from ee.session_recordings.session_summary.patterns.output_data import (
+    RawSessionGroupPatternAssignmentsList,
+    SessionGroupSummaryPatternsList,
+    combine_event_ids_mappings_from_single_session_summaries,
+    combine_patterns_assignments_from_single_session_summaries,
+    combine_patterns_with_event_ids,
+)
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
@@ -120,7 +126,7 @@ async def _generate_patterns_assignments_per_chunk(
     user_id: int,
     session_ids: list[str],
     extra_summary_context: ExtraSummaryContext | None,
-) -> SessionGroupSummaryPatternsList | Exception:
+) -> RawSessionGroupPatternAssignmentsList | Exception:
     try:
         patterns_assignment_prompt = generate_session_group_patterns_assignment_prompt(
             patterns=patterns,
@@ -141,7 +147,7 @@ async def _generate_patterns_assignments(
     user_id: int,
     session_ids: list[str],
     extra_summary_context: ExtraSummaryContext | None,
-) -> list[SessionGroupSummaryPatternsList]:
+) -> list[RawSessionGroupPatternAssignmentsList]:
     patterns_assignments_list_of_lists = []
     tasks = {}
     async with asyncio.TaskGroup() as tg:
@@ -207,6 +213,30 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     single_session_summaries_inputs = _get_session_group_single_session_summaries_inputs_from_redis(
         redis_input_keys=[session_summary.redis_input_key for session_summary in inputs.session_summaries]
     )
+
+    # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
+    combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
+        single_session_summaries_inputs=single_session_summaries_inputs
+    )
+    with open("combined_event_ids_mappings.json", "w") as f:
+        f.write(json.dumps(combined_event_ids_mappings))
+
+    # Combine patterns assignments to have a single patter-to-event list
+    combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
+        patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
+    )
+    with open("combined_patterns_assignments.json", "w") as f:
+        f.write(json.dumps(combined_patterns_assignments))
+
+    # Combine patterns with full event ids (from DB) of attached events
+    pattern_event_ids_mapping = combine_patterns_with_event_ids(
+        combined_event_ids_mappings=combined_event_ids_mappings,
+        combined_patterns_assignments=combined_patterns_assignments,
+    )
+    with open("pattern_event_ids_mapping.json", "w") as f:
+        f.write(json.dumps({k: dataclasses.asdict(v) for k, v in pattern_event_ids_mapping.items()}))
+
+    print("")
 
     # TODO: Enable after testing
     # summary_prompt = generate_session_group_summary_prompt(

@@ -17,6 +17,7 @@ from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
 from ee.session_recordings.session_summary.patterns.output_data import (
+    RawSessionGroupPatternAssignmentsList,
     SessionGroupSummaryPatternsList,
     load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
@@ -129,7 +130,7 @@ async def get_llm_session_group_patterns_extraction(
 
 async def get_llm_session_group_patterns_assignment(
     prompt: PatternsPrompt, user_id: int, session_ids: list[str]
-) -> SessionGroupSummaryPatternsList:
+) -> RawSessionGroupPatternAssignmentsList:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
         input_prompt=prompt.patterns_prompt,
