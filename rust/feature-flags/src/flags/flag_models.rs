@@ -34,12 +34,25 @@ pub struct FlagFilters {
     pub groups: Vec<FlagPropertyGroup>,
     #[serde(default)]
     pub multivariate: Option<MultivariateFlagOptions>,
+    /// The group type index is used to determine which group type to use for the flag.
+    ///
+    /// Typical group type mappings are:
+    /// - 0 → "project"
+    /// - 1 → "organization"
+    /// - 2 → "instance"
+    /// - 3 → "customer"
+    /// - 4 → "team"
     #[serde(default)]
     pub aggregation_group_type_index: Option<i32>,
     #[serde(default)]
     pub payloads: Option<serde_json::Value>,
+    /// Super groups are a special group of feature flag conditions that act as a gate that must be
+    /// satisfied before any other conditions are evaluated. If they match, the flag is enabled and no
+    /// other conditions are evaluated. If they don't match, fallback to regular conditions.
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
+    /// Holdout groups are conditions that define a set of users intentionally excluded from a test
+    /// or experiment to serve as a baseline or control group
     #[serde(default)]
     pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
 }

@@ -50,6 +50,9 @@ fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFla
 }
 
 impl FeatureFlag {
+    /// Returns the group type index for the flag, or None if it's not set.
+    ///
+    /// See [`FlagFilters::aggregation_group_type_index`] for more details about group type mappings.
     pub fn get_group_type_index(&self) -> Option<i32> {
         self.filters.aggregation_group_type_index
     }

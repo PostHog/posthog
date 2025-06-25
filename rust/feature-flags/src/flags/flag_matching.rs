@@ -169,6 +169,12 @@ pub struct FeatureFlagMatcher {
     /// State maintained during flag evaluation, including cached DB lookups
     pub(crate) flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
+    /// Maps group type name to the group key (identifier customer supplies for the group)
+    /// ex. "project" → "123"
+    ///     "organization" → "456"
+    ///     "instance" → "789"
+    ///     "customer" → "101"
+    ///     "team" → "112"
     groups: HashMap<String, Value>,
 }
 
@@ -1426,7 +1432,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Get group properties from the `FlagEvaluationState` only. Returns empty HashMap if not found.
+    /// Get group properties for the given group type index from the `FlagEvaluationState` only. Returns empty HashMap if not found.
     fn get_group_properties_from_evaluation_state(
         &self,
         group_type_index: GroupTypeIndex,
@@ -1452,7 +1458,8 @@ impl FeatureFlagMatcher {
         }
     }
 
-    // If experience continuity is enabled, we need to process the hash key override if it's provided.
+    /// If experience continuity is enabled, we need to process the hash key override if it's provided.
+    /// See [`FeatureFlagMatcher::process_hash_key_override`] for more details.
     async fn process_hash_key_override_if_needed(
         &self,
         flags_have_experience_continuity_enabled: bool,
@@ -1501,6 +1508,10 @@ impl FeatureFlagMatcher {
         (hash_key_overrides, flag_hash_key_override_error)
     }
 
+    /// Initializes the group type mapping cache if needed.
+    ///
+    /// This function checks if any of the feature flags have group type indices and initializes the group type mapping cache if needed.
+    /// It returns a boolean indicating if there were any errors while initializing the group type mapping cache.
     async fn initialize_group_type_mappings_if_needed(
         &mut self,
         feature_flags: &FeatureFlagList,
