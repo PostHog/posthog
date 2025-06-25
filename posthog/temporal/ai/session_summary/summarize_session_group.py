@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 from datetime import timedelta
+import hashlib
 import json
 import uuid
 import structlog
@@ -199,6 +200,9 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     redis_client = get_client()
     session_ids = list(dict.fromkeys([s.session_id for s in inputs.single_session_summaries_inputs]))
     total_sessions_count = len(session_ids)
+
+    with open("session_ids_processed.json", "w") as f:
+        f.write(json.dumps(session_ids))
 
     # Get session summaries from Redis
     session_summaries_str = [
@@ -490,9 +494,10 @@ def execute_summarize_session_group(
     """
     Start the workflow and return the final summary for the group of sessions.
     """
-    # Use shared identifier to be able to construct all the ids to check/debug
-    # Using session ids instead of random UUID to be able to check the data in Redis
-    shared_id = "-".join(session_ids)
+    # Use shared identifier to be able to construct all the ids to check/debug. Using session ids instead
+    # of random UUID to be able to check the data in Redis. Hex to avoid hitting workflow id limit.
+    # TODO: Move into a separate function
+    shared_id = hashlib.sha256("-".join(session_ids).encode()).hexdigest()[:16]
     # Prepare the input data
     redis_input_key_base = f"session-summary:group:get-input:{user_id}-{team.id}:{shared_id}"
     redis_output_key_base = f"session-summary:group:single-session-summary-output:{user_id}-{team.id}:{shared_id}"
