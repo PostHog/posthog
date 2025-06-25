@@ -8,14 +8,17 @@ import {
     DataTableNode,
     DateRange,
     NodeKind,
+    QueryLogTags,
     SessionAttributionExplorerQuery,
     SessionAttributionGroupBy,
 } from '~/queries/schema/schema-general'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
-import { SessionPropertyFilter } from '~/types'
+import { ProductKey, SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
-
+const DEFAULT_QUERY_TAGS: QueryLogTags = {
+    productKey: ProductKey.WEB_ANALYTICS,
+}
 export const initialProperties = [] as SessionPropertyFilter[]
 export const initialGroupBy = [
     SessionAttributionGroupBy.Source,
@@ -81,6 +84,7 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                     kind: NodeKind.SessionAttributionExplorerQuery,
                     groupBy: groupBy,
                     filters: filters,
+                    tags: DEFAULT_QUERY_TAGS,
                 }
 
                 return {

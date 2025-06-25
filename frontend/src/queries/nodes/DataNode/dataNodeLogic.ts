@@ -66,6 +66,7 @@ import {
 import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -122,11 +123,31 @@ function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNod
     }
 }
 
+function addTags<T extends Record<string, any>>(query: DataNode<T>, activeScene: string | null): DataNode<T> {
+    const tags = query.tags ? { ...query.tags } : {}
+    if (!tags.scene && activeScene) {
+        tags.scene = activeScene
+    }
+    return {
+        ...query,
+        tags,
+    }
+}
+
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
     connect((props: DataNodeLogicProps) => ({
-        values: [userLogic, ['user'], teamLogic, ['currentTeam', 'currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam', 'currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            sceneLogic,
+            ['activeScene'],
+        ],
         actions: [
             dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
             [
@@ -213,7 +234,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
-                    const query = overrideQuery ?? props.query
+                    const query = addTags(overrideQuery ?? props.query, values.activeScene)
+
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
                     let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')

@@ -167,6 +167,9 @@
                 "response": {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -312,6 +315,9 @@
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -8239,6 +8245,9 @@
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -8796,6 +8805,9 @@
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
                     "type": "string"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -9034,6 +9046,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -9358,6 +9373,9 @@
                     "$ref": "#/definitions/InsightActorsQuery",
                     "description": "source for querying events for insights"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -9603,6 +9621,9 @@
                 "start_date": {
                     "type": ["string", "null"]
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -9751,6 +9772,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -10051,6 +10075,9 @@
                 "response": {
                     "$ref": "#/definitions/ExperimentQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10190,6 +10217,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -10658,6 +10688,9 @@
                 "source": {
                     "$ref": "#/definitions/FunnelCorrelationQuery"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -11113,6 +11146,9 @@
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -11527,6 +11563,9 @@
                     },
                     "type": "array"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -11662,6 +11701,9 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
                     "type": "object"
@@ -11722,6 +11764,9 @@
                 "startPosition": {
                     "$ref": "#/definitions/integer",
                     "description": "Start position of the editor word"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -11818,6 +11863,9 @@
                 "sourceQuery": {
                     "$ref": "#/definitions/AnyDataNode",
                     "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "variables": {
                     "additionalProperties": {
@@ -11940,6 +11988,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
@@ -12153,6 +12204,9 @@
                 "response": {
                     "$ref": "#/definitions/HogQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -12260,6 +12314,9 @@
                 "status": {
                     "type": "string"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -12283,6 +12340,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -13476,6 +13536,9 @@
                     },
                     "type": "array"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -14358,6 +14421,9 @@
                 "search": {
                     "type": "string"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -14481,6 +14547,21 @@
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
             "type": "string"
+        },
+        "QueryLogTags": {
+            "additionalProperties": false,
+            "description": "Tags that will be added to the Query log comment  *",
+            "properties": {
+                "productKey": {
+                    "description": "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *",
+                    "type": "string"
+                },
+                "scene": {
+                    "description": "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *",
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "QueryRequest": {
             "additionalProperties": false,
@@ -17953,6 +18034,9 @@
                     },
                     "type": "array"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "user_modified_filters": {
                     "type": "object"
                 },
@@ -18338,6 +18422,9 @@
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -18364,6 +18451,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -18392,6 +18482,9 @@
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -18418,6 +18511,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -18512,6 +18608,9 @@
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -18585,6 +18684,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -18671,6 +18773,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -18772,6 +18877,9 @@
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -18849,6 +18957,9 @@
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -18924,6 +19035,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -19254,6 +19368,9 @@
                 "response": {
                     "$ref": "#/definitions/SessionAttributionExplorerQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -19460,6 +19577,9 @@
                 "response": {
                     "$ref": "#/definitions/SessionsTimelineQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -19586,6 +19706,9 @@
                 },
                 "status": {
                     "type": "string"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -19809,6 +19932,9 @@
                 "response": {
                     "$ref": "#/definitions/SuggestedQuestionsQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -19915,6 +20041,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -20122,6 +20251,9 @@
                 },
                 "showColumnConfigurator": {
                     "type": "boolean"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "traceId": {
                     "type": "string"
@@ -20599,6 +20731,9 @@
                 "response": {
                     "$ref": "#/definitions/VectorSearchQueryResponse"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -20917,6 +21052,9 @@
                 "stripQueryParams": {
                     "type": "boolean"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
@@ -21042,6 +21180,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -21198,6 +21339,9 @@
                     },
                     "type": "object"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
@@ -21323,6 +21467,9 @@
                 },
                 "stripQueryParams": {
                     "type": "boolean"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -21474,6 +21621,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
@@ -21650,6 +21800,9 @@
                     },
                     "type": "object"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "thresholds": {
                     "items": {
                         "type": "number"
@@ -21810,6 +21963,9 @@
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",

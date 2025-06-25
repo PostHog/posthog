@@ -1738,6 +1738,26 @@ class QueryIndexUsage(StrEnum):
     YES = "yes"
 
 
+class QueryLogTags(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    productKey: Optional[str] = Field(
+        default=None,
+        description=(
+            "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new"
+            " product *"
+        ),
+    )
+    scene: Optional[str] = Field(
+        default=None,
+        description=(
+            "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a"
+            " new Scene *"
+        ),
+    )
+
+
 class QueryResponseAlternative6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3226,6 +3246,7 @@ class HogQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[HogQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -3833,6 +3854,7 @@ class SuggestedQuestionsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[SuggestedQuestionsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -6670,6 +6692,7 @@ class ExperimentExposureQuery(BaseModel):
     )
     response: Optional[ExperimentExposureQueryResponse] = None
     start_date: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7023,6 +7046,7 @@ class InsightActorsQueryBase(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ActorsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -7171,6 +7195,7 @@ class PersonsNode(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
     search: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8340,6 +8365,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8354,6 +8380,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8368,6 +8395,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8382,6 +8410,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8405,6 +8434,7 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8421,6 +8451,7 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8435,6 +8466,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8450,6 +8482,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8464,6 +8497,7 @@ class RevenueExampleDataWarehouseTablesQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleDataWarehouseTablesQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8478,6 +8512,7 @@ class RevenueExampleEventsQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[RevenueExampleEventsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8494,6 +8529,7 @@ class SessionAttributionExplorerQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[SessionAttributionExplorerQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8513,6 +8549,7 @@ class SessionsTimelineQuery(BaseModel):
     )
     personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
     response: Optional[SessionsTimelineQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -8574,6 +8611,7 @@ class TracesQuery(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
     traceId: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8642,6 +8680,7 @@ class WebExternalClicksTableQuery(BaseModel):
     response: Optional[WebExternalClicksTableQueryResponse] = None
     sampling: Optional[Sampling] = None
     stripQueryParams: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8665,6 +8704,7 @@ class WebGoalsQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[Sampling] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8687,6 +8727,7 @@ class WebOverviewQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8712,6 +8753,7 @@ class WebPageURLSearchQuery(BaseModel):
     sampling: Optional[Sampling] = None
     searchTerm: Optional[str] = None
     stripQueryParams: Optional[bool] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8738,6 +8780,7 @@ class WebStatsTableQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8925,6 +8968,7 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     )
     property: str
     response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -9184,6 +9228,7 @@ class EventTaxonomyQuery(BaseModel):
     )
     properties: Optional[list[str]] = None
     response: Optional[EventTaxonomyQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -9238,6 +9283,7 @@ class GroupsQuery(BaseModel):
     response: Optional[GroupsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -9254,6 +9300,7 @@ class HogQLASTQuery(BaseModel):
     name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: dict[str, Any]
     response: Optional[HogQLQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
@@ -9276,6 +9323,7 @@ class HogQLQuery(BaseModel):
     name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: str
     response: Optional[HogQLQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
@@ -9447,6 +9495,7 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    tags: Optional[QueryLogTags] = None
     user_modified_filters: Optional[dict[str, Any]] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -9539,6 +9588,7 @@ class TeamTaxonomyQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[TeamTaxonomyQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -9611,6 +9661,7 @@ class VectorSearchQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[VectorSearchQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -9634,6 +9685,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
     sampling: Optional[Sampling] = None
+    tags: Optional[QueryLogTags] = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -9815,6 +9867,7 @@ class ErrorTrackingQuery(BaseModel):
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: Optional[bool] = None
@@ -10320,6 +10373,7 @@ class LogsQuery(BaseModel):
     searchTerm: Optional[str] = None
     serviceNames: list[str]
     severityLevels: list[LogSeverityLevel]
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10603,6 +10657,7 @@ class ExperimentQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10619,6 +10674,7 @@ class ExperimentTrendsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10667,6 +10723,7 @@ class FunnelsActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     source: FunnelsQuery
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10891,6 +10948,7 @@ class ExperimentFunnelsQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10958,6 +11016,7 @@ class StickinessActorsQuery(BaseModel):
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")
     status: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10982,6 +11041,7 @@ class WebVitalsQuery(BaseModel):
     source: Union[
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")
+    tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -10995,6 +11055,7 @@ class DatabaseSchemaQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[DatabaseSchemaQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11034,6 +11095,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11058,6 +11120,7 @@ class InsightActorsQuery(BaseModel):
         TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
     ] = Field(..., discriminator="kind")
     status: Optional[str] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11109,6 +11172,7 @@ class ActorsQuery(BaseModel):
     source: Optional[
         Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, HogQLQuery]
     ] = None
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11185,6 +11249,7 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     source: Optional[InsightActorsQuery] = Field(default=None, description="source for querying events for insights")
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
@@ -11347,6 +11412,7 @@ class HogQLAutocomplete(BaseModel):
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11409,6 +11475,7 @@ class HogQLMetadata(BaseModel):
         default=None,
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
     )
+    tags: Optional[QueryLogTags] = None
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be subsituted into the query"
     )
