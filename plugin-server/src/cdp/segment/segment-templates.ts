@@ -298,7 +298,7 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         } else if (defaultVal && '@arrayPath' in defaultVal) {
             let val = defaultVal['@arrayPath'][0]
             val = val.replace('$.', 'event.')
-            return normalizeValue(val)
+            return `{${normalizeValue(val)}}`
         }
     }
     return JSON.stringify(defaultVal)

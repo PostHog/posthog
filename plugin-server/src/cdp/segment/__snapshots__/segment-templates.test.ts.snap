@@ -1852,7 +1852,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "type": "choice",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Populates the ObjectIDs field in the Algolia Insights API. An array of objects representing the purchased items. Each object must contain a product_id field.",
           "key": "products",
           "label": "Product Details",
@@ -2010,7 +2010,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "type": "choice",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Populates the ObjectIDs field in the Algolia Insights API. An array of objects representing the purchased items. Each object must contain a product_id field.",
           "key": "products",
           "label": "Product Details",
@@ -2270,7 +2270,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "event.properties.filters",
+          "default": "{event.properties.filters}",
           "description": "Populates the filters field in the Algolia Insights API, a list of up to 10 facet filters. Field should be an array of strings with format \${attribute}:\${value}.",
           "key": "filters",
           "label": "Filters",
@@ -2828,7 +2828,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
@@ -3296,7 +3296,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
@@ -3738,7 +3738,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
@@ -4197,7 +4197,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
@@ -4700,7 +4700,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "person.properties.addresses",
+          "default": "{person.properties.addresses}",
           "description": "A list of the ten most recently updated addresses for the customer.",
           "key": "addresses",
           "label": "Addresses",
@@ -4730,7 +4730,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "person.properties.email_marketing_consent",
+          "default": "{person.properties.email_marketing_consent}",
           "description": "The marketing consent information when the customer consented to receiving marketing material by email.",
           "key": "email_marketing_consent",
           "label": "Email Marketing Consent",
@@ -4739,7 +4739,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": "person.properties.metafield",
+          "default": "{person.properties.metafield}",
           "description": "Attaches additional metadata to a shop's resources.",
           "key": "metafield",
           "label": "Metafield",
@@ -4748,7 +4748,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": "person.properties.sms_marketing_consent",
+          "default": "{person.properties.sms_marketing_consent}",
           "description": "The marketing consent information when the customer consented to receiving marketing material by SMS.",
           "key": "sms_marketing_consent",
           "label": "SMS Marketing Consent",
@@ -4891,7 +4891,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
@@ -5053,7 +5053,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
@@ -5218,7 +5218,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
@@ -5441,7 +5441,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
@@ -5664,7 +5664,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
@@ -5887,7 +5887,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
@@ -6110,7 +6110,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
@@ -6333,7 +6333,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Checkout Line Item details",
           "key": "checkoutLineItems",
           "label": "Checkout Line Items",
@@ -6553,7 +6553,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
@@ -6574,7 +6574,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "A list of product variants associated with the collection.",
           "key": "collectionProductVariants",
           "label": "Collection Product Variants",
@@ -6732,7 +6732,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
@@ -6741,7 +6741,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Search results details",
           "key": "searchResults",
           "label": "Search Results",
@@ -6895,7 +6895,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line details",
           "key": "cartLine",
           "label": "Cart Line",
@@ -7044,7 +7044,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line details",
           "key": "cartLine",
           "label": "Cart Line",
@@ -7206,7 +7206,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
@@ -7384,7 +7384,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Cart Line Item details",
           "key": "cartLines",
           "label": "Cart Line Items",
@@ -7411,7 +7411,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.form.elements",
+          "default": "{event.properties.form.elements}",
           "description": "A list of elements associated with the form.",
           "key": "elements",
           "label": "Form Elements",
@@ -7468,7 +7468,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "list of line items associated with the order.",
           "key": "line_items",
           "label": "Line items",
@@ -7618,7 +7618,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.discount_applications",
+          "default": "{event.properties.discount_applications}",
           "description": "An ordered list of stacked discount applications. The discount_applications property includes 3 types: discount_code, manual, and script. All 3 types share a common structure and have some type specific attributes.",
           "key": "discount_applications",
           "label": "Discount Applications",
@@ -7627,7 +7627,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.discount_codes",
+          "default": "{event.properties.discount_codes}",
           "description": "A list of discounts applied to the order.",
           "key": "discount_codes",
           "label": "Discount Codes",
@@ -7918,7 +7918,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "type": "string",
         },
         {
-          "default": "event.properties.additional_fields",
+          "default": "{event.properties.additional_fields}",
           "description": "Extra properties.",
           "key": "additional_fields",
           "label": "Additional Fields",
@@ -11197,7 +11197,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "A list of line items, each containing information about an item in the order.",
           "key": "lineItems",
           "label": "Line Items",
@@ -11448,7 +11448,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "event.context.campaign",
+          "default": "{event.context.campaign}",
           "description": "Player's utms",
           "key": "utms",
           "label": "UTMs",
@@ -11457,7 +11457,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "event.context",
+          "default": "{event.context}",
           "description": "Player's used devices",
           "key": "devices",
           "label": "Devices",
@@ -11563,220 +11563,6 @@ exports[`segment templates template segment-gameball matches expected result 1`]
     },
   ],
   "name": "Gameball",
-  "status": "hidden",
-  "type": "destination",
-}
-`;
-
-exports[`segment templates template segment-heap-cloud matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to Heap Cloud",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=heap.io",
-  "id": "segment-heap-cloud",
-  "inputs_schema": [
-    {
-      "default": undefined,
-      "description": "The app_id corresponding to one of your projects.",
-      "key": "appId",
-      "label": "App ID",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify') or event = '$pageview' or event = '$screen'",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{event.uuid}",
-          "description": "Unique event ID generated by Segment.",
-          "key": "message_id",
-          "label": "Message ID",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": undefined,
-          "description": "a string that uniquely identifies a user, such as an email, handle, or username. This means no two users in one environment may share the same identity. More on identify: https://developers.heap.io/docs/using-identify",
-          "key": "identity",
-          "label": "Identity",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.distinct_id}",
-          "description": "The generated anonymous ID for the user.",
-          "key": "anonymous_id",
-          "label": "Anonymous ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event}",
-          "description": "Name of the user action. This only exists on track events. Limited to 1024 characters.",
-          "key": "event",
-          "label": "Track Event Type",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": {
-            "$$_extend_object": "{event.properties}",
-          },
-          "description": "An object with key-value properties you want associated with the event. Each key and property must either be a number or string with fewer than 1024 characters.",
-          "key": "properties",
-          "label": "Event Properties",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "Defaults to the current time if not provided.",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "The type of call. Can be track, page, or screen.",
-          "key": "type",
-          "label": "Type",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event}",
-          "description": "The name of the page or screen being viewed. This only exists for page and screen events.",
-          "key": "name",
-          "label": "Page or Screen Name",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": {
-            "$$_extend_object": "{person.properties}",
-          },
-          "description": "An object with key-value properties you want associated with the user. Each property must either be a number or string with fewer than 1024 characters.",
-          "key": "traits",
-          "label": "User Properties",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": "trackEvent",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Track Calls",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event in ('$identify', '$set')",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{person.id}",
-          "description": "REQUIRED: A string that uniquely identifies a user, such as an email, handle, or username. This means no two users in one environment may share the same identity. More on identify: https://developers.heap.io/docs/using-identify",
-          "key": "user_id",
-          "label": "Identity",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.distinct_id}",
-          "description": "The generated anonymous ID for the user.",
-          "key": "anonymous_id",
-          "label": "Anonymous ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": {
-            "$$_extend_object": "{person.properties}",
-          },
-          "description": "An object with key-value properties you want associated with the user. Each key and property must either be a number or string with fewer than 1024 characters.",
-          "key": "traits",
-          "label": "User Properties",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": "identifyUser",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Identify Calls",
-    },
-  ],
-  "name": "Heap Cloud",
   "status": "hidden",
   "type": "destination",
 }
@@ -14155,7 +13941,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Individual items in the cart. Each item must contain \`id\`, \`name\`, \`price\`, and \`quantity\`. Extra values are added to dataFields.",
           "key": "items",
           "label": "Cart items",
@@ -14232,7 +14018,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Individual items in the cart. Each item must contain \`id\`, \`name\`, \`price\`, and \`quantity\`. Extra values are added to dataFields.",
           "key": "items",
           "label": "Cart items",
@@ -17526,7 +17312,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Products in the order.",
           "key": "products",
           "label": "Products",
@@ -18838,7 +18624,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -19077,7 +18863,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -19322,7 +19108,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -19552,7 +19338,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -19782,7 +19568,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties",
+          "default": "{event.properties}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -20003,7 +19789,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -20224,7 +20010,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties",
+          "default": "{event.properties}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -20457,7 +20243,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "type": "choice",
         },
         {
-          "default": "event.properties",
+          "default": "{event.properties}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
@@ -20608,7 +20394,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": "event.properties",
+          "default": "{event.properties}",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
@@ -20711,7 +20497,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": "event.properties",
+          "default": "{event.properties}",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
@@ -20814,7 +20600,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": "event.properties",
+          "default": "{event.properties}",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
@@ -20917,7 +20703,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Product details to associate with the event. Product ID field is required for each product",
           "key": "products",
           "label": "Product details",
@@ -26174,7 +25960,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "The items that were purchased.",
           "key": "items",
           "label": "Items",
@@ -27218,7 +27004,7 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "The list of products purchased.",
           "key": "products",
           "label": "Products",
@@ -28926,7 +28712,7 @@ exports[`segment templates template segment-stackadapt-cloud matches expected re
           "type": "dictionary",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "The list of products associated with the event (for events with multiple products, such as Order Completed)",
           "key": "ecommerce_products",
           "label": "Products",
@@ -29250,7 +29036,7 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
           "type": "string",
         },
         {
-          "default": "event.properties.products",
+          "default": "{event.properties.products}",
           "description": "Item information list related to the event.",
           "key": "items",
           "label": "Items",
