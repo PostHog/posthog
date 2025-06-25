@@ -19,6 +19,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     combine_event_ids_mappings_from_single_session_summaries,
     combine_patterns_assignments_from_single_session_summaries,
     combine_patterns_with_event_ids,
+    load_session_summary_from_string,
 )
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.summarize_session_group import (
@@ -137,7 +138,7 @@ def _get_session_group_single_session_summaries_inputs_from_redis(
 # TODO: Move to separate activities
 async def _generate_patterns_assignments_per_chunk(
     patterns: SessionGroupSummaryPatternsList,
-    session_summaries_chunk: list[str],
+    session_summaries_chunk_str: list[str],
     user_id: int,
     session_ids: list[str],
     extra_summary_context: ExtraSummaryContext | None,
@@ -145,7 +146,7 @@ async def _generate_patterns_assignments_per_chunk(
     try:
         patterns_assignment_prompt = generate_session_group_patterns_assignment_prompt(
             patterns=patterns,
-            session_summaries=session_summaries_chunk,
+            session_summaries_str=session_summaries_chunk_str,
             extra_summary_context=extra_summary_context,
         )
         return await get_llm_session_group_patterns_assignment(
@@ -158,7 +159,7 @@ async def _generate_patterns_assignments_per_chunk(
 
 async def _generate_patterns_assignments(
     patterns: SessionGroupSummaryPatternsList,
-    session_summaries_chunks: list[list[str]],
+    session_summaries_chunks_str: list[list[str]],
     user_id: int,
     session_ids: list[str],
     extra_summary_context: ExtraSummaryContext | None,
@@ -166,11 +167,11 @@ async def _generate_patterns_assignments(
     patterns_assignments_list_of_lists = []
     tasks = {}
     async with asyncio.TaskGroup() as tg:
-        for chunk_index, summaries_chunk in enumerate(session_summaries_chunks):
+        for chunk_index, summaries_chunk in enumerate(session_summaries_chunks_str):
             tasks[chunk_index] = tg.create_task(
                 _generate_patterns_assignments_per_chunk(
                     patterns=patterns,
-                    session_summaries_chunk=summaries_chunk,
+                    session_summaries_chunk_str=summaries_chunk,
                     user_id=user_id,
                     session_ids=session_ids,
                     extra_summary_context=extra_summary_context,
@@ -196,6 +197,7 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     """Summarize a group of sessions in one call"""
     redis_client = get_client()
     session_ids = [s.session_id for s in inputs.single_session_summaries_inputs]
+
     # Get session summaries from Redis
     session_summaries_str = [
         # TODO: Get values in batch?
@@ -211,13 +213,27 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
         for session_summary_str in session_summaries_str
     ]
 
+    # Single session summaries LLM inputs from Redis to be able to enrich the patterns collected
+    single_session_summaries_llm_inputs = _get_session_group_single_session_summaries_inputs_from_redis(
+        redis_input_keys=[
+            single_session_input.redis_input_key for single_session_input in inputs.single_session_summaries_inputs
+        ]
+    )
+
+    # session_summaries_str
+
+    # Convert session summaries strings to objects to extract event-related data
+    session_summaries = [
+        load_session_summary_from_string(session_summary_str) for session_summary_str in session_summaries_str
+    ]
+
     # TODO: Rework as separate activities
-    patterns_prompt = generate_session_group_patterns_extraction_prompt(
-        session_summaries=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
+    patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
+        session_summaries_str=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
     )
     # Extract patterns from session summaries through LLM
     patterns_extraction = await get_llm_session_group_patterns_extraction(
-        prompt=patterns_prompt, user_id=inputs.user_id, session_ids=session_ids
+        prompt=patterns_extraction_prompt, user_id=inputs.user_id, session_ids=session_ids
     )
 
     # TODO: Remove after testing
@@ -226,27 +242,20 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
 
     # Split sessions summaries into chunks of 10 sessions each
     # TODO: Define in constants after testing optimal chunk size quality-wise
-    session_summaries_chunks = [
+    session_summaries_chunks_str = [
         intermediate_session_summaries_str[i : i + 10] for i in range(0, len(intermediate_session_summaries_str), 10)
     ]
     patterns_assignments_list_of_lists = await _generate_patterns_assignments(
         patterns=patterns_extraction,
-        session_summaries_chunks=session_summaries_chunks,
+        session_summaries_chunks_str=session_summaries_chunks_str,
         user_id=inputs.user_id,
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
 
-    # Collect data from Redis on single session summaries to be able to enrich the patterns collected
-    single_session_summaries_inputs = _get_session_group_single_session_summaries_inputs_from_redis(
-        redis_input_keys=[
-            single_session_input.redis_input_key for single_session_input in inputs.single_session_summaries_inputs
-        ]
-    )
-
     # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
     combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
-        single_session_summaries_inputs=single_session_summaries_inputs
+        single_session_summaries_inputs=single_session_summaries_llm_inputs
     )
     with open("combined_event_ids_mappings.json", "w") as f:
         f.write(json.dumps(combined_event_ids_mappings))
@@ -262,6 +271,7 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     pattern_event_ids_mapping = combine_patterns_with_event_ids(
         combined_event_ids_mappings=combined_event_ids_mappings,
         combined_patterns_assignments=combined_patterns_assignments,
+        session_summaries=session_summaries,
     )
     with open("pattern_event_ids_mapping.json", "w") as f:
         f.write(json.dumps({k: [dataclasses.asdict(dv) for dv in v] for k, v in pattern_event_ids_mapping.items()}))
@@ -435,7 +445,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 user_id=inputs.user_id,
                 extra_summary_context=inputs.extra_summary_context,
             ),
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return summary_of_summaries

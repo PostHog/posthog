@@ -1,10 +1,12 @@
 import dataclasses
+import json
 from pydantic import BaseModel, Field, ValidationError
 from enum import Enum
 
 import yaml
 
 from ee.session_recordings.session_summary import SummaryValidationError
+from ee.session_recordings.session_summary.output_data import SessionSummarySerializer
 from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.utils import strip_raw_llm_content, unpack_full_event_id
 
@@ -57,6 +59,23 @@ class PaternAssignedEvent:
     event_id: str
     event_uuid: str
     session_id: str
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class EnrichedPatternAssignedEvent(PaternAssignedEvent):
+    """Event assigned to a pattern enriched with session summary data"""
+
+    description: str
+    abandonment: bool
+    confusion: bool
+    exception: str | None
+    timestamp: str
+    milliseconds_since_start: int
+    window_id: str
+    current_url: str
+    event: str
+    event_type: str
+    event_index: int
 
 
 def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -> SessionGroupSummaryPatternsList:
@@ -126,25 +145,73 @@ def combine_patterns_assignments_from_single_session_summaries(
     return combined_patterns_assignments
 
 
+def _enrich_pattern_assigned_event_with_session_summary_data(
+    pattern_assigned_event: PaternAssignedEvent,
+    session_summaries: list[SessionSummarySerializer],
+) -> EnrichedPatternAssignedEvent:
+    for session_summary in session_summaries:
+        key_actions_list = session_summary.data["key_actions"]
+        for key_actions in key_actions_list:
+            for event in key_actions["events"]:
+                if event["event_id"] != pattern_assigned_event.event_id:
+                    continue
+                try:
+                    enriched_event = EnrichedPatternAssignedEvent(
+                        event_id=pattern_assigned_event.event_id,
+                        event_uuid=pattern_assigned_event.event_uuid,
+                        session_id=pattern_assigned_event.session_id,
+                        description=event["description"],
+                        abandonment=event["abandonment"],
+                        confusion=event["confusion"],
+                        exception=event["exception"],
+                        timestamp=event["timestamp"],
+                        milliseconds_since_start=event["milliseconds_since_start"],
+                        window_id=event["window_id"],
+                        current_url=event["current_url"],
+                        event=event["event"],
+                        event_type=event["event_type"],
+                        event_index=event["event_index"],
+                    )
+                    return enriched_event
+                except Exception as err:
+                    raise SummaryValidationError(
+                        f"Error enriching pattern assigned event ({event}) with session summary data ({pattern_assigned_event})"
+                    ) from err
+    raise ValueError(f"Session summary with the required event ({pattern_assigned_event}) was not found")
+
+
 def combine_patterns_with_event_ids(
     combined_event_ids_mappings: dict[str, str],
     combined_patterns_assignments: dict[int, list[str]],
-) -> dict[int, list[PaternAssignedEvent]]:
+    session_summaries: list[SessionSummarySerializer],
+) -> dict[int, list[EnrichedPatternAssignedEvent]]:
     pattern_event_ids_mapping: dict[int, list[PaternAssignedEvent]] = {}
     # Iterate over patterns to which we assigned event ids
     for pattern_id, event_ids in combined_patterns_assignments.items():
-        for eid in event_ids:
+        for event_id in event_ids:
             # Find full session id and event uuid for the event id
-            full_event_id = combined_event_ids_mappings.get(eid)
+            full_event_id = combined_event_ids_mappings.get(event_id)
             if not full_event_id:
                 raise ValueError(
-                    f"Full event ID not found for event_id {eid} when combining patterns with event ids "
+                    f"Full event ID not found for event_id {event_id} when combining patterns with event ids "
                     f"for pattern_id {pattern_id}:\n{combined_patterns_assignments}\n{combined_event_ids_mappings}"
                 )
             # Map them to the pattern id to be able to enrich summaries and calculate patterns stats
             session_id, event_uuid = unpack_full_event_id(full_event_id)
-            full_id_event = PaternAssignedEvent(event_id=eid, event_uuid=event_uuid, session_id=session_id)
+            full_id_event = PaternAssignedEvent(event_id=event_id, event_uuid=event_uuid, session_id=session_id)
+            enriched_event = _enrich_pattern_assigned_event_with_session_summary_data(full_id_event, session_summaries)
             if pattern_id not in pattern_event_ids_mapping:
                 pattern_event_ids_mapping[pattern_id] = []
-            pattern_event_ids_mapping[pattern_id].append(full_id_event)
+            pattern_event_ids_mapping[pattern_id].append(enriched_event)
     return pattern_event_ids_mapping
+
+
+def load_session_summary_from_string(session_summary_str: str) -> SessionSummarySerializer:
+    try:
+        session_summary = SessionSummarySerializer(data=json.loads(session_summary_str))
+        session_summary.is_valid(raise_exception=True)
+        return session_summary
+    except ValidationError as err:
+        raise SummaryValidationError(
+            f"Error validating session summary against the schema ({err}): {session_summary_str}"
+        ) from err
