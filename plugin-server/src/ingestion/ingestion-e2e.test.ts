@@ -133,7 +133,7 @@ export const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (even
     return events.map(createKafkaMessage)
 }
 
-const testWithTeamIngester = (
+const testWithTeamIngesterBase = (
     name: string,
     testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>,
     pluginServerConfig: Partial<PluginsServerConfig> = {}
@@ -144,7 +144,7 @@ const testWithTeamIngester = (
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
             ...pluginServerConfig,
         })
-        const teamId = Math.floor(Math.random() * 1000000000)
+        const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         const userId = teamId
         const organizationId = new UUIDT().toString()
 
@@ -184,6 +184,30 @@ const testWithTeamIngester = (
         await testFn(ingester, hub, newTeam)
         await ingester.stop()
         await closeHub(hub)
+    })
+}
+
+const testWithTeamIngester = (
+    name: string,
+    testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>,
+    pluginServerConfig: Partial<PluginsServerConfig> = {}
+) => {
+    describe(name, () => {
+        testWithTeamIngesterBase(`${name} (batch writing disabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'NONE',
+        })
+
+        testWithTeamIngesterBase(`${name} (batch writing enabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'BATCH',
+        })
+
+        testWithTeamIngesterBase(`${name} (batch writing shadow mode enabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'SHADOW',
+            PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 100,
+        })
     })
 }
 
@@ -1244,6 +1268,9 @@ describe('Event Pipeline E2E tests', () => {
     }
 
     const fetchEvents = async (hub: Hub, teamId: number) => {
+        // Force ClickHouse to merge parts to ensure FINAL consistency
+        await hub.db.clickhouse.querying(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`)
+
         const queryResult = (await hub.db.clickhouse.querying(`
             SELECT *,
                    if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id

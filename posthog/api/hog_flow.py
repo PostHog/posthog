@@ -10,7 +10,6 @@ from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -71,18 +70,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "status",
             "created_at",
             "created_by",
-            "trigger",
             "trigger_masking",
-            "conversion",
-            "exit_condition",
-            "edges",
-            "actions",
             "abort_action",
         ]
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
+        team_id = self.context["team_id"]
         validated_data["created_by"] = request.user
+        validated_data["team_id"] = team_id
 
         return super().create(validated_data=validated_data)
 
@@ -99,7 +95,7 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at"]
 
 
-class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -126,7 +122,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, For
         return queryset
 
     def safely_get_object(self, queryset):
-        # TODO: Somehow implement version lookups
+        # TODO(team-messaging): Somehow implement version lookups
         return super().safely_get_object(queryset)
 
     def perform_create(self, serializer):
@@ -143,7 +139,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, For
         )
 
     def perform_update(self, serializer):
-        # TODO:
+        # TODO(team-messaging): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
 
         try:
@@ -163,7 +159,5 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, For
             item_id=instance_id,
             scope="HogFlow",
             activity="updated",
-            detail=Detail(
-                changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
-            ),
+            detail=Detail(changes=changes, name=serializer.instance.name),
         )

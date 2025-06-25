@@ -15,4 +15,5 @@ export type FolderState = 'loading' | 'loaded' | 'has-more' | 'error'
 export interface CustomMenuProps {
     MenuItem?: typeof ContextMenuItem | typeof DropdownMenuItem
     MenuSeparator?: typeof ContextMenuSeparator | typeof DropdownMenuSeparator
+    onLinkClick?: (keyboardAction?: boolean) => void
 }

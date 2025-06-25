@@ -1,9 +1,7 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
-import { Breadcrumb, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import type { messageSendersLogicType } from './messageSendersLogicType'
 
@@ -33,23 +31,4 @@ export const messageSendersLogic = kea<messageSendersLogicType>([
             },
         ],
     })),
-    selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.MessagingLibrary,
-                        name: 'Messaging',
-                        path: urls.messagingLibrary(),
-                    },
-                    {
-                        key: 'senders',
-                        name: 'Senders',
-                        path: urls.messagingSenders(),
-                    },
-                ]
-            },
-        ],
-    }),
 ])

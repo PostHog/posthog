@@ -3,7 +3,6 @@ import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
@@ -21,7 +20,6 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-    const suppressionRulesEnabled = !!useFeatureFlag('ERROR_TRACKING_SUPPRESSION_RULES')
 
     return (
         <div className="flex flex-col gap-y-4">
@@ -61,13 +59,11 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                 />
             </div>
 
-            {suppressionRulesEnabled && (
-                <div>
-                    <h3>Suppression rules</h3>
-                    <p>You can filter by type or message content to skip capturing certain exceptions on the client</p>
-                    <ErrorTrackingClientSuppression />
-                </div>
-            )}
+            <div>
+                <h3>Suppression rules</h3>
+                <p>You can filter by type or message content to skip capturing certain exceptions on the client</p>
+                <ErrorTrackingClientSuppression />
+            </div>
         </div>
     )
 }

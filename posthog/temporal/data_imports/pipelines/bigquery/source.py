@@ -34,6 +34,8 @@ class BigQuerySourceConfig(config.Config):
     token_uri: str
     using_temporary_dataset: bool | None = config.value(converter=config.str_to_bool, default=False)
     temporary_dataset_id: str | None = None
+    using_custom_dataset_project: bool | None = config.value(converter=config.str_to_bool, default=False)
+    dataset_project_id: str | None = None
 
 
 def get_schemas(
@@ -46,7 +48,8 @@ def get_schemas(
         config.project_id, config.private_key, config.private_key_id, config.client_email, config.token_uri
     ) as bq:
         query = bq.query(
-            f"SELECT table_name, column_name, data_type FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC"
+            f"SELECT table_name, column_name, data_type FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+            project=config.dataset_project_id or config.project_id,
         )
         try:
             rows = query.result()
@@ -65,7 +68,9 @@ def get_schemas(
 
 
 @contextlib.contextmanager
-def bigquery_client(project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str):
+def bigquery_client(
+    project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
+) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
     credentials = service_account.Credentials.from_service_account_info(
         {
@@ -99,6 +104,7 @@ def delete_all_temp_destination_tables(
     dataset_id: str,
     table_prefix: str,
     project_id: str,
+    dataset_project_id: str | None,
     private_key: str,
     private_key_id: str,
     client_email: str,
@@ -107,7 +113,7 @@ def delete_all_temp_destination_tables(
 ) -> None:
     with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
         try:
-            tables = bq.list_tables(bq.dataset(dataset_id))
+            tables = bq.list_tables(bq.dataset(dataset_id, project=dataset_project_id or project_id))
             for table in tables:
                 if table.table_id.startswith(table_prefix):
                     bq.delete_table(table.reference)
@@ -143,7 +149,7 @@ def filter_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str,
     return results
 
 
-def validate_credentials(dataset_id: str, key_file: dict[str, str]) -> bool:
+def validate_credentials(dataset_id: str, key_file: dict[str, str], dataset_project_id: str | None) -> bool:
     project_id = key_file.get("project_id")
     private_key = key_file.get("private_key")
     private_key_id = key_file.get("private_key_id")
@@ -155,7 +161,10 @@ def validate_credentials(dataset_id: str, key_file: dict[str, str]) -> bool:
 
     with bigquery_client(project_id, private_key, private_key_id, client_email, token_uri) as bq:
         try:
-            bq.list_tables(bq.dataset(dataset_id), retry=bigquery.DEFAULT_RETRY.with_timeout(5))
+            bq.list_tables(
+                bq.dataset(dataset_id, project=dataset_project_id or project_id),
+                retry=bigquery.DEFAULT_RETRY.with_timeout(5),
+            )
             return True
         except Exception as e:
             capture_exception(e)
@@ -235,7 +244,7 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
     """
 
     job_config = QueryJobConfig()
-    job = client.query(query, job_config=job_config)
+    job = client.query(query, job_config=job_config, project=table.project)
 
     primary_keys = []
     for row in job.result():
@@ -264,7 +273,7 @@ def has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, p
         """
 
         job_config = QueryJobConfig()
-        job = client.query(query, job_config=job_config)
+        job = client.query(query, job_config=job_config, project=table.project)
 
         for _ in job.result():
             return True
@@ -277,14 +286,14 @@ def has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, p
 def _get_rows_to_sync(
     table: bigquery.Table,
     client: bigquery.Client,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     db_incremental_field_last_value: typing.Any,
     logger: FilteringBoundLogger,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> int:
     try:
-        if not is_incremental:
+        if not should_use_incremental_field:
             table = client.get_table(table)
             if table.num_rows:
                 logger.debug(f"_get_rows_to_sync: table.num_rows={table.num_rows}")
@@ -292,13 +301,17 @@ def _get_rows_to_sync(
                 return table.num_rows
 
         inner_query = _get_query(
-            is_incremental, db_incremental_field_last_value, table, incremental_field, incremental_field_type
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            table,
+            incremental_field,
+            incremental_field_type,
         )
 
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
         job_config = QueryJobConfig()
-        job = client.query(query, job_config=job_config)
+        job = client.query(query, job_config=job_config, project=table.project)
 
         rows = job.result(page_size=1)
         row = next(rows, None)
@@ -319,13 +332,13 @@ def _get_rows_to_sync(
 
 
 def _get_query(
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     db_incremental_field_last_value: typing.Any,
     bq_table: bigquery.Table,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> str:
-    if is_incremental:
+    if should_use_incremental_field:
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
 
@@ -352,9 +365,10 @@ def bigquery_source(
     table_name: str,
     private_key: str,
     private_key_id: str,
+    dataset_project_id: str | None,
     client_email: str,
     token_uri: str,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     bq_destination_table_id: str,
     db_incremental_field_last_value: typing.Any,
     logger: FilteringBoundLogger,
@@ -368,8 +382,10 @@ def bigquery_source(
     Storage API as much as possible due to higher quotas and lower cost compared to
     alternatives.
     """
+
+    project_id_for_dataset = dataset_project_id or project_id
     name = NamingConvention().normalize_identifier(table_name)
-    fully_qualified_table_name = f"{project_id}.{dataset_id}.{table_name}"
+    fully_qualified_table_name = f"{project_id_for_dataset}.{dataset_id}.{table_name}"
 
     with bigquery_client(
         project_id=project_id,
@@ -385,7 +401,7 @@ def bigquery_source(
         rows_to_sync = _get_rows_to_sync(
             bq_table,
             bq_client,
-            is_incremental,
+            should_use_incremental_field,
             db_incremental_field_last_value,
             logger,
             incremental_field,
@@ -402,7 +418,7 @@ def bigquery_source(
         ) as bq_client:
             bq_table = bq_client.get_table(fully_qualified_table_name)
 
-            if is_incremental:
+            if should_use_incremental_field:
                 # This is only done because incremental syncs require progress tracking.
                 # This requirement means we need to enforce an order, as otherwise
                 # progress could move ahead of the current stream. Thus, we need to run
@@ -412,12 +428,16 @@ def bigquery_source(
                 # are paying a (potentially high) cost to run this query job and store
                 # this data, when we could instead give up tracking and read it.
                 query = _get_query(
-                    is_incremental, db_incremental_field_last_value, bq_table, incremental_field, incremental_field_type
+                    should_use_incremental_field,
+                    db_incremental_field_last_value,
+                    bq_table,
+                    incremental_field,
+                    incremental_field_type,
                 )
 
                 destination_table = bigquery.Table(bq_destination_table_id)
                 job_config = QueryJobConfig(destination=destination_table)
-                job = bq_client.query(query, job_config=job_config)
+                job = bq_client.query(query, job_config=job_config, project=bq_table.project)
                 _ = job.result()
 
                 bq_table = bq_client.get_table(destination_table)
@@ -429,12 +449,16 @@ def bigquery_source(
                 # we already do this for all tables and views, so here we just handle the
                 # views or materialized views that are not incremental.
                 query = _get_query(
-                    is_incremental, db_incremental_field_last_value, bq_table, incremental_field, incremental_field_type
+                    should_use_incremental_field,
+                    db_incremental_field_last_value,
+                    bq_table,
+                    incremental_field,
+                    incremental_field_type,
                 )
 
                 destination_table = bigquery.Table(bq_destination_table_id)
                 job_config = QueryJobConfig(destination=destination_table)
-                job = bq_client.query(query, job_config=job_config)
+                job = bq_client.query(query, job_config=job_config, project=bq_table.project)
                 _ = job.result()
 
                 bq_table = bq_client.get_table(destination_table)

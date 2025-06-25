@@ -457,17 +457,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         layout: 'app-container',
     },
-    [Scene.MessagingBroadcasts]: {
-        projectBased: true,
-        name: 'Messaging broadcasts',
-    },
-    [Scene.MessagingCampaigns]: {
-        projectBased: true,
-        name: 'Messaging campaigns',
-    },
-    [Scene.MessagingLibrary]: {
-        projectBased: true,
-        name: 'Messaging library',
+    [Scene.OAuthAuthorize]: {
+        name: 'Authorize',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+        allowUnauthenticated: true,
     },
     [Scene.HogFunction]: {
         projectBased: true,
@@ -533,7 +528,7 @@ export const redirects: Record<
             const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
             const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
             Object.assign(query.source as EventsQuery, { before, after })
-        } catch (e) {
+        } catch {
             lemonToast.error('Invalid event timestamp')
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
@@ -570,7 +565,7 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/messaging': urls.messagingBroadcasts(),
+    '/messaging': urls.messaging('campaigns'),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
@@ -703,6 +698,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
