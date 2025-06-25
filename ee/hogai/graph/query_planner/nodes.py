@@ -5,10 +5,7 @@ from typing import cast, Literal
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
-    AIMessage as LangchainAssistantMessage,
-    BaseMessage,
     ToolMessage as LangchainToolMessage,
-    HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate
@@ -97,38 +94,7 @@ class QueryPlannerNode(AssistantNode):
         return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        if not state.query_planner_previous_response_id:
-            conversation = ChatPromptTemplate(
-                [
-                    (
-                        "system",
-                        [
-                            {
-                                "type": "text",
-                                "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
-                            },
-                            {"type": "text", "text": CORE_MEMORY_PROMPT},
-                            {
-                                "type": "text",
-                                "text": EVENT_DEFINITIONS_PROMPT,
-                            },
-                            {"type": "text", "text": PROJECT_ORG_USER_CONTEXT_PROMPT},
-                        ],
-                    ),
-                ],
-                template_format="mustache",
-            ) + self._construct_messages(state)
-        else:
-            if not state.intermediate_steps:
-                raise ValueError("No intermediate steps found in the state.")
-            conversation = ChatPromptTemplate(
-                [
-                    LangchainToolMessage(
-                        content=state.intermediate_steps[-1][1] or "",
-                        tool_call_id=state.intermediate_steps[-1][0].log or "",
-                    )
-                ]
-            )
+        conversation = self._construct_messages(state)
 
         chain = conversation | merge_message_runs() | self._get_model(state)
 
@@ -246,22 +212,50 @@ class QueryPlannerNode(AssistantNode):
             .values_list("group_type", flat=True)
         )
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantState) -> ChatPromptTemplate:
         """
-        Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
+        Construct the conversation thread for the agent. Handles both initial conversation setup
+        and continuation with intermediate steps.
         """
-        conversation: list[BaseMessage] = []
-
-        # Only process the last ten visualization messages.
-        viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-10:]
-        for message in viz_messages:
-            conversation.append(LangchainHumanMessage(content=message.query or "_No query description provided._"))
-            conversation.append(LangchainAssistantMessage(content=message.plan or "_No generated plan._"))
-
-        # The description of a new insight is added to the end of the conversation.
-        conversation.append(
-            LangchainHumanMessage(content=state.root_tool_insight_plan or "_No query description provided._")
-        )
+        if not state.query_planner_previous_response_id:
+            # Initial conversation setup
+            conversation = ChatPromptTemplate(
+                [
+                    (
+                        "system",
+                        [
+                            {"type": "text", "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT},
+                            {"type": "text", "text": CORE_MEMORY_PROMPT},
+                            {"type": "text", "text": EVENT_DEFINITIONS_PROMPT},
+                            {"type": "text", "text": PROJECT_ORG_USER_CONTEXT_PROMPT},
+                        ],
+                    ),
+                    # Include inputs and plans for up to 5 previously generated insights in thread
+                    *[
+                        item
+                        for message in state.messages
+                        if isinstance(message, VisualizationMessage)
+                        for item in [
+                            ("human", message.query or "_No query description provided._"),
+                            ("assistant", message.plan or "_No generated plan._"),
+                        ]
+                    ][-10:],
+                    # The description of a new insight is added to the end of the conversation.
+                    ("human", state.root_tool_insight_plan or "_No query description provided._"),
+                ]
+            )
+        else:
+            # Continuation with intermediate steps
+            if not state.intermediate_steps:
+                raise ValueError("No intermediate steps found in the state.")
+            conversation = ChatPromptTemplate(
+                [
+                    LangchainToolMessage(
+                        content=state.intermediate_steps[-1][1] or "",
+                        tool_call_id=state.intermediate_steps[-1][0].log or "",
+                    )
+                ]
+            )
 
         return conversation
 
