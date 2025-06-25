@@ -37,7 +37,7 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 // Replace the static counter with thread-local storage
 #[cfg(test)]
 thread_local! {
-    static FETCH_CALLS: RefCell<u64> = RefCell::new(0);
+    static FETCH_CALLS: RefCell<u64> = const { RefCell::new(0) };
 }
 
 /// Calculates a deterministic hash value between 0 and 1 for a given identifier and salt.
